@@ -1,4 +1,5 @@
 import os
+import io
 from PIL import Image
 
 import numpy as np
@@ -17,6 +18,7 @@ os.environ["PYTORCH_ENABLE_MPS_FALLBACK"]
 # Paths
 HOME = os.getcwd()
 DATA_DIR = os.path.join(HOME, "data")
+RAW_DIR = os.path.join(DATA_DIR, "raw")
 INPUT_DIR = os.path.join(DATA_DIR, "inputs")
 OUTPUT_DIR = os.path.join(DATA_DIR, "outputs")
 
@@ -72,21 +74,50 @@ def clean_image(image: Image.Image,
 
 def preprocess_pdf(pdf_path: str) -> None:
     # Open pdf
-    pdf = pdfium.PdfDocument(pdf_path)
+    raw_pdf = pdfium.PdfDocument(pdf_path)
+    version = raw_pdf.get_version()
+
+    # Create new pdf
+    input_pdf = pdfium.PdfDocument.new()
 
     # Iterate
-    for page in pdf:
+    for page in raw_pdf:
+        # Get width and height of the page
+        width, height = page.get_size()
+
+        # Retrieve image
         bitmap = page.render(scale=3,
                              rotation=0)
         image = bitmap.to_pil()
-        # image.show()
+
         # Clean image
         image = clean_image(image=image,
                             remove_ink=True,
                             binarize=False,
                             blur=False)
-        image.show("final image")
-        break
+
+        # Add image to the new pdf
+        pdf_image = pdfium.PdfImage.new(input_pdf)
+        bitmap = pdfium.PdfBitmap.from_pil(image)
+        image.close()
+        pdf_image.set_bitmap(bitmap)
+        bitmap.close()
+
+        pdf_image.set_matrix(pdfium.PdfMatrix().scale(width, height))
+        page = input_pdf.new_page(width, height)
+        page.insert_obj(pdf_image)
+        page.gen_content()
+
+        # Close
+        pdf_image.close()  # no-op
+        page.close()
+
+    input_pdf.save(os.path.join(
+        INPUT_DIR, os.path.basename(pdf_path)), version=version)
+
+    # Close pdf
+    raw_pdf.close()
+    input_pdf.close()
 
 
 def main() -> None:
@@ -112,5 +143,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # main()
-    preprocess_pdf(os.path.join(INPUT_DIR, "ЦТ Биология 2022.pdf"))
+    # preprocess_pdf(pdf_path=os.path.join(RAW_DIR, "ЦТ Биология 2022.pdf"))
+    main()
