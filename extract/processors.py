@@ -24,6 +24,52 @@ class ImageProcessor:
         self.binarize = binarize
         self.blur = blur
 
+        # Blue remove range
+        self.lower_blue = np.array([115, 150, 70])
+        self.upper_blue = np.array([130, 255, 255])
+
+    def remove_color(self,
+                     img: np.array) -> None:
+        # Convert to HSV color space
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+        # Create a mask for blue color
+        mask = cv2.inRange(hsv, self.lower_blue, self.upper_blue)
+
+        # Dilate the mask to cover entire pen marks
+        kernel = np.ones((5, 5), np.uint8)
+        mask = cv2.dilate(mask, kernel, iterations=1)
+
+        # Inpaint the masked region
+        img = cv2.inpaint(img, mask, 3, cv2.INPAINT_TELEA)
+
+        return img
+
+    def clean_image(self,
+                    image: Image.Image) -> Image.Image:
+        # Convert image to array
+        img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+
+        # Adjust contrast and brightness
+        img = cv2.convertScaleAbs(img,
+                                  alpha=3,
+                                  beta=15)
+
+        # Binarize image
+        if self.binarize is True:
+            _, img = cv2.threshold(
+                img, 150, 255, cv2.THRESH_BINARY)
+
+        # Blur
+        if self.blur is True:
+            img = cv2.GaussianBlur(img, (3, 3), 0)
+
+        # Remove ink
+        if self.remove_ink is True:
+            img = self.remove_color(img=img)
+
+        return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+
 
 class PDFProcessor:
     def __init__(self,
@@ -48,7 +94,6 @@ class PDFProcessor:
                                               blur=blur)
 
         # Model, langs
-        self.model_lst = load_all_models()
         self.langs = ["ru", "en"]
 
     @staticmethod
@@ -77,9 +122,11 @@ class PDFProcessor:
         page.close()
 
     def preprocess_pdf(self) -> None:
+        # Iterate through each pdf in raw dir
         for pdf_name in os.listdir(self.raw_dir):
             # Check if it was preprocessed before
             if not os.path.exists(os.path.join(self.input_dir, pdf_name)):
+                print(f"Preprocessing '{pdf_name}'...")
                 # Open pdf
                 full_pdf_path = os.path.join(self.raw_dir, pdf_name)
                 raw_pdf = pdfium.PdfDocument(full_pdf_path)
@@ -99,10 +146,7 @@ class PDFProcessor:
                     image = bitmap.to_pil()
 
                     # Clean image
-                    image = self.image_processor.clean_image(image=image,
-                                                             remove_ink=self.remove_ink,
-                                                             binarize=self.binarize,
-                                                             blur=self.blur)
+                    image = self.image_processor.clean_image(image=image)
 
                     PDFProcessor.insert_image(pdf=input_pdf,
                                               image=image,
@@ -118,14 +162,19 @@ class PDFProcessor:
                 input_pdf.close()
 
     def convert_to_md(self) -> None:
+        # Iterate through each pdf in input dir
         for pdf_name in os.listdir(self.input_dir):
             # Check if it was converted before
             if not os.path.exists(os.path.join(self.output_dir, os.path.splitext(pdf_name)[0])):
+                print(f"Converting '{pdf_name}'...")
                 full_pdf_path = os.path.join(self.input_dir, pdf_name)
 
+                # Load models
+                model_lst = load_all_models()
                 # Convert pdf
-                full_text, images, out_meta = convert_single_pdf(
-                    full_pdf_path, self.model_lst, langs=self.langs,  ocr_all_pages=True)
+                full_text, images, out_meta = convert_single_pdf(full_pdf_path, model_lst,
+                                                                 langs=self.langs,
+                                                                 ocr_all_pages=True)
 
                 # Save markdown
                 subfolder_dir = save_markdown(
@@ -133,6 +182,6 @@ class PDFProcessor:
                 print(f"Saved markdown to the '{
                     os.path.basename(subfolder_dir)}' folder.")
 
-    def process(self):
+    def process(self) -> None:
         self.preprocess_pdf()
         self.convert_to_md()
