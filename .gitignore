@@ -1,5 +1,6 @@
 # Data
-extract/data
+raw-data
+data
 
 # Drafts
 draft*.py
