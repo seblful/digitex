@@ -76,8 +76,8 @@ class PDFProcessor:
                  raw_dir: str,
                  input_dir: str,
                  output_dir: str,
-                 alpha: int = 3,
-                 beta: int = 15,
+                 alpha: int = 2,
+                 beta: int = 10,
                  remove_ink: bool = True,
                  binarize: bool = False,
                  blur: bool = False) -> None:
