@@ -6,11 +6,11 @@ import cv2
 
 class ImageProcessor:
     def __init__(self,
-                 alpha: int,
-                 beta: int,
-                 remove_ink: bool,
-                 binarize: bool,
-                 blur: bool) -> None:
+                 alpha: int = 2,
+                 beta: int = 10,
+                 remove_ink: bool = True,
+                 binarize: bool = False,
+                 blur: bool = False) -> None:
         # Parameters
         self.alpha = alpha
         self.beta = beta
@@ -46,8 +46,8 @@ class ImageProcessor:
 
         # Adjust contrast and brightness
         img = cv2.convertScaleAbs(img,
-                                  alpha=3,
-                                  beta=15)
+                                  alpha=self.alpha,
+                                  beta=self.beta)
 
         # Binarize image
         if self.binarize is True:

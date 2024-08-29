@@ -52,8 +52,8 @@ class ImageProcessor:
 
         # Adjust contrast and brightness
         img = cv2.convertScaleAbs(img,
-                                  alpha=3,
-                                  beta=15)
+                                  alpha=self.alpha,
+                                  beta=self.beta)
 
         # Binarize image
         if self.binarize is True:
