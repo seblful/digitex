@@ -1,5 +1,4 @@
 import os
-import random
 
 from data_creator import DataCreator
 
@@ -17,7 +16,7 @@ def main() -> None:
                                train_dir=TRAIN_DIR)
 
     # Create data
-    data_creator.create_train_data(num_images=20)
+    data_creator.create_train_data(num_images=100)
 
 
 if __name__ == "__main__":
