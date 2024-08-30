@@ -6,14 +6,12 @@ import cv2
 
 class ImageProcessor:
     def __init__(self,
-                 alpha: int = 2,
-                 beta: int = 10,
+                 fix_luminance: bool = True,
                  remove_ink: bool = True,
                  binarize: bool = False,
                  blur: bool = False) -> None:
         # Parameters
-        self.alpha = alpha
-        self.beta = beta
+        self.fix_luminance = fix_luminance
         self.remove_ink = remove_ink
         self.binarize = binarize
         self.blur = blur
@@ -39,15 +37,35 @@ class ImageProcessor:
 
         return img
 
+    def change_luminance(self,
+                         img: np.array) -> None:
+        # Calculate average contrast and brightness
+        gray_image = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        contrast = np.std(gray_image)
+        brightness = np.mean(gray_image)
+
+        # Find alpha and beta
+        alpha = round(np.log10(contrast) / 1.5, 3)
+        beta = round(255 - brightness, 3)
+
+        # # Print alpha and beta
+        # print(f"Contrast: {contrast}, brightness: {brightness}")
+        # print(f"Alpha: {alpha}, beta: {beta}")
+
+        # Change luminance
+        img = cv2.convertScaleAbs(img,
+                                  alpha=alpha,
+                                  beta=beta)
+
+        return img
+
     def clean_image(self,
                     image: Image.Image) -> Image.Image:
         # Convert image to array
         img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
 
-        # Adjust contrast and brightness
-        img = cv2.convertScaleAbs(img,
-                                  alpha=self.alpha,
-                                  beta=self.beta)
+        if self.fix_luminance is True:
+            img = self.change_luminance(img=img)
 
         # Binarize image
         if self.binarize is True:
