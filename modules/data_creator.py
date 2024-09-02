@@ -8,12 +8,7 @@ from modules.processors import ImageProcessor
 
 
 class DataCreator:
-    def __init__(self,
-                 input_dir: str,
-                 train_dir: str) -> None:
-        # Paths
-        self.input_dir = input_dir
-        self.train_dir = train_dir
+    def __init__(self) -> None:
 
         # Image processor
         self.image_processor = ImageProcessor()
@@ -35,19 +30,23 @@ class DataCreator:
         return image
 
     def create_yolo_train_data(self,
+                               raw_dir: str,
+                               train_dir: str,
+                               scan_type: str,
                                num_images: int) -> None:
+
         # Pdf listdir
-        self.pdf_listdir = [pdf for pdf in os.listdir(
-            self.input_dir) if pdf.endswith('pdf')]
+        pdf_listdir = [pdf for pdf in os.listdir(
+            raw_dir) if pdf.endswith('pdf')]
         # Counter for saved images
         num_saved_images = 0
 
         while num_images != num_saved_images:
 
             # Take random pdf
-            rand_pdf = random.choice(self.pdf_listdir)
+            rand_pdf = random.choice(pdf_listdir)
             rand_pdf_name = os.path.splitext(rand_pdf)[0]
-            rand_pdf_path = os.path.join(self.input_dir, rand_pdf)
+            rand_pdf_path = os.path.join(raw_dir, rand_pdf)
             rand_pdf_obj = pdfium.PdfDocument(rand_pdf_path)
 
             # Take random pdf page and image
@@ -56,9 +55,10 @@ class DataCreator:
 
             # Get random image and preprocess it
             rand_image = self.get_page_image(page=rand_page)
-            rand_image = self.image_processor.clean_image(image=rand_image)
+            rand_image = self.image_processor.process(image=rand_image,
+                                                      scan_type=scan_type)
             rand_image_name = f"{rand_pdf_name}_{rand_page_ind}.jpg"
-            rand_image_path = os.path.join(self.train_dir, rand_image_name)
+            rand_image_path = os.path.join(train_dir, rand_image_name)
 
             if not os.path.exists(rand_image_path):
                 rand_image.save(rand_image_path, "JPEG")
@@ -67,3 +67,6 @@ class DataCreator:
 
             rand_image.close()
             rand_pdf_obj.close()
+
+    def create_lm3_train_data(self):
+        pass
