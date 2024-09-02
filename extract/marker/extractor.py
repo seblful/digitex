@@ -16,23 +16,14 @@ class PDFProcessor:
     def __init__(self,
                  raw_dir: str,
                  input_dir: str,
-                 output_dir: str,
-                 alpha: int = 2,
-                 beta: int = 10,
-                 remove_ink: bool = True,
-                 binarize: bool = False,
-                 blur: bool = False) -> None:
+                 output_dir: str) -> None:
         # Paths
         self.raw_dir = raw_dir
         self.input_dir = input_dir
         self.output_dir = output_dir
 
         # Image processor
-        self.image_processor = ImageProcessor(alpha=alpha,
-                                              beta=beta,
-                                              remove_ink=remove_ink,
-                                              binarize=binarize,
-                                              blur=blur)
+        self.image_processor = ImageProcessor()
 
         # Model, langs
         self.langs = ["ru", "en"]
@@ -62,7 +53,8 @@ class PDFProcessor:
         pdf_image.close()
         page.close()
 
-    def preprocess_pdf(self) -> None:
+    def preprocess_pdf(self,
+                       scan_type: str) -> None:
         # Iterate through each pdf in raw dir
         for pdf_name in os.listdir(self.raw_dir):
             # Check if it was preprocessed before
@@ -87,7 +79,8 @@ class PDFProcessor:
                     image = bitmap.to_pil()
 
                     # Clean image
-                    image = self.image_processor.clean_image(image=image)
+                    image = self.image_processor.process(image=image,
+                                                         scan_type=scan_type)
 
                     PDFProcessor.insert_image(pdf=input_pdf,
                                               image=image,
@@ -123,6 +116,7 @@ class PDFProcessor:
                 print(f"Saved markdown to the '{
                     os.path.basename(subfolder_dir)}' folder.")
 
-    def process(self) -> None:
-        self.preprocess_pdf()
+    def process(self,
+                scan_type: str) -> None:
+        self.preprocess_pdf(scan_type=scan_type)
         self.convert_to_md()
