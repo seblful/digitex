@@ -4,27 +4,23 @@ from PIL import Image
 
 import pypdfium2 as pdfium
 
-from processors import ImageProcessor
+from modules.processors import ImageProcessor
 
 
 class DataCreator:
     def __init__(self,
-                 raw_data_dir: str,
+                 input_dir: str,
                  train_dir: str) -> None:
         # Paths
-        self.raw_data_dir = raw_data_dir
+        self.input_dir = input_dir
         self.train_dir = train_dir
-
-        # Pdf listdir
-        self.pdf_listdir = [pdf for pdf in os.listdir(
-            raw_data_dir) if pdf.endswith('pdf')]
 
         # Image processor
         self.image_processor = ImageProcessor()
 
-    def get_image(self,
-                  page: pdfium.PdfPage,
-                  scale: int = 3) -> Image.Image:
+    def get_page_image(self,
+                       page: pdfium.PdfPage,
+                       scale: int = 3) -> Image.Image:
         # Get image from pdf
         bitmap = page.render(scale=scale,
                              rotation=0)
@@ -38,8 +34,11 @@ class DataCreator:
 
         return image
 
-    def create_train_data(self,
-                          num_images: int) -> None:
+    def create_yolo_train_data(self,
+                               num_images: int) -> None:
+        # Pdf listdir
+        self.pdf_listdir = [pdf for pdf in os.listdir(
+            self.input_dir) if pdf.endswith('pdf')]
         # Counter for saved images
         num_saved_images = 0
 
@@ -48,7 +47,7 @@ class DataCreator:
             # Take random pdf
             rand_pdf = random.choice(self.pdf_listdir)
             rand_pdf_name = os.path.splitext(rand_pdf)[0]
-            rand_pdf_path = os.path.join(self.raw_data_dir, rand_pdf)
+            rand_pdf_path = os.path.join(self.input_dir, rand_pdf)
             rand_pdf_obj = pdfium.PdfDocument(rand_pdf_path)
 
             # Take random pdf page and image
@@ -56,7 +55,7 @@ class DataCreator:
             rand_page = rand_pdf_obj[rand_page_ind]
 
             # Get random image and preprocess it
-            rand_image = self.get_image(page=rand_page)
+            rand_image = self.get_page_image(page=rand_page)
             rand_image = self.image_processor.clean_image(image=rand_image)
             rand_image_name = f"{rand_pdf_name}_{rand_page_ind}.jpg"
             rand_image_path = os.path.join(self.train_dir, rand_image_name)
