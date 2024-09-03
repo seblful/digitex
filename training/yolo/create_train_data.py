@@ -18,7 +18,7 @@ def main() -> None:
     data_creator.create_yolo_train_data(raw_dir=RAW_DIR,
                                         train_dir=TRAIN_DIR,
                                         scan_type="color",
-                                        num_images=1)
+                                        num_images=100)
 
 
 if __name__ == "__main__":
