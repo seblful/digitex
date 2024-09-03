@@ -7,13 +7,9 @@ import doxapy
 
 
 class ImageProcessor:
-    def __init__(self,
-                 fix_luminance: bool = True,
-                 remove_ink: bool = True,
-                 binarize: bool = False,
-                 blur: bool = False) -> None:
+    def __init__(self) -> None:
         # Scan
-        self.scan_types = ["bw", "grey", "color"]
+        self.scan_types = ["bw", "gray", "color"]
 
         # Blue remove range
         self.lower_blue = np.array([115, 150, 70])
@@ -40,9 +36,12 @@ class ImageProcessor:
         return img
 
     def binarize_image(self,
-                       img: np.array):
+                       img: np.array) -> np.array:
         # Convert image to gray
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        if len(img.shape) != 2:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img.copy()
 
         # Create empty binary image
         bin_img = np.empty(gray.shape, gray.dtype)
@@ -61,7 +60,7 @@ class ImageProcessor:
                 image: Image.Image,
                 scan_type: str,
                 remove_ink: bool = True,
-                binarize: bool = True):
+                binarize: bool = True) -> Image.Image:
         # Check scan type
         assert scan_type in self.scan_types, f"Scan type should be in one of {
             str(self.scan_types)}"
@@ -74,7 +73,7 @@ class ImageProcessor:
             img = self.remove_color(img)
 
         # Binarize image
-        if binarize is True and scan_type != "old":
+        if binarize is True and scan_type != "bw":
             img = self.binarize_image(img)
 
         return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
