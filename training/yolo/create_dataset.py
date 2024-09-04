@@ -1,7 +1,7 @@
 import os
 import argparse
 
-from preparator import DatasetCreator
+from dataset import DatasetCreator
 
 
 # Create a parser
