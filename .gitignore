@@ -5,6 +5,11 @@ data
 # Drafts
 draft*.py
 
+# Yolo training
+training/yolo/runs
+yolo*.pt
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
