@@ -1,0 +1,2 @@
+python create_dataset.py --train_split 0.8
+python train.py --num_epochs 100 --image_size 640 --batch_size 16 --model_type m --seed 42
