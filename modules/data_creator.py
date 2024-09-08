@@ -98,5 +98,48 @@ class DataCreator:
             rand_image.close()
             rand_pdf_obj.close()
 
-    def create_lm3_train_data(self):
-        pass
+    @staticmethod
+    def __read_classes_file(classes_path):
+        with open(classes_path, 'r') as classes_file:
+            # Set the names of the classes
+            classes = [i.split('\n')[0] for i in classes_file.readlines()]
+
+        return classes
+
+    @staticmethod
+    def __create_images_labels_dict(images_dir: str,
+                                    labels_dir: str):
+        # List of all images and labels in directory
+        images_listdir = os.listdir(images_dir)
+        labels_listdir = os.listdir(labels_dir)
+
+        # Create a dictionary to store the images and labels names
+        images_labels = {}
+        for image_name in images_listdir:
+            label_name = os.path.splitext(image_name)[0] + '.txt'
+
+            if label_name in labels_listdir:
+                images_labels[image_name] = label_name
+            else:
+                images_labels[image_name] = None
+
+        return images_labels
+
+    def create_mask2f_train_data(self,
+                                 yolo_raw_dir: str,
+                                 train_dir: str,
+                                 num_images: int):
+        # Paths
+        images_dir = os.path.join(yolo_raw_dir, "images")
+        labels_dir = os.path.join(yolo_raw_dir, "labels")
+        classes_path = os.path.join(yolo_raw_dir, "classes.txt")
+
+        # Classes
+        classes = DataCreator.__read_classes_file(classes_path)
+
+        # Images and labels
+        images_labels = DataCreator.__create_images_labels_dict(images_dir=images_dir,
+                                                                labels_dir=labels_dir)
+
+        print(classes)
+        print(images_labels)
