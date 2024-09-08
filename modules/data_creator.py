@@ -1,9 +1,11 @@
-from typing import List, Dict
+from typing import List, Tuple, Dict
 
 import os
 import random
 from PIL import Image
 
+import cv2
+import numpy as np
 import pypdfium2 as pdfium
 
 from modules.processors import ImageProcessor
@@ -129,10 +131,11 @@ class DataCreator:
 
         return images_labels
 
-    def __get_question_label(label_path: str,
-                             classes: Dict[int, str]) -> List[float]:
+    @staticmethod
+    def __get_question_points(label_path: str,
+                              classes: Dict[int, str]) -> List[Tuple[float, float]]:
         # Create list to store all points with question
-        all_labels = []
+        all_points = []
 
         # Open label
         with open(label_path, "r") as file:
@@ -144,15 +147,50 @@ class DataCreator:
 
                 # If label is question, store in the list
                 if classes[label] == "question":
-                    all_labels.append(points)
+                    all_points.append(points)
 
         # Find random label
-        rand_label = random.choice(all_labels)
+        rand_points = random.choice(all_points)
+        # Convert points to tuples
+        rand_points = list(zip(rand_points[::2], rand_points[1::2]))
 
-        return rand_label
+        return rand_points
 
-    def __crop_question_image():
-        pass
+    @staticmethod
+    def __crop_question_image(image_path: str,
+                              points: List[float],
+                              offset: float = 0.025) -> Image.Image:
+        # Open image
+        image = Image.open(image_path)
+        img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+        height, width = img.shape[:2]
+
+        # Convert points
+        pts = np.array([(int(x * width), int(y * height)) for x, y in points])
+
+        # Find rect of polygon
+        rect = cv2.boundingRect(pts)
+        x, y, w, h = rect
+        img = img[y:y+h, x:x+w].copy()
+
+        # Create mask
+        pts = pts - pts.min(axis=0)
+        mask = np.zeros(img.shape[:2], np.uint8)
+        cv2.drawContours(mask, [pts], -1, (255, 255, 255), -1, cv2.LINE_AA)
+
+        # Bitwise and with mask
+        result = cv2.bitwise_and(img, img, mask=mask)
+
+        # Add white background
+        bg = np.ones_like(img, np.uint8)*255
+        cv2.bitwise_not(bg, bg, mask=mask)
+        result = bg + result
+
+        # Add frame
+        result = cv2.copyMakeBorder(result, int(height*offset), int(height*offset), int(width*offset), int(width*offset),
+                                    cv2.BORDER_CONSTANT, value=[255, 255, 255])
+
+        return Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
 
     def create_mask2f_train_data(self,
                                  yolo_raw_dir: str,
@@ -178,6 +216,7 @@ class DataCreator:
 
         while num_images != num_saved_images:
             rand_image_name = random.choice(images_listdir)
+            rand_image_path = os.path.join(images_dir, rand_image_name)
             rand_label_name = images_labels[rand_image_name]
             rand_label_path = os.path.join(labels_dir, rand_label_name)
 
@@ -188,12 +227,14 @@ class DataCreator:
             num_saved_images += 1
 
             # Extract random label and crop corresponding image
-            rand_label = DataCreator.__get_question_label(
+            rand_points = DataCreator.__get_question_points(
                 label_path=rand_label_path,
                 classes=classes)
 
-            print(rand_label)
-            rand_image = DataCreator.__crop_question_image()
+            print(rand_points)
+            rand_image = DataCreator.__crop_question_image(image_path=rand_image_path,
+                                                           points=rand_points)
+            rand_image.show()
 
             # rand_image_name = f"{rand_pdf_name}_{rand_page_ind}.jpg"
             # rand_image_path = os.path.join(train_dir, rand_image_name)
