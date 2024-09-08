@@ -1,3 +1,5 @@
+from typing import List, Dict
+
 import os
 import random
 from PIL import Image
@@ -68,6 +70,7 @@ class DataCreator:
         # Pdf listdir
         pdf_listdir = [pdf for pdf in os.listdir(
             raw_dir) if pdf.endswith('pdf')]
+
         # Counter for saved images
         num_saved_images = 0
 
@@ -99,16 +102,17 @@ class DataCreator:
             rand_pdf_obj.close()
 
     @staticmethod
-    def __read_classes_file(classes_path):
+    def __read_classes_file(classes_path) -> Dict[int, str]:
         with open(classes_path, 'r') as classes_file:
             # Set the names of the classes
             classes = [i.split('\n')[0] for i in classes_file.readlines()]
+            classes = {i: cl for i, cl in enumerate(classes)}
 
         return classes
 
     @staticmethod
     def __create_images_labels_dict(images_dir: str,
-                                    labels_dir: str):
+                                    labels_dir: str) -> Dict[str, str]:
         # List of all images and labels in directory
         images_listdir = os.listdir(images_dir)
         labels_listdir = os.listdir(labels_dir)
@@ -125,10 +129,35 @@ class DataCreator:
 
         return images_labels
 
+    def __get_question_label(label_path: str,
+                             classes: Dict[int, str]) -> List[float]:
+        # Create list to store all points with question
+        all_labels = []
+
+        # Open label
+        with open(label_path, "r") as file:
+            for line in file.readlines():
+                # Retrieve data
+                data = line.strip("\n").split()
+                label = int(data[0])
+                points = [float(point) for point in data[1:]]
+
+                # If label is question, store in the list
+                if classes[label] == "question":
+                    all_labels.append(points)
+
+        # Find random label
+        rand_label = random.choice(all_labels)
+
+        return rand_label
+
+    def __crop_question_image():
+        pass
+
     def create_mask2f_train_data(self,
                                  yolo_raw_dir: str,
                                  train_dir: str,
-                                 num_images: int):
+                                 num_images: int) -> None:
         # Paths
         images_dir = os.path.join(yolo_raw_dir, "images")
         labels_dir = os.path.join(yolo_raw_dir, "labels")
@@ -136,10 +165,40 @@ class DataCreator:
 
         # Classes
         classes = DataCreator.__read_classes_file(classes_path)
-
+        print(classes)
         # Images and labels
         images_labels = DataCreator.__create_images_labels_dict(images_dir=images_dir,
                                                                 labels_dir=labels_dir)
 
-        print(classes)
-        print(images_labels)
+        # Images listdir
+        images_listdir = os.listdir(images_dir)
+
+        # Counter for saved images
+        num_saved_images = 0
+
+        while num_images != num_saved_images:
+            rand_image_name = random.choice(images_listdir)
+            rand_label_name = images_labels[rand_image_name]
+            rand_label_path = os.path.join(labels_dir, rand_label_name)
+
+            # Raise exception of label name is None
+            if rand_label_name is None:
+                raise ValueError("Label must not be None.")
+
+            num_saved_images += 1
+
+            # Extract random label and crop corresponding image
+            rand_label = DataCreator.__get_question_label(
+                label_path=rand_label_path,
+                classes=classes)
+
+            print(rand_label)
+            rand_image = DataCreator.__crop_question_image()
+
+            # rand_image_name = f"{rand_pdf_name}_{rand_page_ind}.jpg"
+            # rand_image_path = os.path.join(train_dir, rand_image_name)
+
+            # if not os.path.exists(rand_image_path):
+            #     rand_image.save(rand_image_path, "JPEG")
+            #     num_saved_images += 1
+            #     print(f"It was saved {num_saved_images}/{num_images} images.")
