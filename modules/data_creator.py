@@ -150,11 +150,12 @@ class DataCreator:
                     all_points.append(points)
 
         # Find random label
-        rand_points = random.choice(all_points)
+        rand_points_index = random.randint(0, len(all_points) - 1)
+        rand_points = all_points[rand_points_index]
         # Convert points to tuples
         rand_points = list(zip(rand_points[::2], rand_points[1::2]))
 
-        return rand_points
+        return rand_points_index, rand_points
 
     @staticmethod
     def __crop_question_image(image_path: str,
@@ -203,7 +204,7 @@ class DataCreator:
 
         # Classes
         classes = DataCreator.__read_classes_file(classes_path)
-        print(classes)
+
         # Images and labels
         images_labels = DataCreator.__create_images_labels_dict(images_dir=images_dir,
                                                                 labels_dir=labels_dir)
@@ -224,22 +225,20 @@ class DataCreator:
             if rand_label_name is None:
                 raise ValueError("Label must not be None.")
 
-            num_saved_images += 1
-
             # Extract random label and crop corresponding image
-            rand_points = DataCreator.__get_question_points(
-                label_path=rand_label_path,
-                classes=classes)
+            rand_points_index, rand_points = DataCreator.__get_question_points(label_path=rand_label_path,
+                                                                               classes=classes)
 
-            print(rand_points)
+            # Crop question image and add borders
             rand_image = DataCreator.__crop_question_image(image_path=rand_image_path,
                                                            points=rand_points)
-            rand_image.show()
 
-            # rand_image_name = f"{rand_pdf_name}_{rand_page_ind}.jpg"
-            # rand_image_path = os.path.join(train_dir, rand_image_name)
+            # Save image
+            save_image_name = os.path.splitext(rand_image_name)[0]
+            save_image_name = f"{save_image_name}_{rand_points_index}.jpg"
+            save_image_path = os.path.join(train_dir, save_image_name)
 
-            # if not os.path.exists(rand_image_path):
-            #     rand_image.save(rand_image_path, "JPEG")
-            #     num_saved_images += 1
-            #     print(f"It was saved {num_saved_images}/{num_images} images.")
+            if not os.path.exists(save_image_path):
+                rand_image.save(save_image_path, "JPEG")
+                num_saved_images += 1
+                print(f"It was saved {num_saved_images}/{num_images} images.")
