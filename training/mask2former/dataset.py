@@ -3,6 +3,7 @@ import shutil
 import json
 import random
 
+from urllib.parse import unquote
 from PIL import Image
 
 import numpy as np
@@ -19,7 +20,7 @@ class DatasetCreator():
         self.raw_dir = raw_dir
         self.dataset_dir = dataset_dir
 
-        self._masks_dir = None
+        self.__masks_dir = None
 
         self.__train_dir = None
         self.__val_dir = None
@@ -40,7 +41,8 @@ class DatasetCreator():
         self.__images_labels_dict = None
 
         # Annotation creator
-        self.annotation_creator = AnnotationCreator(json_path=self.json_path,
+        self.annotation_creator = AnnotationCreator(masks_dir=self.masks_dir,
+                                                    json_path=self.json_path,
                                                     label2id=self.label2id)
 
     @property
@@ -178,9 +180,11 @@ class PolygonLabel():
 
 class AnnotationCreator:
     def __init__(self,
+                 masks_dir: str,
                  json_path: str,
                  label2id: dict[str, int]) -> None:
         # Paths
+        self.masks_dir = masks_dir
         self.json_path = json_path
 
         # Labels
@@ -224,7 +228,11 @@ class AnnotationCreator:
                                          image_width,
                                          image_height) -> npt.NDArray[np.uint8]:
         # Generate blank annotation
-        annotation = np.zeros((3, image_height, image_width), dtype=np.int32)
+        annotation = np.zeros((image_height, image_width, 3), dtype=np.int32)
+
+        # Create masks to store filled polygons
+        first_mask = np.zeros((image_height, image_width))
+        second_mask = np.zeros((image_height, image_width))
 
         # Iterating through polygons
         for i, polygon in enumerate(polygons, start=1):
@@ -233,16 +241,33 @@ class AnnotationCreator:
                 image_width, image_height)
             relative_points = np.array(relative_points, dtype=np.int32)
 
-            # Fill first channel
-            annotation[0] = cv2.fillPoly(
-                annotation[0], [relative_points], self.label2id[polygon.label])
-            # Fill second channel
-            annotation[1] = cv2.fillPoly(annotation[1], [relative_points], i)
+            # Fill first maks
+            cv2.fillPoly(first_mask, [relative_points],
+                         self.label2id[polygon.label])
 
-        # # Convert annotation to uint8
+            # Fill second mask
+            cv2.fillPoly(second_mask, [relative_points], i)
+
+        # Fill annotation with masks
+        annotation[:, :, 0] = first_mask
+        annotation[:, :, 1] = second_mask
+
+        # Convert annotation to uint8
         annotation = annotation.astype(np.uint8)
 
         return annotation
+
+    def __save_annotation(self,
+                          annotation_array,
+                          image_name) -> None:
+        # Create annotation path
+        annotation_path = os.path.join(self.masks_dir, image_name)
+
+        # Convert annotation array to image and save it
+        annotation_image = Image.fromarray(annotation_array)
+        annotation_image.save(annotation_path)
+
+        return None
 
     def create_annotations(self) -> None:
         # Read json_polygon_path
@@ -255,15 +280,13 @@ class AnnotationCreator:
             polygons, image_width, image_height = self.__get_polygons(task)
 
             # Get image path and mask path
-            image_name = os.path.basename(task["data"]["image"])
+            image_name = unquote(os.path.basename(task["data"]["image"]))
 
             # Create annotation
-            mask_array = self.__convert_polygons_to_annotation(polygons=polygons,
+            annotation = self.__convert_polygons_to_annotation(polygons=polygons,
                                                                image_width=image_width,
                                                                image_height=image_height)
 
-            # # Save mask as images
-            # self.__save_mask(mask_array=mask_array,
-            #                  image_name=image_name)
-
-            break
+            # Save mask as images
+            self.__save_annotation(annotation_array=annotation,
+                                   image_name=image_name)
