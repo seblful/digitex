@@ -1,5 +1,6 @@
 import os
 import shutil
+import json
 import random
 
 
@@ -21,6 +22,9 @@ class DatasetCreator():
         # Input dirs
         self.json_path = os.path.join(raw_dir, 'data.json')
         self.classes_path = os.path.join(raw_dir, 'classes.txt')
+
+        # Annotation creator
+        annotation_creator = AnnotationCreator()
 
         # Data split
         self.train_split = train_split
@@ -139,3 +143,88 @@ class DatasetCreator():
         self.train_dir
         self.val_dir
         self.test_dir
+
+
+class PolygonLabel():
+    def __init__(self,
+                 points,
+                 label) -> None:
+        self.points = points
+        self.label = label
+
+    def __repr__(self) -> str:
+        return f"PolygonLabel: points={self.points}, label='{self.label}'"
+
+    def convert_to_relative(self,
+                            image_width,
+                            image_height) -> list[tuple]:
+        points = [(x * image_width / 100, y * image_height / 100)
+                  for x, y in self.points]
+
+        return points
+
+
+class AnnotationCreator:
+    def __init__(self,
+                 json_path: str) -> None:
+        # Paths
+        self.json_path = json_path
+
+    @staticmethod
+    def read_json(json_path) -> dict:
+        with open(json_path) as json_file:
+            json_dict = json.load(json_file)
+
+        return json_dict
+
+    def __get_polygons(self, task):
+        # Retrieve annotations and results
+        annotation = task['annotations'][0]
+        result = annotation['result']
+
+        # Create list to store polygons and labels
+        polygons = []
+
+        # Process if result is not blank
+        if result:
+            # Get image width and image height
+            image_width, image_height = result[0]['original_width'], result[0]['original_height']
+            # Iterating through results
+            for res in result:
+                # Get value from result
+                value = res['value']
+
+                # Get polygon and label
+                polygon = PolygonLabel(points=value['points'],
+                                       label=value['polygonlabels'][0])
+
+                # Append labels to lists if label is not Stamp
+                if polygon.label != "Stamp":
+                    polygons.append(polygon)
+
+        # Sort polygons
+        polygons.sort(key=lambda x: self.label2id[x.label], reverse=True)
+
+        return polygons, image_width, image_height
+
+    def create_annotations(self) -> None:
+        # Read json_polygon_path
+        json_dict = AnnotationCreator.read_json(self.json_polygon_path)
+
+        # Iterating through tasks
+        for task in json_dict:
+
+            # Get polygons and labels
+            polygons, image_width, image_height = self.__get_polygons(task)
+
+            # Get image path and mask path
+            image_name = os.path.basename(task["data"]["image"]).split('-')[1]
+
+            # Create mask
+            mask_array = self.__convert_polygons_to_mask(polygons=polygons,
+                                                         image_width=image_width,
+                                                         image_height=image_height)
+
+            # Save mask as images
+            self.__save_mask(mask_array=mask_array,
+                             image_name=image_name)
