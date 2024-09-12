@@ -20,7 +20,7 @@ class DatasetCreator():
         self.raw_dir = raw_dir
         self.dataset_dir = dataset_dir
 
-        self.__masks_dir = None
+        self.__annotation_dir = None
 
         self.__train_dir = None
         self.__val_dir = None
@@ -41,29 +41,29 @@ class DatasetCreator():
         self.__images_labels_dict = None
 
         # Annotation creator
-        self.annotation_creator = AnnotationCreator(masks_dir=self.masks_dir,
+        self.annotation_creator = AnnotationCreator(annotation_dir=self.annotation_dir,
                                                     json_path=self.json_path,
                                                     label2id=self.label2id)
 
     @property
-    def masks_dir(self) -> str:
-        if self.__masks_dir is None:
-            masks_dir = os.path.join(self.raw_dir, "masks")
-            os.makedirs(masks_dir, exist_ok=True)
-            self.__masks_dir = masks_dir
+    def annotation_dir(self) -> str:
+        if self.__annotation_dir is None:
+            annotation_dir = os.path.join(self.raw_dir, "annotations")
+            os.makedirs(annotation_dir, exist_ok=True)
+            self.__annotation_dir = annotation_dir
 
-        return self.__masks_dir
+        return self.__annotation_dir
 
     @property
     def train_dir(self) -> str:
         if self.__train_dir is None:
             train_dir = os.path.join(self.dataset_dir, 'train')
             images_dir = os.path.join(train_dir, 'images')
-            masks_dir = os.path.join(train_dir, 'masks')
+            annotation_dir = os.path.join(train_dir, 'annotations')
             # Creating folder for train set
             os.makedirs(train_dir, exist_ok=True)
             os.makedirs(images_dir, exist_ok=True)
-            os.makedirs(masks_dir, exist_ok=True)
+            os.makedirs(annotation_dir, exist_ok=True)
 
             self.__train_dir = train_dir
 
@@ -74,11 +74,11 @@ class DatasetCreator():
         if self.__val_dir is None:
             val_dir = os.path.join(self.dataset_dir, 'val')
             images_dir = os.path.join(val_dir, 'images')
-            masks_dir = os.path.join(val_dir, 'masks')
+            annotation_dir = os.path.join(val_dir, 'annotations')
             # Creating folder for val set
             os.makedirs(val_dir, exist_ok=True)
             os.makedirs(images_dir, exist_ok=True)
-            os.makedirs(masks_dir, exist_ok=True)
+            os.makedirs(annotation_dir, exist_ok=True)
 
             self.__val_dir = val_dir
 
@@ -89,11 +89,11 @@ class DatasetCreator():
         if self.__test_dir is None:
             test_dir = os.path.join(self.dataset_dir, 'test')
             images_dir = os.path.join(test_dir, 'images')
-            masks_dir = os.path.join(test_dir, 'masks')
+            annotation_dir = os.path.join(test_dir, 'annotations')
             # Creating folder for test set
             os.makedirs(test_dir, exist_ok=True)
             os.makedirs(images_dir, exist_ok=True)
-            os.makedirs(masks_dir, exist_ok=True)
+            os.makedirs(annotation_dir, exist_ok=True)
 
             self.__test_dir = test_dir
 
@@ -109,7 +109,7 @@ class DatasetCreator():
     def __create_images_labels_dict(self, shuffle=True) -> dict:
         # List of all images and labels in directory
         # images = os.listdir(self.images_dir)
-        labels = os.listdir(self.masks_dir)
+        labels = os.listdir(self.annotation_dir)
 
         # Create a dictionary to store the images and labels names
         images_labels = {}
@@ -151,12 +151,58 @@ class DatasetCreator():
 
         return id2label
 
-    def process(self) -> None:
-        self.train_dir
-        self.val_dir
-        self.test_dir
+    def __copy_data(self,
+                    image_name: str,
+                    label_name: str,
+                    copy_to: str) -> None:
 
+        # Copy images
+        images_dir = os.path.join(copy_to, 'images')
+        shutil.copyfile(os.path.join(self.raw_dir, "images", image_name),
+                        os.path.join(images_dir, image_name))
+
+        # Copy annotations
+        if label_name is not None:
+            annotation_dir = os.path.join(copy_to, 'annotations')
+            shutil.copyfile(os.path.join(self.annotation_dir, label_name),
+                            os.path.join(annotation_dir, label_name))
+
+    def __create_dataset(self) -> None:
+        # Dict with images and labels
+        data = self.images_labels_dict
+
+        # Create the train, validation, and test datasets
+        num_train = int(len(data) * self.train_split)
+        num_val = int(len(data) * self.val_split)
+        num_test = int(len(data) * self.test_split)
+
+        # Create dicts with images and labels names
+        train_data = {key: data[key] for key in list(data.keys())[:num_train]}
+        val_data = {key: data[key] for key in list(
+            data.keys())[num_train:num_train+num_val]}
+        test_data = {key: data[key] for key in list(
+            data.keys())[num_train+num_val:num_train+num_val+num_test]}
+
+        # Copy the images and labels to the train, validation, and test folders
+        for data_dict, folder_name in zip((train_data, val_data, test_data), (self.train_dir, self.val_dir, self.test_dir)):
+            for image_name, label_name in data_dict.items():
+                self.__copy_data(image_name=image_name,
+                                 label_name=label_name,
+                                 copy_to=folder_name)
+
+        # Copy classes.txt file
+        shutil.copyfile(self.classes_path, os.path.join(
+            self.dataset_dir, 'classes.txt'))
+
+    def process(self) -> None:
+        # Create annotations
+        print("Annotations from polygons are creating...")
         self.annotation_creator.create_annotations()
+
+        # Create dataset
+        print("Dataset is creating...")
+        self.__create_dataset()
+        print("Train, validation, test sets have created.")
 
 
 class PolygonLabel():
@@ -180,11 +226,11 @@ class PolygonLabel():
 
 class AnnotationCreator:
     def __init__(self,
-                 masks_dir: str,
+                 annotation_dir: str,
                  json_path: str,
                  label2id: dict[str, int]) -> None:
         # Paths
-        self.masks_dir = masks_dir
+        self.annotation_dir = annotation_dir
         self.json_path = json_path
 
         # Labels
@@ -261,7 +307,7 @@ class AnnotationCreator:
                           annotation_array,
                           image_name) -> None:
         # Create annotation path
-        annotation_path = os.path.join(self.masks_dir, image_name)
+        annotation_path = os.path.join(self.annotation_dir, image_name)
 
         # Convert annotation array to image and save it
         annotation_image = Image.fromarray(annotation_array)
@@ -279,14 +325,12 @@ class AnnotationCreator:
             # Get polygons and labels
             polygons, image_width, image_height = self.__get_polygons(task)
 
-            # Get image path and mask path
-            image_name = unquote(os.path.basename(task["data"]["image"]))
-
             # Create annotation
             annotation = self.__convert_polygons_to_annotation(polygons=polygons,
                                                                image_width=image_width,
                                                                image_height=image_height)
 
-            # Save mask as images
+            # Save annotation as image
+            image_name = unquote(os.path.basename(task["data"]["image"]))
             self.__save_annotation(annotation_array=annotation,
                                    image_name=image_name)
