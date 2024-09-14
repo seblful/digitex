@@ -19,25 +19,39 @@ class DataCreator:
 
     def create_pdf_from_images(self,
                                image_dir: str,
-                               raw_dir: str) -> None:
+                               raw_dir: str,
+                               process: bool = False) -> None:
         # Create new pdf object
         pdf = pdfium.PdfDocument.new()
 
         # Iterate through images
-        for image_name in os.listdir(image_dir):
+        for image_name in sorted(os.listdir(image_dir),
+                                 key=lambda x: int(x.split("_")[-1].split(".")[0])):
             # Load image
             image_path = os.path.join(image_dir, image_name)
-            image = pdfium.PdfImage.new(pdf)
-            image.load_jpeg(image_path)
-            width, height = image.get_size()
+            image = Image.open(image_path)
+
+            # Process image
+            if process is True:
+                image = self.image_processor.process(
+                    image=image, scan_type="color")
+
+            bitmap = pdfium.PdfBitmap.from_pil(image)
+            pdf_image = pdfium.PdfImage.new(pdf)
+
+            pdf_image.set_bitmap(bitmap)
+
+            image.close()
+            bitmap.close()
 
             # Create, scale and set_matrix
+            width, height = pdf_image.get_size()
             matrix = pdfium.PdfMatrix().scale(width, height)
-            image.set_matrix(matrix)
+            pdf_image.set_matrix(matrix)
 
             # Create page and insert image to it
             page = pdf.new_page(width, height)
-            page.insert_obj(image)
+            page.insert_obj(pdf_image)
             page.gen_content()
 
         # Save pdf
