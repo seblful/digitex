@@ -12,14 +12,14 @@ class ImageProcessor:
         self.scan_types = ["bw", "gray", "color"]
 
         # Blue remove range
-        self.lower_blue = np.array([115, 150, 70])
+        self.lower_blue = np.array([70, 30, 30])
         self.upper_blue = np.array([130, 255, 255])
 
         # Binarization
-        self.bin_params = {"window": 75, "k": 0.3}
+        self.bin_params = {"window": 25, "k": 0.16}
 
     def remove_color(self,
-                     img: np.array) -> None:
+                     img: np.ndarray) -> np.ndarray:
         # Convert to HSV color space
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
@@ -36,7 +36,7 @@ class ImageProcessor:
         return img
 
     def binarize_image(self,
-                       img: np.array) -> np.array:
+                       img: np.ndarray) -> np.ndarray:
         # Convert image to gray
         if len(img.shape) != 2:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -56,9 +56,30 @@ class ImageProcessor:
 
         return img
 
+    def resize_image(self,
+                     img: np.ndarray,
+                     max_height: int = 2000) -> np.ndarray:
+
+        height, width = img.shape[:2]
+
+        # Check if the height is greater than the specified max height
+        if height > max_height:
+            # Calculate the aspect ratio
+            aspect_ratio = width / height
+            # Calculate the new dimensions
+            new_height = max_height
+            new_width = int(new_height * aspect_ratio)
+
+            # Resize the image
+            img = cv2.resize(
+                img, (new_width, new_height), interpolation=cv2.INTER_AREA)
+
+        return img
+
     def process(self,
                 image: Image.Image,
                 scan_type: str,
+                resize: bool = True,
                 remove_ink: bool = True,
                 binarize: bool = True) -> Image.Image:
         # Check scan type
@@ -67,6 +88,10 @@ class ImageProcessor:
 
         # Convert image to array
         img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+
+        # Resize image
+        if resize is True:
+            img = self.resize_image(img)
 
         # Remove ink
         if remove_ink is True:
