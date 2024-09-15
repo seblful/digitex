@@ -7,7 +7,6 @@ from urllib.parse import unquote
 from PIL import Image
 
 import numpy as np
-import numpy.typing as npt
 import cv2
 
 
@@ -167,7 +166,7 @@ class DatasetCreator():
             shutil.copyfile(os.path.join(self.annotation_dir, label_name),
                             os.path.join(annotation_dir, label_name))
 
-    def __create_dataset(self) -> None:
+    def __partitionate_data(self) -> None:
         # Dict with images and labels
         data = self.images_labels_dict
 
@@ -194,14 +193,15 @@ class DatasetCreator():
         shutil.copyfile(self.classes_path, os.path.join(
             self.dataset_dir, 'classes.txt'))
 
-    def process(self) -> None:
+    def create_dataset(self) -> None:
         # Create annotations
-        print("Annotations from polygons are creating...")
+        print("Annotations are creating...")
         self.annotation_creator.create_annotations()
 
         # Create dataset
-        print("Dataset is creating...")
-        self.__create_dataset()
+        print("Data is partitioning...")
+        self.__partitionate_data()
+
         print("Train, validation, test sets have created.")
 
 
@@ -272,7 +272,7 @@ class AnnotationCreator:
     def __convert_polygons_to_annotation(self,
                                          polygons,
                                          image_width,
-                                         image_height) -> npt.NDArray[np.uint8]:
+                                         image_height) -> np.ndarray[np.uint8]:
         # Generate blank annotation
         annotation = np.zeros((image_height, image_width, 3), dtype=np.int32)
 
