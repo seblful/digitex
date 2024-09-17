@@ -16,7 +16,7 @@ class ImageProcessor:
         self.upper_blue = np.array([130, 255, 255])
 
         # Binarization
-        self.bin_params = {"window": 25, "k": 0.16}
+        self.bin_params = {"window": 30, "k": 0.16}
 
     def remove_color(self,
                      img: np.ndarray) -> np.ndarray:
@@ -32,6 +32,18 @@ class ImageProcessor:
 
         # Inpaint the masked region
         img = cv2.inpaint(img, mask, 3, cv2.INPAINT_TELEA)
+
+        return img
+
+    def illuminate_image(self,
+                         img: np.array,
+                         alpha: float = 1.1,
+                         beta=1) -> None:
+
+        # Change luminance
+        img = cv2.convertScaleAbs(img,
+                                  alpha=alpha,
+                                  beta=beta)
 
         return img
 
@@ -81,6 +93,7 @@ class ImageProcessor:
                 scan_type: str,
                 resize: bool = True,
                 remove_ink: bool = True,
+                illuminate: bool = False,
                 binarize: bool = True) -> Image.Image:
         # Check scan type
         assert scan_type in self.scan_types, f"Scan type should be in one of {
@@ -96,6 +109,9 @@ class ImageProcessor:
         # Remove ink
         if remove_ink is True:
             img = self.remove_color(img)
+
+        if illuminate is True:
+            img = self.illuminate_image(img)
 
         # Binarize image
         if binarize is True and scan_type != "bw":

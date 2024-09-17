@@ -15,11 +15,11 @@ def main() -> None:
     # Create DataCreator instance
     data_creator = DataCreator()
 
-    # Creat pdfs from images
-    for image_dir in os.listdir(IMAGES_DIR):
-        image_dir = os.path.join(IMAGES_DIR, image_dir)
-        data_creator.create_pdf_from_images(image_dir=image_dir,
-                                            raw_dir=RAW_DIR)
+    # # Creat pdfs from images
+    # for image_dir in os.listdir(IMAGES_DIR):
+    #     image_dir = os.path.join(IMAGES_DIR, image_dir)
+    #     data_creator.create_pdf_from_images(image_dir=image_dir,
+    #                                         raw_dir=RAW_DIR)
 
     # Create data
     data_creator.create_yolo_train_data(raw_dir=RAW_DIR,
