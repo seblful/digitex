@@ -8,6 +8,8 @@ import cv2
 import numpy as np
 import pypdfium2 as pdfium
 
+from ultralytics import YOLO
+
 from modules.processors import ImageProcessor
 
 
@@ -177,7 +179,11 @@ class DataCreator:
                 if classes[label] == "question":
                     all_points.append(points)
 
-        # Find random label
+        return all_points
+
+    @staticmethod
+    def __get_random_points(all_points: List[List[float]]) -> Tuple[int | List[Tuple[float]]]:
+        # Find random point
         rand_points_index = random.randint(0, len(all_points) - 1)
         rand_points = all_points[rand_points_index]
         # Convert points to tuples
@@ -186,11 +192,10 @@ class DataCreator:
         return rand_points_index, rand_points
 
     @staticmethod
-    def __crop_question_image(image_path: str,
+    def __crop_question_image(image: Image.Image,
                               points: List[float],
                               offset: float = 0.025) -> Image.Image:
         # Open image
-        image = Image.open(image_path)
         img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
         height, width = img.shape[:2]
 
@@ -253,12 +258,15 @@ class DataCreator:
             if rand_label_name is None:
                 raise ValueError("Label must not be None.")
 
-            # Extract random label and crop corresponding image
-            rand_points_index, rand_points = DataCreator.__get_question_points(label_path=rand_label_path,
-                                                                               classes=classes)
+            # Extract random points and crop corresponding image
+            all_points = DataCreator.__get_question_points(label_path=rand_label_path,
+                                                           classes=classes)
+            rand_points_index, rand_points = DataCreator.__get_random_points(
+                all_points=all_points)
 
             # Crop question image and add borders
-            rand_image = DataCreator.__crop_question_image(image_path=rand_image_path,
+            rand_image = Image.open(rand_image_path)
+            rand_image = DataCreator.__crop_question_image(image=rand_image,
                                                            points=rand_points)
 
             # Save image
@@ -277,6 +285,10 @@ class DataCreator:
                                       yolo_model_path: str,
                                       num_images: int) -> None:
 
+        # Load model and labels
+        model = YOLO(yolo_model_path)
+        labels = model.names
+
         # Pdf listdir
         pdf_listdir = [pdf for pdf in os.listdir(
             raw_dir) if pdf.endswith('pdf')]
@@ -285,4 +297,41 @@ class DataCreator:
         num_saved_images = 0
 
         while num_images != num_saved_images:
-            pass
+            # Get random image
+            rand_image, rand_image_path = self.__get_random_image_from_pdf(pdf_listdir=pdf_listdir,
+                                                                           raw_dir=raw_dir,
+                                                                           train_dir=train_dir)
+
+            # Create list to store all points with question
+            all_points = []
+
+            # Predict image and get points
+            result = model.predict(rand_image, verbose=False)[0]
+
+            for box, points in zip(result.boxes, result.masks.xyn):
+
+                # Get points and label
+                points = points.reshape(-1).tolist()
+                label = labels[int(box.cls.item())]
+
+                if label == "question":
+                    all_points.append(points)
+
+            # Get random points
+            rand_points_index, rand_points = DataCreator.__get_random_points(
+                all_points=all_points)
+
+            # Crop question image and add borders
+            rand_image = DataCreator.__crop_question_image(image=rand_image,
+                                                           points=rand_points)
+
+            # Save image
+            save_image_name = os.path.splitext(
+                os.path.basename(rand_image_path))[0]
+            save_image_name = f"{save_image_name}_{rand_points_index}.jpg"
+            save_image_path = os.path.join(train_dir, save_image_name)
+
+            if not os.path.exists(save_image_path):
+                rand_image.save(save_image_path, "JPEG")
+                num_saved_images += 1
+                print(f"It was saved {num_saved_images}/{num_images} images.")
