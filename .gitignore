@@ -8,6 +8,7 @@ draft*.py
 # Yolo training
 training/yolo/runs
 yolo*.pt
+best*.pt
 
 
 # Byte-compiled / optimized / DLL files
