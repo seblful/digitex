@@ -1,8 +1,16 @@
+from typing import Mapping
+
 import os
+import sys
 import math
 
+from tqdm import tqdm
+
+import torch
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
+
+from torchmetrics.detection.mean_ap import MeanAveragePrecision
 
 from transformers import Mask2FormerModel, get_scheduler
 
@@ -15,6 +23,7 @@ from .dataset import Mask2FormerDataset
 class Mask2FormerTrainer:
     def __init__(self,
                  dataset_dir: str,
+                 runs_dir: str,
                  pretrained_model_name: str = None,
                  batch_size: int = 4,
                  num_workers: int = 1,
@@ -32,6 +41,10 @@ class Mask2FormerTrainer:
         self.train_dir = os.path.join(dataset_dir, "train")
         self.val_dir = os.path.join(dataset_dir, "val")
         self.test_dir = os.path.join(dataset_dir, "test")
+
+        self.runs_dir = runs_dir
+        self.__output_dir = None
+        self.output_dir
 
         self.classes_path = os.path.join(dataset_dir, 'classes.txt')
 
@@ -85,7 +98,6 @@ class Mask2FormerTrainer:
 
         val_dataset = Mask2FormerDataset(set_dir=self.val_dir,
                                          pretrained_model_name=self.pretrained_model_name)
-
         self.val_dataloader = DataLoader(val_dataset,
                                          batch_size=self.batch_size,
                                          shuffle=False,
@@ -93,7 +105,6 @@ class Mask2FormerTrainer:
 
         test_dataset = Mask2FormerDataset(set_dir=self.test_dir,
                                           pretrained_model_name=self.pretrained_model_name)
-
         self.test_dataloader = DataLoader(test_dataset,
                                           batch_size=self.batch_size,
                                           shuffle=False,
@@ -146,6 +157,29 @@ class Mask2FormerTrainer:
         set_seed(self.seed, device_specific=True)
 
     @property
+    def output_dir(self) -> None:
+        if self.__output_dir is None:
+            # Create runs dir
+            os.makedirs(self.runs_dir, exist_ok=True)
+
+            listdir = os.listdir(self.runs_dir)
+            if len(listdir) == 0:
+                output_dir = "train"
+            elif len(listdir) == 1:
+                output_dir = "train2"
+            else:
+                listdir.sort(key=lambda x: x.strip("train"))
+                number = int(listdir[-1].strip("train")) + 1
+                output_dir = "train" + str(number)
+
+            output_dir = os.path.join(self.runs_dir, output_dir)
+            os.makedirs(output_dir)
+
+            self.__output_dir = output_dir
+
+        return self.__output_dir
+
+    @property
     def id2label(self) -> dict[int, str]:
         if self.__id2label is None:
             self.__id2label = self.__create_id2label()
@@ -169,3 +203,121 @@ class Mask2FormerTrainer:
         id2label[0] = "background"
 
         return id2label
+
+    def nested_cpu(self, tensors):
+        if isinstance(tensors, (list, tuple)):
+            return type(tensors)(self.nested_cpu(t) for t in tensors)
+        elif isinstance(tensors, Mapping):
+            return type(tensors)({k: self.nested_cpu(t) for k, t in tensors.items()})
+        elif isinstance(tensors, torch.Tensor):
+            return tensors.cpu().detach()
+        else:
+            return tensors
+
+    def evaluation_loop(self):
+        metric = MeanAveragePrecision(iou_type="segm", class_metrics=True)
+
+        for inputs in tqdm(self.val_dataloader,
+                           total=len(self.val_dataloader)):
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+
+            inputs = self.accelerator.gather_for_metrics(inputs)
+            inputs = self.nested_cpu(inputs)
+
+            outputs = self.accelerator.gather_for_metrics(outputs)
+            outputs = self.nested_cpu(outputs)
+
+            post_processed_targets = []
+            post_processed_predictions = []
+            target_sizes = []
+
+            # Collect targets
+            for masks, labels in zip(inputs["mask_labels"], inputs["class_labels"]):
+                post_processed_targets.append(
+                    {
+                        "masks": masks.to(dtype=torch.bool),
+                        "labels": labels,
+                    }
+                )
+                target_sizes.append(masks.shape[-2:])
+
+            # Collect predictions
+            post_processed_output = self.image_processor.post_process_instance_segmentation(
+                outputs,
+                threshold=0.0,
+                target_sizes=target_sizes,
+                return_binary_maps=True)
+
+            for image_predictions, target_size in zip(post_processed_output, target_sizes):
+                if image_predictions["segments_info"]:
+                    post_processed_image_prediction = {
+                        "masks": image_predictions["segmentation"].to(dtype=torch.bool),
+                        "labels": torch.tensor([x["label_id"] for x in image_predictions["segments_info"]]),
+                        "scores": torch.tensor([x["score"] for x in image_predictions["segments_info"]]),
+                    }
+                else:
+                    # for void predictions, we need to provide empty tensors
+                    post_processed_image_prediction = {
+                        "masks": torch.zeros([0, *target_size], dtype=torch.bool),
+                        "labels": torch.tensor([]),
+                        "scores": torch.tensor([]),
+                    }
+                post_processed_predictions.append(
+                    post_processed_image_prediction)
+
+            # Update metric for batch targets and predictions
+            metric.update(post_processed_predictions, post_processed_targets)
+
+        # Compute metrics
+        metrics = metric.compute()
+
+        # Replace list of per class metrics with separate metric for each class
+        classes = metrics.pop("classes")
+        map_per_class = metrics.pop("map_per_class")
+        mar_100_per_class = metrics.pop("mar_100_per_class")
+        for class_id, class_map, class_mar in zip(classes, map_per_class, mar_100_per_class):
+            class_name = self.id2label[class_id.item(
+            )] if self.id2label is not None else class_id.item()
+            metrics[f"map_{class_name}"] = class_map
+            metrics[f"mar_100_{class_name}"] = class_mar
+
+        metrics = {k: round(v.item(), 4) for k, v in metrics.items()}
+
+        return metrics
+
+    def train(self):
+        # Progress bar
+        progress_bar = tqdm(range(self.train_steps),
+                            disable=not self.accelerator.is_local_main_process)
+        completed_steps = 0
+        starting_epoch = 0
+
+        for epoch in range(starting_epoch, self.train_epochs):
+            self.model.train()
+
+            for step, batch in enumerate(self.train_dataloader):
+                with self.accelerator.accumulate(self.model):
+                    outputs = self.model(**batch)
+                    loss = outputs.loss
+                    # We keep track of the loss at each epoch
+                    self.accelerator.backward(loss)
+                    self.optimizer.step()
+                    self.lr_scheduler.step()
+                    self.optimizer.zero_grad()
+
+                # Checks if the accelerator has performed an optimization step behind the scenes
+                if self.accelerator.sync_gradients:
+                    progress_bar.update(1)
+                    completed_steps += 1
+
+                if completed_steps % self.checkpoint_steps == 0 and self.accelerator.sync_gradients:
+                    output_dir = f"step_{completed_steps}"
+                    self.accelerator.save_state(output_dir)
+
+                if completed_steps >= self.train_steps:
+                    break
+
+            metrics = self.evaluation_loop()
+
+            print(f"epoch {epoch}: {metrics}")
