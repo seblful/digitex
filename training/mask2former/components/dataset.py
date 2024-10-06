@@ -2,9 +2,14 @@ import os
 
 from PIL import Image
 
+import albumentations as A
+
+import numpy as np
+
+import torch
 from torch.utils.data import Dataset
 
-from transformers import Mask2FormerImageProcessor
+from transformers import Mask2FormerImageProcessor, AutoImageProcessor
 from transformers.image_processing_base import BatchFeature
 
 
@@ -34,6 +39,16 @@ class Mask2FormerDataset(Dataset):
                                                                    do_reduce_labels=False)
         self.processor.size = {"height": image_height, "width": image_width}
 
+        # Transform and augment
+        self.train_transform = A.Compose([A.HorizontalFlip(p=0.5),
+                                          A.RandomBrightnessContrast(p=0.5),
+                                          A.HueSaturationValue(p=0.1)])
+
+        self.val_transform = A.Compose([A.NoOp()])
+
+        # Remove batch dimension
+        self.remove_batch_dim = ["pixel_values", "pixel_mask"]
+
     def __len__(self) -> int:
         return len(self.images_listdir)
 
@@ -41,18 +56,30 @@ class Mask2FormerDataset(Dataset):
         # Open image
         image = Image.open(os.path.join(
             self.images_dir, self.images_listdir[idx]))
+        img = np.array(image)
 
         # Open annotation
         annotation = Image.open(
             os.path.join(self.annotation_dir, self.annotation_listdir[idx]))
+        semantic_and_instance_masks = np.array(annotation)[..., :2]
+        instance_mask = semantic_and_instance_masks[..., 1]
+        unique_semantic_id_instance_id_pairs = np.unique(
+            semantic_and_instance_masks.reshape(-1, 2), axis=0)
 
-        # TODO add image augmentation for train set
+        # Inctsnce id to semantic id
+        instance_id_to_semantic_id = {
+            inst_id: sem_id for sem_id, inst_id in unique_semantic_id_instance_id_pairs}
+
+        # print(instance_id_to_semantic_id)
 
         # Create encoded inputs
-        inputs = self.processor(
-            image, annotation, return_tensors="pt")
+        inputs = self.processor(images=[img],
+                                segmentation_maps=[instance_mask],
+                                instance_id_to_semantic_id=instance_id_to_semantic_id,
+                                return_tensors="pt")
 
-        # for k, v in inputs.items():
-        #     inputs[k].squeeze_()  # remove batch dimension
+        # Remove batch dimension
+        for k in self.remove_batch_dim:
+            inputs[k].squeeze_()
 
         return inputs
