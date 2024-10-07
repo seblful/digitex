@@ -7,6 +7,7 @@ draft*.py
 
 # Yolo training
 training/yolo/runs
+training/mask2former/runs
 yolo*.pt
 best*.pt
 
