@@ -6,7 +6,6 @@ import albumentations as A
 
 import numpy as np
 
-import torch
 from torch.utils.data import Dataset
 
 from transformers import Mask2FormerImageProcessor, AutoImageProcessor
@@ -48,38 +47,51 @@ class Mask2FormerDataset(Dataset):
 
         # Remove batch dimension
         self.remove_batch_dim = ["pixel_values", "pixel_mask"]
+        self.remove_nesting = ["mask_labels", "class_labels"]
 
     def __len__(self) -> int:
         return len(self.images_listdir)
 
     def __getitem__(self, idx: int) -> BatchFeature:
-        # Open image
         image = Image.open(os.path.join(
             self.images_dir, self.images_listdir[idx]))
-        img = np.array(image)
+        annotation = Image.open(os.path.join(
+            self.annotation_dir, self.annotation_listdir[idx]))
 
-        # Open annotation
-        annotation = Image.open(
-            os.path.join(self.annotation_dir, self.annotation_listdir[idx]))
-        semantic_and_instance_masks = np.array(annotation)[..., :2]
-        instance_mask = semantic_and_instance_masks[..., 1]
-        unique_semantic_id_instance_id_pairs = np.unique(
-            semantic_and_instance_masks.reshape(-1, 2), axis=0)
+        # Convert to numpy array
+        image_array = np.array(image)
+        annotation_array = np.array(annotation)
 
-        # Inctsnce id to semantic id
+        # Extract instance and semantic segmentation
+        instance_seg = annotation_array[..., 1]
+        semantic_seg = annotation_array[..., 0]
+
+        # Get unique instance ids
+        instance_ids = np.unique(instance_seg)
+
+        # Create instance_id_to_semantic_id mapping
         instance_id_to_semantic_id = {
-            inst_id: sem_id for sem_id, inst_id in unique_semantic_id_instance_id_pairs}
+            inst_id: semantic_seg[instance_seg == inst_id][0] for inst_id in instance_ids}
 
-        # print(instance_id_to_semantic_id)
+        # # Apply transformations if any
+        # if self.transform:
+        #     transformed = self.transform(
+        #         image=np.array(image), mask=instance_seg)
+        #     image = transformed['image']
+        #     instance_seg = transformed['mask']
 
-        # Create encoded inputs
-        inputs = self.processor(images=[img],
-                                segmentation_maps=[instance_mask],
+        # Prepare inputs for the model
+        inputs = self.processor(images=[image_array],
+                                segmentation_maps=[instance_seg],
                                 instance_id_to_semantic_id=instance_id_to_semantic_id,
                                 return_tensors="pt")
 
         # Remove batch dimension
         for k in self.remove_batch_dim:
             inputs[k].squeeze_()
+
+        # Remove list nesting
+        for k in self.remove_nesting:
+            inputs[k] = inputs[k][0]
 
         return inputs
