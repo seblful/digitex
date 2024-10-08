@@ -1,7 +1,7 @@
 from typing import Mapping
 
 import os
-import sys
+import json
 import math
 
 from tqdm import tqdm
@@ -12,7 +12,7 @@ from torch.optim import AdamW
 
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
 
-from transformers import Mask2FormerModel, get_scheduler
+from transformers import Mask2FormerForUniversalSegmentation, get_scheduler
 
 from accelerate import Accelerator
 from accelerate.utils import set_seed
@@ -27,13 +27,14 @@ class Mask2FormerTrainer:
                  pretrained_model_name: str = None,
                  batch_size: int = 4,
                  num_workers: int = 1,
-                 learning_rate: float = 0.001,
+                 learning_rate: float = 0.0001,
                  lr_scheduler_type: str = "constant",
+                 mixed_precision: str = "no",
                  train_epochs: int = 10,
                  train_steps: int = None,
                  gradient_accumulation_steps: int = 1,
-                 warmup_steps: int = 0,
-                 checkpoint_steps: int = 10,
+                 warmup_steps: int = 5,
+                 checkpoint_steps: int = 5,
                  seed: int = 42) -> None:
         # Paths
         self.dataset_dir = dataset_dir
@@ -57,10 +58,10 @@ class Mask2FormerTrainer:
 
         # Model
         self.pretrained_model_name = pretrained_model_name
-        self.model = Mask2FormerModel.from_pretrained(pretrained_model_name,
-                                                      label2id=self.label2id,
-                                                      id2label=self.id2label,
-                                                      ignore_mismatched_sizes=True)
+        self.model = Mask2FormerForUniversalSegmentation.from_pretrained(pretrained_model_name,
+                                                                         label2id=self.label2id,
+                                                                         id2label=self.id2label,
+                                                                         ignore_mismatched_sizes=True)
 
         # Training parameters
         self.batch_size = batch_size
@@ -79,7 +80,7 @@ class Mask2FormerTrainer:
         self.__setup_steps()
 
         # LR, Optimizer
-        self.accelerator = Accelerator(mixed_precision=None,  # TODO add mixed precision
+        self.accelerator = Accelerator(mixed_precision=mixed_precision,
                                        gradient_accumulation_steps=gradient_accumulation_steps)
         self.learning_rate = learning_rate
         self.lr_scheduler_type = lr_scheduler_type
@@ -94,21 +95,24 @@ class Mask2FormerTrainer:
         self.train_dataloader = DataLoader(train_dataset,
                                            batch_size=self.batch_size,
                                            shuffle=True,
-                                           num_workers=self.num_workers)
+                                           num_workers=self.num_workers,
+                                           collate_fn=self.collate_fn)
 
         val_dataset = Mask2FormerDataset(set_dir=self.val_dir,
                                          pretrained_model_name=self.pretrained_model_name)
         self.val_dataloader = DataLoader(val_dataset,
                                          batch_size=self.batch_size,
                                          shuffle=False,
-                                         num_workers=self.num_workers)
+                                         num_workers=self.num_workers,
+                                         collate_fn=self.collate_fn)
 
         test_dataset = Mask2FormerDataset(set_dir=self.test_dir,
                                           pretrained_model_name=self.pretrained_model_name)
         self.test_dataloader = DataLoader(test_dataset,
                                           batch_size=self.batch_size,
                                           shuffle=False,
-                                          num_workers=self.num_workers)
+                                          num_workers=self.num_workers,
+                                          collate_fn=self.collate_fn)
 
     def __setup_steps(self) -> None:
         # Scheduler and math around the number of training steps.
@@ -168,8 +172,10 @@ class Mask2FormerTrainer:
             elif len(listdir) == 1:
                 output_dir = "train2"
             else:
-                listdir.sort(key=lambda x: x.strip("train"))
-                number = int(listdir[-1].strip("train")) + 1
+                listdir.sort(key=lambda x: 0 if x ==
+                             "train" else int(x.lstrip("train")))
+
+                number = int(listdir[-1].lstrip("train")) + 1
                 output_dir = "train" + str(number)
 
             output_dir = os.path.join(self.runs_dir, output_dir)
@@ -203,6 +209,17 @@ class Mask2FormerTrainer:
         id2label[0] = "background"
 
         return id2label
+
+    def collate_fn(self, examples) -> dict:
+        batch = {}
+        batch['pixel_values'] = torch.stack(
+            [item['pixel_values'] for item in examples])
+        batch['pixel_mask'] = torch.stack(
+            [item['pixel_mask'] for item in examples])
+        batch['mask_labels'] = [item['mask_labels'] for item in examples]
+        batch['class_labels'] = [item['class_labels'] for item in examples]
+
+        return batch
 
     def nested_cpu(self, tensors):
         if isinstance(tensors, (list, tuple)):
@@ -286,7 +303,7 @@ class Mask2FormerTrainer:
 
         return metrics
 
-    def train(self):
+    def train(self) -> None:
         # Progress bar
         progress_bar = tqdm(range(self.train_steps),
                             disable=not self.accelerator.is_local_main_process)
@@ -294,12 +311,17 @@ class Mask2FormerTrainer:
         starting_epoch = 0
 
         for epoch in range(starting_epoch, self.train_epochs):
+
             self.model.train()
 
             for step, batch in enumerate(self.train_dataloader):
                 with self.accelerator.accumulate(self.model):
-                    outputs = self.model(**batch)
+                    outputs = self.model(pixel_values=batch["pixel_values"],
+                                         pixel_mask=batch["pixel_mask"],
+                                         mask_labels=batch["mask_labels"],
+                                         class_labels=batch["class_labels"])
                     loss = outputs.loss
+                    print("Loss:", loss)
                     # We keep track of the loss at each epoch
                     self.accelerator.backward(loss)
                     self.optimizer.step()
@@ -312,8 +334,9 @@ class Mask2FormerTrainer:
                     completed_steps += 1
 
                 if completed_steps % self.checkpoint_steps == 0 and self.accelerator.sync_gradients:
-                    output_dir = f"step_{completed_steps}"
-                    self.accelerator.save_state(output_dir)
+                    save_dir = os.path.join(
+                        self.output_dir, f"step_{completed_steps}")
+                    self.accelerator.save_state(save_dir)
 
                 if completed_steps >= self.train_steps:
                     break
@@ -321,3 +344,14 @@ class Mask2FormerTrainer:
             metrics = self.evaluation_loop()
 
             print(f"epoch {epoch}: {metrics}")
+
+            self.accelerator.wait_for_everyone()
+            unwrapped_model = self.accelerator.unwrap_model(self.model)
+            unwrapped_model.save_pretrained(self.output_dir,
+                                            is_main_process=self.accelerator.is_main_process,
+                                            save_function=self.accelerator.save
+                                            )
+            if self.accelerator.is_main_process:
+                with open(os.path.join(self.output_dir, "all_results.json"), "w") as f:
+                    json.dump(metrics, f, indent=2)
+                self.image_processor.save_pretrained(self.output_dir)
