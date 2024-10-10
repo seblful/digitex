@@ -307,10 +307,11 @@ class AnnotationCreator:
                           annotation_array,
                           image_name) -> None:
         # Create annotation path
-        annotation_path = os.path.join(self.annotation_dir, image_name)
+        annotation_name = os.path.splitext(image_name)[0] + ".png"
+        annotation_path = os.path.join(self.annotation_dir, annotation_name)
 
         # Convert annotation array to image and save it
-        annotation_image = Image.fromarray(annotation_array)
+        annotation_image = Image.fromarray(annotation_array, "RGB")
         annotation_image.save(annotation_path)
 
         return None
