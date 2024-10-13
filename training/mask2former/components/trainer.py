@@ -12,7 +12,7 @@ from torch.optim import AdamW
 
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
 
-from transformers import Mask2FormerForUniversalSegmentation, get_scheduler
+from transformers import Mask2FormerForUniversalSegmentation, Mask2FormerImageProcessor, get_scheduler
 
 from accelerate import Accelerator
 from accelerate.utils import set_seed
@@ -25,6 +25,8 @@ class Mask2FormerTrainer:
                  dataset_dir: str,
                  runs_dir: str,
                  pretrained_model_name: str = None,
+                 image_height: int = 384,
+                 image_width: int = 384,
                  batch_size: int = 4,
                  num_workers: int = 1,
                  learning_rate: float = 0.0001,
@@ -34,7 +36,7 @@ class Mask2FormerTrainer:
                  train_steps: int = None,
                  gradient_accumulation_steps: int = 1,
                  warmup_steps: int = 5,
-                 checkpoint_steps: int = 5,
+                 checkpoint_steps: int = 25,
                  seed: int = 42) -> None:
         # Paths
         self.dataset_dir = dataset_dir
@@ -56,6 +58,16 @@ class Mask2FormerTrainer:
         # Seed
         self.seed = seed
 
+        # Image processor
+        self.image_processor = Mask2FormerImageProcessor.from_pretrained(pretrained_model_name,
+                                                                         do_resize=True,
+                                                                         do_normalize=True,
+                                                                         do_reduce_labels=False)
+        # ignore_index=255)
+
+        self.image_processor.size = {
+            "height": image_height, "width": image_width}
+
         # Model
         self.pretrained_model_name = pretrained_model_name
         self.model = Mask2FormerForUniversalSegmentation.from_pretrained(pretrained_model_name,
@@ -68,6 +80,11 @@ class Mask2FormerTrainer:
         self.num_workers = num_workers
 
         # Data
+        self.dataloader_args = {
+            "batch_size": batch_size,
+            "num_workers": num_workers,
+            "collate_fn": self.collate_fn,
+            "persistent_workers": True}
         self.__setup_data()
 
         # Epochs and steps
@@ -91,28 +108,22 @@ class Mask2FormerTrainer:
 
     def __setup_data(self) -> None:
         train_dataset = Mask2FormerDataset(set_dir=self.train_dir,
-                                           pretrained_model_name=self.pretrained_model_name)
+                                           image_processor=self.image_processor)
         self.train_dataloader = DataLoader(train_dataset,
-                                           batch_size=self.batch_size,
                                            shuffle=True,
-                                           num_workers=self.num_workers,
-                                           collate_fn=self.collate_fn)
+                                           **self.dataloader_args)
 
         val_dataset = Mask2FormerDataset(set_dir=self.val_dir,
-                                         pretrained_model_name=self.pretrained_model_name)
+                                         image_processor=self.image_processor)
         self.val_dataloader = DataLoader(val_dataset,
-                                         batch_size=self.batch_size,
                                          shuffle=False,
-                                         num_workers=self.num_workers,
-                                         collate_fn=self.collate_fn)
+                                         **self.dataloader_args)
 
         test_dataset = Mask2FormerDataset(set_dir=self.test_dir,
-                                          pretrained_model_name=self.pretrained_model_name)
+                                          image_processor=self.image_processor)
         self.test_dataloader = DataLoader(test_dataset,
-                                          batch_size=self.batch_size,
                                           shuffle=False,
-                                          num_workers=self.num_workers,
-                                          collate_fn=self.collate_fn)
+                                          **self.dataloader_args)
 
     def __setup_steps(self) -> None:
         # Scheduler and math around the number of training steps.
@@ -255,8 +266,7 @@ class Mask2FormerTrainer:
                     {
                         "masks": masks.to(dtype=torch.bool),
                         "labels": labels,
-                    }
-                )
+                    })
                 target_sizes.append(masks.shape[-2:])
 
             # Collect predictions
@@ -321,7 +331,6 @@ class Mask2FormerTrainer:
                                          mask_labels=batch["mask_labels"],
                                          class_labels=batch["class_labels"])
                     loss = outputs.loss
-                    print("Loss:", loss)
                     # We keep track of the loss at each epoch
                     self.accelerator.backward(loss)
                     self.optimizer.step()
@@ -349,8 +358,7 @@ class Mask2FormerTrainer:
             unwrapped_model = self.accelerator.unwrap_model(self.model)
             unwrapped_model.save_pretrained(self.output_dir,
                                             is_main_process=self.accelerator.is_main_process,
-                                            save_function=self.accelerator.save
-                                            )
+                                            save_function=self.accelerator.save)
             if self.accelerator.is_main_process:
                 with open(os.path.join(self.output_dir, "all_results.json"), "w") as f:
                     json.dump(metrics, f, indent=2)
