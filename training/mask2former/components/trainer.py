@@ -142,7 +142,7 @@ class Mask2FormerTrainer:
 
         # LR scheduler
         num_training_steps = self.train_steps if self.overrode_train_steps else self.train_steps * \
-            self.accelerator.num_processes,
+            self.accelerator.num_processes
         self.lr_scheduler = get_scheduler(name=self.lr_scheduler_type,
                                           optimizer=self.optimizer,
                                           num_warmup_steps=self.warmup_steps * self.accelerator.num_processes,
