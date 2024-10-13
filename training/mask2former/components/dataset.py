@@ -1,5 +1,4 @@
 import os
-
 from PIL import Image
 
 import albumentations as A
@@ -8,16 +7,15 @@ import numpy as np
 
 from torch.utils.data import Dataset
 
-from transformers import Mask2FormerImageProcessor, AutoImageProcessor
+from transformers import Mask2FormerImageProcessor
 from transformers.image_processing_base import BatchFeature
 
 
 class Mask2FormerDataset(Dataset):
     def __init__(self,
                  set_dir: str,
-                 pretrained_model_name: str = None,
-                 image_height: int = 384,
-                 image_width: int = 384) -> None:
+                 image_processor: Mask2FormerImageProcessor) -> None:
+
         # Dirs, paths with images, masks and classes
         self.set_dir = set_dir
         self.images_dir = os.path.join(set_dir, 'images')
@@ -32,11 +30,8 @@ class Mask2FormerDataset(Dataset):
         assert len(self.images_listdir) == len(
             self.annotation_listdir), "Number of images must be equal number of annotations."
 
-        # Feauture extractor
-        self.processor = Mask2FormerImageProcessor.from_pretrained(pretrained_model_name,
-                                                                   do_resize=True,
-                                                                   do_reduce_labels=False)
-        self.processor.size = {"height": image_height, "width": image_width}
+        # Image processor
+        self.image_processor = image_processor
 
         # Transform and augment
         self.train_transform = A.Compose([A.HorizontalFlip(p=0.5),
@@ -81,10 +76,10 @@ class Mask2FormerDataset(Dataset):
         #     instance_seg = transformed['mask']
 
         # Prepare inputs for the model
-        inputs = self.processor(images=[image_array],
-                                segmentation_maps=[instance_seg],
-                                instance_id_to_semantic_id=instance_id_to_semantic_id,
-                                return_tensors="pt")
+        inputs = self.image_processor(images=image_array,
+                                      segmentation_maps=instance_seg,
+                                      instance_id_to_semantic_id=instance_id_to_semantic_id,
+                                      return_tensors="pt")
 
         # Remove batch dimension
         for k in self.remove_batch_dim:
