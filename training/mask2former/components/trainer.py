@@ -28,7 +28,7 @@ class Mask2FormerTrainer:
                  image_height: int = 384,
                  image_width: int = 384,
                  batch_size: int = 4,
-                 num_workers: int = 1,
+                 num_workers: int = 0,
                  learning_rate: float = 0.0001,
                  lr_scheduler_type: str = "constant",
                  mixed_precision: str = "no",
@@ -47,7 +47,8 @@ class Mask2FormerTrainer:
 
         self.runs_dir = runs_dir
         self.__output_dir = None
-        self.output_dir
+        self.best_model_dir = os.path.join(self.output_dir, "best")
+        self.last_model_dir = os.path.join(self.output_dir, "last")
 
         self.classes_path = os.path.join(dataset_dir, 'classes.txt')
 
@@ -84,7 +85,7 @@ class Mask2FormerTrainer:
             "batch_size": batch_size,
             "num_workers": num_workers,
             "collate_fn": self.collate_fn,
-            "persistent_workers": True}
+            "persistent_workers": False}
         self.__setup_data()
 
         # Epochs and steps
@@ -150,11 +151,12 @@ class Mask2FormerTrainer:
 
     def __setup_accelerator(self) -> None:
         # Prepare everything with our `accelerator`.
-        self.model, self.optimizer, self.train_dataloader, self.val_dataloader, self.lr_scheduler = self.accelerator.prepare(
+        self.model, self.optimizer, self.train_dataloader, self.val_dataloader, self.test_dataloader, self.lr_scheduler = self.accelerator.prepare(
             self.model,
             self.optimizer,
             self.train_dataloader,
             self.val_dataloader,
+            self.test_dataloader,
             self.lr_scheduler)
 
         # Recalculate total training steps
@@ -242,11 +244,11 @@ class Mask2FormerTrainer:
         else:
             return tensors
 
-    def evaluation_loop(self):
+    def evaluation_loop(self, dataloader: DataLoader):
         metric = MeanAveragePrecision(iou_type="segm", class_metrics=True)
 
-        for inputs in tqdm(self.val_dataloader,
-                           total=len(self.val_dataloader)):
+        for inputs in tqdm(dataloader,
+                           total=len(dataloader)):
             with torch.no_grad():
                 outputs = self.model(**inputs)
 
@@ -320,6 +322,8 @@ class Mask2FormerTrainer:
         completed_steps = 0
         starting_epoch = 0
 
+        best_map = 0
+
         for epoch in range(starting_epoch, self.train_epochs):
 
             self.model.train()
@@ -342,24 +346,39 @@ class Mask2FormerTrainer:
                     progress_bar.update(1)
                     completed_steps += 1
 
+                # Save on checkpoint steps
                 if completed_steps % self.checkpoint_steps == 0 and self.accelerator.sync_gradients:
                     save_dir = os.path.join(
                         self.output_dir, f"step_{completed_steps}")
-                    self.accelerator.save_state(save_dir)
+                    self.save_model(save_dir=save_dir)
 
+                # Break if all steps
                 if completed_steps >= self.train_steps:
                     break
 
-            metrics = self.evaluation_loop()
-
+            metrics = self.evaluation_loop(self.val_dataloader)
             print(f"epoch {epoch}: {metrics}")
 
-            self.accelerator.wait_for_everyone()
-            unwrapped_model = self.accelerator.unwrap_model(self.model)
-            unwrapped_model.save_pretrained(self.output_dir,
-                                            is_main_process=self.accelerator.is_main_process,
-                                            save_function=self.accelerator.save)
-            if self.accelerator.is_main_process:
-                with open(os.path.join(self.output_dir, "all_results.json"), "w") as f:
-                    json.dump(metrics, f, indent=2)
-                self.image_processor.save_pretrained(self.output_dir)
+            # Save model with best metrics
+            if metrics["map"] > best_map:
+                best_map = metrics["map"]
+                self.save_model(save_dir=self.best_model_dir)
+
+        # Run test evaluation
+        metrics = self.evaluation_loop(self.test_dataloader)
+        print("Test metrics:", metrics)
+
+        # Save model and image processor
+        self.save_model(save_dir=self.last_model_dir)
+        if self.accelerator.is_main_process:
+            with open(os.path.join(self.output_dir, "all_results.json"), "w") as f:
+                json.dump(metrics, f, indent=2)
+            self.image_processor.save_pretrained(self.output_dir)
+
+    def save_model(self, save_dir: str) -> None:
+        self.accelerator.save_state(save_dir)
+        self.accelerator.wait_for_everyone()
+        unwrapped_model = self.accelerator.unwrap_model(self.model)
+        unwrapped_model.save_pretrained(save_dir,
+                                        is_main_process=self.accelerator.is_main_process,
+                                        save_function=self.accelerator.save)
