@@ -7,7 +7,14 @@ from dataset import DatasetCreator
 # Create a parser
 parser = argparse.ArgumentParser(description="Get some hyperparameters.")
 
-# Get an arg for augmented factor
+# Get an arg for task type
+parser.add_argument("--task_type",
+                    default="page",
+                    type=str,
+                    choices=["page", "question"],
+                    help="Type of task type.")
+
+# Get an arg for train split
 parser.add_argument("--train_split",
                     default=0.8,
                     type=float,
@@ -18,12 +25,13 @@ parser.add_argument("--train_split",
 args = parser.parse_args()
 
 # Setup hyperparameters
+TASK_TYPE = args.task_type
 TRAIN_SPLIT = args.train_split
 
 HOME = os.getcwd()
-DATA = os.path.join(HOME, "data")
-RAW_DIR = os.path.join(DATA, 'raw-data')
-DATASET_DIR = os.path.join(DATA, 'dataset')
+DATA_DIR = os.path.join(HOME, "data", TASK_TYPE)
+RAW_DIR = os.path.join(DATA_DIR, 'raw-data')
+DATASET_DIR = os.path.join(DATA_DIR, 'dataset')
 
 
 def main() -> None:
