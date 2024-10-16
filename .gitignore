@@ -5,11 +5,13 @@ data
 # Drafts
 draft*.py
 
-# Yolo training
+# Training
 training/yolo/runs
 training/mask2former/runs
-yolo*.pt
-best*.pt
+
+# Models
+training/yolo/models
+*.pt
 
 
 # Byte-compiled / optimized / DLL files
