@@ -226,14 +226,14 @@ class DataCreator:
 
         return Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
 
-    def create_mask2f_train_data_raw(self,
-                                     yolo_raw_dir: str,
-                                     train_dir: str,
-                                     num_images: int) -> None:
+    def create_question_train_data_raw(self,
+                                       page_raw_dir: str,
+                                       train_dir: str,
+                                       num_images: int) -> None:
         # Paths
-        images_dir = os.path.join(yolo_raw_dir, "images")
-        labels_dir = os.path.join(yolo_raw_dir, "labels")
-        classes_path = os.path.join(yolo_raw_dir, "classes.txt")
+        images_dir = os.path.join(page_raw_dir, "images")
+        labels_dir = os.path.join(page_raw_dir, "labels")
+        classes_path = os.path.join(page_raw_dir, "classes.txt")
 
         # Classes
         classes = DataCreator.__read_classes_file(classes_path)
@@ -279,11 +279,11 @@ class DataCreator:
                 num_saved_images += 1
                 print(f"It was saved {num_saved_images}/{num_images} images.")
 
-    def create_mask2f_train_data_pred(self,
-                                      raw_dir: str,
-                                      train_dir: str,
-                                      yolo_model_path: str,
-                                      num_images: int) -> None:
+    def create_question_train_data_pred(self,
+                                        raw_dir: str,
+                                        train_dir: str,
+                                        yolo_model_path: str,
+                                        num_images: int) -> None:
 
         # Load model and labels
         model = YOLO(yolo_model_path)
