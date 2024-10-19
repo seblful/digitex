@@ -4,6 +4,7 @@ data
 
 # Drafts
 draft*.py
+draft*.ipynb
 
 # Training
 training/yolo/runs
