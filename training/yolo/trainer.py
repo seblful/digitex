@@ -12,6 +12,7 @@ class Trainer():
                  image_size: int,
                  batch_size: int,
                  pretrained_model_path: str = None,
+                 overlap_mask=False,
                  patience: int = 50,
                  seed: int = 42) -> None:
 
@@ -23,6 +24,7 @@ class Trainer():
         self.num_epochs = num_epochs
         self.image_size = image_size
         self.batch_size = batch_size
+        self.overlap_mask = overlap_mask
         self.patience = patience
         self.seed = seed
 
@@ -67,8 +69,9 @@ class Trainer():
                          epochs=self.num_epochs,
                          imgsz=self.image_size,
                          batch=self.batch_size,
-                         device=self.device_idxs,
+                         overlap_mask=self.overlap_mask,
                          patience=self.patience,
+                         device=self.device_idxs,
                          seed=self.seed)
 
         self.is_trained = True
