@@ -1,7 +1,7 @@
 import os
 import argparse
 
-from dataset import DatasetCreator
+from components.dataset import DatasetCreator
 
 
 # Create a parser

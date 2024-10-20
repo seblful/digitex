@@ -1,7 +1,7 @@
 import os
 import argparse
 
-from trainer import Trainer
+from components.trainer import Trainer
 
 
 # Create a parser
