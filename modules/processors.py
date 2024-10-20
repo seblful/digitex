@@ -91,10 +91,10 @@ class ImageProcessor:
     def process(self,
                 image: Image.Image,
                 scan_type: str,
-                resize: bool = True,
-                remove_ink: bool = True,
+                resize: bool = False,
+                remove_ink: bool = False,
                 illuminate: bool = False,
-                binarize: bool = True) -> Image.Image:
+                binarize: bool = False) -> Image.Image:
         # Check scan type
         assert scan_type in self.scan_types, f"Scan type should be in one of {
             str(self.scan_types)}"
