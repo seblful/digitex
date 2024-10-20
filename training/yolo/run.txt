@@ -1,2 +1,5 @@
-python create_dataset.py --train_split 0.8
-python train.py --num_epochs 100 --image_size 640 --batch_size 16 --model_type m --seed 42
+python create_dataset.py --task_type page --train_split 0.8
+python train.py --task_type page --model_type m --pretrained_model_path models/yolov11/page_m.pt --num_epochs 300 --image_size 1400 --batch_size 4 --patience 70 --seed 42
+
+python create_dataset.py --task_type question --train_split 0.8
+python train.py --task_type question --model_type x --pretrained_model_path models/yolov11/question_x.pt --num_epochs 300 --image_size 1080 --batch_size 4 --patience 70 --seed 42
