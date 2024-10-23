@@ -20,15 +20,22 @@ from modules.processors import ImageProcessor
 class TestExtractor:
     def __init__(self,
                  pdf_dir: str,
-                 models_dir: str,
+                 inputs_dir: str,
                  outputs_dir: str,
                  langs: list = ["ru", "en"],
                  log_level=logging.INFO) -> None:
 
         # Paths
         self.pdf_dir = pdf_dir
-        self.models_dir = models_dir
+        self.inputs_dir = inputs_dir
+        self.models_dir = os.path.join(inputs_dir, "models")
         self.outputs_dir = outputs_dir
+
+        self.log_path = "basic.log"
+
+        # Classes
+        self.__page_classes = None
+        self.__question_classes = None
 
         # Language
         self.langs = langs
@@ -46,19 +53,20 @@ class TestExtractor:
         self.cur_year = 0
         self.cur_option = 0
         self.cur_part = ""
+        self.cur_page = ""
 
     def __load_models(self) -> None:
         # YOLO models
-        self.page_det_model = YOLO(os.path.join(self.models_dir, "page.pt"))
-        self.question_det_model = YOLO(
+        self.page_seg_model = YOLO(os.path.join(self.models_dir, "page.pt"))
+        self.question_seg_model = YOLO(
             os.path.join(self.models_dir, "question.pt"))
 
-        # Surya models
-        self.text_det_processor = load_text_det_processor()
-        self.text_det_model = load_text_det_model()
+        # # Surya models
+        # self.text_det_processor = load_text_det_processor()
+        # self.text_det_model = load_text_det_model()
 
-        self.ocr_rec_processor = load_ocr_rec_processor()
-        self.ocr_rec_model = load_ocr_rec_model()
+        # self.ocr_rec_processor = load_ocr_rec_processor()
+        # self.ocr_rec_model = load_ocr_rec_model()
 
         logging.debug("All models and processors were loaded.")
 
@@ -66,8 +74,23 @@ class TestExtractor:
         logging.basicConfig(level=log_level,
                             format="%(asctime)s %(levelname)s %(message)s",
                             datefmt="%d/%m/%Y %H:%M:%S",
-                            filename="basic.log")
+                            filename=self.log_path)
         logging.info("Logging is configured.")
+
+    @property
+    def page_classes(self) -> list[str]:
+        if self.__page_classes is None:
+            self.__page_classes = list(self.page_seg_model.names.values())
+
+        return self.__page_classes
+
+    @property
+    def question_classes(self) -> list[str]:
+        if self.__question_classes is None:
+            self.__question_classes = list(
+                self.question_seg_model.names.values())
+
+        return self.__question_classes
 
     def __get_page_image(self,
                          page: pdfium.PdfPage,
@@ -120,23 +143,33 @@ class TestExtractor:
                                              resize=True)
 
         # Make predictions and retrieve polygons and labels
-        results = self.page_det_model.predict(source=image,
+        results = self.page_seg_model.predict(source=image,
                                               verbose=True)
 
         polygons = [ann.astype(int) for ann in results[0].masks.xy]
         labels = [results[0].names[i.item()] for i in results[0].boxes.cls]
 
-        preds = {}
+        # Write predictions to dict
+        preds = {i: [] for i in self.page_classes}
 
-        for i in range(len(labels)):
-            preds.setdefault(labels[i], []).append(polygons[i])
+        for label, polygon in zip(labels, polygons):
+            preds[label].append(polygon)
 
         # Postprocess image
         image = self.image_processor.process(image=image,
                                              scan_type="color",
                                              remove_ink=True)
 
+        logging.debug(f"Page was predicted with classes {
+                      [cl for cl in preds.keys() if preds[cl] is not []]}.")
+
         return image, preds
+
+    def __update_option(self) -> None:
+        pass
+
+    def __update_part(self) -> None:
+        pass
 
     def __predict_questions(self) -> None:
         pass
@@ -154,6 +187,11 @@ class TestExtractor:
 
                 # Predict page
                 page_image, page_preds = self.__predict_page(image=page_image)
+                print(page_preds)
+
+                # Update option and part
+                self.__update_option()
+                self.__update_part()
 
                 # Predict questions
 
