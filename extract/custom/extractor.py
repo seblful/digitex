@@ -3,6 +3,9 @@ import logging
 
 from PIL import Image
 
+import numpy as np
+import cv2
+
 import pypdfium2 as pdfium
 
 from ultralytics import YOLO
@@ -38,6 +41,11 @@ class TestExtractor:
 
         # Load models and processors
         self.__load_models()
+
+        # Parsing info
+        self.cur_year = 0
+        self.cur_option = 0
+        self.cur_part = ""
 
     def __load_models(self) -> None:
         # YOLO models
@@ -75,6 +83,35 @@ class TestExtractor:
 
         return image
 
+    @staticmethod
+    def crop_polygon(img: np.array,
+                     polygon: list[np.array]) -> Image.Image:
+
+        # Get bounding rectangle
+        x, y, w, h = cv2.boundingRect(polygon)
+
+        # Crop image to bounding rectangle
+        cropped_img = img[y:y+h, x:x+w].copy()
+
+        # Adjust polygon coordinates to cropped image space
+        polygon = polygon - np.array([x, y])
+
+        # Create mask
+        mask = np.zeros(cropped_img.shape[:2], dtype=np.uint8)
+        cv2.drawContours(mask, [polygon], -1, 255, -1, cv2.LINE_AA)
+
+        # Apply mask to image
+        masked = cv2.bitwise_and(cropped_img, cropped_img, mask=mask)
+
+        # Create white background
+        bg = np.full_like(cropped_img, 255, dtype=np.uint8)
+        bg = cv2.bitwise_and(bg, bg, mask=~mask)
+
+        # Combine background and result
+        final = cv2.add(bg, masked)
+
+        return Image.fromarray(final)
+
     def __predict_page(self,
                        image: Image) -> tuple[Image.Image, list, list]:
         # Preprocess image
@@ -89,12 +126,20 @@ class TestExtractor:
         polygons = [ann.astype(int) for ann in results[0].masks.xy]
         labels = [results[0].names[i.item()] for i in results[0].boxes.cls]
 
+        preds = {}
+
+        for i in range(len(labels)):
+            preds.setdefault(labels[i], []).append(polygons[i])
+
         # Postprocess image
         image = self.image_processor.process(image=image,
                                              scan_type="color",
                                              remove_ink=True)
 
-        return image, polygons, labels
+        return image, preds
+
+    def __predict_questions(self) -> None:
+        pass
 
     def extract(self) -> None:
         # Iterate through each pdf
@@ -108,8 +153,7 @@ class TestExtractor:
                 page_image = self.__get_page_image(pdf_page)
 
                 # Predict page
-                page_image, page_polygons, page_labels = self.__predict_page(
-                    image=page_image)
+                page_image, page_preds = self.__predict_page(image=page_image)
 
                 # Predict questions
 
