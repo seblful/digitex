@@ -14,6 +14,8 @@ from surya.model.detection.model import load_model as load_text_det_model, load_
 from surya.model.recognition.processor import load_processor as load_ocr_rec_processor
 from surya.model.recognition.model import load_model as load_ocr_rec_model
 
+from surya.ocr import run_ocr
+
 from modules.processors import ImageProcessor
 
 
@@ -61,12 +63,12 @@ class TestExtractor:
         self.question_seg_model = YOLO(
             os.path.join(self.models_dir, "question.pt"))
 
-        # # Surya models
-        # self.text_det_processor = load_text_det_processor()
-        # self.text_det_model = load_text_det_model()
+        # Surya models
+        self.text_det_processor = load_text_det_processor()
+        self.text_det_model = load_text_det_model()
 
-        # self.ocr_rec_processor = load_ocr_rec_processor()
-        # self.ocr_rec_model = load_ocr_rec_model()
+        self.ocr_rec_processor = load_ocr_rec_processor()
+        self.ocr_rec_model = load_ocr_rec_model()
 
         logging.debug("All models and processors were loaded.")
 
@@ -106,9 +108,26 @@ class TestExtractor:
 
         return image
 
+    def recognize_text(self,
+                       images: list[Image.Image]):
+
+        ocr_result = run_ocr(images=images,
+                             langs=[self.langs for _ in range(len(images))],
+                             det_model=self.text_det_model,
+                             det_processor=self.text_det_processor,
+                             rec_model=self.ocr_rec_model,
+                             rec_processor=self.ocr_rec_processor)
+
+        for res in ocr_result:
+            for det_res in res.text_lines:
+                print(det_res.text)
+
     @staticmethod
-    def crop_polygon(img: np.array,
-                     polygon: list[np.array]) -> Image.Image:
+    def crop_polygon(image: Image.Image,
+                     polygon: np.array) -> Image.Image:
+
+        # Convert image to array
+        img = np.array(image)
 
         # Get bounding rectangle
         x, y, w, h = cv2.boundingRect(polygon)
@@ -135,8 +154,19 @@ class TestExtractor:
 
         return Image.fromarray(final)
 
+    @staticmethod
+    def crop_images(base_image: Image.Image,
+                    preds: list[np.array]) -> list[Image.Image]:
+        crop_images = []
+        for pred in preds:
+            crop_image = TestExtractor.crop_polygon(image=base_image,
+                                                    polygon=pred)
+            crop_images.append(crop_image)
+
+        return crop_images
+
     def __predict_page(self,
-                       image: Image) -> tuple[Image.Image, list, list]:
+                       image: Image.Image) -> tuple[Image.Image, list, list]:
         # Preprocess image
         image = self.image_processor.process(image=image,
                                              scan_type="color",
@@ -165,11 +195,20 @@ class TestExtractor:
 
         return image, preds
 
-    def __update_option(self) -> None:
-        pass
+    def __update_option(self,
+                        page_image: Image.Image,
+                        preds: list[np.array]) -> None:
+        options = []
+        option_images = TestExtractor.crop_images(page_image, preds)
 
-    def __update_part(self) -> None:
-        pass
+        self.recognize_text(option_images)
+
+    def __update_part(self, page_image: Image.Image,
+                      preds: list[np.array]) -> None:
+        parts = []
+        part_images = TestExtractor.crop_images(page_image, preds)
+
+        self.recognize_text(part_images)
 
     def __predict_questions(self) -> None:
         pass
@@ -187,13 +226,13 @@ class TestExtractor:
 
                 # Predict page
                 page_image, page_preds = self.__predict_page(image=page_image)
-                print(page_preds)
 
                 # Update option and part
-                self.__update_option()
-                self.__update_part()
+                self.__update_option(page_image, page_preds["option"])
+                self.__update_part(page_image, page_preds["part"])
 
                 # Predict questions
+                self.__predict_questions()
 
                 break
 
