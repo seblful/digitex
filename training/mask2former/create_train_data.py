@@ -31,12 +31,6 @@ def main() -> None:
                                                  yolo_model_path=YOLO_PAGE_PATH,
                                                  num_images=100)
 
-    # # Create data from predictions
-    # data_creator.create_question_train_data_pred(raw_dir=RAW_DIR,
-    #                                              train_dir=TRAIN_DIR,
-    #                                              yolo_model_path=YOLO_MODEL_PATH,
-    #                                              num_images=100)
-
 
 if __name__ == "__main__":
     main()
