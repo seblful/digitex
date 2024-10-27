@@ -10,6 +10,10 @@ import pypdfium2 as pdfium
 
 from ultralytics import YOLO
 
+from transformers import PreTrainedModel, SegformerImageProcessor
+from surya.model.detection.model import load_model as load_text_det_model, load_processor as load_text_det_processor
+from surya.detection import batch_text_detection
+
 from modules.processors import ImageProcessor
 
 
@@ -163,7 +167,8 @@ class DataCreator:
 
     @staticmethod
     def __get_question_points(label_path: str,
-                              classes: Dict[int, str]) -> List[Tuple[float, float]]:
+                              classes: Dict[int, str],
+                              target_classes: list[str] = ["question"]) -> List[Tuple[float, float]]:
         # Create list to store all points with question
         all_points = []
 
@@ -175,8 +180,8 @@ class DataCreator:
                 label = int(data[0])
                 points = [float(point) for point in data[1:]]
 
-                # If label is question, store in the list
-                if classes[label] == "question":
+                # If label is in targat_classes, store in the list
+                if classes[label] in target_classes:
                     all_points.append(points)
 
         return all_points
@@ -225,6 +230,29 @@ class DataCreator:
                                     cv2.BORDER_CONSTANT, value=[255, 255, 255])
 
         return Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
+
+    @staticmethod
+    def __detect_text(image: Image.Image,
+                      det_processor: SegformerImageProcessor,
+                      det_model: PreTrainedModel) -> list[Image.Image]:
+        det_result = batch_text_detection(images=[image],
+                                          processor=det_processor,
+                                          model=det_model)
+        # Convert image to numpy
+        img = np.array(image)
+
+        # Iterate through detected bboxes and add cropped images to list
+        det_images = []
+        for polygon_box in det_result[0].bboxes:
+            x_min, y_min, x_max, y_max = polygon_box.bbox
+
+            det_img = img[y_min:y_max, x_min:x_max]
+
+            if not np.sum(det_img) == 0:
+                det_image = Image.fromarray(det_img)
+                det_images.append(det_image)
+
+        return det_images
 
     def create_question_train_data_raw(self,
                                        page_raw_dir: str,
@@ -335,3 +363,78 @@ class DataCreator:
                 rand_image.save(save_image_path, "JPEG")
                 num_saved_images += 1
                 print(f"It was saved {num_saved_images}/{num_images} images.")
+
+    def create_ocr_train_data_page_raw(self,
+                                       page_raw_dir: str,
+                                       train_dir: str,
+                                       num_images: int) -> None:
+        # Load detection model and preprocessor
+        text_det_processor = load_text_det_processor()
+        text_det_model = load_text_det_model()
+
+        # Paths
+        images_dir = os.path.join(page_raw_dir, "images")
+        labels_dir = os.path.join(page_raw_dir, "labels")
+        classes_path = os.path.join(page_raw_dir, "classes.txt")
+
+        # Classes
+        classes = DataCreator.__read_classes_file(classes_path)
+
+        # Images and labels
+        images_labels = DataCreator.__create_images_labels_dict(images_dir=images_dir,
+                                                                labels_dir=labels_dir)
+
+        # Images listdir
+        images_listdir = os.listdir(images_dir)
+
+        # Counter for saved images
+        num_saved_images = 0
+
+        while num_images != num_saved_images:
+            rand_image_name = random.choice(images_listdir)
+            rand_image_path = os.path.join(images_dir, rand_image_name)
+            rand_label_name = images_labels[rand_image_name]
+            rand_label_path = os.path.join(labels_dir, rand_label_name)
+
+            # Raise exception of label name is None
+            if rand_label_name is None:
+                raise ValueError("Label must not be None.")
+
+            # Extract random points and crop corresponding image
+            all_points = DataCreator.__get_question_points(label_path=rand_label_path,
+                                                           classes=classes,
+                                                           target_classes=["option", "part"])
+
+            if not all_points:
+                continue
+
+            rand_points_index, rand_points = DataCreator.__get_random_points(
+                all_points=all_points)
+
+            # Crop question image and add borders
+            rand_image = Image.open(rand_image_path)
+            rand_image = DataCreator.__crop_question_image(image=rand_image,
+                                                           points=rand_points,
+                                                           offset=0)
+            # Detect text
+            rand_subimages = DataCreator.__detect_text(image=rand_image,
+                                                       det_processor=text_det_processor,
+                                                       det_model=text_det_model)
+
+            for rand_subimage_index, rand_subimage in enumerate(rand_subimages):
+
+                # Save image
+                save_image_name = os.path.splitext(rand_image_name)[0]
+                save_image_name = f"{save_image_name}_page_{
+                    rand_points_index}_{rand_subimage_index}.jpg"
+                save_image_path = os.path.join(train_dir, save_image_name)
+
+                if not os.path.exists(save_image_path):
+                    rand_subimage.save(save_image_path, "JPEG")
+
+            num_saved_images += 1
+            print(f"It was saved {
+                num_saved_images}/{num_images} images.")
+
+    def create_ocr_train_data_pred() -> None:
+        pass
