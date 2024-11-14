@@ -17,71 +17,67 @@ from surya.detection import batch_text_detection
 from modules.processors import ImageProcessor
 
 
+class PDFHandler:
+    @staticmethod
+    def create_pdf(images: List[Image.Image], output_path: str) -> None:
+        pdf = pdfium.PdfDocument.new()
+
+        for image in images:
+            bitmap = pdfium.PdfBitmap.from_pil(image)
+            pdf_image = pdfium.PdfImage.new(pdf)
+            pdf_image.set_bitmap(bitmap)
+
+            width, height = pdf_image.get_size()
+            matrix = pdfium.PdfMatrix().scale(width, height)
+            pdf_image.set_matrix(matrix)
+
+            page = pdf.new_page(width, height)
+            page.insert_obj(pdf_image)
+            page.gen_content()
+
+            bitmap.close()
+
+        pdf.save(output_path, version=17)
+
+    @staticmethod
+    def get_page_image(page: pdfium.PdfPage, scale: int = 3) -> Image.Image:
+        bitmap = page.render(scale=scale, rotation=0)
+        image = bitmap.to_pil()
+        return image if image.mode == 'RGB' else image.convert('RGB')
+
+
+class ImageUtils:
+    @staticmethod
+    def crop_image(image: Image.Image, points: List[float], offset: float = 0.025) -> Image.Image:
+        img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+        height, width = img.shape[:2]
+
+        pts = np.array([(int(x * width), int(y * height)) for x, y in points])
+        rect = cv2.boundingRect(pts)
+        x, y, w, h = rect
+        img = img[y:y+h, x:x+w].copy()
+
+        pts = pts - pts.min(axis=0)
+        mask = np.zeros(img.shape[:2], np.uint8)
+        cv2.drawContours(mask, [pts], -1, (255, 255, 255), -1, cv2.LINE_AA)
+
+        result = cv2.bitwise_and(img, img, mask=mask)
+        bg = np.ones_like(img, np.uint8)*255
+        cv2.bitwise_not(bg, bg, mask=mask)
+        result = bg + result
+
+        border = int(height*offset)
+        result = cv2.copyMakeBorder(result, border, border, border, border,
+                                    cv2.BORDER_CONSTANT, value=[255, 255, 255])
+
+        return Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
+
+
 class DataCreator:
     def __init__(self) -> None:
 
         # Image processor
         self.image_processor = ImageProcessor()
-
-    def create_pdf_from_images(self,
-                               image_dir: str,
-                               raw_dir: str,
-                               process: bool = False) -> None:
-        # Create new pdf object
-        pdf = pdfium.PdfDocument.new()
-
-        # Iterate through images
-        for image_name in sorted(os.listdir(image_dir),
-                                 key=lambda x: int(x.split("_")[-1].split(".")[0])):
-            # Load image
-            image_path = os.path.join(image_dir, image_name)
-            image = Image.open(image_path)
-
-            # Process image
-            if process is True:
-                image = self.image_processor.process(
-                    image=image, scan_type="color")
-
-            bitmap = pdfium.PdfBitmap.from_pil(image)
-            pdf_image = pdfium.PdfImage.new(pdf)
-
-            pdf_image.set_bitmap(bitmap)
-
-            image.close()
-            bitmap.close()
-
-            # Create, scale and set_matrix
-            width, height = pdf_image.get_size()
-            matrix = pdfium.PdfMatrix().scale(width, height)
-            pdf_image.set_matrix(matrix)
-
-            # Create page and insert image to it
-            page = pdf.new_page(width, height)
-            page.insert_obj(pdf_image)
-            page.gen_content()
-
-        # Save pdf
-        images_dir_name = os.path.basename(image_dir)
-        raw_dir_name = os.path.basename(raw_dir)
-        pdf_name = images_dir_name + " " + raw_dir_name + ".pdf"
-        pdf_path = os.path.join(raw_dir, pdf_name)
-        pdf.save(pdf_path, version=17)
-
-    def __get_page_image(self,
-                         page: pdfium.PdfPage,
-                         scale: int = 3) -> Image.Image:
-        # Get image from pdf
-        bitmap = page.render(scale=scale,
-                             rotation=0)
-        image = bitmap.to_pil()
-
-        # Check image mode and convert if not RGB
-        image_mode = image.mode
-
-        if image_mode != 'RGB':
-            image = image.convert('RGB')
-
-        return image
 
     def __get_random_image_from_pdf(self,
                                     pdf_listdir: list[str],
@@ -195,41 +191,6 @@ class DataCreator:
         rand_points = list(zip(rand_points[::2], rand_points[1::2]))
 
         return rand_points_index, rand_points
-
-    @staticmethod
-    def __crop_image(image: Image.Image,
-                     points: List[float],
-                     offset: float = 0.025) -> Image.Image:
-        # Open image
-        img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        height, width = img.shape[:2]
-
-        # Convert points
-        pts = np.array([(int(x * width), int(y * height)) for x, y in points])
-
-        # Find rect of polygon
-        rect = cv2.boundingRect(pts)
-        x, y, w, h = rect
-        img = img[y:y+h, x:x+w].copy()
-
-        # Create mask
-        pts = pts - pts.min(axis=0)
-        mask = np.zeros(img.shape[:2], np.uint8)
-        cv2.drawContours(mask, [pts], -1, (255, 255, 255), -1, cv2.LINE_AA)
-
-        # Bitwise and with mask
-        result = cv2.bitwise_and(img, img, mask=mask)
-
-        # Add white background
-        bg = np.ones_like(img, np.uint8)*255
-        cv2.bitwise_not(bg, bg, mask=mask)
-        result = bg + result
-
-        # Add frame
-        result = cv2.copyMakeBorder(result, int(height*offset), int(height*offset), int(width*offset), int(width*offset),
-                                    cv2.BORDER_CONSTANT, value=[255, 255, 255])
-
-        return Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
 
     @staticmethod
     def __detect_text(image: Image.Image,
