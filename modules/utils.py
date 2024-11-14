@@ -1,7 +1,7 @@
 import os
 from PIL import Image
 
-from data_creator_new import PDFHandler
+from data_creator import PDFHandler
 from processors import ImageProcessor
 
 
