@@ -73,6 +73,60 @@ class ImageUtils:
         return Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
 
 
+class LabelHandler:
+    def _read_classes(self, classes_path: str) -> Dict[int, str]:
+        with open(classes_path, 'r') as f:
+            classes = [line.strip() for line in f.readlines()]
+            return {i: cl for i, cl in enumerate(classes)}
+
+    def _read_points(self, label_path: str) -> Dict[int, list[list[float]]]:
+        points_dict = dict()
+        with open(label_path, "r") as f:
+            for line in f:
+                # Get points
+                data = line.strip().split()
+                class_idx = int(data[0])
+                points = [float(point) for point in data[1:]]
+
+                # Append points to the list in dict
+                if class_idx not in points_dict:
+                    points_dict[class_idx] = []
+                points_dict[class_idx].append(points)
+
+        return points_dict
+
+    def _get_random_points(self,
+                           classes_dict: Dict[int, str],
+                           points_dict: Dict[int, list],
+                           target_classes: List[str]) -> List[List[float]]:
+        # Create subset of dict with target classes
+        points_dict = {k: points_dict[k]
+                       for k in points_dict if classes_dict[k] in target_classes}
+
+        # Get random label
+        rand_class_idx = random.choice(points_dict.keys())
+        rand_label_name = classes_dict[rand_class_idx]
+
+        # Get random points
+        rand_points_idx = random.randint(
+            0, len(points_dict[rand_class_idx]))
+        rand_points = points_dict[rand_class_idx][rand_points_idx]
+
+        return rand_label_name, rand_points_idx, rand_points
+
+    def get_points(self,
+                   classes_path: str,
+                   label_path: str,
+                   target_classes: List[str]) -> List[float]:
+        classes_dict = self._read_classes(classes_path)
+        points_dict = self._read_points(label_path)
+        rand_label_name, rand_points_idx, rand_points = self._get_random_points(classes_dict=classes_dict,
+                                                                                points_dict=points_dict,
+                                                                                target_classes=target_classes)
+
+        return rand_label_name, rand_points_idx, rand_points
+
+
 class DataCreator:
     def __init__(self) -> None:
 
@@ -134,15 +188,6 @@ class DataCreator:
             rand_image.close()
 
     @staticmethod
-    def __read_classes_file(classes_path) -> Dict[int, str]:
-        with open(classes_path, 'r') as classes_file:
-            # Set the names of the classes
-            classes = [i.split('\n')[0] for i in classes_file.readlines()]
-            classes = {i: cl for i, cl in enumerate(classes)}
-
-        return classes
-
-    @staticmethod
     def __create_images_labels_dict(images_dir: str,
                                     labels_dir: str) -> Dict[str, str]:
         # List of all images and labels in directory
@@ -160,37 +205,6 @@ class DataCreator:
                 images_labels[image_name] = None
 
         return images_labels
-
-    @staticmethod
-    def __get_question_points(label_path: str,
-                              classes: Dict[int, str],
-                              target_classes: list[str] = ["question"]) -> List[Tuple[float, float]]:
-        # Create list to store all points with question
-        all_points = []
-
-        # Open label
-        with open(label_path, "r") as file:
-            for line in file.readlines():
-                # Retrieve data
-                data = line.strip("\n").split()
-                label = int(data[0])
-                points = [float(point) for point in data[1:]]
-
-                # If label is in targat_classes, store in the list
-                if classes[label] in target_classes:
-                    all_points.append(points)
-
-        return all_points
-
-    @staticmethod
-    def __get_random_points(all_points: List[List[float]]) -> Tuple[int | List[Tuple[float]]]:
-        # Find random point
-        rand_points_index = random.randint(0, len(all_points) - 1)
-        rand_points = all_points[rand_points_index]
-        # Convert points to tuples
-        rand_points = list(zip(rand_points[::2], rand_points[1::2]))
-
-        return rand_points_index, rand_points
 
     @staticmethod
     def __detect_text(image: Image.Image,
