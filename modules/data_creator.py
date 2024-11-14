@@ -11,8 +11,8 @@ import pypdfium2 as pdfium
 from ultralytics import YOLO
 
 from transformers import PreTrainedModel, SegformerImageProcessor
-from surya.model.detection.model import load_model as load_text_det_model, load_processor as load_text_det_processor
-from surya.detection import batch_text_detection
+# from surya.model.detection.model import load_model as load_text_det_model, load_processor as load_text_det_processor
+# from surya.detection import batch_text_detection
 
 from modules.processors import ImageProcessor
 
@@ -39,11 +39,33 @@ class PDFHandler:
 
         pdf.save(output_path, version=17)
 
-    @staticmethod
-    def get_page_image(page: pdfium.PdfPage, scale: int = 3) -> Image.Image:
+    def get_page_image(self,
+                       page: pdfium.PdfPage,
+                       scale: int = 3) -> Image.Image:
         bitmap = page.render(scale=scale, rotation=0)
         image = bitmap.to_pil()
         return image if image.mode == 'RGB' else image.convert('RGB')
+
+    def get_random_image(self,
+                         pdf_listdir: List[str],
+                         raw_dir: str) -> Tuple[str, int, Image.Image]:
+        # Take random pdf
+        rand_pdf_name = random.choice(pdf_listdir)
+        rand_pdf_path = os.path.join(raw_dir, rand_pdf_name)
+        rand_pdf_obj = pdfium.PdfDocument(rand_pdf_path)
+
+        # Take random pdf page and image
+        rand_page_idx = random.randint(0, len(rand_pdf_obj) - 1)
+        rand_page = rand_pdf_obj[rand_page_idx]
+
+        # Get random image and name
+        rand_image = self.get_page_image(page=rand_page)
+        rand_image_name = os.path.splitext(rand_pdf_name)[0]
+
+        # Close pdf file-object
+        rand_pdf_obj.close()
+
+        return rand_image_name, rand_page_idx, rand_image
 
 
 class ImageUtils:
@@ -129,34 +151,29 @@ class LabelHandler:
 
 class DataCreator:
     def __init__(self) -> None:
-
-        # Image processor
         self.image_processor = ImageProcessor()
+        self.pdf_handler = PDFHandler()
+        self.image_utils = ImageUtils()
+        self.label_handler = LabelHandler()
 
-    def __get_random_image_from_pdf(self,
-                                    pdf_listdir: list[str],
-                                    raw_dir: str,
-                                    train_dir: str) -> Tuple[Image.Image | str]:
-        # Take random pdf
-        rand_pdf_name = random.choice(pdf_listdir)
-        rand_pdf_path = os.path.join(raw_dir, rand_pdf_name)
-        rand_pdf_obj = pdfium.PdfDocument(rand_pdf_path)
+    @ staticmethod
+    def _create_images_labels_dict(images_dir: str,
+                                   labels_dir: str) -> Dict[str, str]:
+        # List of all images and labels in directory
+        images_listdir = os.listdir(images_dir)
+        labels_listdir = os.listdir(labels_dir)
 
-        # Take random pdf page and image
-        rand_page_ind = random.randint(0, len(rand_pdf_obj) - 1)
-        rand_page = rand_pdf_obj[rand_page_ind]
+        # Create a dictionary to store the images and labels names
+        images_labels = {}
+        for image_name in images_listdir:
+            label_name = os.path.splitext(image_name)[0] + '.txt'
 
-        # Get random image and preprocess it
-        rand_image = self.__get_page_image(page=rand_page)
+            if label_name in labels_listdir:
+                images_labels[image_name] = label_name
+            else:
+                images_labels[image_name] = None
 
-        save_pdf_name = os.path.splitext(rand_pdf_name)[0]
-        rand_image_name = f"{save_pdf_name}_{rand_page_ind}.jpg"
-        rand_image_path = os.path.join(train_dir, rand_image_name)
-
-        # Close pdf file-object
-        rand_pdf_obj.close()
-
-        return rand_image, rand_image_path
+        return images_labels
 
     def create_yolo_train_data(self,
                                raw_dir: str,
@@ -176,6 +193,7 @@ class DataCreator:
             rand_image, rand_image_path = self.__get_random_image_from_pdf(pdf_listdir=pdf_listdir,
                                                                            raw_dir=raw_dir,
                                                                            train_dir=train_dir)
+
             # Process image
             rand_image = self.image_processor.process(image=rand_image,
                                                       scan_type=scan_type)
@@ -186,48 +204,6 @@ class DataCreator:
                 print(f"It was saved {num_saved_images}/{num_images} images.")
 
             rand_image.close()
-
-    @staticmethod
-    def __create_images_labels_dict(images_dir: str,
-                                    labels_dir: str) -> Dict[str, str]:
-        # List of all images and labels in directory
-        images_listdir = os.listdir(images_dir)
-        labels_listdir = os.listdir(labels_dir)
-
-        # Create a dictionary to store the images and labels names
-        images_labels = {}
-        for image_name in images_listdir:
-            label_name = os.path.splitext(image_name)[0] + '.txt'
-
-            if label_name in labels_listdir:
-                images_labels[image_name] = label_name
-            else:
-                images_labels[image_name] = None
-
-        return images_labels
-
-    @staticmethod
-    def __detect_text(image: Image.Image,
-                      det_processor: SegformerImageProcessor,
-                      det_model: PreTrainedModel) -> list[Image.Image]:
-        det_result = batch_text_detection(images=[image],
-                                          processor=det_processor,
-                                          model=det_model)
-        # Convert image to numpy
-        img = np.array(image)
-
-        # Iterate through detected bboxes and add cropped images to list
-        det_images = []
-        for polygon_box in det_result[0].bboxes:
-            x_min, y_min, x_max, y_max = polygon_box.bbox
-
-            det_img = img[y_min:y_max, x_min:x_max]
-
-            if not np.sum(det_img) == 0:
-                det_image = Image.fromarray(det_img)
-                det_images.append(det_image)
-
-        return det_images
 
     def create_question_train_data_raw(self,
                                        page_raw_dir: str,
@@ -339,197 +315,197 @@ class DataCreator:
                 num_saved_images += 1
                 print(f"It was saved {num_saved_images}/{num_images} images.")
 
-    def create_ocr_train_data_raw(self,
-                                  raw_dir: str,
-                                  train_dir: str,
-                                  target_classes: list[str],
-                                  num_images: int) -> None:
-        # Load detection model and preprocessor
-        text_det_processor = load_text_det_processor()
-        text_det_model = load_text_det_model()
+    # def create_ocr_train_data_raw(self,
+    #                               raw_dir: str,
+    #                               train_dir: str,
+    #                               target_classes: list[str],
+    #                               num_images: int) -> None:
+    #     # Load detection model and preprocessor
+    #     text_det_processor = load_text_det_processor()
+    #     text_det_model = load_text_det_model()
 
-        # Paths
-        images_dir = os.path.join(raw_dir, "images")
-        labels_dir = os.path.join(raw_dir, "labels")
-        classes_path = os.path.join(raw_dir, "classes.txt")
+    #     # Paths
+    #     images_dir = os.path.join(raw_dir, "images")
+    #     labels_dir = os.path.join(raw_dir, "labels")
+    #     classes_path = os.path.join(raw_dir, "classes.txt")
 
-        # Classes
-        classes = DataCreator.__read_classes_file(classes_path)
+    #     # Classes
+    #     classes = DataCreator.__read_classes_file(classes_path)
 
-        # Images and labels
-        images_labels = DataCreator.__create_images_labels_dict(images_dir=images_dir,
-                                                                labels_dir=labels_dir)
+    #     # Images and labels
+    #     images_labels = DataCreator.__create_images_labels_dict(images_dir=images_dir,
+    #                                                             labels_dir=labels_dir)
 
-        # Images listdir
-        images_listdir = os.listdir(images_dir)
+    #     # Images listdir
+    #     images_listdir = os.listdir(images_dir)
 
-        # Counter for saved images
-        num_saved_images = 0
+    #     # Counter for saved images
+    #     num_saved_images = 0
 
-        while num_images != num_saved_images:
-            rand_image_name = random.choice(images_listdir)
-            rand_image_path = os.path.join(images_dir, rand_image_name)
-            rand_label_name = images_labels[rand_image_name]
-            rand_label_path = os.path.join(labels_dir, rand_label_name)
+    #     while num_images != num_saved_images:
+    #         rand_image_name = random.choice(images_listdir)
+    #         rand_image_path = os.path.join(images_dir, rand_image_name)
+    #         rand_label_name = images_labels[rand_image_name]
+    #         rand_label_path = os.path.join(labels_dir, rand_label_name)
 
-            # Raise exception of label name is None
-            if rand_label_name is None:
-                raise ValueError("Label must not be None.")
+    #         # Raise exception of label name is None
+    #         if rand_label_name is None:
+    #             raise ValueError("Label must not be None.")
 
-            # Extract random points and crop corresponding image
-            all_points = DataCreator.__get_question_points(label_path=rand_label_path,
-                                                           classes=classes,
-                                                           target_classes=target_classes)
+    #         # Extract random points and crop corresponding image
+    #         all_points = DataCreator.__get_question_points(label_path=rand_label_path,
+    #                                                        classes=classes,
+    #                                                        target_classes=target_classes)
 
-            if not all_points:
-                continue
+    #         if not all_points:
+    #             continue
 
-            rand_points_index, rand_points = DataCreator.__get_random_points(
-                all_points=all_points)
+    #         rand_points_index, rand_points = DataCreator.__get_random_points(
+    #             all_points=all_points)
 
-            # Crop question image and add borders
-            rand_image = Image.open(rand_image_path)
-            rand_image = DataCreator.__crop_image(image=rand_image,
-                                                  points=rand_points,
-                                                  offset=0)
-            # Detect text
-            rand_subimages = DataCreator.__detect_text(image=rand_image,
-                                                       det_processor=text_det_processor,
-                                                       det_model=text_det_model)
+    #         # Crop question image and add borders
+    #         rand_image = Image.open(rand_image_path)
+    #         rand_image = DataCreator.__crop_image(image=rand_image,
+    #                                               points=rand_points,
+    #                                               offset=0)
+    #         # Detect text
+    #         rand_subimages = DataCreator.__detect_text(image=rand_image,
+    #                                                    det_processor=text_det_processor,
+    #                                                    det_model=text_det_model)
 
-            for rand_subimage_index, rand_subimage in enumerate(rand_subimages):
-                # Save image
-                save_image_name = os.path.splitext(rand_image_name)[0]
-                save_image_name = f"{save_image_name}_{
-                    rand_points_index}_raw_{rand_subimage_index}.jpg"
-                save_image_path = os.path.join(train_dir, save_image_name)
+    #         for rand_subimage_index, rand_subimage in enumerate(rand_subimages):
+    #             # Save image
+    #             save_image_name = os.path.splitext(rand_image_name)[0]
+    #             save_image_name = f"{save_image_name}_{
+    #                 rand_points_index}_raw_{rand_subimage_index}.jpg"
+    #             save_image_path = os.path.join(train_dir, save_image_name)
 
-                if not os.path.exists(save_image_path):
-                    rand_subimage.save(save_image_path, "JPEG")
+    #             if not os.path.exists(save_image_path):
+    #                 rand_subimage.save(save_image_path, "JPEG")
 
-            # Count images
-            if len(rand_subimages) > 0:
-                num_saved_images += 1
-                print(f"It was saved {
-                    num_saved_images}/{num_images} images.")
+    #         # Count images
+    #         if len(rand_subimages) > 0:
+    #             num_saved_images += 1
+    #             print(f"It was saved {
+    #                 num_saved_images}/{num_images} images.")
 
-    def create_ocr_train_data_pred(self,
-                                   raw_dir: str,
-                                   train_dir: str,
-                                   yolo_page_model_path: str,
-                                   yolo_question_model_path: str,
-                                   num_images: int) -> None:
-        # Load model and labels
-        text_det_processor = load_text_det_processor()
-        text_det_model = load_text_det_model()
-        page_seg_model = YOLO(yolo_page_model_path)
-        question_seg_model = YOLO(yolo_question_model_path)
-        page_labels = page_seg_model.names
-        question_labels = question_seg_model.names
+    # def create_ocr_train_data_pred(self,
+    #                                raw_dir: str,
+    #                                train_dir: str,
+    #                                yolo_page_model_path: str,
+    #                                yolo_question_model_path: str,
+    #                                num_images: int) -> None:
+    #     # Load model and labels
+    #     text_det_processor = load_text_det_processor()
+    #     text_det_model = load_text_det_model()
+    #     page_seg_model = YOLO(yolo_page_model_path)
+    #     question_seg_model = YOLO(yolo_question_model_path)
+    #     page_labels = page_seg_model.names
+    #     question_labels = question_seg_model.names
 
-        # Pdf listdir
-        pdf_listdir = [pdf for pdf in os.listdir(
-            raw_dir) if pdf.endswith('pdf')]
+    #     # Pdf listdir
+    #     pdf_listdir = [pdf for pdf in os.listdir(
+    #         raw_dir) if pdf.endswith('pdf')]
 
-        # Counter for saved images
-        num_saved_images = 0
+    #     # Counter for saved images
+    #     num_saved_images = 0
 
-        while num_images != num_saved_images:
-            # Get random image
-            rand_page_image, rand_image_path = self.__get_random_image_from_pdf(pdf_listdir=pdf_listdir,
-                                                                                raw_dir=raw_dir,
-                                                                                train_dir=train_dir)
+    #     while num_images != num_saved_images:
+    #         # Get random image
+    #         rand_page_image, rand_image_path = self.__get_random_image_from_pdf(pdf_listdir=pdf_listdir,
+    #                                                                             raw_dir=raw_dir,
+    #                                                                             train_dir=train_dir)
 
-            # Create list to store all points with question
-            all_page_points = []
-            pred_question_points = []
+    #         # Create list to store all points with question
+    #         all_page_points = []
+    #         pred_question_points = []
 
-            # Predict image and get points
-            page_result = page_seg_model.predict(
-                rand_page_image, verbose=False)[0]
+    #         # Predict image and get points
+    #         page_result = page_seg_model.predict(
+    #             rand_page_image, verbose=False)[0]
 
-            for page_box, page_points in zip(page_result.boxes, page_result.masks.xyn):
+    #         for page_box, page_points in zip(page_result.boxes, page_result.masks.xyn):
 
-                # Get points and label
-                page_points = page_points.reshape(-1).tolist()
-                page_label = page_labels[int(page_box.cls.item())]
+    #             # Get points and label
+    #             page_points = page_points.reshape(-1).tolist()
+    #             page_label = page_labels[int(page_box.cls.item())]
 
-                if page_label != "question":
-                    all_page_points.append(page_points)
-                else:
-                    pred_question_points.append(page_points)
+    #             if page_label != "question":
+    #                 all_page_points.append(page_points)
+    #             else:
+    #                 pred_question_points.append(page_points)
 
-            if not all_page_points:
-                continue
+    #         if not all_page_points:
+    #             continue
 
-            # Get random points
-            rand_page_index, rand_page_points = DataCreator.__get_random_points(
-                all_points=all_page_points)
-            _, pred_question_points = DataCreator.__get_random_points(
-                all_points=pred_question_points)
+    #         # Get random points
+    #         rand_page_index, rand_page_points = DataCreator.__get_random_points(
+    #             all_points=all_page_points)
+    #         _, pred_question_points = DataCreator.__get_random_points(
+    #             all_points=pred_question_points)
 
-            # Crop question image and add borders
-            rand_page_subimage = DataCreator.__crop_image(image=rand_page_image,
-                                                          points=rand_page_points,
-                                                          offset=0)
+    #         # Crop question image and add borders
+    #         rand_page_subimage = DataCreator.__crop_image(image=rand_page_image,
+    #                                                       points=rand_page_points,
+    #                                                       offset=0)
 
-            question_image_to_predict = DataCreator.__crop_image(image=rand_page_image,
-                                                                 points=pred_question_points)
+    #         question_image_to_predict = DataCreator.__crop_image(image=rand_page_image,
+    #                                                              points=pred_question_points)
 
-            # Predict questions
-            question_result = question_seg_model.predict(
-                question_image_to_predict, verbose=False)[0]
+    #         # Predict questions
+    #         question_result = question_seg_model.predict(
+    #             question_image_to_predict, verbose=False)[0]
 
-            all_question_points = []
+    #         all_question_points = []
 
-            for question_box, question_points in zip(question_result.boxes, question_result.masks.xyn):
+    #         for question_box, question_points in zip(question_result.boxes, question_result.masks.xyn):
 
-                # Get points and label
-                question_points = question_points.reshape(-1).tolist()
-                question_label = question_labels[int(question_box.cls.item())]
+    #             # Get points and label
+    #             question_points = question_points.reshape(-1).tolist()
+    #             question_label = question_labels[int(question_box.cls.item())]
 
-                if question_label != "image":
-                    all_question_points.append(question_points)
+    #             if question_label != "image":
+    #                 all_question_points.append(question_points)
 
-            if not all_question_points:
-                continue
+    #         if not all_question_points:
+    #             continue
 
-            # Get random points
-            rand_question_index, rand_question_points = DataCreator.__get_random_points(
-                all_points=all_question_points)
-            rand_question_image = DataCreator.__crop_image(image=question_image_to_predict,
-                                                           points=rand_question_points,
-                                                           offset=0)
+    #         # Get random points
+    #         rand_question_index, rand_question_points = DataCreator.__get_random_points(
+    #             all_points=all_question_points)
+    #         rand_question_image = DataCreator.__crop_image(image=question_image_to_predict,
+    #                                                        points=rand_question_points,
+    #                                                        offset=0)
 
-            # Detect text
-            rand_page_subimages = DataCreator.__detect_text(image=rand_page_subimage,
-                                                            det_processor=text_det_processor,
-                                                            det_model=text_det_model)
-            rand_question_subimages = DataCreator.__detect_text(image=rand_question_image,
-                                                                det_processor=text_det_processor,
-                                                                det_model=text_det_model)
+    #         # Detect text
+    #         rand_page_subimages = DataCreator.__detect_text(image=rand_page_subimage,
+    #                                                         det_processor=text_det_processor,
+    #                                                         det_model=text_det_model)
+    #         rand_question_subimages = DataCreator.__detect_text(image=rand_question_image,
+    #                                                             det_processor=text_det_processor,
+    #                                                             det_model=text_det_model)
 
-            # Save subimages
-            base_save_image_name = os.path.splitext(
-                os.path.basename(rand_image_path))[0]
-            for rand_subimage_index, rand_subimage in enumerate(rand_page_subimages):
-                save_image_name = f"{base_save_image_name}_pred_page_{
-                    rand_subimage_index}_{rand_page_index}.jpg"
-                save_image_path = os.path.join(train_dir, save_image_name)
+    #         # Save subimages
+    #         base_save_image_name = os.path.splitext(
+    #             os.path.basename(rand_image_path))[0]
+    #         for rand_subimage_index, rand_subimage in enumerate(rand_page_subimages):
+    #             save_image_name = f"{base_save_image_name}_pred_page_{
+    #                 rand_subimage_index}_{rand_page_index}.jpg"
+    #             save_image_path = os.path.join(train_dir, save_image_name)
 
-                if not os.path.exists(save_image_path):
-                    rand_subimage.save(save_image_path, "JPEG")
+    #             if not os.path.exists(save_image_path):
+    #                 rand_subimage.save(save_image_path, "JPEG")
 
-            for rand_subimage_index, rand_subimage in enumerate(rand_question_subimages):
-                save_image_name = f"{base_save_image_name}_pred_page_{
-                    rand_subimage_index}_{rand_question_index}.jpg"
-                save_image_path = os.path.join(train_dir, save_image_name)
+    #         for rand_subimage_index, rand_subimage in enumerate(rand_question_subimages):
+    #             save_image_name = f"{base_save_image_name}_pred_page_{
+    #                 rand_subimage_index}_{rand_question_index}.jpg"
+    #             save_image_path = os.path.join(train_dir, save_image_name)
 
-                if not os.path.exists(save_image_path):
-                    rand_subimage.save(save_image_path, "JPEG")
+    #             if not os.path.exists(save_image_path):
+    #                 rand_subimage.save(save_image_path, "JPEG")
 
-            # Count images
-            if len(rand_page_subimages) > 0:
-                num_saved_images += 1
-                print(f"It was saved {
-                    num_saved_images}/{num_images} images.")
+    #         # Count images
+    #         if len(rand_page_subimages) > 0:
+    #             num_saved_images += 1
+    #             print(f"It was saved {
+    #                 num_saved_images}/{num_images} images.")
