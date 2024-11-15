@@ -4,95 +4,14 @@ import os
 import random
 from PIL import Image
 
-import cv2
-import numpy as np
-import pypdfium2 as pdfium
-
 from ultralytics import YOLO
 
 from transformers import PreTrainedModel, SegformerImageProcessor
 # from surya.model.detection.model import load_model as load_text_det_model, load_processor as load_text_det_processor
 # from surya.detection import batch_text_detection
 
-from modules.processors import ImageProcessor
-
-
-class PDFHandler:
-    @staticmethod
-    def create_pdf(images: List[Image.Image], output_path: str) -> None:
-        pdf = pdfium.PdfDocument.new()
-
-        for image in images:
-            bitmap = pdfium.PdfBitmap.from_pil(image)
-            pdf_image = pdfium.PdfImage.new(pdf)
-            pdf_image.set_bitmap(bitmap)
-
-            width, height = pdf_image.get_size()
-            matrix = pdfium.PdfMatrix().scale(width, height)
-            pdf_image.set_matrix(matrix)
-
-            page = pdf.new_page(width, height)
-            page.insert_obj(pdf_image)
-            page.gen_content()
-
-            bitmap.close()
-
-        pdf.save(output_path, version=17)
-
-    def get_page_image(self,
-                       page: pdfium.PdfPage,
-                       scale: int = 3) -> Image.Image:
-        bitmap = page.render(scale=scale, rotation=0)
-        image = bitmap.to_pil()
-        return image if image.mode == 'RGB' else image.convert('RGB')
-
-    def get_random_image(self,
-                         pdf_listdir: List[str],
-                         raw_dir: str) -> Tuple[str, int, Image.Image]:
-        # Take random pdf
-        rand_pdf_name = random.choice(pdf_listdir)
-        rand_pdf_path = os.path.join(raw_dir, rand_pdf_name)
-        rand_pdf_obj = pdfium.PdfDocument(rand_pdf_path)
-
-        # Take random pdf page and image
-        rand_page_idx = random.randint(0, len(rand_pdf_obj) - 1)
-        rand_page = rand_pdf_obj[rand_page_idx]
-
-        # Get random image and name
-        rand_image = self.get_page_image(page=rand_page)
-        rand_image_name = os.path.splitext(rand_pdf_name)[0]
-
-        # Close pdf file-object
-        rand_pdf_obj.close()
-
-        return rand_image_name, rand_page_idx, rand_image
-
-
-class ImageUtils:
-    @staticmethod
-    def crop_image(image: Image.Image, points: List[float], offset: float = 0.025) -> Image.Image:
-        img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        height, width = img.shape[:2]
-
-        pts = np.array([(int(x * width), int(y * height)) for x, y in points])
-        rect = cv2.boundingRect(pts)
-        x, y, w, h = rect
-        img = img[y:y+h, x:x+w].copy()
-
-        pts = pts - pts.min(axis=0)
-        mask = np.zeros(img.shape[:2], np.uint8)
-        cv2.drawContours(mask, [pts], -1, (255, 255, 255), -1, cv2.LINE_AA)
-
-        result = cv2.bitwise_and(img, img, mask=mask)
-        bg = np.ones_like(img, np.uint8)*255
-        cv2.bitwise_not(bg, bg, mask=mask)
-        result = bg + result
-
-        border = int(height*offset)
-        result = cv2.copyMakeBorder(result, border, border, border, border,
-                                    cv2.BORDER_CONSTANT, value=[255, 255, 255])
-
-        return Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
+from modules.processors import ImageProcessor, PDFHandler
+from modules.utils import ImageUtils
 
 
 class LabelHandler:
@@ -156,7 +75,7 @@ class DataCreator:
         self.image_utils = ImageUtils()
         self.label_handler = LabelHandler()
 
-    @ staticmethod
+    @staticmethod
     def _create_images_labels_dict(images_dir: str,
                                    labels_dir: str) -> Dict[str, str]:
         # List of all images and labels in directory
@@ -175,35 +94,56 @@ class DataCreator:
 
         return images_labels
 
-    def create_yolo_train_data(self,
-                               raw_dir: str,
-                               train_dir: str,
-                               scan_type: str,
-                               num_images: int) -> None:
+    def _save_image(self,
+                    *args,
+                    train_dir: str,
+                    image: Image.Image,
+                    image_name: str,
+                    num_saved: int,
+                    num_images: int) -> int:
+
+        # Create image path
+        str_ids = "_".join([str(i) for i in args])
+        image_path = os.path.join(
+            train_dir, image_name) + "_" + str_ids + ".jpg"
+
+        if not os.path.exists(image_path):
+            image.save(image_path, "JPEG")
+            num_saved += 1
+            print(f"{num_saved}/{num_images} images was saved.")
+
+            image.close()
+
+        return num_saved
+
+    def extract_pages(self,
+                      raw_dir: str,
+                      train_dir: str,
+                      scan_type: str,
+                      num_images: int) -> None:
 
         # Pdf listdir
         pdf_listdir = [pdf for pdf in os.listdir(
             raw_dir) if pdf.endswith('pdf')]
 
         # Counter for saved images
-        num_saved_images = 0
+        num_saved = 0
 
-        while num_images != num_saved_images:
-
-            rand_image, rand_image_path = self.__get_random_image_from_pdf(pdf_listdir=pdf_listdir,
-                                                                           raw_dir=raw_dir,
-                                                                           train_dir=train_dir)
+        while num_images != num_saved:
+            rand_image, rand_image_name, rand_page_idx = self.pdf_handler.get_random_image(pdf_listdir=pdf_listdir,
+                                                                                           raw_dir=raw_dir)
 
             # Process image
             rand_image = self.image_processor.process(image=rand_image,
                                                       scan_type=scan_type)
 
-            if not os.path.exists(rand_image_path):
-                rand_image.save(rand_image_path, "JPEG")
-                num_saved_images += 1
-                print(f"It was saved {num_saved_images}/{num_images} images.")
-
-            rand_image.close()
+            # Save image
+            num_saved = self._save_image(rand_page_idx,
+                                         train_dir=train_dir,
+                                         image=rand_image,
+                                         image_name=rand_image_name,
+                                         num_saved=num_saved,
+                                         num_images=num_images)
 
     def create_question_train_data_raw(self,
                                        page_raw_dir: str,
@@ -225,9 +165,9 @@ class DataCreator:
         images_listdir = os.listdir(images_dir)
 
         # Counter for saved images
-        num_saved_images = 0
+        num_saved = 0
 
-        while num_images != num_saved_images:
+        while num_images != num_saved:
             rand_image_name = random.choice(images_listdir)
             rand_image_path = os.path.join(images_dir, rand_image_name)
             rand_label_name = images_labels[rand_image_name]
@@ -255,8 +195,8 @@ class DataCreator:
 
             if not os.path.exists(save_image_path):
                 rand_image.save(save_image_path, "JPEG")
-                num_saved_images += 1
-                print(f"It was saved {num_saved_images}/{num_images} images.")
+                num_saved += 1
+                print(f"It was saved {num_saved}/{num_images} images.")
 
     def create_question_train_data_pred(self,
                                         raw_dir: str,
@@ -273,9 +213,9 @@ class DataCreator:
             raw_dir) if pdf.endswith('pdf')]
 
         # Counter for saved images
-        num_saved_images = 0
+        num_saved = 0
 
-        while num_images != num_saved_images:
+        while num_images != num_saved:
             # Get random image
             rand_image, rand_image_path = self.__get_random_image_from_pdf(pdf_listdir=pdf_listdir,
                                                                            raw_dir=raw_dir,
@@ -312,8 +252,8 @@ class DataCreator:
 
             if not os.path.exists(save_image_path):
                 rand_image.save(save_image_path, "JPEG")
-                num_saved_images += 1
-                print(f"It was saved {num_saved_images}/{num_images} images.")
+                num_saved += 1
+                print(f"It was saved {num_saved}/{num_images} images.")
 
     # def create_ocr_train_data_raw(self,
     #                               raw_dir: str,
@@ -340,9 +280,9 @@ class DataCreator:
     #     images_listdir = os.listdir(images_dir)
 
     #     # Counter for saved images
-    #     num_saved_images = 0
+    #     num_saved = 0
 
-    #     while num_images != num_saved_images:
+    #     while num_images != num_saved:
     #         rand_image_name = random.choice(images_listdir)
     #         rand_image_path = os.path.join(images_dir, rand_image_name)
     #         rand_label_name = images_labels[rand_image_name]
@@ -385,9 +325,9 @@ class DataCreator:
 
     #         # Count images
     #         if len(rand_subimages) > 0:
-    #             num_saved_images += 1
+    #             num_saved += 1
     #             print(f"It was saved {
-    #                 num_saved_images}/{num_images} images.")
+    #                 num_saved}/{num_images} images.")
 
     # def create_ocr_train_data_pred(self,
     #                                raw_dir: str,
@@ -408,9 +348,9 @@ class DataCreator:
     #         raw_dir) if pdf.endswith('pdf')]
 
     #     # Counter for saved images
-    #     num_saved_images = 0
+    #     num_saved = 0
 
-    #     while num_images != num_saved_images:
+    #     while num_images != num_saved:
     #         # Get random image
     #         rand_page_image, rand_image_path = self.__get_random_image_from_pdf(pdf_listdir=pdf_listdir,
     #                                                                             raw_dir=raw_dir,
@@ -506,6 +446,6 @@ class DataCreator:
 
     #         # Count images
     #         if len(rand_page_subimages) > 0:
-    #             num_saved_images += 1
+    #             num_saved += 1
     #             print(f"It was saved {
-    #                 num_saved_images}/{num_images} images.")
+    #                 num_saved}/{num_images} images.")
