@@ -1,8 +1,13 @@
+from typing import List, Tuple
+
+import os
+import random
 from PIL import Image
 
 import numpy as np
 import cv2
 
+import pypdfium2 as pdfium
 import doxapy
 
 
@@ -96,8 +101,7 @@ class ImageProcessor:
                 illuminate: bool = False,
                 binarize: bool = False) -> Image.Image:
         # Check scan type
-        assert scan_type in self.scan_types, f"Scan type should be in one of {
-            str(self.scan_types)}"
+        assert scan_type in self.scan_types, f"Scan type should be in one of {str(self.scan_types)}"
 
         # Convert image to array
         img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
@@ -118,3 +122,54 @@ class ImageProcessor:
             img = self.binarize_image(img)
 
         return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+
+
+class PDFHandler:
+    @staticmethod
+    def create_pdf(images: List[Image.Image], output_path: str) -> None:
+        pdf = pdfium.PdfDocument.new()
+
+        for image in images:
+            bitmap = pdfium.PdfBitmap.from_pil(image)
+            pdf_image = pdfium.PdfImage.new(pdf)
+            pdf_image.set_bitmap(bitmap)
+
+            width, height = pdf_image.get_size()
+            matrix = pdfium.PdfMatrix().scale(width, height)
+            pdf_image.set_matrix(matrix)
+
+            page = pdf.new_page(width, height)
+            page.insert_obj(pdf_image)
+            page.gen_content()
+
+            bitmap.close()
+
+        pdf.save(output_path, version=17)
+
+    def get_page_image(self,
+                       page: pdfium.PdfPage,
+                       scale: int = 3) -> Image.Image:
+        bitmap = page.render(scale=scale, rotation=0)
+        image = bitmap.to_pil()
+        return image if image.mode == 'RGB' else image.convert('RGB')
+
+    def get_random_image(self,
+                         pdf_listdir: List[str],
+                         raw_dir: str) -> Tuple[str, int, Image.Image]:
+        # Take random pdf
+        rand_pdf_name = random.choice(pdf_listdir)
+        rand_pdf_path = os.path.join(raw_dir, rand_pdf_name)
+        rand_pdf_obj = pdfium.PdfDocument(rand_pdf_path)
+
+        # Take random pdf page and image
+        rand_page_idx = random.randint(0, len(rand_pdf_obj) - 1)
+        rand_page = rand_pdf_obj[rand_page_idx]
+
+        # Get random image and name
+        rand_image = self.get_page_image(page=rand_page)
+        rand_image_name = os.path.splitext(rand_pdf_name)[0]
+
+        # Close pdf file-object
+        rand_pdf_obj.close()
+
+        return rand_image, rand_image_name, rand_page_idx
