@@ -5,17 +5,19 @@ import albumentations as A
 
 import numpy as np
 
+from torch import Tensor
 from torch.utils.data import Dataset
 
 from transformers import OneFormerProcessor, OneFormerImageProcessor
-from transformers import CLIPTokenizer
 from transformers.image_processing_base import BatchFeature
 
 
 class OneFormerDataset(Dataset):
     def __init__(self,
                  set_dir: str,
-                 image_processor: OneFormerImageProcessor) -> None:
+                 model,
+                 image_processor: OneFormerImageProcessor,
+                 tokenizer) -> None:
 
         # Dirs, paths with images, masks and classes
         self.set_dir = set_dir
@@ -31,10 +33,10 @@ class OneFormerDataset(Dataset):
         assert len(self.images_listdir) == len(
             self.annotation_listdir), "Number of images must be equal number of annotations."
 
-        # Image processor
-        self.tokenizer = CLIPTokenizer()
-        self.processor = OneFormerProcessor(image_processor=image_processor,
-                                            tokenizer=self.tokenizer)
+        self.model = model
+        self.image_processor = image_processor
+        self.tokenizer = tokenizer
+        self.__processor = None
 
         # Transform and augment
         self.train_transform = A.Compose([A.HorizontalFlip(p=0.5),
@@ -46,6 +48,16 @@ class OneFormerDataset(Dataset):
         # Remove batch dimension
         self.remove_batch_dim = ["pixel_values", "pixel_mask"]
         self.remove_nesting = ["mask_labels", "class_labels"]
+
+    @property
+    def processor(self) -> OneFormerProcessor:
+        if self.__processor is None:
+            self.__processor = OneFormerProcessor(image_processor=self.image_processor,
+                                                  tokenizer=self.tokenizer)
+            self.__processor.image_processor.num_text = self.model.config.num_queries - \
+                self.model.config.text_encoder_n_ctx
+
+        return self.__processor
 
     def __len__(self) -> int:
         return len(self.images_listdir)
@@ -85,14 +97,11 @@ class OneFormerDataset(Dataset):
                                 task_inputs=["panoptic"],
                                 return_tensors="pt")
 
-        print(inputs)
-
-        # # Remove batch dimension
-        # for k in self.remove_batch_dim:
-        #     inputs[k].squeeze_()
-
-        # # Remove list nesting
-        # for k in self.remove_nesting:
-        #     inputs[k] = inputs[k][0]
+        # Remove batch dimension or list nesting
+        for k, v in inputs.items():
+            if isinstance(v, Tensor):
+                inputs[k] = v.squeeze()
+            else:
+                inputs[k] = v[0]
 
         return inputs
