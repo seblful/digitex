@@ -1,4 +1,10 @@
 from abc import ABC, abstractmethod
+from typing import List, Dict
+
+from PIL import Image
+
+from ultralytics import YOLO
+from ultralytics.engine.results import Results
 
 
 class Predictor(ABC):
@@ -11,17 +17,47 @@ class Predictor(ABC):
     def predict(self):
         pass
 
+    @abstractmethod
+    def get_points(self):
+        pass
+
 
 class YoloPredictor(Predictor):
-    def __init__(self, model_path: str):
+    def __init__(self, model_path: str) -> None:
         self.model_path = model_path
+        self.__model = None
+        self.classes_dict = self.model.names
 
     @property
-    def model(self):
-        pass
+    def model(self) -> YOLO:
+        if self.__model is None:
+            self.__model = YOLO(self.model_path, verbose=False)
 
-    def predict(self):
-        pass
+        return self.__model
+
+    def predict(self,
+                image: Image.Image) -> Results:
+        result = self.model.predict(image, verbose=False)[0]
+
+        return result
+
+    def get_points(self,
+                   image: Image.Image) -> Dict[int, List[float]]:
+        result = self.predict(image)
+
+        # Get points
+        points_dict = dict()
+        for box, points in zip(result.boxes, result.masks.xyn):
+
+            points = points.reshape(-1).tolist()
+            class_idx = int(box.cls.item())
+
+            # Append points to the list in dict
+            if class_idx not in points_dict:
+                points_dict[class_idx] = []
+            points_dict[class_idx].append(points)
+
+        return points_dict
 
     # @staticmethod
     # def __detect_text(image: Image.Image,
