@@ -1,10 +1,5 @@
-from typing import List
-
 import os
 from PIL import Image
-
-import numpy as np
-import cv2
 
 from modules.processors import PDFHandler
 from modules.processors import ImageProcessor
