@@ -4,13 +4,12 @@ import os
 import random
 from PIL import Image
 
-from ultralytics import YOLO
-
-from transformers import PreTrainedModel, SegformerImageProcessor
+# from transformers import PreTrainedModel, SegformerImageProcessor
 # from surya.model.detection.model import load_model as load_text_det_model, load_processor as load_text_det_processor
 # from surya.detection import batch_text_detection
 
 from modules.processors import ImageProcessor, PDFHandler, ImageHandler
+from modules.predictors import YoloPredictor
 
 
 class LabelHandler:
@@ -208,15 +207,15 @@ class DataCreator:
                                          num_saved=num_saved,
                                          num_images=num_images)
 
-    def create_question_train_data_pred(self,
-                                        raw_dir: str,
-                                        train_dir: str,
-                                        yolo_model_path: str,
-                                        num_images: int) -> None:
+    def predict_questions(self,
+                          raw_dir: str,
+                          train_dir: str,
+                          yolo_model_path: str,
+                          scan_type: str,
+                          num_images: int) -> None:
 
         # Load model and labels
-        model = YOLO(yolo_model_path)
-        labels = model.names
+        yolo_predictor = YoloPredictor(model_path=yolo_model_path)
 
         # Pdf listdir
         pdf_listdir = [pdf for pdf in os.listdir(
@@ -226,44 +225,29 @@ class DataCreator:
         num_saved = 0
 
         while num_images != num_saved:
-            # Get random image
-            rand_image, rand_image_path = self.__get_random_image_from_pdf(pdf_listdir=pdf_listdir,
-                                                                           raw_dir=raw_dir,
-                                                                           train_dir=train_dir)
+            # Extract random image, points
+            rand_image, rand_image_name, rand_page_idx = self.pdf_handler.get_random_image(pdf_listdir=pdf_listdir,
+                                                                                           pdf_dir=raw_dir)
+            rand_image = self.image_processor.process(image=rand_image,
+                                                      scan_type=scan_type)
 
-            # Create list to store all points with question
-            all_points = []
-
-            # Predict image and get points
-            result = model.predict(rand_image, verbose=False)[0]
-
-            for box, points in zip(result.boxes, result.masks.xyn):
-
-                # Get points and label
-                points = points.reshape(-1).tolist()
-                label = labels[int(box.cls.item())]
-
-                if label == "question":
-                    all_points.append(points)
-
-            # Get random points
-            rand_points_index, rand_points = DataCreator.__get_random_points(
-                all_points=all_points)
+            points_dict = yolo_predictor.get_points(image=rand_image)
+            rand_points_idx, rand_points = self.label_handler._get_random_points(classes_dict=yolo_predictor.classes_dict,
+                                                                                 points_dict=points_dict,
+                                                                                 target_classes=["question"])
 
             # Crop question image and add borders
-            rand_image = DataCreator.__crop_image(image=rand_image,
-                                                  points=rand_points)
+            rand_image = self.image_handler.crop_image(image=rand_image,
+                                                       points=rand_points)
 
             # Save image
-            save_image_name = os.path.splitext(
-                os.path.basename(rand_image_path))[0]
-            save_image_name = f"{save_image_name}_{rand_points_index}.jpg"
-            save_image_path = os.path.join(train_dir, save_image_name)
-
-            if not os.path.exists(save_image_path):
-                rand_image.save(save_image_path, "JPEG")
-                num_saved += 1
-                print(f"It was saved {num_saved}/{num_images} images.")
+            num_saved = self._save_image(rand_page_idx,
+                                         rand_points_idx,
+                                         train_dir=train_dir,
+                                         image=rand_image,
+                                         image_name=rand_image_name,
+                                         num_saved=num_saved,
+                                         num_images=num_images)
 
     # def create_ocr_train_data_raw(self,
     #                               raw_dir: str,
