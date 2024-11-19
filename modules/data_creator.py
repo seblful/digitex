@@ -10,16 +10,10 @@ from transformers import PreTrainedModel, SegformerImageProcessor
 # from surya.model.detection.model import load_model as load_text_det_model, load_processor as load_text_det_processor
 # from surya.detection import batch_text_detection
 
-from modules.processors import ImageProcessor, PDFHandler
-from modules.utils import ImageUtils
+from modules.processors import ImageProcessor, PDFHandler, ImageHandler
 
 
 class LabelHandler:
-    def _read_classes(self, classes_path: str) -> Dict[int, str]:
-        with open(classes_path, 'r') as f:
-            classes = [line.strip() for line in f.readlines()]
-            return {i: cl for i, cl in enumerate(classes)}
-
     def _read_points(self, label_path: str) -> Dict[int, list[list[float]]]:
         points_dict = dict()
         with open(label_path, "r") as f:
@@ -39,40 +33,58 @@ class LabelHandler:
     def _get_random_points(self,
                            classes_dict: Dict[int, str],
                            points_dict: Dict[int, list],
-                           target_classes: List[str]) -> List[List[float]]:
+                           target_classes: List[str]) -> Tuple[int, List[float]]:
         # Create subset of dict with target classes
         points_dict = {k: points_dict[k]
                        for k in points_dict if classes_dict[k] in target_classes}
 
         # Get random label
-        rand_class_idx = random.choice(points_dict.keys())
-        rand_label_name = classes_dict[rand_class_idx]
+        rand_class_idx = random.choice(list(points_dict.keys()))
 
         # Get random points
         rand_points_idx = random.randint(
-            0, len(points_dict[rand_class_idx]))
+            0, len(points_dict[rand_class_idx])-1)
         rand_points = points_dict[rand_class_idx][rand_points_idx]
+        rand_points = list(zip(rand_points[::2], rand_points[1::2]))
 
-        return rand_label_name, rand_points_idx, rand_points
+        return rand_points_idx, rand_points
+
+    def _get_random_label(self,
+                          image_name: str,
+                          labels_dir: str,
+                          images_labels: Dict[str, str]):
+
+        label_name = images_labels[image_name]
+        label_path = os.path.join(labels_dir, label_name)
+
+        # Raise exception of label name is None
+        if label_name is None:
+            raise ValueError("Label must not be None.")
+
+        return label_path
 
     def get_points(self,
-                   classes_path: str,
-                   label_path: str,
+                   image_name: str,
+                   labels_dir: str,
+                   images_labels: Dict[str, str],
+                   classes_dict: Dict[int, str],
                    target_classes: List[str]) -> List[float]:
-        classes_dict = self._read_classes(classes_path)
-        points_dict = self._read_points(label_path)
-        rand_label_name, rand_points_idx, rand_points = self._get_random_points(classes_dict=classes_dict,
-                                                                                points_dict=points_dict,
-                                                                                target_classes=target_classes)
+        rand_label_path = self._get_random_label(image_name=image_name,
+                                                 labels_dir=labels_dir,
+                                                 images_labels=images_labels)
+        points_dict = self._read_points(rand_label_path)
+        rand_points_idx, rand_points = self._get_random_points(classes_dict=classes_dict,
+                                                               points_dict=points_dict,
+                                                               target_classes=target_classes)
 
-        return rand_label_name, rand_points_idx, rand_points
+        return rand_points_idx, rand_points
 
 
 class DataCreator:
     def __init__(self) -> None:
         self.image_processor = ImageProcessor()
         self.pdf_handler = PDFHandler()
-        self.image_utils = ImageUtils()
+        self.image_handler = ImageHandler()
         self.label_handler = LabelHandler()
 
     @staticmethod
@@ -94,6 +106,12 @@ class DataCreator:
 
         return images_labels
 
+    @staticmethod
+    def _read_classes(classes_path: str) -> Dict[int, str]:
+        with open(classes_path, 'r') as f:
+            classes = [line.strip() for line in f.readlines()]
+            return {i: cl for i, cl in enumerate(classes)}
+
     def _save_image(self,
                     *args,
                     train_dir: str,
@@ -103,9 +121,10 @@ class DataCreator:
                     num_images: int) -> int:
 
         # Create image path
+        image_stem = os.path.splitext(image_name)[0]
         str_ids = "_".join([str(i) for i in args])
         image_path = os.path.join(
-            train_dir, image_name) + "_" + str_ids + ".jpg"
+            train_dir, image_stem) + "_" + str_ids + ".jpg"
 
         if not os.path.exists(image_path):
             image.save(image_path, "JPEG")
@@ -131,7 +150,7 @@ class DataCreator:
 
         while num_images != num_saved:
             rand_image, rand_image_name, rand_page_idx = self.pdf_handler.get_random_image(pdf_listdir=pdf_listdir,
-                                                                                           raw_dir=raw_dir)
+                                                                                           pdf_dir=raw_dir)
 
             # Process image
             rand_image = self.image_processor.process(image=rand_image,
@@ -145,21 +164,21 @@ class DataCreator:
                                          num_saved=num_saved,
                                          num_images=num_images)
 
-    def create_question_train_data_raw(self,
-                                       page_raw_dir: str,
-                                       train_dir: str,
-                                       num_images: int) -> None:
+    def extract_questions(self,
+                          page_raw_dir: str,
+                          train_dir: str,
+                          num_images: int) -> None:
         # Paths
         images_dir = os.path.join(page_raw_dir, "images")
         labels_dir = os.path.join(page_raw_dir, "labels")
         classes_path = os.path.join(page_raw_dir, "classes.txt")
 
-        # Classes
-        classes = DataCreator.__read_classes_file(classes_path)
-
         # Images and labels
-        images_labels = DataCreator.__create_images_labels_dict(images_dir=images_dir,
-                                                                labels_dir=labels_dir)
+        images_labels = DataCreator._create_images_labels_dict(images_dir=images_dir,
+                                                               labels_dir=labels_dir)
+
+        # Classes
+        classes_dict = DataCreator._read_classes(classes_path)
 
         # Images listdir
         images_listdir = os.listdir(images_dir)
@@ -168,35 +187,26 @@ class DataCreator:
         num_saved = 0
 
         while num_images != num_saved:
-            rand_image_name = random.choice(images_listdir)
-            rand_image_path = os.path.join(images_dir, rand_image_name)
-            rand_label_name = images_labels[rand_image_name]
-            rand_label_path = os.path.join(labels_dir, rand_label_name)
+            # Extract random image, points
+            rand_image, rand_image_name = self.image_handler.get_random_image(images_listdir=images_listdir,
+                                                                              images_dir=images_dir)
 
-            # Raise exception of label name is None
-            if rand_label_name is None:
-                raise ValueError("Label must not be None.")
-
-            # Extract random points and crop corresponding image
-            all_points = DataCreator.__get_question_points(label_path=rand_label_path,
-                                                           classes=classes)
-            rand_points_index, rand_points = DataCreator.__get_random_points(
-                all_points=all_points)
-
-            # Crop question image and add borders
-            rand_image = Image.open(rand_image_path)
-            rand_image = DataCreator.__crop_image(image=rand_image,
-                                                  points=rand_points)
+            rand_points_idx, rand_points = self.label_handler.get_points(image_name=rand_image_name,
+                                                                         labels_dir=labels_dir,
+                                                                         images_labels=images_labels,
+                                                                         classes_dict=classes_dict,
+                                                                         target_classes=["question"])
+            # Crop image and add borders
+            rand_image = self.image_handler.crop_image(image=rand_image,
+                                                       points=rand_points)
 
             # Save image
-            save_image_name = os.path.splitext(rand_image_name)[0]
-            save_image_name = f"{save_image_name}_{rand_points_index}.jpg"
-            save_image_path = os.path.join(train_dir, save_image_name)
-
-            if not os.path.exists(save_image_path):
-                rand_image.save(save_image_path, "JPEG")
-                num_saved += 1
-                print(f"It was saved {num_saved}/{num_images} images.")
+            num_saved = self._save_image(rand_points_idx,
+                                         train_dir=train_dir,
+                                         image=rand_image,
+                                         image_name=rand_image_name,
+                                         num_saved=num_saved,
+                                         num_images=num_images)
 
     def create_question_train_data_pred(self,
                                         raw_dir: str,
