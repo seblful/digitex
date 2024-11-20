@@ -1,8 +1,8 @@
 import os
 from PIL import Image
 
-from modules.processors import PDFHandler
 from modules.processors import ImageProcessor
+from modules.handlers import PDFHandler
 
 
 def create_pdf_from_images(image_dir: str,

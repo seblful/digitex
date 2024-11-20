@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict
+from typing import Dict
 
 import os
 import random
@@ -8,75 +8,9 @@ from PIL import Image
 # from surya.model.detection.model import load_model as load_text_det_model, load_processor as load_text_det_processor
 # from surya.detection import batch_text_detection
 
-from modules.processors import ImageProcessor, PDFHandler, ImageHandler
+from modules.processors import ImageProcessor
+from modules.handlers import PDFHandler, ImageHandler, LabelHandler
 from modules.predictors import YoloPredictor
-
-
-class LabelHandler:
-    def _read_points(self, label_path: str) -> Dict[int, list[list[float]]]:
-        points_dict = dict()
-        with open(label_path, "r") as f:
-            for line in f:
-                # Get points
-                data = line.strip().split()
-                class_idx = int(data[0])
-                points = [float(point) for point in data[1:]]
-
-                # Append points to the list in dict
-                if class_idx not in points_dict:
-                    points_dict[class_idx] = []
-                points_dict[class_idx].append(points)
-
-        return points_dict
-
-    def _get_random_points(self,
-                           classes_dict: Dict[int, str],
-                           points_dict: Dict[int, list],
-                           target_classes: List[str]) -> Tuple[int, List[float]]:
-        # Create subset of dict with target classes
-        points_dict = {k: points_dict[k]
-                       for k in points_dict if classes_dict[k] in target_classes}
-
-        # Get random label
-        rand_class_idx = random.choice(list(points_dict.keys()))
-
-        # Get random points
-        rand_points_idx = random.randint(
-            0, len(points_dict[rand_class_idx])-1)
-        rand_points = points_dict[rand_class_idx][rand_points_idx]
-        rand_points = list(zip(rand_points[::2], rand_points[1::2]))
-
-        return rand_points_idx, rand_points
-
-    def _get_random_label(self,
-                          image_name: str,
-                          labels_dir: str,
-                          images_labels: Dict[str, str]):
-
-        label_name = images_labels[image_name]
-        label_path = os.path.join(labels_dir, label_name)
-
-        # Raise exception of label name is None
-        if label_name is None:
-            raise ValueError("Label must not be None.")
-
-        return label_path
-
-    def get_points(self,
-                   image_name: str,
-                   labels_dir: str,
-                   images_labels: Dict[str, str],
-                   classes_dict: Dict[int, str],
-                   target_classes: List[str]) -> List[float]:
-        rand_label_path = self._get_random_label(image_name=image_name,
-                                                 labels_dir=labels_dir,
-                                                 images_labels=images_labels)
-        points_dict = self._read_points(rand_label_path)
-        rand_points_idx, rand_points = self._get_random_points(classes_dict=classes_dict,
-                                                               points_dict=points_dict,
-                                                               target_classes=target_classes)
-
-        return rand_points_idx, rand_points
 
 
 class DataCreator:
