@@ -1,0 +1,57 @@
+{
+    "_max_size": 2048,
+    "class_info_file": "class_info_file.json",
+    "do_normalize": true,
+    "do_rescale": true,
+    "do_resize": true,
+    "do_reduce_labels": true,
+    "ignore_index": 255,
+    "image_mean": [
+        0.48500001430511475,
+        0.4560000002384186,
+        0.4059999883174896
+    ],
+    "image_processor_type": "OneFormerImageProcessor",
+    "image_std": [
+        0.2290000021457672,
+        0.2239999920129776,
+        0.22499999403953552
+    ],
+    "metadata": {
+        "0": "answer",
+        "1": "image",
+        "2": "number",
+        "3": "option",
+        "4": "question",
+        "5": "spec",
+        "6": "table",
+        "class_names": [
+            "answer",
+            "image",
+            "number",
+            "option",
+            "question",
+            "spec",
+            "table"
+        ],
+        "thing_ids": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+        ]
+    },
+    "num_labels": 7,
+    "num_text": null,
+    "processor_class": "OneFormerProcessor",
+    "repo_path": "seblful/oneformer_ade20k_swin_tiny",
+    "resample": 2,
+    "rescale_factor": 0.00392156862745098,
+    "size": {
+        "longest_edge": 2048,
+        "shortest_edge": 512
+    }
+}

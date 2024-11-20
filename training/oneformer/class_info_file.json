@@ -1,0 +1,30 @@
+{
+    "0": {
+        "isthing": 1,
+        "name": "answer"
+    },
+    "1": {
+        "isthing": 1,
+        "name": "image"
+    },
+    "2": {
+        "isthing": 1,
+        "name": "number"
+    },
+    "3": {
+        "isthing": 1,
+        "name": "option"
+    },
+    "4": {
+        "isthing": 1,
+        "name": "question"
+    },
+    "5": {
+        "isthing": 1,
+        "name": "spec"
+    },
+    "6": {
+        "isthing": 1,
+        "name": "table"
+    }
+}
