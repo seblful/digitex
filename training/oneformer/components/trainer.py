@@ -12,7 +12,7 @@ from torch.optim import AdamW
 
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
 
-from transformers import OneFormerForUniversalSegmentation, OneFormerImageProcessor, CLIPTokenizer, get_scheduler
+from transformers import OneFormerForUniversalSegmentation, OneFormerImageProcessor, OneFormerProcessor, CLIPTokenizer, get_scheduler
 
 from accelerate import Accelerator
 from accelerate.utils import set_seed
@@ -27,8 +27,8 @@ class OneFormerTrainer:
                  preprocessor_config_path: str,
                  class_info_file_path: str,
                  pretrained_model_name: str = None,
-                 longest_edge: int = 2048,
-                 shortest_edge: int = 512,
+                 width: int = 2048,
+                 height: int = 512,
                  batch_size: int = 4,
                  num_workers: int = 0,
                  learning_rate: float = 0.0001,
@@ -63,8 +63,8 @@ class OneFormerTrainer:
         self.seed = seed
 
         # Image processor
-        self.longest_edge = longest_edge
-        self.shortest_edge = shortest_edge
+        self.width = width
+        self.height = height
 
         # Processor and model
         self.pretrained_model_name = pretrained_model_name
@@ -223,15 +223,16 @@ class OneFormerTrainer:
         if self.__processor is None:
             image_processor = OneFormerImageProcessor.from_json_file(
                 self.preprocessor_config_path)
-            image_processor.size = {"longest_edge": self.longest_edge,
-                                    "shortest_edge": self.shortest_edge}
+            image_processor.size = {"width": self.width,
+                                    "height": self.height}
 
             tokenizer = CLIPTokenizer.from_pretrained(
                 self.pretrained_model_name)
-            self.__processor = OneFormerImageProcessor(image_processor=image_processor,
-                                                       tokenizer=tokenizer)
+            self.__processor = OneFormerProcessor(image_processor=image_processor,
+                                                  tokenizer=tokenizer)
             self.__processor.image_processor.num_text = self.model.config.num_queries - \
                 self.model.config.text_encoder_n_ctx
+            self.__processor.save_pretrained(self.output_dir)
 
         return self.__processor
 
@@ -243,6 +244,8 @@ class OneFormerTrainer:
             [item['pixel_mask'] for item in examples])
         batch['mask_labels'] = [item['mask_labels'] for item in examples]
         batch['class_labels'] = [item['class_labels'] for item in examples]
+        batch["text_inputs"] = [item["text_inputs"] for item in examples]
+        batch["task_inputs"] = [item["task_inputs"] for item in examples]
 
         return batch
 
@@ -334,7 +337,7 @@ class OneFormerTrainer:
         completed_steps = 0
         starting_epoch = 0
 
-        best_map = 0
+        min_loss = float('inf')
 
         for epoch in range(starting_epoch, self.train_epochs):
 
@@ -345,8 +348,11 @@ class OneFormerTrainer:
                     outputs = self.model(pixel_values=batch["pixel_values"],
                                          pixel_mask=batch["pixel_mask"],
                                          mask_labels=batch["mask_labels"],
-                                         class_labels=batch["class_labels"])
+                                         class_labels=batch["class_labels"],
+                                         task_inputs=batch["task_inputs"],
+                                         text_inputs=batch["text_inputs"])
                     loss = outputs.loss
+                    print("Batch Loss:", loss)
                     # We keep track of the loss at each epoch
                     self.accelerator.backward(loss)
                     self.optimizer.step()
@@ -368,29 +374,34 @@ class OneFormerTrainer:
                 if completed_steps >= self.train_steps:
                     break
 
+            print("Epoch Loss:", loss)
+
             metrics = self.evaluation_loop(self.val_dataloader)
             print(f"epoch {epoch}: {metrics}")
 
-            # Save model with best metrics
-            if metrics["map"] > best_map:
-                best_map = metrics["map"]
-                self.save_model(save_dir=self.best_model_dir)
+            # Save model with min loss
+            if loss < min_loss:
+                min_loss = loss
+                self.save_model(save_dir=self.best_model_dir,
+                                metrics=metrics)
 
         # Run test evaluation
         metrics = self.evaluation_loop(self.test_dataloader)
         print("Test metrics:", metrics)
 
         # Save model and image processor
-        self.save_model(save_dir=self.last_model_dir)
+        self.save_model(save_dir=self.last_model_dir,
+                        metrics=metrics)
+
+    def save_model(self,
+                   save_dir: str,
+                   metrics: dict) -> None:
+        self.accelerator.wait_for_everyone()
         if self.accelerator.is_main_process:
+            self.accelerator.save_state(save_dir)
+            unwrapped_model = self.accelerator.unwrap_model(self.model)
+            unwrapped_model.save_pretrained(save_dir,
+                                            is_main_process=self.accelerator.is_main_process,
+                                            save_function=self.accelerator.save)
             with open(os.path.join(self.output_dir, "all_results.json"), "w") as f:
                 json.dump(metrics, f, indent=2)
-            self.image_processor.save_pretrained(self.output_dir)
-
-    def save_model(self, save_dir: str) -> None:
-        self.accelerator.save_state(save_dir)
-        self.accelerator.wait_for_everyone()
-        unwrapped_model = self.accelerator.unwrap_model(self.model)
-        unwrapped_model.save_pretrained(save_dir,
-                                        is_main_process=self.accelerator.is_main_process,
-                                        save_function=self.accelerator.save)
