@@ -7,12 +7,14 @@ import math
 from tqdm import tqdm
 
 import torch
+from torch import Tensor
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
 
 from transformers import OneFormerForUniversalSegmentation, OneFormerImageProcessor, OneFormerProcessor, CLIPTokenizer, get_scheduler
+from transformers.image_processing_base import BatchFeature
 
 from accelerate import Accelerator
 from accelerate.utils import set_seed
@@ -38,7 +40,6 @@ class OneFormerTrainer:
                  train_steps: int = None,
                  gradient_accumulation_steps: int = 1,
                  warmup_steps: int = 5,
-                 checkpoint_steps: int = 25,
                  seed: int = 42) -> None:
         # Paths
         self.dataset_dir = dataset_dir
@@ -93,7 +94,6 @@ class OneFormerTrainer:
         self.train_steps = train_steps
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.warmup_steps = warmup_steps
-        self.checkpoint_steps = checkpoint_steps
         self.__setup_steps()
 
         # LR, Optimizer
@@ -236,18 +236,19 @@ class OneFormerTrainer:
 
         return self.__processor
 
-    def collate_fn(self, examples) -> dict:
-        batch = {}
-        batch['pixel_values'] = torch.stack(
-            [item['pixel_values'] for item in examples])
-        batch['pixel_mask'] = torch.stack(
-            [item['pixel_mask'] for item in examples])
-        batch['mask_labels'] = [item['mask_labels'] for item in examples]
-        batch['class_labels'] = [item['class_labels'] for item in examples]
-        batch["text_inputs"] = [item["text_inputs"] for item in examples]
-        batch["task_inputs"] = [item["task_inputs"] for item in examples]
+    def collate_fn(self, batch:  list[BatchFeature]) -> BatchFeature:
+        batch_dict = {}
 
-        return batch
+        # Iterate through each key in the first sample to initialize the batch
+        for key in batch[0].keys():
+            # Stack tensors along a new dimension (batch dimension)
+            # If it's a tensor, we stack it; if it's not, we just take the list.
+            if isinstance(batch[0][key], Tensor):
+                batch_dict[key] = torch.stack([item[key] for item in batch])
+            else:
+                batch_dict[key] = [item[key] for item in batch]
+
+        return batch_dict
 
     def nested_cpu(self, tensors):
         if isinstance(tensors, (list, tuple)):
@@ -259,7 +260,7 @@ class OneFormerTrainer:
         else:
             return tensors
 
-    def evaluation_loop(self, dataloader: DataLoader):
+    def evaluation_loop(self, dataloader: DataLoader) -> dict:
         metric = MeanAveragePrecision(iou_type="segm", class_metrics=True)
 
         for inputs in tqdm(dataloader,
@@ -332,14 +333,13 @@ class OneFormerTrainer:
 
     def train(self) -> None:
         # Progress bar
-        progress_bar = tqdm(range(self.train_steps),
-                            disable=not self.accelerator.is_local_main_process)
+        progress_bar = tqdm(range(self.train_steps))
         completed_steps = 0
-        starting_epoch = 0
 
         min_loss = float('inf')
+        epoch_loss = 0.0
 
-        for epoch in range(starting_epoch, self.train_epochs):
+        for epoch in range(self.train_epochs):
 
             self.model.train()
 
@@ -352,29 +352,24 @@ class OneFormerTrainer:
                                          task_inputs=batch["task_inputs"],
                                          text_inputs=batch["text_inputs"])
                     loss = outputs.loss
-                    print("Batch Loss:", loss)
+                    epoch_loss += loss
+                    print("Batch Loss:", loss.item())
                     # We keep track of the loss at each epoch
+                    self.optimizer.zero_grad()
                     self.accelerator.backward(loss)
                     self.optimizer.step()
                     self.lr_scheduler.step()
-                    self.optimizer.zero_grad()
 
                 # Checks if the accelerator has performed an optimization step behind the scenes
                 if self.accelerator.sync_gradients:
                     progress_bar.update(1)
                     completed_steps += 1
 
-                # Save on checkpoint steps
-                if completed_steps % self.checkpoint_steps == 0 and self.accelerator.sync_gradients:
-                    save_dir = os.path.join(
-                        self.output_dir, f"step_{completed_steps}")
-                    self.save_model(save_dir=save_dir)
-
                 # Break if all steps
                 if completed_steps >= self.train_steps:
                     break
 
-            print("Epoch Loss:", loss)
+            print("Epoch Loss:", loss.item())
 
             metrics = self.evaluation_loop(self.val_dataloader)
             print(f"epoch {epoch}: {metrics}")
