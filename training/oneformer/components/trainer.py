@@ -332,17 +332,19 @@ class OneFormerTrainer:
         return metrics
 
     def train(self) -> None:
-        # Progress bar
-        progress_bar = tqdm(range(self.train_steps))
-        completed_steps = 0
-
-        min_loss = float('inf')
-        epoch_loss = 0.0
-
+        # Iterating through epochs
         for epoch in range(self.train_epochs):
-
             self.model.train()
 
+            progress_bar = tqdm(total=self.train_steps // self.train_epochs,
+                                desc=f'Epoch {epoch + 1}/{self.train_epochs}',
+                                position=0, leave=True)
+            completed_steps = 0
+
+            min_loss = float('inf')
+            epoch_loss = 0.0
+
+            # Iterating through batches
             for step, batch in enumerate(self.train_dataloader):
                 with self.accelerator.accumulate(self.model):
                     outputs = self.model(pixel_values=batch["pixel_values"],
@@ -352,9 +354,9 @@ class OneFormerTrainer:
                                          task_inputs=batch["task_inputs"],
                                          text_inputs=batch["text_inputs"])
                     loss = outputs.loss
-                    epoch_loss += loss
-                    print("Batch Loss:", loss.item())
-                    # We keep track of the loss at each epoch
+                    epoch_loss += loss.item()
+
+                    # Backpropagation and optimization steps
                     self.optimizer.zero_grad()
                     self.accelerator.backward(loss)
                     self.optimizer.step()
@@ -362,29 +364,34 @@ class OneFormerTrainer:
 
                 # Checks if the accelerator has performed an optimization step behind the scenes
                 if self.accelerator.sync_gradients:
-                    progress_bar.update(1)
                     completed_steps += 1
+                    progress_bar.update(1)
+                    progress_bar.set_postfix(loss=loss.item(), refresh=True)
 
                 # Break if all steps
                 if completed_steps >= self.train_steps:
                     break
 
-            print("Epoch Loss:", loss.item())
-
-            metrics = self.evaluation_loop(self.val_dataloader)
-            print(f"epoch {epoch}: {metrics}")
+            # Calculate epoch loss
+            epoch_loss = epoch_loss / completed_steps
+            progress_bar.set_postfix(loss=epoch_loss, refresh=True)
 
             # Save model with min loss
-            if loss < min_loss:
-                min_loss = loss
+            if epoch_loss < min_loss:
+                min_loss = epoch_loss
                 self.save_model(save_dir=self.best_model_dir,
                                 metrics=metrics)
 
-        # Run test evaluation
-        metrics = self.evaluation_loop(self.test_dataloader)
-        print("Test metrics:", metrics)
+            # Validation
+            # metrics = self.evaluation_loop(self.val_dataloader)
+            metrics = ""
+            # print(f"epoch {epoch}: {metrics}")
 
-        # Save model and image processor
+        # Run test evaluation
+        # metrics = self.evaluation_loop(self.test_dataloader)
+        # print("Test metrics:", metrics)
+
+        # Save last model
         self.save_model(save_dir=self.last_model_dir,
                         metrics=metrics)
 
@@ -398,5 +405,5 @@ class OneFormerTrainer:
             unwrapped_model.save_pretrained(save_dir,
                                             is_main_process=self.accelerator.is_main_process,
                                             save_function=self.accelerator.save)
-            with open(os.path.join(self.output_dir, "all_results.json"), "w") as f:
-                json.dump(metrics, f, indent=2)
+            # with open(os.path.join(self.output_dir, "all_results.json"), "w") as f:
+            #     json.dump(metrics, f, indent=2)
