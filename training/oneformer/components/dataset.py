@@ -59,7 +59,7 @@ class OneFormerDataset(Dataset):
         inputs = self.processor(images=image_array,
                                 segmentation_maps=instance_seg,
                                 instance_id_to_semantic_id=instance_id_to_semantic_id,
-                                task_inputs=["panoptic"],
+                                task_inputs=["instance"],
                                 return_tensors="pt")
 
         # Remove batch dimension or list nesting
