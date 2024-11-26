@@ -260,16 +260,36 @@ class OneFormerTrainer:
         else:
             return tensors
 
+    def convert_segmentation_to_mask(self,
+                                     image_predictions: dict,
+                                     target_size: list[torch.Size]):
+        # Find unique instances
+        segments_info = image_predictions["segments_info"]
+        unique_ids = [x["id"] for x in segments_info]
+
+        # Create zeros mask
+        height, width = target_size
+
+        masks = torch.zeros(
+            (len(unique_ids), *target_size), dtype=torch.bool)
+
+        # Populate the 3D tensor
+        segmentation = image_predictions["segmentation"]
+        for idx, instance in enumerate(unique_ids):
+            masks[idx] = (segmentation == instance)
+
+        return masks
+
     def evaluation_loop(self, dataloader: DataLoader) -> dict:
         metric = MeanAveragePrecision(iou_type="segm", class_metrics=True)
 
-        for inputs in tqdm(dataloader,
-                           total=len(dataloader)):
+        for batch in tqdm(dataloader,
+                          total=len(dataloader)):
             with torch.no_grad():
-                outputs = self.model(**inputs)
+                outputs = self.model(**batch)
 
-            inputs = self.accelerator.gather_for_metrics(inputs)
-            inputs = self.nested_cpu(inputs)
+            batch = self.accelerator.gather_for_metrics(batch)
+            batch = self.nested_cpu(batch)
 
             outputs = self.accelerator.gather_for_metrics(outputs)
             outputs = self.nested_cpu(outputs)
@@ -279,25 +299,25 @@ class OneFormerTrainer:
             target_sizes = []
 
             # Collect targets
-            for masks, labels in zip(inputs["mask_labels"], inputs["class_labels"]):
+            for masks, labels in zip(batch["mask_labels"], batch["class_labels"]):
                 post_processed_targets.append(
                     {
                         "masks": masks.to(dtype=torch.bool),
                         "labels": labels,
                     })
-                target_sizes.append(masks.shape[-2:])
+                target_sizes.append(tuple(masks.shape[-2:]))
 
             # Collect predictions
-            post_processed_output = self.image_processor.post_process_instance_segmentation(
-                outputs,
-                threshold=0.0,
-                target_sizes=target_sizes,
-                return_binary_maps=True)
+            post_processed_output = self.processor.post_process_instance_segmentation(outputs,
+                                                                                      threshold=0.0,
+                                                                                      target_sizes=target_sizes)
 
             for image_predictions, target_size in zip(post_processed_output, target_sizes):
                 if image_predictions["segments_info"]:
+                    masks = self.convert_segmentation_to_mask(image_predictions=image_predictions,
+                                                              target_size=target_size)
                     post_processed_image_prediction = {
-                        "masks": image_predictions["segmentation"].to(dtype=torch.bool),
+                        "masks": masks,
                         "labels": torch.tensor([x["label_id"] for x in image_predictions["segments_info"]]),
                         "scores": torch.tensor([x["score"] for x in image_predictions["segments_info"]]),
                     }
@@ -326,6 +346,9 @@ class OneFormerTrainer:
             )] if self.id2label is not None else class_id.item()
             metrics[f"map_{class_name}"] = class_map
             metrics[f"mar_100_{class_name}"] = class_mar
+
+        # Loss
+        metrics["loss"] = outputs.loss
 
         metrics = {k: round(v.item(), 4) for k, v in metrics.items()}
 
@@ -376,20 +399,19 @@ class OneFormerTrainer:
             epoch_loss = epoch_loss / completed_steps
             progress_bar.set_postfix(loss=epoch_loss, refresh=True)
 
+            # Validation
+            metrics = self.evaluation_loop(self.val_dataloader)
+            print(metrics)
+
             # Save model with min loss
             if epoch_loss < min_loss:
                 min_loss = epoch_loss
                 self.save_model(save_dir=self.best_model_dir,
                                 metrics=metrics)
 
-            # Validation
-            # metrics = self.evaluation_loop(self.val_dataloader)
-            metrics = ""
-            # print(f"epoch {epoch}: {metrics}")
-
         # Run test evaluation
-        # metrics = self.evaluation_loop(self.test_dataloader)
-        # print("Test metrics:", metrics)
+        metrics = self.evaluation_loop(self.test_dataloader)
+        print("Test metrics:", metrics)
 
         # Save last model
         self.save_model(save_dir=self.last_model_dir,
@@ -405,5 +427,5 @@ class OneFormerTrainer:
             unwrapped_model.save_pretrained(save_dir,
                                             is_main_process=self.accelerator.is_main_process,
                                             save_function=self.accelerator.save)
-            # with open(os.path.join(self.output_dir, "all_results.json"), "w") as f:
-            #     json.dump(metrics, f, indent=2)
+            with open(os.path.join(self.output_dir, "all_results.json"), "w") as f:
+                json.dump(metrics, f, indent=2)
