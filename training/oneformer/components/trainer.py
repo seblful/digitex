@@ -282,11 +282,13 @@ class OneFormerTrainer:
 
     def evaluation_loop(self, dataloader: DataLoader) -> dict:
         metric = MeanAveragePrecision(iou_type="segm", class_metrics=True)
+        loss = 0.0
 
         for batch in tqdm(dataloader,
                           total=len(dataloader)):
             with torch.no_grad():
                 outputs = self.model(**batch)
+            loss += outputs.loss
 
             batch = self.accelerator.gather_for_metrics(batch)
             batch = self.nested_cpu(batch)
@@ -336,6 +338,7 @@ class OneFormerTrainer:
 
         # Compute metrics
         metrics = metric.compute()
+        loss = loss / int(len(dataloader) / self.batch_size)
 
         # Replace list of per class metrics with separate metric for each class
         classes = metrics.pop("classes")
@@ -348,7 +351,7 @@ class OneFormerTrainer:
             metrics[f"mar_100_{class_name}"] = class_mar
 
         # Loss
-        metrics["loss"] = outputs.loss
+        metrics["loss"] = loss
 
         metrics = {k: round(v.item(), 4) for k, v in metrics.items()}
 
@@ -362,10 +365,12 @@ class OneFormerTrainer:
             progress_bar = tqdm(total=self.train_steps // self.train_epochs,
                                 desc=f'Epoch {epoch + 1}/{self.train_epochs}',
                                 position=0, leave=True)
+            postfix = {"loss": None, "train_loss": None, "val_loss": None}
+
             completed_steps = 0
 
             min_loss = float('inf')
-            epoch_loss = 0.0
+            train_loss = 0.0
 
             # Iterating through batches
             for step, batch in enumerate(self.train_dataloader):
@@ -377,7 +382,7 @@ class OneFormerTrainer:
                                          task_inputs=batch["task_inputs"],
                                          text_inputs=batch["text_inputs"])
                     loss = outputs.loss
-                    epoch_loss += loss.item()
+                    train_loss += loss.item()
 
                     # Backpropagation and optimization steps
                     self.optimizer.zero_grad()
@@ -389,23 +394,28 @@ class OneFormerTrainer:
                 if self.accelerator.sync_gradients:
                     completed_steps += 1
                     progress_bar.update(1)
-                    progress_bar.set_postfix(loss=loss.item(), refresh=True)
+                    postfix["loss"] = loss.item()
+                    progress_bar.set_postfix(postfix, refresh=True)
 
                 # Break if all steps
                 if completed_steps >= self.train_steps:
                     break
 
             # Calculate epoch loss
-            epoch_loss = epoch_loss / completed_steps
-            progress_bar.set_postfix(loss=epoch_loss, refresh=True)
+            postfix["train_loss"] = train_loss / completed_steps
+            progress_bar.set_postfix(postfix, refresh=True)
 
             # Validation
             metrics = self.evaluation_loop(self.val_dataloader)
-            print(metrics)
+            print("Val metrics:", metrics)
+
+            # Val loss
+            postfix["val_loss"] = metrics["loss"]
+            progress_bar.set_postfix(postfix, refresh=True)
 
             # Save model with min loss
-            if epoch_loss < min_loss:
-                min_loss = epoch_loss
+            if metrics["loss"] < min_loss:
+                min_loss = metrics["loss"]
                 self.save_model(save_dir=self.best_model_dir,
                                 metrics=metrics)
 
