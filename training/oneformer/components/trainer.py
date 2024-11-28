@@ -237,18 +237,20 @@ class OneFormerTrainer:
         return self.__processor
 
     def collate_fn(self, batch:  list[BatchFeature]) -> BatchFeature:
-        batch_dict = {}
+        new_batch = {}
 
-        # Iterate through each key in the first sample to initialize the batch
-        for key in batch[0].keys():
-            # Stack tensors along a new dimension (batch dimension)
-            # If it's a tensor, we stack it; if it's not, we just take the list.
-            if isinstance(batch[0][key], Tensor):
-                batch_dict[key] = torch.stack([item[key] for item in batch])
-            else:
-                batch_dict[key] = [item[key] for item in batch]
+        new_batch["pixel_values"] = torch.stack(
+            [item['pixel_values'] for item in batch])
+        new_batch["pixel_mask"] = torch.stack(
+            [item['pixel_mask'] for item in batch])
+        new_batch["mask_labels"] = [item["mask_labels"] for item in batch]
+        new_batch["class_labels"] = [item["class_labels"] for item in batch]
+        new_batch["text_inputs"] = torch.stack(
+            [item['text_inputs'] for item in batch])
+        new_batch["task_inputs"] = torch.stack(
+            [item['task_inputs'] for item in batch])
 
-        return batch_dict
+        return new_batch
 
     def nested_cpu(self, tensors):
         if isinstance(tensors, (list, tuple)):
