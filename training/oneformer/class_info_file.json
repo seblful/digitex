@@ -1,29 +1,33 @@
 {
     "0": {
-        "isthing": 1,
-        "name": "answer"
+        "isthing": 0,
+        "name": "background"
     },
     "1": {
         "isthing": 1,
-        "name": "image"
+        "name": "answer"
     },
     "2": {
         "isthing": 1,
-        "name": "number"
+        "name": "image"
     },
     "3": {
         "isthing": 1,
-        "name": "option"
+        "name": "number"
     },
     "4": {
         "isthing": 1,
-        "name": "question"
+        "name": "option"
     },
     "5": {
         "isthing": 1,
-        "name": "spec"
+        "name": "question"
     },
     "6": {
+        "isthing": 1,
+        "name": "spec"
+    },
+    "7": {
         "isthing": 1,
         "name": "table"
     }
