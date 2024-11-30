@@ -14,20 +14,18 @@ PRETRAINED_MODEL = "shi-labs/oneformer_ade20k_swin_tiny"
 
 
 def main() -> None:
-
     trainer = OneFormerTrainer(dataset_dir=DATASET_DIR,
                                runs_dir=RUNS_DIR,
                                preprocessor_config_path=PREPROCESSOR_CONFIG_PATH,
                                class_info_file_path=CLASS_INFO_FILE_PATH,
                                pretrained_model_name=PRETRAINED_MODEL,
-                               longest_edge=2048,
-                               shortest_edge=512,
-                               batch_size=2,
-                               learning_rate=0.0001,
+                               width=1024,
+                               height=256,
+                               batch_size=1,
+                               learning_rate=5e-5,
                                lr_scheduler_type="cosine",
                                mixed_precision="no",
-                               train_epochs=100,
-                               checkpoint_steps=500,
+                               train_epochs=3,
                                seed=2)
     trainer.train()
 
