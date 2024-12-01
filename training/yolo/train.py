@@ -8,10 +8,9 @@ from components.trainer import Trainer
 parser = argparse.ArgumentParser(description="Get some hyperparameters.")
 
 # Get an arg for task type
-parser.add_argument("--task_type",
+parser.add_argument("--data_subdir",
                     default="page",
                     type=str,
-                    choices=["page", "question"],
                     help="Type of task type.")
 
 # Get an arg for yolo model_size
@@ -47,7 +46,6 @@ parser.add_argument("--batch_size",
 
 # Get an arg for overlap mask
 parser.add_argument("--overlap_mask",
-                    default=False,
                     action="store_true",
                     help="Determines whether segmentation masks should overlap during training.")
 
@@ -70,7 +68,7 @@ parser.add_argument("--seed",
 args = parser.parse_args()
 
 HOME = os.getcwd()
-DATA_DIR = os.path.join(HOME, "data", args.task_type)
+DATA_DIR = os.path.join(HOME, "data", args.data_subdir)
 DATASET_DIR = os.path.join(DATA_DIR, 'dataset')
 
 
