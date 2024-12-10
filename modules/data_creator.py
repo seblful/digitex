@@ -4,10 +4,6 @@ import os
 import random
 from PIL import Image
 
-# from transformers import PreTrainedModel, SegformerImageProcessor
-# from surya.model.detection.model import load_model as load_text_det_model, load_processor as load_text_det_processor
-# from surya.detection import batch_text_detection
-
 from modules.processors import ImageProcessor
 from modules.handlers import PDFHandler, ImageHandler, LabelHandler
 from modules.predictors import YoloPredictor
@@ -183,79 +179,53 @@ class DataCreator:
                                          num_saved=num_saved,
                                          num_images=num_images)
 
-    # def create_ocr_train_data_raw(self,
-    #                               raw_dir: str,
-    #                               train_dir: str,
-    #                               target_classes: list[str],
-    #                               num_images: int) -> None:
-    #     # Load detection model and preprocessor
-    #     text_det_processor = load_text_det_processor()
-    #     text_det_model = load_text_det_model()
+    def extract_parts(self,
+                      question_raw_dir: str,
+                      train_dir: str,
+                      num_images: int) -> None:
+        # Paths
+        images_dir = os.path.join(question_raw_dir, "images")
+        labels_dir = os.path.join(question_raw_dir, "labels")
+        classes_path = os.path.join(question_raw_dir, "classes.txt")
 
-    #     # Paths
-    #     images_dir = os.path.join(raw_dir, "images")
-    #     labels_dir = os.path.join(raw_dir, "labels")
-    #     classes_path = os.path.join(raw_dir, "classes.txt")
+        # Images and labels
+        images_labels = DataCreator._create_images_labels_dict(images_dir=images_dir,
+                                                               labels_dir=labels_dir)
 
-    #     # Classes
-    #     classes = DataCreator.__read_classes_file(classes_path)
+        # Classes
+        classes_dict = DataCreator._read_classes(classes_path)
+        target_classes = [cl for cl in classes_dict.values() if cl not in [
+            "image", "table"]]
 
-    #     # Images and labels
-    #     images_labels = DataCreator.__create_images_labels_dict(images_dir=images_dir,
-    #                                                             labels_dir=labels_dir)
+        # Images listdir
+        images_listdir = os.listdir(images_dir)
 
-    #     # Images listdir
-    #     images_listdir = os.listdir(images_dir)
+        # Counter for saved images
+        num_saved = 0
 
-    #     # Counter for saved images
-    #     num_saved = 0
+        while num_images != num_saved:
+            # Extract random image, points
+            rand_image, rand_image_name = self.image_handler.get_random_image(images_listdir=images_listdir,
+                                                                              images_dir=images_dir)
 
-    #     while num_images != num_saved:
-    #         rand_image_name = random.choice(images_listdir)
-    #         rand_image_path = os.path.join(images_dir, rand_image_name)
-    #         rand_label_name = images_labels[rand_image_name]
-    #         rand_label_path = os.path.join(labels_dir, rand_label_name)
+            rand_points_idx, rand_points = self.label_handler.get_points(image_name=rand_image_name,
+                                                                         labels_dir=labels_dir,
+                                                                         images_labels=images_labels,
+                                                                         classes_dict=classes_dict,
+                                                                         target_classes=target_classes)
 
-    #         # Raise exception of label name is None
-    #         if rand_label_name is None:
-    #             raise ValueError("Label must not be None.")
+            # Crop image and add borders
+            rand_image = self.image_handler.crop_image(image=rand_image,
+                                                       points=rand_points,
+                                                       offset=0.0)
 
-    #         # Extract random points and crop corresponding image
-    #         all_points = DataCreator.__get_question_points(label_path=rand_label_path,
-    #                                                        classes=classes,
-    #                                                        target_classes=target_classes)
-
-    #         if not all_points:
-    #             continue
-
-    #         rand_points_index, rand_points = DataCreator.__get_random_points(
-    #             all_points=all_points)
-
-    #         # Crop question image and add borders
-    #         rand_image = Image.open(rand_image_path)
-    #         rand_image = DataCreator.__crop_image(image=rand_image,
-    #                                               points=rand_points,
-    #                                               offset=0)
-    #         # Detect text
-    #         rand_subimages = DataCreator.__detect_text(image=rand_image,
-    #                                                    det_processor=text_det_processor,
-    #                                                    det_model=text_det_model)
-
-    #         for rand_subimage_index, rand_subimage in enumerate(rand_subimages):
-    #             # Save image
-    #             save_image_name = os.path.splitext(rand_image_name)[0]
-    #             save_image_name = f"{save_image_name}_{
-    #                 rand_points_index}_raw_{rand_subimage_index}.jpg"
-    #             save_image_path = os.path.join(train_dir, save_image_name)
-
-    #             if not os.path.exists(save_image_path):
-    #                 rand_subimage.save(save_image_path, "JPEG")
-
-    #         # Count images
-    #         if len(rand_subimages) > 0:
-    #             num_saved += 1
-    #             print(f"It was saved {
-    #                 num_saved}/{num_images} images.")
+            # Save image
+            num_saved = self._save_image(rand_points_idx,
+                                         train_dir=train_dir,
+                                         image=rand_image,
+                                         image_name=rand_image_name,
+                                         num_saved=num_saved,
+                                         num_images=num_images)
 
     # def create_ocr_train_data_pred(self,
     #                                raw_dir: str,
