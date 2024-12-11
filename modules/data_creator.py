@@ -144,8 +144,8 @@ class DataCreator:
                           scan_type: str,
                           num_images: int) -> None:
 
-        # Load model and labels
-        yolo_predictor = YoloPredictor(model_path=yolo_model_path)
+        # Load model
+        yolo_page_predictor = YoloPredictor(model_path=yolo_model_path)
 
         # Pdf listdir
         pdf_listdir = [pdf for pdf in os.listdir(
@@ -161,8 +161,8 @@ class DataCreator:
             rand_image = self.image_processor.process(image=rand_image,
                                                       scan_type=scan_type)
 
-            points_dict = yolo_predictor.get_points(image=rand_image)
-            rand_points_idx, rand_points = self.label_handler._get_random_points(classes_dict=yolo_predictor.classes_dict,
+            points_dict = yolo_page_predictor.get_points(image=rand_image)
+            rand_points_idx, rand_points = self.label_handler._get_random_points(classes_dict=yolo_page_predictor.classes_dict,
                                                                                  points_dict=points_dict,
                                                                                  target_classes=["question"])
 
@@ -194,8 +194,7 @@ class DataCreator:
 
         # Classes
         classes_dict = DataCreator._read_classes(classes_path)
-        target_classes = [cl for cl in classes_dict.values() if cl not in [
-            "image", "table"]]
+        target_classes = ["answer", "number", "option", "question", "spec"]
 
         # Images listdir
         images_listdir = os.listdir(images_dir)
@@ -214,7 +213,7 @@ class DataCreator:
                                                                          classes_dict=classes_dict,
                                                                          target_classes=target_classes)
 
-            # Crop image and add borders
+            # Crop image
             rand_image = self.image_handler.crop_image(image=rand_image,
                                                        points=rand_points,
                                                        offset=0.0)
@@ -227,123 +226,62 @@ class DataCreator:
                                          num_saved=num_saved,
                                          num_images=num_images)
 
-    # def create_ocr_train_data_pred(self,
-    #                                raw_dir: str,
-    #                                train_dir: str,
-    #                                yolo_page_model_path: str,
-    #                                yolo_question_model_path: str,
-    #                                num_images: int) -> None:
-    #     # Load model and labels
-    #     text_det_processor = load_text_det_processor()
-    #     text_det_model = load_text_det_model()
-    #     page_seg_model = YOLO(yolo_page_model_path)
-    #     question_seg_model = YOLO(yolo_question_model_path)
-    #     page_labels = page_seg_model.names
-    #     question_labels = question_seg_model.names
+    def predict_parts(self,
+                      raw_dir: str,
+                      train_dir: str,
+                      yolo_page_model_path: str,
+                      yolo_question_model_path: str,
+                      scan_type: str,
+                      num_images: int) -> None:
+        # Load model
+        yolo_page_predictor = YoloPredictor(yolo_page_model_path)
+        yolo_question_predictor = YoloPredictor(yolo_question_model_path)
 
-    #     # Pdf listdir
-    #     pdf_listdir = [pdf for pdf in os.listdir(
-    #         raw_dir) if pdf.endswith('pdf')]
+        # Pdf listdir
+        pdf_listdir = [pdf for pdf in os.listdir(
+            raw_dir) if pdf.endswith('pdf')]
 
-    #     # Counter for saved images
-    #     num_saved = 0
+        # Classes
+        target_classes = ["answer", "number", "option", "question", "spec"]
 
-    #     while num_images != num_saved:
-    #         # Get random image
-    #         rand_page_image, rand_image_path = self.__get_random_image_from_pdf(pdf_listdir=pdf_listdir,
-    #                                                                             raw_dir=raw_dir,
-    #                                                                             train_dir=train_dir)
+        # Counter for saved images
+        num_saved = 0
 
-    #         # Create list to store all points with question
-    #         all_page_points = []
-    #         pred_question_points = []
+        while num_images != num_saved:
+            # Extract random image, points
+            page_rand_image, rand_image_name, rand_page_idx = self.pdf_handler.get_random_image(pdf_listdir=pdf_listdir,
+                                                                                                pdf_dir=raw_dir)
+            page_rand_image = self.image_processor.process(image=page_rand_image,
+                                                           scan_type=scan_type)
 
-    #         # Predict image and get points
-    #         page_result = page_seg_model.predict(
-    #             rand_page_image, verbose=False)[0]
+            # Predict page
+            page_points_dict = yolo_page_predictor.get_points(
+                image=page_rand_image)
+            question_rand_points_idx, question_rand_points = self.label_handler._get_random_points(classes_dict=yolo_page_predictor.classes_dict,
+                                                                                                   points_dict=page_points_dict,
+                                                                                                   target_classes=["question"])
 
-    #         for page_box, page_points in zip(page_result.boxes, page_result.masks.xyn):
+            # Crop question image and add borders
+            question_rand_image = self.image_handler.crop_image(image=page_rand_image,
+                                                                points=question_rand_points)
 
-    #             # Get points and label
-    #             page_points = page_points.reshape(-1).tolist()
-    #             page_label = page_labels[int(page_box.cls.item())]
+            # Predict question
+            question_points_dict = yolo_question_predictor.get_points(
+                image=question_rand_image)
+            part_rand_points_idx, part_rand_points = self.label_handler._get_random_points(classes_dict=yolo_question_predictor.classes_dict,
+                                                                                           points_dict=question_points_dict,
+                                                                                           target_classes=target_classes)
+            # Crop part image
+            part_rand_image = self.image_handler.crop_image(image=question_rand_image,
+                                                            points=part_rand_points,
+                                                            offset=0.0)
 
-    #             if page_label != "question":
-    #                 all_page_points.append(page_points)
-    #             else:
-    #                 pred_question_points.append(page_points)
-
-    #         if not all_page_points:
-    #             continue
-
-    #         # Get random points
-    #         rand_page_index, rand_page_points = DataCreator.__get_random_points(
-    #             all_points=all_page_points)
-    #         _, pred_question_points = DataCreator.__get_random_points(
-    #             all_points=pred_question_points)
-
-    #         # Crop question image and add borders
-    #         rand_page_subimage = DataCreator.__crop_image(image=rand_page_image,
-    #                                                       points=rand_page_points,
-    #                                                       offset=0)
-
-    #         question_image_to_predict = DataCreator.__crop_image(image=rand_page_image,
-    #                                                              points=pred_question_points)
-
-    #         # Predict questions
-    #         question_result = question_seg_model.predict(
-    #             question_image_to_predict, verbose=False)[0]
-
-    #         all_question_points = []
-
-    #         for question_box, question_points in zip(question_result.boxes, question_result.masks.xyn):
-
-    #             # Get points and label
-    #             question_points = question_points.reshape(-1).tolist()
-    #             question_label = question_labels[int(question_box.cls.item())]
-
-    #             if question_label != "image":
-    #                 all_question_points.append(question_points)
-
-    #         if not all_question_points:
-    #             continue
-
-    #         # Get random points
-    #         rand_question_index, rand_question_points = DataCreator.__get_random_points(
-    #             all_points=all_question_points)
-    #         rand_question_image = DataCreator.__crop_image(image=question_image_to_predict,
-    #                                                        points=rand_question_points,
-    #                                                        offset=0)
-
-    #         # Detect text
-    #         rand_page_subimages = DataCreator.__detect_text(image=rand_page_subimage,
-    #                                                         det_processor=text_det_processor,
-    #                                                         det_model=text_det_model)
-    #         rand_question_subimages = DataCreator.__detect_text(image=rand_question_image,
-    #                                                             det_processor=text_det_processor,
-    #                                                             det_model=text_det_model)
-
-    #         # Save subimages
-    #         base_save_image_name = os.path.splitext(
-    #             os.path.basename(rand_image_path))[0]
-    #         for rand_subimage_index, rand_subimage in enumerate(rand_page_subimages):
-    #             save_image_name = f"{base_save_image_name}_pred_page_{
-    #                 rand_subimage_index}_{rand_page_index}.jpg"
-    #             save_image_path = os.path.join(train_dir, save_image_name)
-
-    #             if not os.path.exists(save_image_path):
-    #                 rand_subimage.save(save_image_path, "JPEG")
-
-    #         for rand_subimage_index, rand_subimage in enumerate(rand_question_subimages):
-    #             save_image_name = f"{base_save_image_name}_pred_page_{
-    #                 rand_subimage_index}_{rand_question_index}.jpg"
-    #             save_image_path = os.path.join(train_dir, save_image_name)
-
-    #             if not os.path.exists(save_image_path):
-    #                 rand_subimage.save(save_image_path, "JPEG")
-
-    #         # Count images
-    #         if len(rand_page_subimages) > 0:
-    #             num_saved += 1
-    #             print(f"It was saved {
-    #                 num_saved}/{num_images} images.")
+            # Save image
+            num_saved = self._save_image(rand_page_idx,
+                                         question_rand_points_idx,
+                                         part_rand_points_idx,
+                                         train_dir=train_dir,
+                                         image=part_rand_image,
+                                         image_name=rand_image_name,
+                                         num_saved=num_saved,
+                                         num_images=num_images)
