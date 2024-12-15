@@ -119,3 +119,42 @@ class DatasetCreator():
             id2label = {k: v for k, v in enumerate(classes, start=0)}
 
         return id2label
+
+    def __copy_data(self,
+                    data_dict: dict[str, str],
+                    dirs_name: str) -> None:
+
+        for image_name, label_name in data_dict.items():
+            shutil.copyfile(os.path.join(self.raw_dir, "images", image_name),
+                            os.path.join(dirs_name[0], image_name))
+            shutil.copyfile(os.path.join(self.annotation_dir, label_name),
+                            os.path.join(dirs_name[1], label_name))
+
+    def __partitionate_data(self) -> None:
+        # Dict with images and labels
+        data = self.images_labels_dict
+
+        # Create the train, validation, and test datasets
+        num_train = int(len(data) * self.train_split)
+        num_test = int(len(data) * self.test_split)
+
+        # Create dicts with images and labels names
+        train_data = {key: data[key] for key in list(data.keys())[:num_train]}
+        test_data = {key: data[key] for key in list(
+            data.keys())[num_train:num_train+num_test]}
+
+        # Copy the images and labels to the train, validation, and test folders
+        for data_dict, dirs_name in zip((train_data, test_data), (self.train_dirs, self.test_dirs)):
+            self.__copy_data(data_dict=data_dict,
+                             dirs_name=dirs_name)
+
+    def create_dataset(self) -> None:
+        # Create annotations
+        print("Annotations are creating...")
+        # self.annotation_creator.create_annotations()
+
+        # Create dataset
+        print("Data is partitioning...")
+        self.__partitionate_data()
+
+        print("Train, validation, test sets have created.")
