@@ -135,3 +135,106 @@ class DatasetCreator():
         self.__partitionate_data()
 
         print("Train, validation, test sets have created.")
+
+
+class AnnotationCreator:
+    def __init__(self,
+                 annotation_dir: str,
+                 json_path: str) -> None:
+        # Paths
+        self.annotation_dir = annotation_dir
+        self.json_path = json_path
+
+    @staticmethod
+    def read_json(json_path) -> dict:
+        with open(json_path, "r", encoding="utf-8") as json_file:
+            json_dict = json.load(json_file)
+
+        return json_dict
+
+    @staticmethod
+    def bbox_to_polygon(bbox: list[float],
+                        image_width: int,
+                        image_height: int) -> list[int]:
+
+        x_rel, y_rel, width_rel, height_rel = bbox
+
+        # Convert relative coordinates to absolute
+        x = int((x_rel / 100) * image_width)
+        y = int((y_rel / 100) * image_height)
+        width = int((width_rel / 100) * image_width)
+        height = int((height_rel / 100) * image_height)
+
+        # Define the vertices of the polygon
+        polygon = [x, y, x + width, y, x + width, y + height, x, y + height]
+
+        return polygon
+
+    @staticmethod
+    def polygon_to_abs(polygon,
+                       image_width: int,
+                       image_height: int) -> list[int]:
+
+        abs_polygon = []
+
+        for pol in polygon:
+            x = int((pol[0] / 100) * image_width)
+            y = int((pol[1] / 100) * image_height)
+
+            abs_polygon.append(x)
+            abs_polygon.append(y)
+
+        return abs_polygon
+
+    def __get_polygons(self, task) -> tuple[list, list]:
+        # Create empty arrays to store data
+        texts = []
+        polygons = []
+
+        # Retrieve result
+        result = task['annotations'][0]['result']
+
+        for entry in result:
+            if entry['type'] == 'textarea':
+                # Extract text details
+                text = entry['value']['text'][0]
+                texts.append(text)
+
+                # Extract bbox and convert it to polygon with absolute coordinates
+                if 'x' in entry['value'].keys():
+                    bbox = [entry['value']['x'],
+                            entry['value']['y'],
+                            entry['value']['width'],
+                            entry['value']['height']]
+
+                    polygon = self.bbox_to_polygon(bbox=bbox,
+                                                   image_width=entry['original_width'],
+                                                   image_height=entry['original_height'])
+                    polygons.append(polygon)
+
+                # Extract polygon and convert it to polygon with absolute coordinates
+                elif 'points' in entry['value'].keys():
+                    polygon = entry['value']['points']
+                    polygon = self.polygon_to_abs(polygon=polygon,
+                                                  image_width=entry['original_width'],
+                                                  image_height=entry['original_height'])
+
+                    polygons.append(polygon)
+
+        return polygons, texts
+
+    def create_annotations(self) -> None:
+        # Read json_polygon_path
+        json_dict = self.read_json(self.json_path)
+
+        # Iterating through tasks
+        for task in json_dict:
+
+            # Get polygons and labels
+            polygons, texts = self.__get_polygons(task)
+
+            # Save annotation as image
+            image_name = unquote(os.path.basename(task["data"]["image"]))
+            self.__save_annotation(polygons=polygons,
+                                   texts=texts,
+                                   image_name=image_name)
