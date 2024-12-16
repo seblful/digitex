@@ -30,15 +30,11 @@ class DatasetCreator():
         self.train_split = train_split
         self.test_split = 1 - self.train_split
 
-        self.__id2label = None
-        self.__label2id = None
-
         self.__images_labels_dict = None
 
         # Annotation creator
         self.annotation_creator = AnnotationCreator(annotation_dir=self.annotation_dir,
-                                                    json_path=self.json_path,
-                                                    label2id=self.label2id)
+                                                    json_path=self.json_path)
 
     def __setup_dataset_dirs(self) -> None:
         os.mkdir(self.dataset_dir)
@@ -98,37 +94,18 @@ class DatasetCreator():
 
         return images_labels
 
-    @property
-    def id2label(self) -> dict[int, str]:
-        if self.__id2label is None:
-            self.__id2label = self.__create_id2label()
-
-        return self.__id2label
-
-    @property
-    def label2id(self) -> dict[str, int]:
-        if self.__label2id is None:
-            self.__label2id = {v: k for k, v in self.id2label.items()}
-
-        return self.__label2id
-
-    def __create_id2label(self) -> dict[int, str]:
-        with open(self.classes_path, 'r') as file:
-            # Set the names of the classes
-            classes = [i.split('\n')[0] for i in file.readlines()]
-            id2label = {k: v for k, v in enumerate(classes, start=0)}
-
-        return id2label
-
     def __copy_data(self,
                     data_dict: dict[str, str],
                     dirs_name: str) -> None:
 
+        counter = 0
+
         for image_name, label_name in data_dict.items():
+            counter += 1
             shutil.copyfile(os.path.join(self.raw_dir, "images", image_name),
-                            os.path.join(dirs_name[0], image_name))
+                            os.path.join(dirs_name[0], f"img_{str(counter)}.jpg"))
             shutil.copyfile(os.path.join(self.annotation_dir, label_name),
-                            os.path.join(dirs_name[1], label_name))
+                            os.path.join(dirs_name[1], f"gt_img_{str(counter)}.txt"))
 
     def __partitionate_data(self) -> None:
         # Dict with images and labels
@@ -151,7 +128,7 @@ class DatasetCreator():
     def create_dataset(self) -> None:
         # Create annotations
         print("Annotations are creating...")
-        # self.annotation_creator.create_annotations()
+        self.annotation_creator.create_annotations()
 
         # Create dataset
         print("Data is partitioning...")
