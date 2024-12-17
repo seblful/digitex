@@ -134,8 +134,6 @@ class DatasetCreator():
         print("Data is partitioning...")
         self.__partitionate_data()
 
-        print("Train, validation, test sets have created.")
-
 
 class AnnotationCreator:
     def __init__(self,
@@ -238,3 +236,19 @@ class AnnotationCreator:
             self.__save_annotation(polygons=polygons,
                                    texts=texts,
                                    image_name=image_name)
+
+    def __save_annotation(self,
+                          polygons: list[int],
+                          texts: list[str],
+                          image_name: str) -> None:
+        # Create annotation path
+        annotation_name = os.path.splitext(image_name)[0] + ".txt"
+        annotation_path = os.path.join(self.annotation_dir, annotation_name)
+
+        with open(annotation_path, 'a', encoding="utf-8") as file:
+            for i in range(len(polygons)):
+                str_to_write = list(map(str, polygons[i])) + [texts[i]]
+                file.write(",".join(str_to_write))
+                file.write("\n")
+
+        return None
