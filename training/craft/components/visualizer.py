@@ -56,3 +56,72 @@ class Visualizer:
         data_dict = dict(list(data_dict.items())[:num_images])
 
         return data_dict
+
+    @staticmethod
+    def _draw_image(image: Image,
+                    polygons: list[tuple[int, int]]):
+        draw = ImageDraw.Draw(image, 'RGBA')
+        for polygon in polygons:
+            draw.polygon(polygon,
+                         fill=((0, 255, 0, 128)),
+                         outline="red")
+
+        return image
+
+    @staticmethod
+    def _read_ann_file(ann_path: str) -> list[str]:
+        with open(ann_path, 'r', encoding="utf-8") as ann_file:
+            anns = ann_file.readlines()
+
+        return anns
+
+    @staticmethod
+    def _get_polygons(anns: list[str]) -> list[tuple[int, int]]:
+        polygons = []
+        for ann in anns:
+            polygon = ann.rstrip().split(',')[:-1]
+            polygon = [pol for pol in polygon if pol.isdigit()]
+            polygon = list(map(int, polygon))
+            polygon = list(zip(polygon[::2], polygon[1::2]))
+            polygons.append(polygon)
+
+        return polygons
+
+    def __extract_polygons(self,
+                           ann_path: str) -> list[tuple[int, int]]:
+        anns = self._read_ann_file(ann_path)
+        polygons = self._get_polygons(anns)
+
+        return polygons
+
+    def __save_image(self,
+                     image: Image,
+                     image_name: str,
+                     images_dir: str) -> None:
+        image_name = os.path.splitext(image_name)[0]
+        set_dir = ["train", "test"]["train" not in images_dir]
+        save_image_name = f"{image_name}_{set_dir}.jpg"
+        save_path = os.path.join(self.check_images_dir, save_image_name)
+        image.save(save_path)
+
+    def visualize(self, num_images: int = 10) -> None:
+        print("Visualizing dataset images...")
+        # Iterating through each dict and name of dataset that corresponds dict
+        for set_dirs in [self.train_dirs, self.test_dirs]:
+            images_dir, ann_dir = set_dirs
+            data_dict = self.__create_data_dict(images_dir=images_dir,
+                                                ann_dir=ann_dir,
+                                                num_images=num_images)
+
+            # Iterating through each image and annotation from directory
+            for image_name, ann_name in data_dict.items():
+                image_path = os.path.join(images_dir, image_name)
+                ann_path = os.path.join(ann_dir, ann_name)
+
+                image = Image.open(image_path)
+                polygons = self.__extract_polygons(ann_path)
+                drawn_image = self._draw_image(image=image,
+                                               polygons=polygons)
+                self.__save_image(image=drawn_image,
+                                  images_dir=images_dir,
+                                  image_name=image_name)
