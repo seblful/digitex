@@ -99,7 +99,8 @@ class Visualizer:
                      image_name: str,
                      images_dir: str) -> None:
         image_name = os.path.splitext(image_name)[0]
-        set_dir = ["train", "test"]["train" not in images_dir]
+        set_dir = [
+            "train", "test"]["training" not in os.path.basename(images_dir)]
         save_image_name = f"{image_name}_{set_dir}.jpg"
         save_path = os.path.join(self.check_images_dir, save_image_name)
         image.save(save_path)
