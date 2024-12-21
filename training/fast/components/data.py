@@ -1,6 +1,8 @@
 import os
 import shutil
 import json
+
+import math
 import random
 
 import hashlib
@@ -45,23 +47,38 @@ class AnnotationCreator:
         return hash
 
     @staticmethod
-    def bbox_to_polygon(bbox: list[float],
+    def bbox_to_polygon(bbox: dict,
                         image_width: int,
-                        image_height: int) -> list[int]:
+                        image_height: int) -> list[tuple[int, int]]:
 
-        x_rel, y_rel, width_rel, height_rel = bbox
+        x_rel, y_rel, width_rel, height_rel, rotation = bbox["x"], bbox[
+            "y"], bbox["width"], bbox["height"], bbox["rotation"]
 
         # Convert relative coordinates to absolute
-        x = int((x_rel / 100) * image_width)
-        y = int((y_rel / 100) * image_height)
-        width = int((width_rel / 100) * image_width)
-        height = int((height_rel / 100) * image_height)
+        x = (x_rel / 100) * image_width
+        y = (y_rel / 100) * image_height
+        width = (width_rel / 100) * image_width
+        height = (height_rel / 100) * image_height
 
-        # Define the vertices of the polygon
-        polygon = [(x, y), (x + width, y),
-                   (x + width, y + height), (x, y + height)]
+        # Define the vertices of the rectangle (unrotated)
+        vertices = [(x, y), (x + width, y),
+                    (x + width, y + height), (x, y + height)]
 
-        return polygon
+        # Convert rotation to radians
+        angle_rad = math.radians(rotation)
+
+        # Define the rotation matrix
+        cos_theta = math.cos(angle_rad)
+        sin_theta = math.sin(angle_rad)
+
+        # Rotate each vertex around the top-left corner of the bounding box
+        rotated_polygon = []
+        for vx, vy in vertices:
+            rx = x + (vx - x) * cos_theta - (vy - y) * sin_theta
+            ry = y + (vx - x) * sin_theta + (vy - y) * cos_theta
+            rotated_polygon.append((int(rx), int(ry)))
+
+        return rotated_polygon
 
     @staticmethod
     def polygon_to_abs(polygon,
@@ -89,10 +106,8 @@ class AnnotationCreator:
 
                 # Extract bbox and convert it to polygon with absolute coordinates
                 if 'x' in entry['value'].keys():
-                    bbox = [entry['value']['x'],
-                            entry['value']['y'],
-                            entry['value']['width'],
-                            entry['value']['height']]
+                    bbox = {k: v for k,
+                            v in entry['value'].items() if k != "text"}
 
                     polygon = self.bbox_to_polygon(bbox=bbox,
                                                    image_width=image_width,
