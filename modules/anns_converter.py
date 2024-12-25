@@ -24,7 +24,16 @@ class AnnsConverter:
 
         return None
 
-    def get_bbox_preds(self, task: dict):
+
+class OCRAnnsConverter(AnnsConverter):
+    pass
+
+
+class OCRBBOXAnnsConverter(OCRAnnsConverter):
+    def __init__(self) -> None:
+        self.output_json_name = "bbox_data.json"
+
+    def get_preds(self, task: dict) -> list[dict]:
         # Create empty list to results
         preds = [{"result": []}]
 
@@ -32,27 +41,42 @@ class AnnsConverter:
 
         for entry in result:
             if entry['type'] == 'textarea':
-                entry_copy = entry.copy()
+                output_entry = entry.copy()
 
-                del entry_copy['value']['text']
+                del output_entry['value']['text']
 
-                entry_copy['value']['rectanglelabels'] = ['text']
+                output_entry['value']['rectanglelabels'] = ['text']
 
-                entry_copy['from_name'] = 'label'
-                entry_copy['to_name'] = 'image'
-                entry_copy['type'] = 'rectanglelabels'
+                output_entry['from_name'] = 'label'
+                output_entry['to_name'] = 'image'
+                output_entry['type'] = 'rectanglelabels'
 
-                preds[0]["result"].append(entry_copy)
+                preds[0]['result'].append(output_entry)
 
         return preds
 
-    def ocr_to_bbox(self,
-                    ocr_json_path: str,
-                    output_dir: str) -> list[dict]:
+    def convert(self,
+                input_json_path: str,
+                output_dir: str) -> list[dict]:
         # Read json_path
-        ocr_json_dicts = self.read_json(ocr_json_path)
+        input_json_dicts = self.read_json(input_json_path)
 
-        bbox_json_dicts = []
+        output_json_dicts = []
 
-    def ocr_to_caption(self):
-        pass
+        # Iterating through tasks
+        for task in input_json_dicts:
+            anns_dict = {}
+
+            anns_dict['data'] = task['data']
+
+            predictions = self.get_preds(task)
+            anns_dict['predictions'] = predictions
+
+            output_json_dicts.append(anns_dict)
+
+        # Write to json file
+        output_json_path = os.path.join(output_dir, self.output_json_name)
+        self.write_json(json_dicts=output_json_dicts,
+                        json_path=output_json_path)
+
+        return output_json_dicts
