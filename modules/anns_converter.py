@@ -1,10 +1,19 @@
 import os
 import json
 
+from urllib.parse import quote, unquote
+from PIL import Image
+
+import numpy as np
+import cv2
+
 
 class AnnsConverter:
-    def __init__(self):
-        pass
+    def __init__(self,
+                 ls_upload_dir: str):
+        self.ls_upload_dir = ls_upload_dir
+
+        self.bbox_keys = ["x", "y", "width", "height", "rotation"]
 
     @staticmethod
     def read_json(json_path) -> dict:
@@ -24,13 +33,60 @@ class AnnsConverter:
 
         return None
 
+    def add_filename_index(self,
+                           filename: str,
+                           index: int):
+        filename_split = os.path.splitext(filename)
+        filename = f"{filename_split[0]}_{str(index)}{filename_split[1]}"
+
+        return filename
+
+    def create_local_path(self,
+                          task_path: str) -> str:
+        task_path = unquote(task_path)
+        task_path = os.path.normpath(task_path)
+        path_split = task_path.split(os.sep)
+        task_path = "/".join(path_split[3:])
+
+        local_path = os.path.join(self.ls_upload_dir, task_path)
+        local_path = os.path.normpath(local_path)
+
+        return local_path
+
+    def create_task_path(self,
+                         local_path: str,
+                         project_num: str = None,
+                         index: int = None) -> str:
+        path_split = local_path.split(os.sep)
+
+        # Change project_num
+        if project_num is not None:
+            path_split[-2] = str(project_num)
+
+        filename = path_split[-1]
+
+        # Add index to filename
+        if index is not None:
+            filename = self.add_filename_index(filename=filename,
+                                               index=index)
+
+        filename = quote(filename)
+        task_path = f"/data/{path_split[-3]}/{path_split[-2]}/{filename}"
+
+        return task_path
+
 
 class OCRAnnsConverter(AnnsConverter):
-    pass
+    def __init__(self,
+                 ls_upload_dir: str) -> None:
+        super().__init__(ls_upload_dir)
 
 
 class OCRBBOXAnnsConverter(OCRAnnsConverter):
-    def __init__(self) -> None:
+    def __init__(self,
+                 ls_upload_dir: str) -> None:
+        super().__init__(ls_upload_dir)
+
         self.output_json_name = "bbox_data.json"
 
     def get_preds(self, task: dict) -> list[dict]:
