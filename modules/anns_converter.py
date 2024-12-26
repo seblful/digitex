@@ -207,3 +207,19 @@ class OCRCaptionConverter(OCRAnnsConverter):
         output_image_path = os.path.normpath(output_image_path)
 
         return output_image_path
+
+    def get_preds(self, entry: dict) -> list[dict]:
+        preds = [{"result": []}]
+
+        # Fill result
+        output_entry = {}
+        output_entry['from_name'] = "caption"
+        output_entry['to_name'] = "image"
+        output_entry['type'] = "textarea"
+        output_entry['origin'] = "manual"
+
+        text = entry['value']['text'][0]
+        output_entry['value'] = {'text': [text]}
+        preds[0]['result'].append(output_entry)
+
+        return preds
