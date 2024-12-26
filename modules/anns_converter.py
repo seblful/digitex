@@ -223,3 +223,53 @@ class OCRCaptionConverter(OCRAnnsConverter):
         preds[0]['result'].append(output_entry)
 
         return preds
+
+    def convert(self,
+                input_json_path: str,
+                output_project_num: int,
+                output_dir: str):
+        # Read json_path
+        ocr_json_dicts = self.read_json(input_json_path)
+
+        output_json_dicts = []
+
+        # Iterating through tasks
+        for task in ocr_json_dicts:
+            # Open image
+            task_image_path = task['data']['image']
+            input_image_path = self.create_local_path(
+                task_path=task_image_path)
+            image = Image.open(input_image_path)
+
+            result = task['annotations'][0]['result']
+            for i, entry in enumerate(result):
+                if entry['type'] == 'textarea':
+                    # Crop image
+                    bbox = {k: v for k,
+                            v in entry['value'].items() if k in self.bbox_keys}
+                    cropped_image = self.cut_rotated_bbox(image=image,
+                                                          image_width=entry['original_width'],
+                                                          image_height=entry['original_height'],
+                                                          bbox=bbox)
+
+                    # Create caption and output image paths and save image
+                    caption_image_path = self.create_task_path(local_path=input_image_path,
+                                                               project_num=output_project_num,
+                                                               index=i)
+                    output_image_path = self.create_output_path(output_dir=output_dir,
+                                                                input_image_path=input_image_path,
+                                                                index=i)
+                    cropped_image.save(output_image_path)
+
+                    # Fill annotations with predictions for each cropped image
+                    anns_dict = {}
+                    anns_dict['data'] = {'captioning': caption_image_path}
+
+                    predictions = self.get_preds(entry=entry)
+                    anns_dict['predictions'] = predictions
+                    output_json_dicts.append(anns_dict)
+
+        # Write to json file
+        output_json_path = os.path.join(output_dir, self.output_json_name)
+        self.write_json(json_dicts=output_json_dicts,
+                        json_path=output_json_path)
