@@ -184,3 +184,26 @@ class OCRCaptionConverter(OCRAnnsConverter):
         image = Image.fromarray(result)
 
         return image
+
+    def create_output_path(self,
+                           output_dir: str,
+                           input_image_path: str,
+                           index: int) -> str:
+
+        # Create path to save subimages
+        images_dir = os.path.join(output_dir, "caption-images")
+        # os.mkdir(images_dir)
+
+        # Split
+        path_split = input_image_path.split(os.sep)
+
+        # Add index to filename
+        image_name = path_split[-1]
+        image_name = self.add_filename_index(filename=image_name,
+                                             index=index)
+
+        # Create output path
+        output_image_path = os.path.join(images_dir, image_name)
+        output_image_path = os.path.normpath(output_image_path)
+
+        return output_image_path
