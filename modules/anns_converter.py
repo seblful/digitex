@@ -136,3 +136,51 @@ class OCRBBOXAnnsConverter(OCRAnnsConverter):
                         json_path=output_json_path)
 
         return output_json_dicts
+
+
+class OCRCaptionConverter(OCRAnnsConverter):
+    def __init__(self,
+                 ls_upload_dir: str) -> None:
+        super().__init__(ls_upload_dir)
+
+        self.output_json_name = "caption_data.json"
+
+    def cut_rotated_bbox(self,
+                         image: Image,
+                         image_width: int,
+                         image_height: int,
+                         bbox: dict) -> Image:
+        img = np.array(image)
+
+        # Convert relative values to absolute pixels
+        x = int(bbox['x'] * image_width / 100)
+        y = int(bbox['y'] * image_height / 100)
+        width = int(bbox['width'] * image_width / 100)
+        height = int(bbox['height'] * image_height / 100)
+        angle = bbox['rotation']
+
+        # Define the rectangle points
+        cx = x + (width / 2)
+        cy = y + (height / 2)
+        rect = ((cx, cy), (width, height), angle)
+
+        # Get the rotation matrix
+        rect_points = cv2.boxPoints(rect)
+        # rect_points = np.int0(rect_points)
+
+        # Get rotated rectangle ROI
+        src_pts = rect_points.astype(np.float32)
+        dst_pts = np.array([[0, height-1],
+                            [0, 0],
+                            [width-1, 0],
+                            [width-1, height-1]], dtype=np.float32)
+
+        # Get perspective transform matrix
+        M = cv2.getPerspectiveTransform(src_pts, dst_pts)
+
+        # Apply perspective transformation
+        result = cv2.warpPerspective(img, M, (width, height))
+
+        image = Image.fromarray(result)
+
+        return image
