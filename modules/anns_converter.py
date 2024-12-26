@@ -227,7 +227,11 @@ class OCRCaptionConverter(OCRAnnsConverter):
     def convert(self,
                 input_json_path: str,
                 output_project_num: int,
+<<<<<<< HEAD
                 output_dir: str) -> None:
+=======
+                output_dir: str):
+>>>>>>> e9fbb901d89caeb0b8506c331c7aa28d18a4cb8a
         # Read json_path
         ocr_json_dicts = self.read_json(input_json_path)
 
