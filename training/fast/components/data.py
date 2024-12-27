@@ -187,30 +187,29 @@ class AnnotationCreator:
         result = task['annotations'][0]['result']
 
         for entry in result:
-            if entry['type'] == 'textarea':
-                # Width and height
-                image_width = entry["original_width"]
-                image_height = entry["original_height"]
+            # Image width and height
+            image_width = entry["original_width"]
+            image_height = entry["original_height"]
 
-                # Extract bbox and convert it to polygon with absolute coordinates
-                if 'x' in entry['value'].keys():
-                    bbox = {k: v for k,
-                            v in entry['value'].items() if k != "text"}
+            # Extract bbox and convert it to polygon with absolute coordinates
+            if 'x' in entry['value'].keys():
+                bbox = {k: v for k,
+                        v in entry['value'].items() if k != "rectanglelabels"}
 
-                    polygon = self.bbox_to_polygon(bbox=bbox,
-                                                   image_width=image_width,
-                                                   image_height=image_height)
-                    polygons.append(polygon)
+                polygon = self.bbox_to_polygon(bbox=bbox,
+                                               image_width=image_width,
+                                               image_height=image_height)
+                polygons.append(polygon)
 
-                # Extract polygon and convert it to polygon with absolute coordinates
-                elif 'points' in entry['value'].keys():
-                    polygon = entry['value']['points']
-                    self.polygon_to_abs(polygon=polygon,
-                                        image_width=image_width,
-                                        image_height=image_height)
-                    polygon = [tuple(points) for points in polygon]
+            # Extract polygon and convert it to polygon with absolute coordinates
+            elif 'points' in entry['value'].keys():
+                polygon = entry['value']['points']
+                self.polygon_to_abs(polygon=polygon,
+                                    image_width=image_width,
+                                    image_height=image_height)
+                polygon = [tuple(points) for points in polygon]
 
-                    polygons.append(polygon)
+                polygons.append(polygon)
 
         return polygons, image_width, image_height
 
