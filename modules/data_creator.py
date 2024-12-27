@@ -1,12 +1,11 @@
 from typing import Dict
 
 import os
-import random
 from PIL import Image
 
 from modules.processors import ImageProcessor
 from modules.handlers import PDFHandler, ImageHandler, LabelHandler
-from modules.predictors import YoloPredictor
+from modules.predictors.segmentation import YOLO_SegmentationPredictor
 
 
 class DataCreator:
@@ -145,7 +144,8 @@ class DataCreator:
                           num_images: int) -> None:
 
         # Load model
-        yolo_page_predictor = YoloPredictor(model_path=yolo_model_path)
+        yolo_page_predictor = YOLO_SegmentationPredictor(
+            model_path=yolo_model_path)
 
         # Pdf listdir
         pdf_listdir = [pdf for pdf in os.listdir(
@@ -161,8 +161,9 @@ class DataCreator:
             rand_image = self.image_processor.process(image=rand_image,
                                                       scan_type=scan_type)
 
-            points_dict = yolo_page_predictor.get_points(image=rand_image)
-            rand_points_idx, rand_points = self.label_handler._get_random_points(classes_dict=yolo_page_predictor.classes_dict,
+            pred_result = yolo_page_predictor(image=rand_image)
+            points_dict = pred_result.id2polygons
+            rand_points_idx, rand_points = self.label_handler._get_random_points(classes_dict=pred_result.id2label,
                                                                                  points_dict=points_dict,
                                                                                  target_classes=["question"])
 
@@ -234,8 +235,9 @@ class DataCreator:
                       scan_type: str,
                       num_images: int) -> None:
         # Load model
-        yolo_page_predictor = YoloPredictor(yolo_page_model_path)
-        yolo_question_predictor = YoloPredictor(yolo_question_model_path)
+        yolo_page_predictor = YOLO_SegmentationPredictor(yolo_page_model_path)
+        yolo_question_predictor = YOLO_SegmentationPredictor(
+            yolo_question_model_path)
 
         # Pdf listdir
         pdf_listdir = [pdf for pdf in os.listdir(
@@ -255,9 +257,9 @@ class DataCreator:
                                                            scan_type=scan_type)
 
             # Predict page
-            page_points_dict = yolo_page_predictor.get_points(
-                image=page_rand_image)
-            question_rand_points_idx, question_rand_points = self.label_handler._get_random_points(classes_dict=yolo_page_predictor.classes_dict,
+            page_pred_result = yolo_page_predictor(page_rand_image)
+            page_points_dict = page_pred_result.id2polygons
+            question_rand_points_idx, question_rand_points = self.label_handler._get_random_points(classes_dict=page_pred_result.id2label,
                                                                                                    points_dict=page_points_dict,
                                                                                                    target_classes=["question"])
 
@@ -266,9 +268,9 @@ class DataCreator:
                                                                 points=question_rand_points)
 
             # Predict question
-            question_points_dict = yolo_question_predictor.get_points(
-                image=question_rand_image)
-            part_rand_points_idx, part_rand_points = self.label_handler._get_random_points(classes_dict=yolo_question_predictor.classes_dict,
+            question_pred_result = yolo_question_predictor(question_rand_image)
+            question_points_dict = question_pred_result.id2polygons
+            part_rand_points_idx, part_rand_points = self.label_handler._get_random_points(classes_dict=question_pred_result.id2label,
                                                                                            points_dict=question_points_dict,
                                                                                            target_classes=target_classes)
             # Crop part image
