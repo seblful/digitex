@@ -69,7 +69,7 @@ class ImageHandler:
         img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
         height, width = img.shape[:2]
 
-        pts = np.array([(int(x * width), int(y * height)) for x, y in points])
+        pts = np.array(points)
         rect = cv2.boundingRect(pts)
         x, y, w, h = rect
         img = img[y:y+h, x:x+w].copy()
@@ -131,7 +131,6 @@ class LabelHandler:
         rand_points_idx = random.randint(
             0, len(points_dict[rand_class_idx])-1)
         rand_points = points_dict[rand_class_idx][rand_points_idx]
-        rand_points = list(zip(rand_points[::2], rand_points[1::2]))
 
         return rand_points_idx, rand_points
 
@@ -148,6 +147,16 @@ class LabelHandler:
             raise ValueError("Label must not be None.")
 
         return label_path
+
+    def points_to_abs_polygon(self,
+                              points: list[float],
+                              image_width: int,
+                              image_height: int) -> list[tuple[float]]:
+        points = list(zip(points[::2], points[1::2]))
+        points = [(int(x * image_width), int(y * image_height))
+                  for x, y in points]
+
+        return points
 
     def get_points(self,
                    image_name: str,
