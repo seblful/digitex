@@ -287,3 +287,50 @@ class DataCreator:
                                          image_name=rand_image_name,
                                          num_saved=num_saved,
                                          num_images=num_images)
+
+    def extract_words(self,
+                      parts_raw_dir: str,
+                      train_dir: str,
+                      num_images: int) -> None:
+        # Paths
+        images_dir = os.path.join(parts_raw_dir, "images")
+        labels_dir = os.path.join(parts_raw_dir, "labels")
+        classes_path = os.path.join(parts_raw_dir, "classes.txt")
+
+        # Images and labels
+        images_labels = DataCreator._create_images_labels_dict(images_dir=images_dir,
+                                                               labels_dir=labels_dir)
+
+        # Classes
+        classes_dict = DataCreator._read_classes(classes_path)
+        target_classes = ["text"]
+
+        # Images listdir
+        images_listdir = os.listdir(images_dir)
+
+        # Counter for saved images
+        num_saved = 0
+
+        while num_images != num_saved:
+            # Extract random image, points
+            rand_image, rand_image_name = self.image_handler.get_random_image(images_listdir=images_listdir,
+                                                                              images_dir=images_dir)
+
+            rand_points_idx, rand_points = self.label_handler.get_points(image_name=rand_image_name,
+                                                                         labels_dir=labels_dir,
+                                                                         images_labels=images_labels,
+                                                                         classes_dict=classes_dict,
+                                                                         target_classes=target_classes)
+
+            # Crop image
+            rand_image = self.image_handler.crop_image(image=rand_image,
+                                                       points=rand_points,
+                                                       offset=0.0)
+
+            # Save image
+            num_saved = self._save_image(rand_points_idx,
+                                         train_dir=train_dir,
+                                         image=rand_image,
+                                         image_name=rand_image_name,
+                                         num_saved=num_saved,
+                                         num_images=num_images)
