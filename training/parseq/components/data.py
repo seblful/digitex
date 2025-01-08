@@ -25,15 +25,12 @@ class DatasetCreator():
 
         # Output paths
         self.dataset_dir = dataset_dir
-        self.__setup_dataset_dirs()
 
         self.charset_yaml_path = os.path.join(raw_dir, "charset.yaml")
         self.gt_json_path = os.path.join(raw_dir, "gt.json")
 
         # Data split
-        self.train_split = train_split
-        self.val_split = 0.6 * (1 - self.train_split)
-        self.test_split = 1 - self.train_split - self.val_split
+        self.__setup_splits(train_split)
 
         # Map size
         self.map_size = map_size  # Map syze of lmdb in bytes
@@ -48,14 +45,22 @@ class DatasetCreator():
                                                     charset_yaml_path=self.charset_yaml_path,
                                                     gt_json_path=self.gt_json_path)
 
-    def __setup_dataset_dirs(self) -> None:
+    def __setup_splits(self, train_split: float) -> None:
+        self.train_split = train_split
+        self.val_split = 0.6 * (1 - self.train_split)
+        self.test_split = 1 - self.train_split - self.val_split
+
+        self.set_splits = (self.train_split, self.val_split, self.test_split)
+
+    def __setup_dataset_dirs(self, source: str) -> None:
         os.mkdir(self.dataset_dir)
 
         # Dataset dirs
-        self.train_dir = os.path.join(self.dataset_dir, "train", "real")
+        train_subdir = "real" if source == "ls" else "synth"
+        self.train_dir = os.path.join(self.dataset_dir, "train", train_subdir)
         self.val_dir = os.path.join(self.dataset_dir, "val")
         self.test_dir = os.path.join(self.dataset_dir, "test")
-        self.dataset_dirs = [self.train_dir, self.val_dir, self.test_dir]
+        self.dataset_dirs = (self.train_dir, self.val_dir, self.test_dir)
 
         # Create dirs
         for dir in self.dataset_dirs:
@@ -76,9 +81,11 @@ class DatasetCreator():
 
     def __create_lmdb(self,
                       gt: dict[str, str],
-                      set_dir: str) -> None:
+                      set_dir: str,
+                      set_split: float) -> None:
         # Open lmdb database
-        env = lmdb.open(set_dir, map_size=self.map_size)
+        map_size = int(self.map_size * set_split)
+        env = lmdb.open(set_dir, map_size=map_size)
 
         cache = {}
         counter = 1
@@ -126,20 +133,24 @@ class DatasetCreator():
             gt_dict.keys())[num_train+num_val:num_train+num_val+num_test]}
 
         # Create lmdb database for each set
-        for gt, set_dir in zip((train_gt, val_gt, test_gt), (self.dataset_dirs)):
+        for gt, set_dir, set_split in zip((train_gt, val_gt, test_gt), self.dataset_dirs, self.set_splits):
             self.__create_lmdb(gt=gt,
-                               set_dir=set_dir)
+                               set_dir=set_dir,
+                               set_split=set_split)
 
         # Copy charset
         shutil.copy(self.charset_yaml_path, self.dataset_dir)
 
     def create_dataset(self, source: str) -> None:
-
-        # Create annotations
-        print("Annotations are creating...")
+        # Assert if right source
         assert source in self.sources, f"Source of raw images must be one of {
             self.sources}."
 
+        # Create dataset dirs
+        self.__setup_dataset_dirs(source=source)
+
+        # Create annotations
+        print("Annotations are creating...")
         if source == "ls":
             data_json_path = os.path.join(self.raw_dir, 'data.json')
             self.annotation_creator.create_annotations_from_ls(
@@ -167,6 +178,16 @@ class AnnotationCreator:
         self.replaces_json_path = replaces_json_path
         self.charset_yaml_path = charset_yaml_path
         self.gt_json_path = gt_json_path
+
+        self.__charset = None
+
+    @property
+    def charset(self) -> set[str]:
+        if self.__charset is None:
+            charset = self.read_txt(self.chars_txt_path)
+            self.__charset = set(charset)
+
+        return self.__charset
 
     @staticmethod
     def read_txt(txt_path) -> list[str]:
@@ -217,16 +238,16 @@ class AnnotationCreator:
 
         return image_path
 
-    def check_chars(self, charset: set[str], text: str) -> None:
+    def check_chars(self, text: str) -> None:
         for char in text:
-            if char not in charset:
+            if char not in self.charset:
                 raise ValueError(f"Char {char} not in charset.")
 
         return None
 
-    def create_yaml_charset(self, charset: set[str]) -> None:
+    def create_yaml_charset(self) -> None:
         # Create string from charset
-        charlist = sorted(list(charset))
+        charlist = sorted(list(self.charset))
         charstring = "".join(charlist)
 
         # Fill dict
@@ -259,10 +280,6 @@ class AnnotationCreator:
         replaces_dict = self.read_json(self.replaces_json_path)
         replaces_table = str.maketrans(replaces_dict)
 
-        # Read txt
-        charset = self.read_txt(self.chars_txt_path)
-        charset = set(charset)
-
         texts = []
         image_paths = []
 
@@ -275,13 +292,13 @@ class AnnotationCreator:
             text = text.translate(replaces_table)
 
             # Check if chars of text in charset
-            self.check_chars(charset, text)
+            self.check_chars(text)
 
             image_paths.append(image_path)
             texts.append(text)
 
         # Create charset and GT labels
-        self.create_yaml_charset(charset)
+        self.create_yaml_charset()
         self.create_gt(image_paths, texts)
 
     def create_annotations_from_synth(self,
