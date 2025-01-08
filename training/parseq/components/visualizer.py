@@ -10,9 +10,11 @@ import numpy as np
 class Visualizer:
     def __init__(self,
                  dataset_dir,
-                 check_images_dir) -> None:
+                 check_images_dir,
+                 source: str) -> None:
         self.dataset_dir = dataset_dir
-        self.train_dir = os.path.join(self.dataset_dir, "train", "real")
+        train_subdir = "real" if source == "ls" else "synth"
+        self.train_dir = os.path.join(self.dataset_dir, "train", train_subdir)
         self.val_dir = os.path.join(self.dataset_dir, "val")
         self.test_dir = os.path.join(self.dataset_dir, "test")
         self.dataset_dirs = [self.train_dir, self.val_dir, self.test_dir]
