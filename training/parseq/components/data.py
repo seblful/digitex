@@ -180,19 +180,28 @@ class AnnotationCreator:
         self.gt_json_path = gt_json_path
 
         self.__charset = None
+        self.__replaces_table = None
 
     @property
     def charset(self) -> set[str]:
         if self.__charset is None:
-            charset = self.read_txt(self.chars_txt_path)
+            charset = self.read_txt(self.chars_txt_path)[0].strip()
             self.__charset = set(charset)
 
         return self.__charset
 
+    @property
+    def replaces_table(self) -> dict:
+        if self.__replaces_table is None:
+            replaces_dict = self.read_json(self.replaces_json_path)
+            self.__replaces_table = str.maketrans(replaces_dict)
+
+        return self.__replaces_table
+
     @staticmethod
     def read_txt(txt_path) -> list[str]:
         with open(txt_path, "r", encoding="utf-8") as txt_file:
-            content = txt_file.read().strip("\n")
+            content = txt_file.readlines()
 
         return content
 
@@ -277,8 +286,6 @@ class AnnotationCreator:
                                    data_json_path: str) -> None:
         # Read jsons
         json_dict = self.read_json(data_json_path)
-        replaces_dict = self.read_json(self.replaces_json_path)
-        replaces_table = str.maketrans(replaces_dict)
 
         texts = []
         image_paths = []
@@ -289,18 +296,39 @@ class AnnotationCreator:
             text = self.__get_text(task)
 
             # Replace chars that not in the charset
-            text = text.translate(replaces_table)
+            text = text.translate(self.replaces_table)
 
             # Check if chars of text in charset
             self.check_chars(text)
 
-            image_paths.append(image_path)
             texts.append(text)
+            image_paths.append(image_path)
 
         # Create charset and GT labels
         self.create_yaml_charset()
         self.create_gt(image_paths, texts)
 
     def create_annotations_from_synth(self,
-                                      gt_txt_path: str):
-        pass
+                                      gt_txt_path: str) -> None:
+        lines = self.read_txt(gt_txt_path)
+
+        texts = []
+        image_paths = []
+
+        for line in lines:
+            line = line.strip()
+            image_path, text = line.split(maxsplit=1)
+            image_path = os.path.relpath(image_path, start="images")
+
+            # Replace chars that not in the charset
+            text = text.translate(self.replaces_table)
+
+            # Check if chars of text in charset
+            self.check_chars(text)
+
+            texts.append(text)
+            image_paths.append(image_path)
+
+        # Create charset and GT labels
+        self.create_yaml_charset()
+        self.create_gt(image_paths, texts)
