@@ -8,7 +8,7 @@ TESTING_DIR = os.path.dirname(os.path.dirname(HOME))
 
 RAW_DATA_DIR = os.path.join(TESTING_DIR, "raw-data", "biology", "new")
 
-WORDS_TRAIN_DIR = os.path.join(HOME, "data", "train-data")
+WORDS_TRAIN_DIR = os.path.join(HOME, "data", "finetune", "train-data")
 
 FAST_DIR = os.path.join(TESTING_DIR, "training", "fast")
 PARTS_RAW_DIR = os.path.join(FAST_DIR, "data", "raw-data")
