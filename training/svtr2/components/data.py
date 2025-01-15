@@ -8,6 +8,138 @@ import yaml
 from urllib.parse import unquote
 
 
+class DatasetCreator():
+    def __init__(self,
+                 raw_dir: str,
+                 dataset_dir: str,
+                 train_split: float = 0.8,
+                 max_text_length=25) -> None:
+        # Input paths
+        self.raw_dir = raw_dir
+        self.raw_images_dir = os.path.join(raw_dir, "images")
+        self.chars_txt_path = os.path.join(raw_dir, "chars.txt")
+        self.replaces_json_path = os.path.join(
+            raw_dir, "replaces.json")
+
+        # Output paths
+        self.dataset_dir = dataset_dir
+
+        self.charset_yaml_path = os.path.join(raw_dir, "charset.yaml")
+        self.gt_json_path = os.path.join(raw_dir, "gt.json")
+
+        # Data split
+        self.__setup_splits(train_split)
+
+        # Sources
+        self.sources = ["ls", "synth"]
+
+        # Annotation creator
+        self.annotation_creator = AnnotationCreator(raw_images_dir=self.raw_images_dir,
+                                                    chars_txt_path=self.chars_txt_path,
+                                                    replaces_json_path=self.replaces_json_path,
+                                                    charset_yaml_path=self.charset_yaml_path,
+                                                    gt_json_path=self.gt_json_path,
+                                                    max_text_length=max_text_length)
+
+    def __setup_splits(self, train_split: float) -> None:
+        self.train_split = train_split
+        self.val_split = 1 - self.train_split
+
+    def __setup_dataset_dirs(self) -> None:
+        os.mkdir(self.dataset_dir)
+
+        # Dataset dirs
+        self.train_dir = os.path.join(self.dataset_dir, "train")
+        self.val_dir = os.path.join(self.dataset_dir, "val")
+        self.dataset_dirs = (self.train_dir, self.val_dir)
+
+        # Create dirs
+        for dir in self.dataset_dirs:
+            image_dir = os.path.join(dir, "images")
+            os.makedirs(image_dir)
+
+    @staticmethod
+    def sort_gt_key(key) -> int:
+        filepath = key[0]
+        basename = os.path.basename(filepath)
+        filename = os.path.splitext(basename)[0]
+        try:
+            sort_key = int(filename)
+
+        except ValueError:
+            sort_key = filename
+
+        return sort_key
+
+    def __copy_data(self,
+                    gt: dict[str, str],
+                    set_dir: str) -> None:
+        # Create list to store gt lines for txt gt
+        gt_lines = []
+
+        # Sort dict
+        gt = dict(sorted(gt.items(), key=self.sort_gt_key))
+
+        for image_path, text in gt.items():
+            image_name = os.path.basename(image_path)
+            shutil.copyfile(os.path.join(self.raw_images_dir, image_path),
+                            os.path.join(set_dir, "images", image_name))
+
+            # Create line and append it to the gt_lines
+            gt_line = f"{image_name}\t{text}\n"
+            gt_lines.append(gt_line)
+
+        # Write set gt to txt
+        gt_txt_path = os.path.join(set_dir, "gt.txt")
+        self.annotation_creator.write_txt(txt_path=gt_txt_path,
+                                          lines=gt_lines)
+
+    def __partitionate_data(self) -> None:
+        # Load gt dict and shuffle
+        gt_dict = self.annotation_creator.read_json(
+            json_path=self.gt_json_path)
+        keys = list(gt_dict.keys())
+        random.shuffle(keys)
+        gt_dict = {key: gt_dict[key] for key in keys}
+
+        # Create train and validation gt dicts
+        num_train = int(len(gt_dict) * self.train_split)
+        num_val = int(len(gt_dict) * self.val_split)
+
+        train_gt = {key: gt_dict[key]
+                    for key in list(gt_dict.keys())[:num_train]}
+        val_gt = {key: gt_dict[key] for key in list(
+            gt_dict.keys())[num_train:num_train+num_val]}
+
+        # Create lmdb database for each set
+        for gt, set_dir in zip((train_gt, val_gt), self.dataset_dirs):
+            self.__copy_data(gt=gt,
+                             set_dir=set_dir)
+
+    def create_dataset(self, source: str) -> None:
+        # Assert if right source
+        assert source in self.sources, f"Source of raw images must be one of {
+            self.sources}."
+
+        # Create dataset dirs
+        self.__setup_dataset_dirs()
+
+        # Create annotations
+        print("Annotations are creating...")
+        if source == "ls":
+            data_json_path = os.path.join(self.raw_dir, 'data.json')
+            self.annotation_creator.create_annotations_from_ls(
+                data_json_path=data_json_path)
+        else:
+            gt_txt_path = os.path.join(self.raw_dir, "gt.txt")
+            self.annotation_creator.create_annotations_from_synth(
+                gt_txt_path=gt_txt_path)
+
+        # Create dataset
+        print("Data is partitioning...")
+        self.__partitionate_data()
+
+
 class AnnotationCreator:
     def __init__(self,
                  raw_images_dir: str,
