@@ -7,6 +7,8 @@ import yaml
 
 from urllib.parse import unquote
 
+from tqdm import tqdm
+
 
 class DatasetCreator():
     def __init__(self,
@@ -74,13 +76,15 @@ class DatasetCreator():
     def __copy_data(self,
                     gt: dict[str, str],
                     set_dir: str) -> None:
+        dir_name = os.path.basename(set_dir)
+        
         # Create list to store gt lines for txt gt
         gt_lines = []
 
-        # Sort dict
+        # Sort dict and iterate through it
         gt = dict(sorted(gt.items(), key=self.sort_gt_key))
 
-        for image_path, text in gt.items():
+        for image_path, text in tqdm(gt.items(), desc=f"Partitioning {dir_name} data"):
             image_name = os.path.basename(image_path)
             shutil.copyfile(os.path.join(self.raw_images_dir, image_path),
                             os.path.join(set_dir, "images", image_name))
@@ -125,7 +129,6 @@ class DatasetCreator():
         self.__setup_dataset_dirs()
 
         # Create annotations
-        print("Annotations are creating...")
         if source == "ls":
             data_json_path = os.path.join(self.raw_dir, 'data.json')
             self.annotation_creator.create_annotations_from_ls(
@@ -136,7 +139,6 @@ class DatasetCreator():
                 gt_txt_path=gt_txt_path)
 
         # Create dataset
-        print("Data is partitioning...")
         self.__partitionate_data()
 
 
@@ -280,7 +282,7 @@ class AnnotationCreator:
         image_paths = []
 
         # Iterate through task
-        for task in json_dict:
+        for task in tqdm(json_dict, desc="Creating annotations"):
             image_path = self.__get_image_path(task)
             text = self.__get_text(task)
 
@@ -307,7 +309,7 @@ class AnnotationCreator:
         texts = []
         image_paths = []
 
-        for line in lines:
+        for line in tqdm(lines, desc="Creating annotations"):
             line = line.strip()
             image_path, text = line.split(maxsplit=1)
             image_path = os.path.relpath(image_path, start="images")
