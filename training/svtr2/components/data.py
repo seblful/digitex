@@ -23,9 +23,9 @@ class DatasetCreator():
 
         # Output paths
         self.dataset_dir = dataset_dir
-
-        self.charset_yaml_path = os.path.join(raw_dir, "charset.yaml")
+        self.charset_txt_path = os.path.join(dataset_dir, "charset.txt")
         self.gt_json_path = os.path.join(raw_dir, "gt.json")
+        
 
         # Data split
         self.__setup_splits(train_split)
@@ -37,7 +37,7 @@ class DatasetCreator():
         self.annotation_creator = AnnotationCreator(raw_images_dir=self.raw_images_dir,
                                                     chars_txt_path=self.chars_txt_path,
                                                     replaces_json_path=self.replaces_json_path,
-                                                    charset_yaml_path=self.charset_yaml_path,
+                                                    charset_txt_path = self.charset_txt_path,
                                                     gt_json_path=self.gt_json_path,
                                                     max_text_length=max_text_length)
 
@@ -145,14 +145,15 @@ class AnnotationCreator:
                  raw_images_dir: str,
                  chars_txt_path: str,
                  replaces_json_path: str,
-                 charset_yaml_path: str,
+                 charset_txt_path:str,
                  gt_json_path: str,
                  max_text_length: int) -> None:
         # Paths
         self.raw_images_dir = raw_images_dir
         self.chars_txt_path = chars_txt_path
         self.replaces_json_path = replaces_json_path
-        self.charset_yaml_path = charset_yaml_path
+        
+        self.charset_txt_path = charset_txt_path
         self.gt_json_path = gt_json_path
 
         self.max_text_length = max_text_length
@@ -160,7 +161,7 @@ class AnnotationCreator:
         self.__charset = None
         self.__replaces_table = None
 
-    @ property
+    @property
     def charset(self) -> set[str]:
         if self.__charset is None:
             charset = self.read_txt(self.chars_txt_path)[0].strip()
@@ -168,7 +169,7 @@ class AnnotationCreator:
 
         return self.__charset
 
-    @ property
+    @property
     def replaces_table(self) -> dict:
         if self.__replaces_table is None:
             replaces_dict = self.read_json(self.replaces_json_path)
@@ -176,14 +177,14 @@ class AnnotationCreator:
 
         return self.__replaces_table
 
-    @ staticmethod
+    @staticmethod
     def read_txt(txt_path) -> list[str]:
         with open(txt_path, "r", encoding="utf-8") as txt_file:
             content = txt_file.readlines()
 
         return content
 
-    @ staticmethod
+    @staticmethod
     def write_txt(txt_path: str,
                   lines: list[str]) -> None:
         with open(txt_path, 'w', encoding="utf-8") as txt_file:
@@ -191,14 +192,14 @@ class AnnotationCreator:
 
         return None
 
-    @ staticmethod
+    @staticmethod
     def read_json(json_path) -> dict:
         with open(json_path, "r", encoding="utf-8") as json_file:
             json_dict = json.load(json_file)
 
         return json_dict
 
-    @ staticmethod
+    @staticmethod
     def write_json(json_dict: dict,
                    json_path: str,
                    indent: int = 4) -> None:
@@ -209,7 +210,7 @@ class AnnotationCreator:
 
         return None
 
-    @ staticmethod
+    @staticmethod
     def write_yaml(yaml_path: str, data: dict, comment: str = None) -> None:
         with open(yaml_path, 'w', encoding="utf-8") as yaml_file:
             if comment:
@@ -255,6 +256,20 @@ class AnnotationCreator:
 
         # Write gts to json
         self.write_json(gt, self.gt_json_path)
+        
+    def create_charset(self) -> None:
+        chars = sorted(self.charset)
+        
+        # Create lines with char and new line
+        charlines = []
+        for char in chars:
+            charline = char + "\n"
+            charlines.append(charline)
+        
+        # Write lines to txt    
+        self.write_txt(self.charset_txt_path, charlines)
+        
+        return None
 
     def create_annotations_from_ls(self,
                                    data_json_path: str) -> None:
@@ -281,6 +296,9 @@ class AnnotationCreator:
 
         # Create GT labels
         self.create_gt(image_paths, texts)
+        
+        # Create charset
+        self.create_charset()
 
     def create_annotations_from_synth(self,
                                       gt_txt_path: str) -> None:
@@ -306,3 +324,6 @@ class AnnotationCreator:
 
         # Create GT labels
         self.create_gt(image_paths, texts)
+        
+        # Create charset
+        self.create_charset()
