@@ -113,7 +113,7 @@ class DatasetCreator():
         train_gt = {key: gt_dict[key]
                     for key in list(gt_dict.keys())[:num_train]}
         val_gt = {key: gt_dict[key] for key in list(
-            gt_dict.keys())[num_train:num_train+num_val]}
+            gt_dict.keys())[num_train:]}
 
         # Create lmdb database for each set
         for gt, set_dir in zip((train_gt, val_gt), self.dataset_dirs):
