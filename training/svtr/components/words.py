@@ -10,13 +10,17 @@ class WordsCreator:
         self.upper_alphabet = "АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ"
         self.alphabet = self.lower_alphabet + self.upper_alphabet
 
-        self.cmn_lower_letters = "абвгдежзи"
-        self.cmn_upper_letters = "AБВГДЕЖЗИ"
+        self.cmn_lower_letters = "абвгдеж"
+        self.cmn_upper_letters = "AБВГДЕЖ"
 
         self.nat_numbers = "123456789"
 
         self.puncts = ",.:;)"
         self.cmn_puncts = ".,;"
+
+        self.roman_lookup = [(1000, 'M'), (900, 'CM'), (500, 'D'), (400, 'CD'),
+                             (100, 'C'), (90, 'XC'), (50, 'L'), (40, 'XL'),
+                             (10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I')]
 
     @staticmethod
     def write_txt(txt_path: str,
@@ -27,9 +31,10 @@ class WordsCreator:
 
         return None
 
-    def postfix_punct(self, word: str) -> str:
+    def postfix_punct(self, word: str, mode="common") -> str:
+        puncts = self.cmn_puncts if mode == "common" else self.puncts
         if random.random() > 0.5:
-            word += random.choice(self.cmn_puncts)
+            word += random.choice(puncts)
 
         return word
 
@@ -50,6 +55,18 @@ class WordsCreator:
             word = self.postfix_punct(word)
 
             words.append(word)
+
+    def create_roman_numbers(self,
+                             words: list[str]) -> None:
+        for n in range(1, 1000):
+            number = ''
+            for value, numeral in self.roman_lookup:
+                count, n = divmod(n, value)
+                number += numeral * count
+
+            number = self.postfix_punct(number, mode="puncts")
+
+            words.append(number)
 
     def create_letters(self, words: list[str]) -> None:
         for letter in self.alphabet:
@@ -122,6 +139,7 @@ class WordsCreator:
         # Create different categories of words
         self.create_short_numbers(all_words)
         self.create_long_numbers(all_words)
+        self.create_roman_numbers(all_words)
         self.create_question_nums(all_words)
         self.create_letters(all_words)
         self.create_question_nums(all_words)
@@ -133,7 +151,3 @@ class WordsCreator:
 
         # Write words to txt
         self.write_txt(output_txt_path, lines=all_words)
-
-
-class WordsAugmenter:
-    pass
