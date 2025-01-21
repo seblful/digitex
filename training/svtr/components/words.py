@@ -151,3 +151,96 @@ class WordsCreator:
 
         # Write words to txt
         self.write_txt(output_txt_path, lines=all_words)
+
+
+class WordsAugmenter:
+    def __init__(self) -> None:
+        self.cmn_lower_letters = "абвгдеж"
+        self.cmn_upper_letters = "AБВГДЕЖ"
+        self.cmn_letters = self.cmn_lower_letters + self.cmn_upper_letters
+
+        self.nat_numbers = "123456789"
+
+        self.cmn_puncts = ".,;"
+        self.count_puncts = ".)"
+        self.pre_puncts = '«("'
+        self.post_puncts = '".,:;?!)»-'
+        self.out_puncts = ["«»", "()", '""', "[]"]
+
+        self.aug_methods = [self.augment_number, self.augment_letter,
+                            self.augment_pre_puncts, self.augment_post_puncts,
+                            self.augment_out_puncts]
+
+    @staticmethod
+    def read_txt(txt_path) -> list[str]:
+        corpus = []
+        with open(txt_path, "r", encoding="utf-8") as txt_file:
+            for word in txt_file.readlines():
+                corpus.append(word.strip())
+
+        return corpus
+
+    def postfix_punct(self, word: str) -> str:
+        if random.random() > 0.5:
+            word += random.choice(self.cmn_puncts)
+
+        return word
+
+    def augment_number(self, word: str) -> str:
+        number = random.choice(self.nat_numbers)
+        punct = random.choice(self.count_puncts)
+
+        word = number + punct + word
+        word = self.postfix_punct(word)
+
+        return word
+
+    def augment_letter(self, word: str) -> str:
+        letter = random.choice(self.cmn_letters)
+        punct = random.choice(self.count_puncts)
+
+        word = letter + punct + word
+        word = self.postfix_punct(word)
+
+        return word
+
+    def augment_pre_puncts(self, word: str) -> str:
+        punct = random.choice(self.pre_puncts)
+
+        word = punct + word
+
+        return word
+
+    def augment_post_puncts(self, word: str) -> str:
+        punct = random.choice(self.post_puncts)
+
+        word = word + punct
+        word = self.postfix_punct(word)
+
+        return word
+
+    def augment_out_puncts(self, word: str) -> str:
+        punct = random.choice(self.out_puncts)
+        pre_punct, post_punct = punct
+
+        word = pre_punct + word + post_punct
+        word = self.postfix_punct(word)
+
+        return word
+
+    def augment(self,
+                corpus_txt_path: str,
+                output_txt_path: str,
+                n_words_aug: int = 25000) -> None:
+        corpus = self.read_txt(corpus_txt_path)
+
+        all_words = []
+
+        for _ in range(n_words_aug):
+            rnd_word = random.choice(corpus)
+            rnd_method = random.choice(self.aug_methods)
+            word = rnd_method(rnd_word)
+            all_words.append(word)
+
+        # Write words to txt
+        WordsCreator.write_txt(output_txt_path, lines=all_words)
