@@ -1,3 +1,4 @@
+import os
 import random
 
 
@@ -229,10 +230,9 @@ class WordsAugmenter:
         return word
 
     def augment(self,
-                corpus_txt_path: str,
-                output_txt_path: str,
+                input_txt_path: str,
                 n_words_aug: int = 25000) -> None:
-        corpus = self.read_txt(corpus_txt_path)
+        corpus = self.read_txt(input_txt_path)
 
         all_words = []
 
@@ -243,4 +243,8 @@ class WordsAugmenter:
             all_words.append(word)
 
         # Write words to txt
+        output_dir = os.path.dirname(input_txt_path)
+        input_name, ext = os.path.splitext(os.path.basename(input_txt_path))
+        output_name = input_name + "_aug" + ext
+        output_txt_path = os.path.join(output_dir, output_name)
         WordsCreator.write_txt(output_txt_path, lines=all_words)
