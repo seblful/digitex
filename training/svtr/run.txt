@@ -1,3 +1,8 @@
+synthesize:
+python tools/extract_font_charset.py -w 4 resources/font/
+synthtiger -o results -c 300000 -w 8 -v examples/synthtiger/template.py SynthTiger examples/synthtiger/config_train.yaml
+synthtiger -o results -c 10000 -w 8 -v examples/synthtiger/template.py SynthTiger examples/synthtiger/config_finetune.yaml
+
 train:
 local:
 python tools/train.py -c configs/rec/config_local.yml
