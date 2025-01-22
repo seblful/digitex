@@ -248,3 +248,100 @@ class WordsAugmenter:
         output_name = input_name + "_aug" + ext
         output_txt_path = os.path.join(output_dir, output_name)
         WordsCreator.write_txt(output_txt_path, lines=all_words)
+
+
+class CorpusAugmenter:
+    def __init__(self,
+                 symbols_txt_path: str) -> None:
+        self.symbols_txt_path = symbols_txt_path
+        self.__symbols = None
+
+        self.aug_methods = [self.augment_prefix, self.augment_postfix, self.augment_both,
+                            self.augment_surround, self.augment_middle, self.augment_double_middle]
+
+    @staticmethod
+    def read_txt(txt_path) -> list[str]:
+        corpus = []
+        with open(txt_path, "r", encoding="utf-8") as txt_file:
+            for word in txt_file.readlines():
+                corpus.append(word.strip())
+
+        return corpus
+
+    @property
+    def symbols(self) -> str:
+        if self.__symbols is None:
+            self.__symbols = self.read_txt(self.symbols_txt_path)[0]
+
+        return self.__symbols
+
+    def augment_prefix(self, word: str) -> str:
+        symbol = random.choice(self.symbols)
+        word = f"{symbol}{word}"
+
+        return word
+
+    def augment_postfix(self, word: str) -> str:
+        symbol = random.choice(self.symbols)
+        word = f"{word}{symbol}"
+
+        return word
+
+    def augment_both(self, word: str) -> str:
+        prefix = random.choice(self.symbols)
+        suffix = random.choice(self.symbols)
+        word = f"{prefix}{word}{suffix}"
+
+        return word
+
+    def augment_surround(self, word: str) -> str:
+        symbol = random.choice(self.symbols)
+        word = f"{symbol}{word}{symbol}"
+
+        return word
+
+    def augment_middle(self, word: str) -> str:
+        symbol = random.choice(self.symbols)
+
+        if len(word) <= 1:
+            word = f"{word}{symbol}"
+
+        else:
+            pos = random.randint(1, len(word)-1)
+            word = f"{word[:pos]}{symbol}{word[pos:]}"
+
+        return word
+
+    def augment_double_middle(self, word: str) -> str:
+        symbol1 = random.choice(self.symbols)
+        symbol2 = random.choice(self.symbols)
+
+        if len(word) <= 1:
+            word = f"{word}{symbol1}{symbol2}"
+
+        else:
+            pos = random.randint(1, len(word)-1)
+            word = f"{word[:pos]}{symbol1}{symbol2}{word[pos:]}"
+
+        return word
+
+    def augment(self,
+                corpus_txt_path: str,
+                n_words_aug: int = 100000) -> None:
+        corpus = self.read_txt(corpus_txt_path)
+
+        all_words = []
+
+        for _ in range(n_words_aug):
+            rnd_word = random.choice(corpus)
+            rnd_method = random.choice(self.aug_methods)
+            word = rnd_method(rnd_word)
+            word = word.strip()
+            all_words.append(word)
+
+        # Write words to txt
+        output_dir = os.path.dirname(corpus_txt_path)
+        input_name, ext = os.path.splitext(os.path.basename(corpus_txt_path))
+        output_name = input_name + "_aug" + ext
+        output_txt_path = os.path.join(output_dir, output_name)
+        WordsCreator.write_txt(output_txt_path, lines=all_words)
