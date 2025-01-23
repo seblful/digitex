@@ -1,5 +1,7 @@
 synthesize:
 python tools/extract_font_charset.py -w 4 resources/font/
+python tools/create_colormap.py --max_k 3 -w 1 resources/image/ resources/colormap/train_colormap.txt
+python tools/create_colormap.py --max_k 3 -w 4 resources/image/ resources/colormap/finetune_colormap.txt
 synthtiger -o results -c 300000 -w 8 -v examples/synthtiger/template.py SynthTiger examples/synthtiger/config_train.yaml
 synthtiger -o results -c 10000 -w 8 -v examples/synthtiger/template.py SynthTiger examples/synthtiger/config_finetune.yaml
 
