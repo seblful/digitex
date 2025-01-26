@@ -10,14 +10,19 @@ parser = argparse.ArgumentParser(description="Get some hyperparameters.")
 
 # Get an arg for raw data source
 parser.add_argument("--source",
-                    default="synth",
+                    default="ls",
                     type=str,
                     choices=["ls", "synth"],
                     help="Raw data source.")
 
+# Get an arg for whether to use augmented images
+parser.add_argument("--use_aug",
+                    action="store_true",
+                    help="Whether to use augmented images. 'aug-images/0' and 'aug_gt.txt' should be located in raw-dir.")
+
 # Get an arg for train split
 parser.add_argument("--train_split",
-                    default=0.9,
+                    default=0.8,
                     type=float,
                     help="Split of training dataset.")
 
@@ -29,7 +34,7 @@ parser.add_argument("--max_text_length",
 
 # Get an arg for number of images to visualize
 parser.add_argument("--num_check_images",
-                    default=100,
+                    default=30,
                     type=int,
                     help="Number of images to visualize.")
 
@@ -52,7 +57,8 @@ def main() -> None:
                                      dataset_dir=DATASET_DIR,
                                      train_split=args.train_split,
                                      max_text_length=args.max_text_length)
-    dataset_creator.create_dataset(source=args.source)
+    dataset_creator.create_dataset(source=args.source,
+                                   use_aug=args.use_aug)
 
     # Visualize dataset annotations
     visualizer = Visualizer(dataset_dir=DATASET_DIR,
