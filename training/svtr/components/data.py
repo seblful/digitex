@@ -25,6 +25,7 @@ class DatasetCreator():
         # Output paths
         self.dataset_dir = dataset_dir
         self.charset_txt_path = os.path.join(dataset_dir, "charset.txt")
+        self.__charset = None
 
         # Data split
         self.__setup_splits(train_split)
@@ -63,42 +64,23 @@ class DatasetCreator():
         return self.__charset
 
     @staticmethod
-    def sort_gt_key(key) -> int:
+    def shuffle_dict(d: dict) -> dict:
+        keys = list(d.keys())
+        random.shuffle(keys)
+        d = {key: d[key] for key in keys}
+
+        return d
+
+    @staticmethod
+    def sort_gt_key(key) -> tuple:
         filepath = key[0]
         basename = os.path.basename(filepath)
         filename = os.path.splitext(basename)[0]
         try:
             sort_key = int(filename)
-
+            return (True, sort_key)
         except ValueError:
-            sort_key = filename
-
-        return sort_key
-
-    def __copy_data(self,
-                    gt: dict[str, str],
-                    set_dir: str) -> None:
-        dir_name = os.path.basename(set_dir)
-
-        # Create list to store gt lines for txt gt
-        gt_lines = []
-
-        # Sort dict and iterate through it
-        gt = dict(sorted(gt.items(), key=self.sort_gt_key))
-
-        for image_path, text in tqdm(gt.items(), desc=f"Partitioning {dir_name} data"):
-            image_name = os.path.basename(image_path)
-            shutil.copyfile(os.path.join(self.raw_images_dir, image_path),
-                            os.path.join(set_dir, "images", image_name))
-
-            # Create line and append it to the gt_lines
-            gt_line = f"{image_name}\t{text}\n"
-            gt_lines.append(gt_line)
-
-        # Write set gt to txt
-        gt_txt_path = os.path.join(set_dir, "gt.txt")
-        self.annotation_creator.write_txt(txt_path=gt_txt_path,
-                                          lines=gt_lines)
+            return (False, filename)
 
     def __create_charset(self) -> None:
         chars = sorted(self.charset)
@@ -114,29 +96,56 @@ class DatasetCreator():
 
         return None
 
-    def __partitionate_data(self) -> None:
-        # Load gt dict and shuffle
-        gt_dict = self.annotation_creator.read_json(
-            json_path=self.gt_json_path)
-        keys = list(gt_dict.keys())
-        random.shuffle(keys)
-        gt_dict = {key: gt_dict[key] for key in keys}
+    def __copy_data(self,
+                    gt: dict[str, str],
+                    set_dir: str) -> None:
+        dir_name = os.path.basename(set_dir)
+
+        # Create list to store gt lines for txt gt
+        gt_lines = []
+
+        # Sort dict and iterate through it
+        gt = dict(sorted(gt.items(), key=self.sort_gt_key))
+
+        for image_path, text in tqdm(gt.items(), desc=f"Partitioning {dir_name} data"):
+            image_name = os.path.basename(image_path)
+            shutil.copyfile(os.path.join(self.raw_dir, image_path),
+                            os.path.join(set_dir, "images", image_name))
+
+            # Create line and append it to the gt_lines
+            gt_line = f"{image_name}\t{text}\n"
+            gt_lines.append(gt_line)
+
+        # Write set gt to txt
+        gt_txt_path = os.path.join(set_dir, "gt.txt")
+        FileProcessor.write_txt(txt_path=gt_txt_path,
+                                lines=gt_lines)
+
+    def __partitionate_data(self,
+                            gt_dict: dict[str, str],
+                            aug_gt_dict: dict[str, str] = None) -> None:
+        # Shuffle gt_dict
+        gt_dict = self.shuffle_dict(gt_dict)
 
         # Create train and validation gt dicts
         num_train = int(len(gt_dict) * self.train_split)
-        num_val = int(len(gt_dict) * self.val_split)
-
-        train_gt = {key: gt_dict[key]
-                    for key in list(gt_dict.keys())[:num_train]}
-        val_gt = {key: gt_dict[key] for key in list(
+        #  num_val = int(len(gt_dict) * self.val_split)
+        train_gt_dict = {key: gt_dict[key]
+                         for key in list(gt_dict.keys())[:num_train]}
+        val_gt_dict = {key: gt_dict[key] for key in list(
             gt_dict.keys())[num_train:]}
 
-        # Create lmdb database for each set
-        for gt, set_dir in zip((train_gt, val_gt), self.dataset_dirs):
-            self.__copy_data(gt=gt,
+        # Update train_gt_dict with aug_gt_dict and shuffle
+        if aug_gt_dict is not None:
+            train_gt_dict.update(aug_gt_dict)
+            train_gt_dict = self.shuffle_dict(train_gt_dict)
+
+        # Copy data to corresponding folder
+        for gt_dict, set_dir in zip((train_gt_dict, val_gt_dict), self.dataset_dirs):
+            self.__copy_data(gt=gt_dict,
                              set_dir=set_dir)
 
-    def create_dataset(self, source: str) -> None:
+    def create_dataset(self, source: str, use_aug=False) -> None:
         # Assert if right source
         assert source in self.sources, f"Source of raw images must be one of {
             self.sources}."
@@ -146,16 +155,27 @@ class DatasetCreator():
 
         # Create annotations
         if source == "ls":
+            images_dir = "images"
             data_json_path = os.path.join(self.raw_dir, 'data.json')
-            self.annotation_creator.create_ls_gt(
-                data_json_path=data_json_path)
+            gt_dict = self.annotation_creator.create_ls_gt(images_dir=images_dir,
+                                                           data_json_path=data_json_path)
         else:
+            images_dir = "images"
             gt_txt_path = os.path.join(self.raw_dir, "gt.txt")
-            self.annotation_creator.create_synth_gt(
-                gt_txt_path=gt_txt_path)
+            gt_dict = self.annotation_creator.create_synth_gt(images_dir=images_dir,
+                                                              gt_txt_path=gt_txt_path)
+
+        if use_aug is True:
+            images_dir = "aug-images"
+            gt_txt_path = os.path.join(self.raw_dir, "aug_gt.txt")
+            aug_gt_dict = self.annotation_creator.create_synth_gt(images_dir=images_dir,
+                                                                  gt_txt_path=gt_txt_path)
+        else:
+            aug_gt_dict = None
 
         # Create dataset
-        self.__partitionate_data()
+        self.__partitionate_data(gt_dict=gt_dict,
+                                 aug_gt_dict=aug_gt_dict)
 
         # Create charser
         self.__create_charset()
@@ -195,7 +215,7 @@ class AnnotationCreator:
 
         return None
 
-    def create_gt(self, image_paths: list[str], texts: list[str]) -> None:
+    def __create_gt(self, image_paths: list[str], texts: list[str]) -> None:
         # Empty list to store gt
         gt = {}
 
@@ -243,7 +263,7 @@ class AnnotationCreator:
             image_paths.append(image_path)
 
         # Create GT labels
-        gt = self.create_gt(image_paths, texts)
+        gt = self.__create_gt(image_paths, texts)
 
         return gt
 
@@ -272,6 +292,6 @@ class AnnotationCreator:
             image_paths.append(image_path)
 
         # Create GT labels
-        gt = self.create_gt(image_paths, texts)
+        gt = self.__create_gt(image_paths, texts)
 
         return gt
