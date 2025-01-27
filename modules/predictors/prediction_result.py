@@ -82,3 +82,14 @@ class SegmentationPredictionResult(PredictionResult):
             id_to_polygons[idx].append(polygon)
 
         return id_to_polygons
+
+
+class RecognitionPredictionResult(PredictionResult):
+    def __init__(self,
+                 text: str,
+                 probability: float,
+                 id2label: dict[int, str]) -> None:
+        super().__init__(id2label)
+
+        self.text = text
+        self.probability = round(probability, 5)
