@@ -9,6 +9,7 @@ models
 # Drafts
 draft*.py
 draft*.ipynb
+draft*.txt
 
 # Training
 training/yolo/runs
