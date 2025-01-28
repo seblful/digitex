@@ -1,110 +1,83 @@
--- Subjects table to store different subjects
+-- Subjects table
 CREATE TABLE subjects (
-    subject_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    subject_name TEXT NOT NULL
+    subject_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE
 );
 
--- Collections (types) table - 2 types per subject
-CREATE TABLE collections (
-    collection_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    subject_id INTEGER NOT NULL,
-    collection_name TEXT NOT NULL,
-    FOREIGN KEY (subject_id) REFERENCES subjects(subject_id)
-);
-
--- Years table for different years in collections
+-- Years table
 CREATE TABLE years (
-    year_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    collection_id INTEGER NOT NULL,
-    year_number INTEGER NOT NULL,
-    FOREIGN KEY (collection_id) REFERENCES collections(collection_id)
+    year_id INTEGER PRIMARY KEY,
+    subject_id INTEGER NOT NULL,
+    year_value INTEGER NOT NULL,
+    FOREIGN KEY (subject_id) REFERENCES subjects(subject_id),
+    UNIQUE (subject_id, year_value)
 );
 
--- Options table for different options in years
-CREATE TABLE options (
-    option_id INTEGER PRIMARY KEY AUTOINCREMENT,
+-- Types table (2 types per year)
+CREATE TABLE types (
+    type_id INTEGER PRIMARY KEY,
     year_id INTEGER NOT NULL,
-    option_number INTEGER NOT NULL,
-    FOREIGN KEY (year_id) REFERENCES years(year_id)
+    type_number INTEGER CHECK (type_number IN (1, 2)),
+    FOREIGN KEY (year_id) REFERENCES years(year_id),
+    UNIQUE (year_id, type_number)
 );
 
--- Parts table - 2 parts per option
+-- Options table (up to 10 per type)
+CREATE TABLE options (
+    option_id INTEGER PRIMARY KEY,
+    type_id INTEGER NOT NULL,
+    option_number INTEGER CHECK (option_number BETWEEN 1 AND 10),
+    FOREIGN KEY (type_id) REFERENCES types(type_id),
+    UNIQUE (type_id, option_number)
+);
+
+-- Parts table (A and B for each option)
 CREATE TABLE parts (
-    part_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    part_id INTEGER PRIMARY KEY,
     option_id INTEGER NOT NULL,
-    part_number INTEGER NOT NULL,
-    answer_type TEXT NOT NULL CHECK (answer_type IN ('multiple_choice', 'single_answer')),
-    FOREIGN KEY (option_id) REFERENCES options(option_id)
+    part_type TEXT CHECK (part_type IN ('A', 'B')),
+    FOREIGN KEY (option_id) REFERENCES options(option_id),
+    UNIQUE (option_id, part_type)
 );
 
 -- Questions table
 CREATE TABLE questions (
-    question_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    question_id INTEGER PRIMARY KEY,
     part_id INTEGER NOT NULL,
     question_number INTEGER NOT NULL,
-    question_text TEXT NOT NULL,
+    text TEXT NOT NULL,
     specification TEXT,
-    single_answer TEXT, -- For questions with single correct answer
-    FOREIGN KEY (part_id) REFERENCES parts(part_id)
+    FOREIGN KEY (part_id) REFERENCES parts(part_id),
+    UNIQUE (part_id, question_number)
 );
 
--- Image types table
-CREATE TABLE image_types (
-    type_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    type_name TEXT NOT NULL UNIQUE
+-- Question options (for part A)
+CREATE TABLE question_options (
+    question_option_id INTEGER PRIMARY KEY,
+    question_id INTEGER NOT NULL,
+    option_text TEXT NOT NULL,
+    is_correct BOOLEAN NOT NULL,
+    display_order INTEGER NOT NULL,
+    FOREIGN KEY (question_id) REFERENCES questions(question_id),
+    UNIQUE (question_id, display_order)
+);
+
+-- Answers (for part B)
+CREATE TABLE answers (
+    answer_id INTEGER PRIMARY KEY,
+    question_id INTEGER NOT NULL,
+    answer_text TEXT NOT NULL,
+    FOREIGN KEY (question_id) REFERENCES questions(question_id)
 );
 
 -- Images table
 CREATE TABLE images (
-    image_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    image_id INTEGER PRIMARY KEY,
     question_id INTEGER NOT NULL,
-    type_id INTEGER NOT NULL,
-    image_data BLOB NOT NULL,
-    image_order INTEGER NOT NULL, -- To maintain order of multiple images
+    image_data BLOB NOT NULL,      -- Changed from image_path to image_data
+    is_table BOOLEAN NOT NULL,     -- Changed from image_type to is_table
+    image_order INTEGER NOT NULL,
     FOREIGN KEY (question_id) REFERENCES questions(question_id),
-    FOREIGN KEY (type_id) REFERENCES image_types(type_id)
+    UNIQUE (question_id, image_order),
+    CHECK (is_table IN (0, 1))     -- Ensures boolean values (0 = common, 1 = table)
 );
-
--- Question options table (for multiple choice questions)
-CREATE TABLE question_options (
-    option_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    question_id INTEGER NOT NULL,
-    option_text TEXT NOT NULL,
-    is_correct BOOLEAN NOT NULL DEFAULT 0,
-    FOREIGN KEY (question_id) REFERENCES questions(question_id)
-);
-
--- Create indexes for better performance
-CREATE INDEX idx_collections_subject ON collections(subject_id);
-CREATE INDEX idx_years_collection ON years(collection_id);
-CREATE INDEX idx_options_year ON options(year_id);
-CREATE INDEX idx_parts_option ON parts(option_id);
-CREATE INDEX idx_questions_part ON questions(part_id);
-CREATE INDEX idx_images_question ON images(question_id);
-CREATE INDEX idx_images_type ON images(type_id);
-CREATE INDEX idx_question_options_question ON question_options(question_id);
-
--- Add unique constraints
-CREATE UNIQUE INDEX idx_unique_collection 
-ON collections(subject_id, collection_name);
-
-CREATE UNIQUE INDEX idx_unique_year 
-ON years(collection_id, year_number);
-
-CREATE UNIQUE INDEX idx_unique_option 
-ON options(year_id, option_number);
-
-CREATE UNIQUE INDEX idx_unique_part 
-ON parts(option_id, part_number);
-
-CREATE UNIQUE INDEX idx_unique_question 
-ON questions(part_id, question_number);
-
-CREATE UNIQUE INDEX idx_unique_image_order
-ON images(question_id, type_id, image_order);
-
--- Insert some common image types
-INSERT INTO image_types (type_name) VALUES 
-('question_image'),
-('solution_image'),
-('table_image');
