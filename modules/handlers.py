@@ -124,6 +124,9 @@ class LabelHandler:
         points_dict = {k: points_dict[k]
                        for k in points_dict if classes_dict[k] in target_classes}
 
+        if not points_dict:
+            return -1, []
+
         # Get random label
         rand_class_idx = random.choice(list(points_dict.keys()))
 
@@ -163,11 +166,12 @@ class LabelHandler:
                    labels_dir: str,
                    images_labels: Dict[str, str],
                    classes_dict: Dict[int, str],
-                   target_classes: List[str]) -> List[float]:
+                   target_classes: List[str]) -> Tuple[int, List[float]]:
         rand_label_path = self._get_random_label(image_name=image_name,
                                                  labels_dir=labels_dir,
                                                  images_labels=images_labels)
         points_dict = self._read_points(rand_label_path)
+
         rand_points_idx, rand_points = self._get_random_points(classes_dict=classes_dict,
                                                                points_dict=points_dict,
                                                                target_classes=target_classes)
