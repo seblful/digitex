@@ -188,7 +188,8 @@ class DataCreator:
     def extract_parts(self,
                       question_raw_dir: str,
                       train_dir: str,
-                      num_images: int) -> None:
+                      num_images: int,
+                      target_classes: list[str] = ["answer", "number", "option", "question", "spec"]) -> None:
         # Paths
         images_dir = os.path.join(question_raw_dir, "images")
         labels_dir = os.path.join(question_raw_dir, "labels")
@@ -200,7 +201,6 @@ class DataCreator:
 
         # Classes
         classes_dict = DataCreator._read_classes(classes_path)
-        target_classes = ["answer", "number", "option", "question", "spec"]
 
         # Images listdir
         images_listdir = os.listdir(images_dir)
@@ -218,6 +218,9 @@ class DataCreator:
                                                                          images_labels=images_labels,
                                                                          classes_dict=classes_dict,
                                                                          target_classes=target_classes)
+            if not rand_points:
+                continue
+
             rand_points = self.label_handler.points_to_abs_polygon(points=rand_points,
                                                                    image_width=rand_image.width,
                                                                    image_height=rand_image.height)
@@ -241,7 +244,8 @@ class DataCreator:
                       yolo_page_model_path: str,
                       yolo_question_model_path: str,
                       scan_type: str,
-                      num_images: int) -> None:
+                      num_images: int,
+                      target_classes: list[str] = ["answer", "number", "option", "question", "spec"]) -> None:
         # Load models
         yolo_page_predictor = YOLO_SegmentationPredictor(yolo_page_model_path)
         yolo_question_predictor = YOLO_SegmentationPredictor(
@@ -250,9 +254,6 @@ class DataCreator:
         # Pdf listdir
         pdf_listdir = [pdf for pdf in os.listdir(
             raw_dir) if pdf.endswith('pdf')]
-
-        # Classes
-        target_classes = ["answer", "number", "option", "question", "spec"]
 
         # Counter for saved images
         num_saved = 0
@@ -281,6 +282,10 @@ class DataCreator:
             part_rand_points_idx, part_rand_points = self.label_handler._get_random_points(classes_dict=question_pred_result.id2label,
                                                                                            points_dict=question_points_dict,
                                                                                            target_classes=target_classes)
+
+            if not part_rand_points:
+                continue
+
             # Crop part image
             part_rand_image = self.image_handler.crop_image(image=question_rand_image,
                                                             points=part_rand_points,
