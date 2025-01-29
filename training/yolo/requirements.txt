@@ -3,5 +3,5 @@ torch==2.4.1
 torchvision==0.19.1
 torchaudio==2.4.1
 ultralytics==8.3.14
-pypdfium2=4.30.0
+pypdfium2==4.30.0
 doxapy==0.9.2
