@@ -17,25 +17,6 @@ class DataCreator:
         self.label_handler = LabelHandler()
 
     @staticmethod
-    def _create_images_labels_dict(images_dir: str,
-                                   labels_dir: str) -> Dict[str, str]:
-        # List of all images and labels in directory
-        images_listdir = os.listdir(images_dir)
-        labels_listdir = os.listdir(labels_dir)
-
-        # Create a dictionary to store the images and labels names
-        images_labels = {}
-        for image_name in images_listdir:
-            label_name = os.path.splitext(image_name)[0] + '.txt'
-
-            if label_name in labels_listdir:
-                images_labels[image_name] = label_name
-            else:
-                images_labels[image_name] = None
-
-        return images_labels
-
-    @staticmethod
     def _read_classes(classes_path: str) -> Dict[int, str]:
         with open(classes_path, 'r') as f:
             classes = [line.strip() for line in f.readlines()]
@@ -102,10 +83,6 @@ class DataCreator:
         labels_dir = os.path.join(page_raw_dir, "labels")
         classes_path = os.path.join(page_raw_dir, "classes.txt")
 
-        # Images and labels
-        images_labels = DataCreator._create_images_labels_dict(images_dir=images_dir,
-                                                               labels_dir=labels_dir)
-
         # Classes
         classes_dict = DataCreator._read_classes(classes_path)
 
@@ -122,7 +99,6 @@ class DataCreator:
 
             rand_points_idx, rand_points = self.label_handler.get_points(image_name=rand_image_name,
                                                                          labels_dir=labels_dir,
-                                                                         images_labels=images_labels,
                                                                          classes_dict=classes_dict,
                                                                          target_classes=["question"])
             rand_points = self.label_handler.points_to_abs_polygon(points=rand_points,
@@ -195,10 +171,6 @@ class DataCreator:
         labels_dir = os.path.join(question_raw_dir, "labels")
         classes_path = os.path.join(question_raw_dir, "classes.txt")
 
-        # Images and labels
-        images_labels = DataCreator._create_images_labels_dict(images_dir=images_dir,
-                                                               labels_dir=labels_dir)
-
         # Classes
         classes_dict = DataCreator._read_classes(classes_path)
 
@@ -215,7 +187,6 @@ class DataCreator:
 
             rand_points_idx, rand_points = self.label_handler.get_points(image_name=rand_image_name,
                                                                          labels_dir=labels_dir,
-                                                                         images_labels=images_labels,
                                                                          classes_dict=classes_dict,
                                                                          target_classes=target_classes)
             if not rand_points:
@@ -310,10 +281,6 @@ class DataCreator:
         labels_dir = os.path.join(parts_raw_dir, "labels")
         classes_path = os.path.join(parts_raw_dir, "classes.txt")
 
-        # Images and labels
-        images_labels = DataCreator._create_images_labels_dict(images_dir=images_dir,
-                                                               labels_dir=labels_dir)
-
         # Classes
         classes_dict = DataCreator._read_classes(classes_path)
         target_classes = ["text"]
@@ -331,7 +298,6 @@ class DataCreator:
 
             rand_points_idx, rand_points = self.label_handler.get_points(image_name=rand_image_name,
                                                                          labels_dir=labels_dir,
-                                                                         images_labels=images_labels,
                                                                          classes_dict=classes_dict,
                                                                          target_classes=target_classes)
             rand_points = self.label_handler.points_to_abs_polygon(points=rand_points,

@@ -139,15 +139,14 @@ class LabelHandler:
 
     def _get_random_label(self,
                           image_name: str,
-                          labels_dir: str,
-                          images_labels: Dict[str, str]):
+                          labels_dir: str) -> str:
 
-        label_name = images_labels[image_name]
+        label_name = os.path.splitext(image_name)[0] + '.txt'
         label_path = os.path.join(labels_dir, label_name)
 
-        # Raise exception of label name is None
-        if label_name is None:
-            raise ValueError("Label must not be None.")
+        # Raise exception of label_path is not exists
+        if not os.path.exists(label_path):
+            raise ValueError("The label file must be present.")
 
         return label_path
 
@@ -164,12 +163,10 @@ class LabelHandler:
     def get_points(self,
                    image_name: str,
                    labels_dir: str,
-                   images_labels: Dict[str, str],
                    classes_dict: Dict[int, str],
                    target_classes: List[str]) -> Tuple[int, List[float]]:
         rand_label_path = self._get_random_label(image_name=image_name,
-                                                 labels_dir=labels_dir,
-                                                 images_labels=images_labels)
+                                                 labels_dir=labels_dir)
         points_dict = self._read_points(rand_label_path)
 
         rand_points_idx, rand_points = self._get_random_points(classes_dict=classes_dict,
