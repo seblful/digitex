@@ -137,18 +137,18 @@ class LabelHandler:
 
         return rand_points_idx, rand_points
 
-    def _get_random_label(self,
-                          image_name: str,
-                          labels_dir: str) -> str:
+    def get_random_label(self,
+                         image_name: str,
+                         labels_dir: str) -> str:
 
         label_name = os.path.splitext(image_name)[0] + '.txt'
         label_path = os.path.join(labels_dir, label_name)
 
-        # Raise exception of label_path is not exists
+        # Return None if label_path doesn't exist
         if not os.path.exists(label_path):
-            raise ValueError("The label file must be present.")
+            return (None, None)
 
-        return label_path
+        return label_name, label_path
 
     def points_to_abs_polygon(self,
                               points: list[float],
@@ -165,8 +165,8 @@ class LabelHandler:
                    labels_dir: str,
                    classes_dict: Dict[int, str],
                    target_classes: List[str]) -> Tuple[int, List[float]]:
-        rand_label_path = self._get_random_label(image_name=image_name,
-                                                 labels_dir=labels_dir)
+        _, rand_label_path = self.get_random_label(image_name=image_name,
+                                                   labels_dir=labels_dir)
         points_dict = self._read_points(rand_label_path)
 
         rand_points_idx, rand_points = self._get_random_points(classes_dict=classes_dict,
