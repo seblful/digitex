@@ -1,14 +1,25 @@
 import os
+import random
 from PIL import Image
 
 import numpy as np
 import cv2
+
+import supervision as sv
 
 import albumentations as A
 
 from tqdm import tqdm
 
 from modules.handlers import ImageHandler, LabelHandler
+
+
+class Polygon:
+    pass
+
+
+class Keypoint:
+    pass
 
 
 class Augmenter:
@@ -18,36 +29,42 @@ class Augmenter:
         self.dataset_dir = dataset_dir
         self.train_dir = os.path.join(self.dataset_dir, 'train')
 
-        self.__augmenter = None
+        self.__transform = None
 
         self.label_types = ["polygon", "obb"]
+
+        self.prepare_funcs = {"polygon": self.point_to_polygon,
+                              "obb": self.obb_to_polygon}
 
         # Handlers
         self.image_handler = ImageHandler()
         self.label_handler = LabelHandler()
 
     @property
-    def augmenter(self) -> iaa.SomeOf:
-        if self.__augmenter is None:
-            # Define the augmenter
-            aug = iaa.SomeOf((4, None), [
-                iaa.Affine(scale=(0.9, 1.05),
-                           rotate=(-3, 3),
-                           shear=(-2, 3)),
-                iaa.PerspectiveTransform(scale=(0.01, 0.05)),
-                iaa.CropAndPad(percent=(-0.04, 0.04)),
-                iaa.Dropout(p=(0, 0.05)),
-                iaa.ImpulseNoise(0.05),
-                iaa.GaussianBlur(sigma=(0.0, 1.5)),
-                iaa.MultiplyAndAddToBrightness(mul=(0.7, 1.3), add=(-10, 10)),
-                iaa.MultiplyHueAndSaturation(mul_hue=(0.9, 1.1)),
-                iaa.GammaContrast((0.5, 2.0)),
-                iaa.ChangeColorTemperature((1100, 10000))
+    def transform(self) -> A.Compose:
+        if self.__transform is None:
+            self.__transform = A.Compose([
+                A.ShiftScaleRotate(
+                    scale_limit=0.1, rotate_limit=3, shear_limit=3, p=0.7),
+                A.Perspective(scale=(0.01, 0.05), p=0.5),
+                A.CropAndPad(percent=(-0.04, 0.04), pad_cval=0, p=0.5),
+                A.CoarseDropout(
+                    max_holes=8, max_height=20, max_width=20, p=0.2),
+                A.ISONoise(color_shift=(0.01, 0.05), p=0.2),
+                A.GaussianBlur(blur_limit=(0, 3), p=0.5),
+                A.RandomBrightnessContrast(
+                    brightness_limit=(-0.3, 0.3),
+                    contrast_limit=(-0.3, 0.3),
+                    p=0.5),
+                A.HueSaturationValue(
+                    hue_shift_limit=10,
+                    sat_shift_limit=20,
+                    val_shift_limit=10,
+                    p=0.5),
+                A.RandomGamma(gamma_limit=(50, 200), p=0.5)
             ])
 
-            self.__augmenter = aug
-
-        return self.__augmenter
+        return self.__transform
 
     @staticmethod
     def parse_labels_file(file_path) -> list[dict]:
@@ -173,10 +190,10 @@ class Augmenter:
         Image.fromarray(images_aug_i).save(image_save_path)
 
         # Save augmented polygons to txt file in yolov8 format
-        self.save_polygons_to_txt(polygons=polygons_aug_i,
-                                  image_width=image_width,
-                                  image_height=image_height,
-                                  filepath=label_save_path)
+        Augmenter.save_polygons_to_txt(polygons=polygons_aug_i,
+                                       image_width=image_width,
+                                       image_height=image_height,
+                                       filepath=label_save_path)
 
     @staticmethod
     def save_augmented_zero_images(image_name,
@@ -198,10 +215,10 @@ class Augmenter:
                                    aug_factor) -> None:
         label_path = os.path.join(train_dataset_dir, label_name)
         # Create list of dicts with labels for one image
-        points_with_labels = self.parse_labels_file(label_path)
+        points_with_labels = Augmenter.parse_labels_file(label_path)
 
         # Convert original points to a Polygon objects and convert points
-        original_polygons = self.extract_and_convert_polygons(
+        original_polygons = Augmenter.extract_and_convert_polygons(
             points_with_labels, image_array)
 
         # Augment images and polygons
@@ -209,12 +226,12 @@ class Augmenter:
             images_aug_i, polygons_aug_i = augmenter(
                 image=image_array, polygons=original_polygons)
 
-            self.save_augmented_images_with_labels(image_array=image_array,
-                                                   image_name=image_name,
-                                                   images_aug_i=images_aug_i,
-                                                   polygons_aug_i=polygons_aug_i,
-                                                   num_aug=num_aug,
-                                                   train_dataset_dir=train_dataset_dir)
+            Augmenter.save_augmented_images_with_labels(image_array=image_array,
+                                                        image_name=image_name,
+                                                        images_aug_i=images_aug_i,
+                                                        polygons_aug_i=polygons_aug_i,
+                                                        num_aug=num_aug,
+                                                        train_dataset_dir=train_dataset_dir)
 
     @staticmethod
     def augment_zero_images(train_dataset_dir,
@@ -227,26 +244,74 @@ class Augmenter:
         for num_aug in range(aug_factor):
             images_aug_i = augmenter(image=image_array)
             # Save images
-            self.save_augmented_zero_images(image_name=image_name,
-                                            images_aug_i=images_aug_i,
-                                            num_aug=num_aug,
-                                            train_dataset_dir=train_dataset_dir)
+            Augmenter.save_augmented_zero_images(image_name=image_name,
+                                                 images_aug_i=images_aug_i,
+                                                 num_aug=num_aug,
+                                                 train_dataset_dir=train_dataset_dir)
+
+    def get_random_img(self,
+                       images_listdir: list[str]) -> tuple[np.ndarray, str]:
+        img_name = random.choice(images_listdir)
+        img_path = os.path.join(self.train_dir, img_name)
+        image = Image.open(img_path)
+        img = np.array(image)
+
+        return img_name, img
+
+    def obb_to_polygon(self, obb: list[float]) -> np.ndarray:
+        obb = np.array(obb)
+        polygon = sv.xyxy_to_polygons(obb)
+
+        return polygon
+
+    def point_to_polygon(self, point: list[float]) -> np.ndarray:
+        polygon = list(zip(point[::2], point[1::2]))
+        polygon = np.array(polygon)
+
+        return polygon
+
+    def create_mask(self,
+                    img_name: str,
+                    img: np.ndarray,
+                    anns_type: str) -> None | dict[int, list]:
+        anns_name = os.path.splitext(img_name)[0] + '.txt'
+        anns_path = os.path.join(self.train_dir, anns_name)
+
+        if not os.path.exists(anns_path):
+            return None
+
+        prepare_func = self.prepare_funcs[anns_type]
+
+        points_dict = self.label_handler._read_points(anns_path)
+        masks_dict = {key: [] for key in points_dict.keys()}
+
+        img_height, img_width, _ = img.shape
+
+        # Iterate through points, preprocess and convert to mask
+        for class_idx, points in points_dict.items():
+            for point in points:
+                polygon = prepare_func(point)
+
+                # Convert polygon to mask
+                mask = sv.polygon_to_mask(polygon, (img_width, img_height))
+
+                masks_dict[class_idx].append(mask)
+
+        return masks_dict
 
     def augment(self,
-                label_type: str,
+                anns_type: str,
                 num_images: int) -> None:
-        assert label_type in self.label_types, f"label_type must be one of {self.label_types}."
+        assert anns_type in self.label_types, f"label_type must be one of {self.label_types}."
 
         images_listdir = [i for i in os.listdir(
             self.train_dir) if i.endswith(".jpg")]
 
         for _ in tqdm(range(num_images), desc="Augmenting images"):
-            rand_image, rand_image_name = self.image_handler.get_random_image(
-                images_listdir, self.train_dir)
-            rand_label_name, _ = self.label_handler.get_random_label(
-                rand_image_name, self.train_dir)
+            img_name, img = self.get_random_img(images_listdir)
+            mask = self.create_mask(img_name, img, anns_type)
 
-            if rand_label_name is None:
+            if mask is None:
                 # zero images
                 pass
 
