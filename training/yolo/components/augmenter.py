@@ -45,98 +45,23 @@ class Augmenter:
         if self.__transform is None:
             self.__transform = A.Compose([
                 A.ShiftScaleRotate(
-                    scale_limit=0.1, rotate_limit=3, shear_limit=3, p=0.7),
+                    scale_limit=0.1, rotate_limit=3, p=0.7),
                 A.Perspective(scale=(0.01, 0.05), p=0.5),
-                A.CropAndPad(percent=(-0.04, 0.04), pad_cval=0, p=0.5),
-                A.CoarseDropout(
-                    max_holes=8, max_height=20, max_width=20, p=0.2),
+                A.CropAndPad(percent=(-0.04, 0.04), p=0.5),
+                A.CoarseDropout(max_height=20, max_width=20, p=0.2),
                 A.ISONoise(color_shift=(0.01, 0.05), p=0.2),
                 A.GaussianBlur(blur_limit=(0, 3), p=0.5),
-                A.RandomBrightnessContrast(
-                    brightness_limit=(-0.3, 0.3),
-                    contrast_limit=(-0.3, 0.3),
-                    p=0.5),
-                A.HueSaturationValue(
-                    hue_shift_limit=10,
-                    sat_shift_limit=20,
-                    val_shift_limit=10,
-                    p=0.5),
+                A.RandomBrightnessContrast(brightness_limit=(-0.3, 0.3),
+                                           contrast_limit=(-0.3, 0.3),
+                                           p=0.5),
+                A.HueSaturationValue(hue_shift_limit=10,
+                                     sat_shift_limit=20,
+                                     val_shift_limit=10,
+                                     p=0.5),
                 A.RandomGamma(gamma_limit=(50, 200), p=0.5)
             ])
 
         return self.__transform
-
-    @staticmethod
-    def parse_labels_file(file_path) -> list[dict]:
-        '''
-        Gets txt file of labels and returns list with dicts, 
-        that contains label and polygon points
-        '''
-        labels = []
-
-        with open(file_path, 'r') as file:
-            for line in file:
-                line = line.strip().split()
-                label_class = int(line[0])
-
-                polygon = []
-
-                for i in range(1, len(line), 2):
-                    x = float(line[i])
-                    y = float(line[i+1])
-                    polygon.append((x, y))
-                labels.append({'class': label_class, 'polygon': polygon})
-
-        return labels
-
-    @staticmethod
-    def load_image(image_path) -> np.ndarray:
-        image = Image.open(image_path)
-        image.load()
-        image_array = np.asarray(image)
-
-        return image_array
-
-    @staticmethod
-    def extract_and_convert_polygons(points_with_labels, image_array) -> list[Polygon]:
-        '''
-        Extracts polygons from points_with_labels dict and convert it 
-        from yolo(standartized) format to format with width and height
-        and returns original_polygons for one image
-        '''
-        # Defining image height and image width
-        image_height, image_width, _ = image_array.shape
-        # Convert points to a Polygon objects
-        # Create list for storing polygons for one image
-        original_polygons = []
-        # Iterating through list of dicts with points and labels
-        for polygon_dict in points_with_labels:
-            # Convert points to a Keypoint objects
-            # Create a list for storing keypoints
-            keypoints = []
-
-            # Iterating through points
-            for point_x, point_y in polygon_dict['polygon']:
-
-                # Value translation
-                translated_point_x = point_x * image_width
-                translated_point_y = point_y * image_height
-
-                # Labels of each polygon
-                label = polygon_dict['class']
-
-                # Convert points to a Keypoint object
-                keypoint = Keypoint(translated_point_x, translated_point_y)
-
-                # Appending keypoint to list with keypoints objects
-                keypoints.append(keypoint)
-
-            # Convert keypoints to a Polygon objects
-            polygon = Polygon(keypoints, label=label)
-            # Appending polygon to list with polygons objects
-            original_polygons.append(polygon)
-
-        return original_polygons
 
     @staticmethod
     def save_polygons_to_txt(polygons, image_width, image_height, filepath) -> None:
@@ -258,22 +183,32 @@ class Augmenter:
 
         return img_name, img
 
-    def obb_to_polygon(self, obb: list[float]) -> np.ndarray:
+    def obb_to_polygon(self,
+                       obb: list[float],
+                       img_width: int,
+                       img_height: int) -> np.ndarray:
+        obb = [obb[i] * (img_width if i % 2 == 0 else img_height)
+               for i in range(len(obb))]
         obb = np.array(obb)
         polygon = sv.xyxy_to_polygons(obb)
 
         return polygon
 
-    def point_to_polygon(self, point: list[float]) -> np.ndarray:
+    def point_to_polygon(self,
+                         point: list[float],
+                         img_width: int,
+                         img_height: int) -> np.ndarray:
         polygon = list(zip(point[::2], point[1::2]))
+        polygon = [(int(x * img_width), int(y * img_height))
+                   for x, y in polygon]
         polygon = np.array(polygon)
 
         return polygon
 
-    def create_mask(self,
-                    img_name: str,
-                    img: np.ndarray,
-                    anns_type: str) -> None | dict[int, list]:
+    def create_masks(self,
+                     img_name: str,
+                     img: np.ndarray,
+                     anns_type: str) -> None | dict[int, list]:
         anns_name = os.path.splitext(img_name)[0] + '.txt'
         anns_path = os.path.join(self.train_dir, anns_name)
 
@@ -290,7 +225,7 @@ class Augmenter:
         # Iterate through points, preprocess and convert to mask
         for class_idx, points in points_dict.items():
             for point in points:
-                polygon = prepare_func(point)
+                polygon = prepare_func(point, img_width, img_height)
 
                 # Convert polygon to mask
                 mask = sv.polygon_to_mask(polygon, (img_width, img_height))
@@ -309,12 +244,22 @@ class Augmenter:
 
         for _ in tqdm(range(num_images), desc="Augmenting images"):
             img_name, img = self.get_random_img(images_listdir)
-            mask = self.create_mask(img_name, img, anns_type)
 
-            if mask is None:
+            masks_dict = self.create_masks(img_name, img, anns_type)
+
+            if masks_dict is None:
                 # zero images
                 pass
 
             else:
                 # augment non zero images
                 pass
+
+            masks = []
+
+            for k, v in masks_dict.items():
+                masks.extend(v)
+
+            a = self.transform(image=img, masks=masks)
+
+            a
