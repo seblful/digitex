@@ -44,11 +44,10 @@ class Augmenter:
     def transform(self) -> A.Compose:
         if self.__transform is None:
             self.__transform = A.Compose([
-                A.ShiftScaleRotate(
-                    scale_limit=0.1, rotate_limit=3, p=0.7),
+                A.Affine(scale=0.9, p=0.7),
                 A.Perspective(scale=(0.01, 0.05), p=0.5),
                 A.CropAndPad(percent=(-0.04, 0.04), p=0.5),
-                A.CoarseDropout(max_height=20, max_width=20, p=0.2),
+                A.CoarseDropout(p=0.2),
                 A.ISONoise(color_shift=(0.01, 0.05), p=0.2),
                 A.GaussianBlur(blur_limit=(0, 3), p=0.5),
                 A.RandomBrightnessContrast(brightness_limit=(-0.3, 0.3),
@@ -234,6 +233,37 @@ class Augmenter:
 
         return masks_dict
 
+    def augment_image(self,
+                      img: np.ndarray,
+                      masks_dict: dict[int, list] = None) -> tuple[np.ndarray, None] | tuple[np.ndarray, dict[int, list]]:
+        # Obtain masks
+        masks = []
+        for v in masks_dict.values():
+            masks.extend(v)
+
+        masks = []
+
+        # Transform
+        if not masks:
+            transf = self.transform(image=img)
+            transf_img = transf['image']
+
+            return (transf_img, None)
+
+        transf = self.transform(image=img, masks=masks)
+        transf_img = transf['image']
+        transf_masks = transf['masks']
+
+        # Create transf_masks_dict
+        transf_masks_dict = {key: [] for key in masks_dict.keys()}
+        i = 0
+        for class_idx, masks in masks_dict.items():
+            for _ in range(len(masks)):
+                transf_masks_dict[class_idx].append(transf_masks[i])
+                i += 1
+
+        return transf_img, transf_masks_dict
+
     def augment(self,
                 anns_type: str,
                 num_images: int) -> None:
@@ -244,22 +274,5 @@ class Augmenter:
 
         for _ in tqdm(range(num_images), desc="Augmenting images"):
             img_name, img = self.get_random_img(images_listdir)
-
             masks_dict = self.create_masks(img_name, img, anns_type)
-
-            if masks_dict is None:
-                # zero images
-                pass
-
-            else:
-                # augment non zero images
-                pass
-
-            masks = []
-
-            for k, v in masks_dict.items():
-                masks.extend(v)
-
-            a = self.transform(image=img, masks=masks)
-
-            a
+            transf_img, transf_masks_dict = self.augment_image(img, masks_dict)
