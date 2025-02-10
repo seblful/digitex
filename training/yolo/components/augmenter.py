@@ -33,8 +33,10 @@ class Augmenter:
 
         self.label_types = ["polygon", "obb"]
 
-        self.prepare_funcs = {"polygon": self.point_to_polygon,
-                              "obb": self.obb_to_polygon}
+        self.preprocess_funcs = {"polygon": self.point_to_polygon,
+                                 "obb": self.xyxyxyxy_to_polygon}
+        self.postprocess_funcs = {"polygon": self.polygon_to_point,
+                                  "obb": self.polygon_to_xyxyxyxy}
 
         # Handlers
         self.image_handler = ImageHandler()
@@ -182,14 +184,14 @@ class Augmenter:
 
         return img_name, img
 
-    def obb_to_polygon(self,
-                       obb: list[float],
-                       img_width: int,
-                       img_height: int) -> np.ndarray:
-        obb = [obb[i] * (img_width if i % 2 == 0 else img_height)
-               for i in range(len(obb))]
-        obb = np.array(obb)
-        polygon = sv.xyxy_to_polygons(obb)
+    def xyxyxyxy_to_polygon(self,
+                            xyxyxyxy: list[float],
+                            img_width: int,
+                            img_height: int) -> np.ndarray:
+        xyxyxyxy = [xyxyxyxy[i] * (img_width if i % 2 == 0 else img_height)
+                    for i in range(len(xyxyxyxy))]
+        xyxyxyxy = np.array(xyxyxyxy)
+        polygon = xyxyxyxy.reshape((-1, 2))
 
         return polygon
 
@@ -198,15 +200,34 @@ class Augmenter:
                          img_width: int,
                          img_height: int) -> np.ndarray:
         polygon = list(zip(point[::2], point[1::2]))
-        polygon = [(int(x * img_width), int(y * img_height))
-                   for x, y in polygon]
-        polygon = np.array(polygon)
+        polygon = np.array(polygon) * np.array((img_width, img_height))
 
         return polygon
 
+    def polygon_to_xyxyxyxy(self,
+                            polygon: np.ndarray,
+                            img_width: int,
+                            img_height: int) -> list[float]:
+        xyxyxyxy = polygon / np.array((img_width, img_height))
+        xyxyxyxy = xyxyxyxy.flatten().tolist()
+
+        assert len(xyxyxyxy) == 8, "Length of xyxyxyxy must be equal 8."
+
+        return xyxyxyxy
+
+    def polygon_to_point(self,
+                         polygon: np.ndarray,
+                         img_width: int,
+                         img_height: int) -> list[float]:
+        point = polygon / np.array((img_width, img_height))
+        point = point.flatten().tolist()
+
+        return point
+
     def create_masks(self,
                      img_name: str,
-                     img: np.ndarray,
+                     img_width: int,
+                     img_height: int,
                      anns_type: str) -> None | dict[int, list]:
         anns_name = os.path.splitext(img_name)[0] + '.txt'
         anns_path = os.path.join(self.train_dir, anns_name)
@@ -214,17 +235,15 @@ class Augmenter:
         if not os.path.exists(anns_path):
             return None
 
-        prepare_func = self.prepare_funcs[anns_type]
+        preprocess_func = self.preprocess_funcs[anns_type]
 
         points_dict = self.label_handler._read_points(anns_path)
         masks_dict = {key: [] for key in points_dict.keys()}
 
-        img_height, img_width, _ = img.shape
-
         # Iterate through points, preprocess and convert to mask
         for class_idx, points in points_dict.items():
             for point in points:
-                polygon = prepare_func(point, img_width, img_height)
+                polygon = preprocess_func(point, img_width, img_height)
 
                 # Convert polygon to mask
                 mask = sv.polygon_to_mask(polygon, (img_width, img_height))
@@ -233,23 +252,43 @@ class Augmenter:
 
         return masks_dict
 
+    def create_anns(self,
+                    masks_dict: dict[int, list],
+                    img_width: int,
+                    img_height: int,
+                    anns_type: str) -> None | dict[int, list]:
+        if masks_dict is None:
+            return None
+
+        postprocess_func = self.postprocess_funcs[anns_type]
+
+        points_dict = {key: [] for key in masks_dict.keys()}
+
+        # Iterate through masks and convert to anns
+        for class_idx, masks in masks_dict.items():
+            for mask in masks:
+                polygon = sv.mask_to_polygons(mask)
+                anns = postprocess_func(polygon, img_width, img_height)
+                points_dict[class_idx].append(anns)
+
+        return points_dict
+
     def augment_image(self,
                       img: np.ndarray,
                       masks_dict: dict[int, list] = None) -> tuple[np.ndarray, None] | tuple[np.ndarray, dict[int, list]]:
-        # Obtain masks
-        masks = []
-        for v in masks_dict.values():
-            masks.extend(v)
-
-        masks = []
-
-        # Transform
-        if not masks:
+        # Case if no masks_dict
+        if masks_dict is None:
             transf = self.transform(image=img)
             transf_img = transf['image']
 
             return (transf_img, None)
 
+        # Obtain masks
+        masks = []
+        for v in masks_dict.values():
+            masks.extend(v)
+
+        # Transform
         transf = self.transform(image=img, masks=masks)
         transf_img = transf['image']
         transf_masks = transf['masks']
@@ -274,5 +313,13 @@ class Augmenter:
 
         for _ in tqdm(range(num_images), desc="Augmenting images"):
             img_name, img = self.get_random_img(images_listdir)
-            masks_dict = self.create_masks(img_name, img, anns_type)
+            img_height, img_width, _ = img.shape
+
+            masks_dict = self.create_masks(
+                img_name, img_width, img_height, anns_type)
             transf_img, transf_masks_dict = self.augment_image(img, masks_dict)
+            points_dict = self.create_anns(
+                transf_masks_dict, img_width, img_height, anns_type)
+
+            if points_dict is None:
+                pass
