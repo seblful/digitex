@@ -14,14 +14,6 @@ from tqdm import tqdm
 from modules.handlers import ImageHandler, LabelHandler
 
 
-class Polygon:
-    pass
-
-
-class Keypoint:
-    pass
-
-
 class Augmenter:
     def __init__(self,
                  dataset_dir) -> None:
@@ -37,6 +29,9 @@ class Augmenter:
                                  "obb": self.xyxyxyxy_to_polygon}
         self.postprocess_funcs = {"polygon": self.polygon_to_point,
                                   "obb": self.polygon_to_xyxyxyxy}
+
+        self.img_ext = ".jpg"
+        self.anns_ext = ".txt"
 
         # Handlers
         self.image_handler = ImageHandler()
@@ -64,116 +59,49 @@ class Augmenter:
 
         return self.__transform
 
-    @staticmethod
-    def save_polygons_to_txt(polygons, image_width, image_height, filepath) -> None:
-        '''
-        Saves list of polygons to txt file in yolov8 format
-        '''
-        with open(filepath, 'w') as f:
-            # Iterating through each polygon
-            for polygon in polygons:
-                # Write label of 1 polygon
-                f.write(f"{polygon.label} ")
+    def save_anns(self,
+                  name: str,
+                  increment: int,
+                  points_dict: dict[int, list]) -> None:
+        filename = f"{name}_aug_{increment}{self.anns_ext}"
+        filepath = os.path.join(self.train_dir, filename)
 
-                # Iterating through each point
-                for point in polygon.exterior:
-                    x, y = point[0], point[1]
-                    x = x / image_width
-                    y = y / image_height
-                    # Check if label is not out of coordinates
-                    if (x < 0 or x > 1) or (y < 0 or y > 1):
-                        continue
-                    # Write each coordinate
-                    f.write(f"{x} {y} ")
-                f.write('\n')
+        # Write each class and anns to txt
+        with open(filepath, 'w') as file:
+            for class_idx, points in points_dict.items():
+                for point in points:
+                    point = [str(pts) for pts in point]
+                    pts = " ".join(point)
+                    line = f"{class_idx} {pts}\n"
+                    file.write(line)
 
-        return None
+    def save_image(self,
+                   name: str,
+                   img: np.ndarray) -> int:
+        # Create filename and filepath of new image
+        increment = 1
+        filename = f"{name}_aug_{increment}{self.img_ext}"
+        while os.path.exists(filename):
+            filename = f"{name}_aug_{increment}{self.img_ext}"
+            increment += 1
+        filepath = os.path.join(self.train_dir, filename)
 
-    @staticmethod
-    def save_augmented_images_with_labels(image_array,
-                                          image_name,
-                                          images_aug_i,
-                                          polygons_aug_i,
-                                          num_aug,
-                                          train_dataset_dir) -> None:
+        # Save image
+        image = Image.fromarray(img)
+        image.save(filepath)
 
-        # Defining image height and image width
-        image_height, image_width, _ = image_array.shape
+        return increment
 
-        # Defining names of images and labels
-        new_file_name = f"{image_name.rstrip('.jpg')}_aug_{
-            str(num_aug + 1)}"
-        new_image_name, new_label_name = [
-            new_file_name + file_format for file_format in ('.jpg', '.txt')]
+    def save(self,
+             img_name,
+             img: np.ndarray,
+             points_dict: dict[int, list]) -> None:
+        name = os.path.splitext(img_name)[0]
 
-        # Defining path to save images and labels
-        image_save_path = os.path.join(
-            train_dataset_dir, new_image_name)
-        label_save_path = os.path.join(
-            train_dataset_dir, new_label_name)
+        increment = self.save_image(name, img)
 
-        # Save augmented image
-        Image.fromarray(images_aug_i).save(image_save_path)
-
-        # Save augmented polygons to txt file in yolov8 format
-        Augmenter.save_polygons_to_txt(polygons=polygons_aug_i,
-                                       image_width=image_width,
-                                       image_height=image_height,
-                                       filepath=label_save_path)
-
-    @staticmethod
-    def save_augmented_zero_images(image_name,
-                                   images_aug_i,
-                                   num_aug,
-                                   train_dataset_dir) -> None:
-        # Save images
-        new_file_name = f"{image_name.rstrip('.jpg')}_aug_{
-            str(num_aug + 1)}.jpg"
-        image_save_path = os.path.join(train_dataset_dir, new_file_name)
-        cv2.imwrite(image_save_path, images_aug_i)
-
-    @staticmethod
-    def augment_images_with_labels(train_dataset_dir,
-                                   image_array,
-                                   image_name,
-                                   label_name,
-                                   augmenter,
-                                   aug_factor) -> None:
-        label_path = os.path.join(train_dataset_dir, label_name)
-        # Create list of dicts with labels for one image
-        points_with_labels = Augmenter.parse_labels_file(label_path)
-
-        # Convert original points to a Polygon objects and convert points
-        original_polygons = Augmenter.extract_and_convert_polygons(
-            points_with_labels, image_array)
-
-        # Augment images and polygons
-        for num_aug in range(aug_factor):
-            images_aug_i, polygons_aug_i = augmenter(
-                image=image_array, polygons=original_polygons)
-
-            Augmenter.save_augmented_images_with_labels(image_array=image_array,
-                                                        image_name=image_name,
-                                                        images_aug_i=images_aug_i,
-                                                        polygons_aug_i=polygons_aug_i,
-                                                        num_aug=num_aug,
-                                                        train_dataset_dir=train_dataset_dir)
-
-    @staticmethod
-    def augment_zero_images(train_dataset_dir,
-                            image_array,
-                            image_name,
-                            augmenter,
-                            aug_factor) -> None:
-
-        # Augment images
-        for num_aug in range(aug_factor):
-            images_aug_i = augmenter(image=image_array)
-            # Save images
-            Augmenter.save_augmented_zero_images(image_name=image_name,
-                                                 images_aug_i=images_aug_i,
-                                                 num_aug=num_aug,
-                                                 train_dataset_dir=train_dataset_dir)
+        if points_dict is not None:
+            self.save_anns(name, increment, points_dict)
 
     def get_random_img(self,
                        images_listdir: list[str]) -> tuple[np.ndarray, str]:
@@ -318,8 +246,6 @@ class Augmenter:
             masks_dict = self.create_masks(
                 img_name, img_width, img_height, anns_type)
             transf_img, transf_masks_dict = self.augment_image(img, masks_dict)
-            points_dict = self.create_anns(
+            transf_points_dict = self.create_anns(
                 transf_masks_dict, img_width, img_height, anns_type)
-
-            if points_dict is None:
-                pass
+            self.save(img_name, transf_img, transf_points_dict)
