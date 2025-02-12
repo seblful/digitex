@@ -59,15 +59,29 @@ class Augmenter:
 
         return self.__transform
 
+    def find_name(self, img_name: str) -> str:
+        name = os.path.splitext(img_name)[0]
+
+        increment = 1
+        while True:
+            aug_name = f"{name}_aug_{increment}"
+            filename = f"{aug_name}{self.img_ext}"
+            filepath = os.path.join(self.train_dir, filename)
+            if not os.path.exists(filepath):
+                return aug_name
+            increment += 1
+
     def save_anns(self,
                   name: str,
-                  increment: int,
                   points_dict: dict[int, list]) -> None:
-        filename = f"{name}_aug_{increment}{self.anns_ext}"
+        filename = f"{name}{self.anns_ext}"
         filepath = os.path.join(self.train_dir, filename)
 
         # Write each class and anns to txt
         with open(filepath, 'w') as file:
+            if points_dict is None:
+                return
+
             for class_idx, points in points_dict.items():
                 for point in points:
                     point = [str(pts) for pts in point]
@@ -77,31 +91,23 @@ class Augmenter:
 
     def save_image(self,
                    name: str,
-                   img: np.ndarray) -> int:
-        # Create filename and filepath of new image
-        increment = 1
-        filename = f"{name}_aug_{increment}{self.img_ext}"
-        while os.path.exists(filename):
-            filename = f"{name}_aug_{increment}{self.img_ext}"
-            increment += 1
+                   img: np.ndarray) -> None:
+        filename = f"{name}{self.img_ext}"
         filepath = os.path.join(self.train_dir, filename)
 
         # Save image
         image = Image.fromarray(img)
         image.save(filepath)
 
-        return increment
-
     def save(self,
              img_name,
              img: np.ndarray,
              points_dict: dict[int, list]) -> None:
-        name = os.path.splitext(img_name)[0]
 
-        increment = self.save_image(name, img)
+        name = self.find_name(img_name)
+        self.save_image(name, img)
 
-        if points_dict is not None:
-            self.save_anns(name, increment, points_dict)
+        self.save_anns(name, points_dict)
 
     def get_random_img(self,
                        images_listdir: list[str]) -> tuple[np.ndarray, str]:
@@ -136,7 +142,13 @@ class Augmenter:
                             polygon: np.ndarray,
                             img_width: int,
                             img_height: int) -> list[float]:
-        xyxyxyxy = polygon / np.array((img_width, img_height))
+        # TODO minus in points
+        polygon = polygon / np.array((1, 1))
+        polygon = polygon.astype(np.float32)
+
+        rect = cv2.minAreaRect(polygon)
+        xyxyxyxy = cv2.boxPoints(rect)
+        xyxyxyxy = xyxyxyxy / np.array((img_width, img_height))
         xyxyxyxy = xyxyxyxy.flatten().tolist()
 
         assert len(xyxyxyxy) == 8, "Length of xyxyxyxy must be equal 8."
@@ -160,13 +172,13 @@ class Augmenter:
         anns_name = os.path.splitext(img_name)[0] + '.txt'
         anns_path = os.path.join(self.train_dir, anns_name)
 
-        if not os.path.exists(anns_path):
+        points_dict = self.label_handler._read_points(anns_path)
+
+        if not points_dict:
             return None
 
-        preprocess_func = self.preprocess_funcs[anns_type]
-
-        points_dict = self.label_handler._read_points(anns_path)
         masks_dict = {key: [] for key in points_dict.keys()}
+        preprocess_func = self.preprocess_funcs[anns_type]
 
         # Iterate through points, preprocess and convert to mask
         for class_idx, points in points_dict.items():
