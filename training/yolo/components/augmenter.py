@@ -42,7 +42,6 @@ class Augmenter:
         if self.__transform is None:
             self.__transform = A.Compose([
                 A.Affine(scale=0.9, p=0.7),
-                A.Perspective(scale=(0.01, 0.05), p=0.5),
                 A.CropAndPad(percent=(-0.04, 0.04), p=0.5),
                 A.CoarseDropout(p=0.2),
                 A.ISONoise(color_shift=(0.01, 0.05), p=0.2),
@@ -207,8 +206,10 @@ class Augmenter:
         # Iterate through masks and convert to anns
         for class_idx, masks in masks_dict.items():
             for mask in masks:
-                polygon = sv.mask_to_polygons(mask)
-                anns = postprocess_func(polygon, img_width, img_height)
+                polygons = sv.mask_to_polygons(mask)
+                polygon = max(polygons, key=cv2.contourArea)
+                anns = postprocess_func(
+                    polygon, img_width, img_height)
                 points_dict[class_idx].append(anns)
 
         return points_dict
