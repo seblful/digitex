@@ -11,7 +11,10 @@ import albumentations as A
 
 from tqdm import tqdm
 
-from modules.handlers import ImageHandler, LabelHandler
+from modules.handlers import LabelHandler
+
+from .converter import Converter
+from .utils import get_random_img
 
 
 class Augmenter:
@@ -23,19 +26,19 @@ class Augmenter:
 
         self.__transform = None
 
-        self.label_types = ["polygon", "obb"]
+        self.anns_types = ["polygon", "obb"]
 
-        self.preprocess_funcs = {"polygon": self.point_to_polygon,
-                                 "obb": self.xyxyxyxy_to_polygon}
-        self.postprocess_funcs = {"polygon": self.polygon_to_point,
-                                  "obb": self.polygon_to_xyxyxyxy}
+        self.preprocess_funcs = {"polygon": Converter.point_to_polygon,
+                                 "obb": Converter.xyxyxyxy_to_polygon}
+        self.postprocess_funcs = {"polygon": Converter.polygon_to_point,
+                                  "obb": Converter.polygon_to_xyxyxyxy}
 
         self.img_ext = ".jpg"
         self.anns_ext = ".txt"
 
         # Handlers
-        self.image_handler = ImageHandler()
         self.label_handler = LabelHandler()
+        self.converter = Converter()
 
     @property
     def transform(self) -> A.Compose:
@@ -56,21 +59,21 @@ class Augmenter:
                 A.RandomBrightnessContrast(p=0.3),
                 A.RandomShadow(shadow_intensity_range=[0.1, 0.4], p=0.3),
                 A.SaltAndPepper(amount=[0.01, 0.03], p=0.2),
-                A.GaussianBlur(blur_limit=6, p=0.4),
+                A.GaussianBlur(blur_limit=6, p=0.3),
                 A.ISONoise(p=0.2),
-                A.MotionBlur(p=0.4),
+                A.MotionBlur(p=0.3),
                 A.PlasmaBrightnessContrast(p=0.3),
                 A.RandomFog(p=0.3),
                 A.Sharpen(p=0.4),
                 A.Blur(p=0.3),
-                A.Illumination(p=0.4),
+                A.Illumination(p=0.3),
                 A.CLAHE(p=0.3),
                 A.Posterize(p=0.3),
                 A.Affine(scale=[0.92, 1.08], fill=255, p=0.4),
                 A.CoarseDropout(fill=255, p=0.1),
                 A.Pad(padding=[15, 15], fill=255, p=0.4),
                 A.RandomScale(p=0.4),
-                A.SafeRotate(limit=(-3, 3), p=0.4)
+                A.SafeRotate(limit=(-3, 3), fill=255, p=0.4)
             ])
 
         return self.__transform
@@ -124,61 +127,6 @@ class Augmenter:
         self.save_image(name, img)
 
         self.save_anns(name, points_dict)
-
-    def get_random_img(self,
-                       images_listdir: list[str]) -> tuple[np.ndarray, str]:
-        img_name = random.choice(images_listdir)
-        img_path = os.path.join(self.train_dir, img_name)
-        image = Image.open(img_path)
-        img = np.array(image)
-
-        return img_name, img
-
-    def xyxyxyxy_to_polygon(self,
-                            xyxyxyxy: list[float],
-                            img_width: int,
-                            img_height: int) -> np.ndarray:
-        xyxyxyxy = [xyxyxyxy[i] * (img_width if i % 2 == 0 else img_height)
-                    for i in range(len(xyxyxyxy))]
-        xyxyxyxy = np.array(xyxyxyxy)
-        polygon = xyxyxyxy.reshape((-1, 2))
-
-        return polygon
-
-    def point_to_polygon(self,
-                         point: list[float],
-                         img_width: int,
-                         img_height: int) -> np.ndarray:
-        polygon = list(zip(point[::2], point[1::2]))
-        polygon = np.array(polygon) * np.array((img_width, img_height))
-
-        return polygon
-
-    def polygon_to_xyxyxyxy(self,
-                            polygon: np.ndarray,
-                            img_width: int,
-                            img_height: int) -> list[float]:
-        # TODO minus in points
-        polygon = polygon / np.array((1, 1))
-        polygon = polygon.astype(np.float32)
-
-        rect = cv2.minAreaRect(polygon)
-        xyxyxyxy = cv2.boxPoints(rect)
-        xyxyxyxy = xyxyxyxy / np.array((img_width, img_height))
-        xyxyxyxy = xyxyxyxy.flatten().tolist()
-
-        assert len(xyxyxyxy) == 8, "Length of xyxyxyxy must be equal 8."
-
-        return xyxyxyxy
-
-    def polygon_to_point(self,
-                         polygon: np.ndarray,
-                         img_width: int,
-                         img_height: int) -> list[float]:
-        point = polygon / np.array((img_width, img_height))
-        point = point.flatten().tolist()
-
-        return point
 
     def create_masks(self,
                      img_name: str,
@@ -264,13 +212,13 @@ class Augmenter:
     def augment(self,
                 anns_type: str,
                 num_images: int) -> None:
-        assert anns_type in self.label_types, f"label_type must be one of {self.label_types}."
+        assert anns_type in self.anns_types, f"label_type must be one of {self.anns_types}."
 
-        images_listdir = [i for i in os.listdir(
-            self.train_dir) if i.endswith(".jpg")]
+        images_listdir = [img_name for img_name in os.listdir(
+            self.train_dir) if img_name.endswith(".jpg")]
 
         for _ in tqdm(range(num_images), desc="Augmenting images"):
-            img_name, img = self.get_random_img(images_listdir)
+            img_name, img = get_random_img(self.train_dir, images_listdir)
             img_height, img_width, _ = img.shape
 
             masks_dict = self.create_masks(
