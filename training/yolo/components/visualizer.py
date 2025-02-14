@@ -49,6 +49,9 @@ class Visualizer:
     def draw_image(self,
                    image: Image.Image,
                    polygons_dict: dict[int, list]) -> Image:
+        if polygons_dict is None:
+            return image
+
         draw = ImageDraw.Draw(image, 'RGBA')
         for class_idx, polygons in polygons_dict.items():
             color = self.colors[class_idx]
