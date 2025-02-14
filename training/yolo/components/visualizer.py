@@ -9,7 +9,8 @@ from tqdm import tqdm
 
 from modules.handlers import LabelHandler
 
-from utils import get_random_image
+from .converter import Converter
+from .utils import get_random_image
 
 
 class Visualizer:
@@ -22,6 +23,8 @@ class Visualizer:
         self.check_images_dir = check_images_dir
 
         self.anns_types = ["polygon", "obb"]
+        self.preprocess_funcs = {"polygon": Converter.point_to_polygon,
+                                 "obb": Converter.xyxyxyxy_to_polygon}
 
         self.label_handler = LabelHandler()
 
@@ -43,6 +46,28 @@ class Visualizer:
                              "val": self.val_dir,
                              "test": self.test_dir}
 
+    def draw_image(self,
+                   image: Image.Image,
+                   polygons_dict: dict[int, list]) -> Image:
+        draw = ImageDraw.Draw(image, 'RGBA')
+        for class_idx, polygons in polygons_dict.items():
+            color = self.colors[class_idx]
+            for polygon in polygons:
+                draw.polygon(polygon,
+                             fill=color,
+                             outline="black")
+
+        return image
+
+    def save_image(self,
+                   image: Image,
+                   image_name: str,
+                   set_name: str) -> None:
+        name = os.path.splitext(image_name)[0]
+        filename = f"{name}_{set_name}.jpg"
+        filepath = os.path.join(self.check_images_dir, filename)
+        image.save(filepath)
+
     def create_polygon(self,
                        image_name: str,
                        set_dir: str,
@@ -56,23 +81,39 @@ class Visualizer:
         if not points_dict:
             return None
 
-        return points_dict
+        polygons_dict = {key: [] for key in points_dict.keys()}
+        preprocess_func = self.preprocess_funcs[anns_type]
+
+        for class_idx, points in points_dict.items():
+            for point in points:
+                polygon = preprocess_func(
+                    point, image_width, image_height).tolist()
+                polygon = [tuple(row) for row in polygon]
+                polygons_dict[class_idx].append(polygon)
+
+        return polygons_dict
 
     def visualize(self,
                   anns_type: str,
                   num_images: int = 10) -> None:
-        assert anns_type in self.label_types, f"label_type must be one of {self.label_types}."
+        assert anns_type in self.anns_types, f"label_type must be one of {self.anns_types}."
 
         for set_name, set_dir in self.dataset_dirs.items():
             images_listdir = [image_name for image_name in os.listdir(
                 set_dir) if image_name.endswith(".jpg")]
 
-            for _ in tqdm(range(num_images), desc=f"Augmenting {set_name} images"):
+            for _ in tqdm(range(num_images), desc=f"Visualizing {set_name} images"):
                 image_name, image = get_random_image(set_dir, images_listdir)
                 image_width, image_height = image.size
 
-                points_dict = self.create_polygon(image_name=image_name,
-                                                  set_dir=set_dir,
-                                                  image_width=image_width,
-                                                  image_height=image_height,
-                                                  anns_type=anns_type)
+                polygons_dict = self.create_polygon(image_name=image_name,
+                                                    set_dir=set_dir,
+                                                    image_width=image_width,
+                                                    image_height=image_height,
+                                                    anns_type=anns_type)
+
+                drawn_image = self.draw_image(image=image,
+                                              polygons_dict=polygons_dict)
+                self.save_image(image=drawn_image,
+                                image_name=image_name,
+                                set_name=set_name)
