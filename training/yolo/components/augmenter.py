@@ -218,12 +218,19 @@ class Augmenter:
             self.train_dir) if img_name.endswith(".jpg")]
 
         for _ in tqdm(range(num_images), desc="Augmenting images"):
+            # Get random img
             img_name, img = get_random_img(self.train_dir, images_listdir)
-            img_height, img_width, _ = img.shape
 
+            # Create masks
+            orig_height, orig_width = img.shape[:2]
             masks_dict = self.create_masks(
-                img_name, img_width, img_height, anns_type)
+                img_name, orig_width, orig_height, anns_type)
+
+            # Augment
             transf_img, transf_masks_dict = self.augment_image(img, masks_dict)
+            transf_height, transf_width = transf_img.shape[:2]
+
+            # Create anns
             transf_points_dict = self.create_anns(
-                transf_masks_dict, img_width, img_height, anns_type)
+                transf_masks_dict, transf_width, transf_height, anns_type)
             self.save(img_name, transf_img, transf_points_dict)
