@@ -104,9 +104,13 @@ class Visualizer:
         for set_name, set_dir in self.dataset_dirs.items():
             images_listdir = [image_name for image_name in os.listdir(
                 set_dir) if image_name.endswith(".jpg")]
+            random.shuffle(images_listdir)
+            images_listdir = images_listdir[:num_images]
 
-            for _ in tqdm(range(num_images), desc=f"Visualizing {set_name} images"):
-                image_name, image = get_random_image(set_dir, images_listdir)
+            for i in tqdm(range(len(images_listdir)), desc=f"Visualizing {set_name} images"):
+                image_name = images_listdir[i]
+                image_path = os.path.join(set_dir, image_name)
+                image = Image.open(image_path)
                 image_width, image_height = image.size
 
                 polygons_dict = self.create_polygon(image_name=image_name,
