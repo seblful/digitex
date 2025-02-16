@@ -8,11 +8,12 @@ class Trainer():
     def __init__(self,
                  dataset_dir: str,
                  model_type: str,
+                 model_size: str,
                  num_epochs: int,
                  image_size: int,
                  batch_size: int,
                  pretrained_model_path: str = None,
-                 overlap_mask=False,
+                 overlap_mask: bool = False,
                  patience: int = 50,
                  seed: int = 42) -> None:
 
@@ -35,10 +36,9 @@ class Trainer():
         self.device_idxs = [i for i in range(self.device_count)]
 
         # Model
-        self.model_type = model_type
         self.pretrained_model_path = pretrained_model_path
-        self.model_yaml = f"yolo11{model_type}-seg.yaml"
-        self.model_type = f"yolo11{model_type}-seg.pt"
+        self.model_yaml = f"yolo11{model_size}-{model_type}.yaml"
+        self.model_pt = f"yolo11{model_size}-{model_type}.pt"
 
         self.__model = None
         self.is_trained = False
@@ -47,10 +47,8 @@ class Trainer():
     def model(self) -> YOLO:
         if self.__model == None:
             if self.pretrained_model_path is None:
-                # Build a new model from scratch and transfer COCO weights
-                model = YOLO(self.model_yaml).load(self.model_type)
+                model = YOLO(self.model_yaml).load(self.model_pt)
             else:
-                # Load from my pretrained model
                 model = YOLO(self.pretrained_model_path)
 
             self.__model = model
