@@ -13,11 +13,18 @@ parser.add_argument("--data_subdir",
                     type=str,
                     help="Type of task type.")
 
-# Get an arg for yolo model_size
+# Get an arg for yolo model type
 parser.add_argument("--model_type",
+                    default='seg',
+                    type=str,
+                    help="Type of yolo segmentation model ('seg', 'obb').")
+
+# Get an arg for yolo model size
+parser.add_argument("--model_size",
                     default='m',
                     type=str,
                     help="Size of yolo segmentation model (n, s, m, l, x).")
+
 
 # Get an arg for pretrained model path
 parser.add_argument("--pretrained_model_path",
@@ -25,7 +32,7 @@ parser.add_argument("--pretrained_model_path",
                     default=None,
                     help="Previously trained model for this task type.")
 
-# Get an arg for epochs
+# Get an arg for number of epochs
 parser.add_argument("--num_epochs",
                     default=100,
                     type=int,
@@ -75,6 +82,7 @@ DATASET_DIR = os.path.join(DATA_DIR, 'dataset')
 def main() -> None:
     trainer = Trainer(dataset_dir=DATASET_DIR,
                       model_type=args.model_type,
+                      model_size=args.model_size,
                       pretrained_model_path=args.pretrained_model_path,
                       num_epochs=args.num_epochs,
                       image_size=args.image_size,
