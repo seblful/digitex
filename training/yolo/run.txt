@@ -5,4 +5,4 @@ python create_dataset.py --data_subdir question --train_split 0.8 --augment --au
 python train.py --data_subdir question --model_type seg --model_size x --pretrained_model_path models/question/question_x.pt --num_epochs 200 --image_size 1080 --batch_size 6 --patience 70 --seed 42
 
 python create_dataset.py --data_subdir table --train_split 0.7 --augment --aug_images 400 --visualize --vis_images 30
-python train.py --data_subdir table --model_type obb --model_size x --pretrained_model_path models/table/table_x.pt --num_epochs 300 --image_size 1080 --batch_size 6 --overlap_mask --patience 70 --seed 42
+python train.py --data_subdir table --model_type obb --model_size m --pretrained_model_path models/table/table_x.pt --num_epochs 500 --image_size 1080 --batch_size 12 --overlap_mask --patience 70 --seed 42
