@@ -18,23 +18,15 @@ from .utils import get_random_img
 
 
 class Augmenter:
-    def __init__(self,
-                 dataset_dir) -> None:
+    def __init__(self, dataset_dir: str) -> None:
         # Paths
         self.dataset_dir = dataset_dir
         self.train_dir = os.path.join(self.dataset_dir, 'train')
 
-        self.__transform = None
-
-        self.anns_types = ["polygon", "obb"]
-
-        self.preprocess_funcs = {"polygon": Converter.point_to_polygon,
-                                 "obb": Converter.xyxyxyxy_to_polygon}
-        self.postprocess_funcs = {"polygon": Converter.polygon_to_point,
-                                  "obb": Converter.polygon_to_xyxyxyxy}
-
         self.img_ext = ".jpg"
         self.anns_ext = ".txt"
+
+        self.__transform = None
 
         # Handlers
         self.label_handler = LabelHandler()
@@ -90,23 +82,8 @@ class Augmenter:
                 return aug_name
             increment += 1
 
-    def save_anns(self,
-                  name: str,
-                  points_dict: dict[int, list]) -> None:
-        filename = f"{name}{self.anns_ext}"
-        filepath = os.path.join(self.train_dir, filename)
-
-        # Write each class and anns to txt
-        with open(filepath, 'w') as file:
-            if points_dict is None:
-                return
-
-            for class_idx, points in points_dict.items():
-                for point in points:
-                    point = [str(pts) for pts in point]
-                    pts = " ".join(point)
-                    line = f"{class_idx} {pts}\n"
-                    file.write(line)
+    def save_anns(self) -> None:
+        pass
 
     def save_image(self,
                    name: str,
@@ -127,6 +104,35 @@ class Augmenter:
         self.save_image(name, img)
 
         self.save_anns(name, points_dict)
+
+
+class OBB_PolygonAugmenter(Augmenter):
+    def __init__(self,
+                 dataset_dir) -> None:
+        super().__init__(dataset_dir)
+
+        self.preprocess_funcs = {"polygon": Converter.point_to_polygon,
+                                 "obb": Converter.xyxyxyxy_to_polygon}
+        self.postprocess_funcs = {"polygon": Converter.polygon_to_point,
+                                  "obb": Converter.polygon_to_xyxyxyxy}
+
+    def save_anns(self,
+                  name: str,
+                  points_dict: dict[int, list]) -> None:
+        filename = f"{name}{self.anns_ext}"
+        filepath = os.path.join(self.train_dir, filename)
+
+        # Write each class and anns to txt
+        with open(filepath, 'w') as file:
+            if points_dict is None:
+                return
+
+            for class_idx, points in points_dict.items():
+                for point in points:
+                    point = [str(pts) for pts in point]
+                    pts = " ".join(point)
+                    line = f"{class_idx} {pts}\n"
+                    file.write(line)
 
     def create_masks(self,
                      img_name: str,
@@ -212,8 +218,6 @@ class Augmenter:
     def augment(self,
                 anns_type: str,
                 num_images: int) -> None:
-        assert anns_type in self.anns_types, f"label_type must be one of {self.anns_types}."
-
         images_listdir = [img_name for img_name in os.listdir(
             self.train_dir) if img_name.endswith(".jpg")]
 
@@ -234,3 +238,13 @@ class Augmenter:
             transf_points_dict = self.create_anns(
                 transf_masks_dict, transf_width, transf_height, anns_type)
             self.save(img_name, transf_img, transf_points_dict)
+
+
+class KeypointAugmenter(Augmenter):
+    def __init__(self,
+                 dataset_dir) -> None:
+        super().__init__(dataset_dir)
+
+    def augment(self,
+                num_images):
+        pass
