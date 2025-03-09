@@ -1,5 +1,4 @@
 import os
-import random
 from PIL import Image
 
 import numpy as np
@@ -14,6 +13,7 @@ from tqdm import tqdm
 from modules.handlers import LabelHandler
 
 from .converter import Converter
+from .annotation import AnnotationCreator
 from .utils import get_random_img
 
 
@@ -26,16 +26,21 @@ class Augmenter:
         self.img_ext = ".jpg"
         self.anns_ext = ".txt"
 
-        self.__transform = None
+        self._transforms = None
+        self._augmenter = None
+
+        # To do support dynamic creation
+        self.id2label = {0: "edge"}
+        self.label2id = {"edge": 0}
 
         # Handlers
         self.label_handler = LabelHandler()
         self.converter = Converter()
 
     @property
-    def transform(self) -> A.Compose:
-        if self.__transform is None:
-            self.__transform = A.Compose([
+    def transforms(self) -> A.Compose:
+        if self._transforms is None:
+            self._transforms = [
                 A.AdditiveNoise(p=0.3),
                 A.Downscale(scale_range=[0.4, 0.9], p=0.3),
                 A.RGBShift(p=0.3),
@@ -66,9 +71,17 @@ class Augmenter:
                 A.Pad(padding=[15, 15], fill=255, p=0.4),
                 A.RandomScale(p=0.4),
                 A.SafeRotate(limit=(-3, 3), fill=255, p=0.4)
-            ])
+            ]
 
-        return self.__transform
+        return self._transforms
+
+    @property
+    def augmenter(self) -> None:
+        return self._augmenter
+
+    @augmenter.setter
+    def augmenter(self, value) -> None:
+        self._augmenter = value
 
     def find_name(self, img_name: str) -> str:
         name = os.path.splitext(img_name)[0]
@@ -115,6 +128,13 @@ class OBB_PolygonAugmenter(Augmenter):
                                  "obb": Converter.xyxyxyxy_to_polygon}
         self.postprocess_funcs = {"polygon": Converter.polygon_to_point,
                                   "obb": Converter.polygon_to_xyxyxyxy}
+
+    @property
+    def augmenter(self) -> A.Compose:
+        if self._augmenter is None:
+            augmenter = A.Compose(self.transforms)
+
+        return augmenter
 
     def save_anns(self,
                   name: str,
@@ -185,12 +205,13 @@ class OBB_PolygonAugmenter(Augmenter):
 
         return points_dict
 
-    def augment_image(self,
-                      img: np.ndarray,
-                      masks_dict: dict[int, list] = None) -> tuple[np.ndarray, None] | tuple[np.ndarray, dict[int, list]]:
+    def augment_img(self,
+                    img: np.ndarray,
+                    masks_dict: dict[int, list] = None) -> tuple[np.ndarray, None] | tuple[np.ndarray, dict[int, list]]:
+
         # Case if no masks_dict
         if masks_dict is None:
-            transf = self.transform(image=img)
+            transf = self.augmenter(image=img)
             transf_img = transf['image']
 
             return (transf_img, None)
@@ -201,7 +222,7 @@ class OBB_PolygonAugmenter(Augmenter):
             masks.extend(v)
 
         # Transform
-        transf = self.transform(image=img, masks=masks)
+        transf = self.augmenter(image=img, masks=masks)
         transf_img = transf['image']
         transf_masks = transf['masks']
 
@@ -231,7 +252,7 @@ class OBB_PolygonAugmenter(Augmenter):
                 img_name, orig_width, orig_height, anns_type)
 
             # Augment
-            transf_img, transf_masks_dict = self.augment_image(img, masks_dict)
+            transf_img, transf_masks_dict = self.augment_img(img, masks_dict)
             transf_height, transf_width = transf_img.shape[:2]
 
             # Create anns
@@ -245,6 +266,139 @@ class KeypointAugmenter(Augmenter):
                  dataset_dir) -> None:
         super().__init__(dataset_dir)
 
+    @property
+    def augmenter(self) -> A.Compose:
+        if self._augmenter is None:
+            augmenter = A.Compose(self.transforms,
+                                  keypoint_params=A.KeypointParams(format='xy',
+                                                                   label_fields=[
+                                                                       "class_labels"],
+                                                                   remove_invisible=True))
+
+        return augmenter
+
+    def save_anns(self,
+                  name: str,
+                  points_dict: dict[int, list]) -> None:
+        filename = f"{name}{self.anns_ext}"
+        filepath = os.path.join(self.train_dir, filename)
+
+        # Write each class and anns to txt
+        with open(filepath, 'w') as file:
+            if points_dict is None:
+                return
+
+            for class_idx, anns in points_dict.items():
+                for ann in anns:
+                    center, width, height, points = ann
+
+                    points = [str(coord)
+                              for point in points for coord in point]
+                    points_str = " ".join(points)
+                    line = f"{class_idx} {str(center[0])} {str(center[1])} {width} {height} {points_str}"
+
+                    file.write(line)
+
+    def create_keypoints(self,
+                         img_name: str,
+                         img_width: int,
+                         img_height: int):
+        anns_name = os.path.splitext(img_name)[0] + '.txt'
+        anns_path = os.path.join(self.train_dir, anns_name)
+
+        points_dict = self.label_handler._read_points(anns_path)
+
+        if not points_dict:
+            return None
+
+        keypoints_dict = {key: [] for key in points_dict.keys()}
+
+        # Iterate through points and select only keypoints (x, y)
+        for class_idx, points in points_dict.items():
+            for point in points:
+                keypoint = point[4:]
+                keypoint = Converter.point_to_keypoint(
+                    point, img_width, img_height)
+                keypoints_dict[class_idx].append(keypoint)
+
+        return keypoints_dict
+
+    def create_anns(self,
+                    keypoints_dict: dict[int, list],
+                    img_width: int,
+                    img_height: int) -> dict[int, list]:
+        if keypoints_dict is None:
+            return None
+
+        points_dict = {key: [] for key in keypoints_dict.keys()}
+
+        # Iterate through keypoints and create yolo points
+        for class_idx, keypoint in keypoints_dict.items():
+            points = Converter.keypoint_to_point(
+                keypoint, img_width, img_height)
+            center, width, height = AnnotationCreator.get_points_props(
+                points)
+            points_dict[class_idx].append((center, width, height, points))
+
+        return points_dict
+
+    def augment_img(self,
+                    img: np.ndarray,
+                    keypoints_dict: dict[int, list] = None) -> tuple[np.ndarray, None] | tuple[np.ndarray, dict[int, list]]:
+        # Transform without keypoints
+        if keypoints_dict is None:
+            transf = self.augmenter(image=img)
+            transf_img = transf["image"]
+
+            return (transf_img, None)
+
+        # Obtain keypoints
+        keypoints = []
+        class_labels = []
+        for class_idx, keypoint in keypoints_dict.items():
+            for k in keypoint:
+                keypoints.extend(k)
+
+                for _ in range(len(k)):
+                    class_labels.append(self.id2label[class_idx])
+
+        # Transform with keypoints
+        transf = self.augmenter(image=img,
+                                keypoints=keypoints,
+                                class_labels=class_labels)
+        transf_img = transf['image']
+        transf_class_labels = transf["class_labels"]
+        transf_keypoints = transf['keypoints']
+
+        # TODO preserve keypoints for each object
+        # Create transf_keypoints_dict
+        transf_keypoints_dict = {key: [] for key in keypoints_dict.keys()}
+        for transf_class_label, transf_keypoint in zip(transf_class_labels, transf_keypoints):
+            transf_keypoints_dict[self.label2id[transf_class_label]].append(
+                transf_keypoint)
+
+        return transf_img, transf_keypoints_dict
+
     def augment(self,
                 num_images):
-        pass
+        images_listdir = [img_name for img_name in os.listdir(
+            self.train_dir) if img_name.endswith(".jpg")]
+
+        for _ in tqdm(range(num_images), desc="Augmenting images"):
+            # Get random img
+            img_name, img = get_random_img(self.train_dir, images_listdir)
+            orig_height, orig_width = img.shape[:2]
+
+            # Create keypoints
+            keypoints_dict = self.create_keypoints(
+                img_name, orig_width, orig_height)
+
+            # Augment
+            transf_img, transf_keypoints_dict = self.augment_img(
+                img, keypoints_dict)
+            transf_height, transf_width = transf_img.shape[:2]
+
+            # Create points and save
+            transf_points_dict = self.create_anns(
+                transf_keypoints_dict, transf_width, transf_height)
+            self.save(img_name, transf_img, transf_points_dict)
