@@ -12,16 +12,21 @@ from tqdm import tqdm
 
 from modules.handlers import LabelHandler
 
+from .dataset import DatasetCreator
 from .converter import Converter
 from .annotation import AnnotationCreator
 from .utils import get_random_img
 
 
 class Augmenter:
-    def __init__(self, dataset_dir: str) -> None:
+    def __init__(self,
+                 raw_dir: str,
+                 dataset_dir: str) -> None:
         # Paths
+        self.raw_dir = raw_dir
         self.dataset_dir = dataset_dir
         self.train_dir = os.path.join(self.dataset_dir, 'train')
+        self.classes_path = os.path.join(raw_dir, 'classes.txt')
 
         self.img_ext = ".jpg"
         self.anns_ext = ".txt"
@@ -30,8 +35,8 @@ class Augmenter:
         self._augmenter = None
 
         # To do support dynamic creation
-        self.id2label = {0: "edge"}
-        self.label2id = {"edge": 0}
+        self.__id2label = None
+        self.__label2id = None
 
         # Handlers
         self.label_handler = LabelHandler()
@@ -83,6 +88,21 @@ class Augmenter:
     def augmenter(self, value) -> None:
         self._augmenter = value
 
+    @property
+    def id2label(self) -> dict[int, str]:
+        if self.__id2label is None:
+            classes = DatasetCreator.read_classes_file(self.classes_path)
+            self.__id2label = {k: v for k, v in enumerate(classes)}
+
+        return self.__id2label
+
+    @property
+    def label2id(self) -> dict[str, int]:
+        if self.__label2id is None:
+            self.__label2id = {v: k for k, v in self.id2label.items()}
+
+        return self.__label2id
+
     def find_name(self, img_name: str) -> str:
         name = os.path.splitext(img_name)[0]
 
@@ -121,13 +141,23 @@ class Augmenter:
 
 class OBB_PolygonAugmenter(Augmenter):
     def __init__(self,
-                 dataset_dir) -> None:
-        super().__init__(dataset_dir)
+                 raw_dir: str,
+                 dataset_dir: str,
+                 anns_type: str) -> None:
+        super().__init__(raw_dir, dataset_dir)
+        self.anns_type = anns_type
 
         self.preprocess_funcs = {"polygon": Converter.point_to_polygon,
                                  "obb": Converter.xyxyxyxy_to_polygon}
         self.postprocess_funcs = {"polygon": Converter.polygon_to_point,
                                   "obb": Converter.polygon_to_xyxyxyxy}
+
+        if anns_type not in self.preprocess_funcs:
+            raise ValueError(
+                f"anns_type must be one of {list(self.preprocess_funcs.keys())}.")
+
+        self.preprocess_func = self.preprocess_funcs[anns_type]
+        self.postprocess_func = self.postprocess_funcs[anns_type]
 
     @property
     def augmenter(self) -> A.Compose:
@@ -157,8 +187,7 @@ class OBB_PolygonAugmenter(Augmenter):
     def create_masks(self,
                      img_name: str,
                      img_width: int,
-                     img_height: int,
-                     anns_type: str) -> None | dict[int, list]:
+                     img_height: int) -> None | dict[int, list]:
         anns_name = os.path.splitext(img_name)[0] + '.txt'
         anns_path = os.path.join(self.train_dir, anns_name)
 
@@ -168,12 +197,11 @@ class OBB_PolygonAugmenter(Augmenter):
             return None
 
         masks_dict = {key: [] for key in points_dict.keys()}
-        preprocess_func = self.preprocess_funcs[anns_type]
 
         # Iterate through points, preprocess and convert to mask
         for class_idx, points in points_dict.items():
             for point in points:
-                polygon = preprocess_func(point, img_width, img_height)
+                polygon = self.preprocess_func(point, img_width, img_height)
 
                 # Convert polygon to mask
                 mask = sv.polygon_to_mask(polygon, (img_width, img_height))
@@ -185,12 +213,9 @@ class OBB_PolygonAugmenter(Augmenter):
     def create_anns(self,
                     masks_dict: dict[int, list],
                     img_width: int,
-                    img_height: int,
-                    anns_type: str) -> None | dict[int, list]:
+                    img_height: int) -> None | dict[int, list]:
         if masks_dict is None:
             return None
-
-        postprocess_func = self.postprocess_funcs[anns_type]
 
         points_dict = {key: [] for key in masks_dict.keys()}
 
@@ -199,7 +224,7 @@ class OBB_PolygonAugmenter(Augmenter):
             for mask in masks:
                 polygons = sv.mask_to_polygons(mask)
                 polygon = max(polygons, key=cv2.contourArea)
-                anns = postprocess_func(
+                anns = self.postprocess_func(
                     polygon, img_width, img_height)
                 points_dict[class_idx].append(anns)
 
@@ -237,7 +262,6 @@ class OBB_PolygonAugmenter(Augmenter):
         return transf_img, transf_masks_dict
 
     def augment(self,
-                anns_type: str,
                 num_images: int) -> None:
         images_listdir = [img_name for img_name in os.listdir(
             self.train_dir) if img_name.endswith(".jpg")]
@@ -249,7 +273,7 @@ class OBB_PolygonAugmenter(Augmenter):
             # Create masks
             orig_height, orig_width = img.shape[:2]
             masks_dict = self.create_masks(
-                img_name, orig_width, orig_height, anns_type)
+                img_name, orig_width, orig_height)
 
             # Augment
             transf_img, transf_masks_dict = self.augment_img(img, masks_dict)
@@ -257,14 +281,22 @@ class OBB_PolygonAugmenter(Augmenter):
 
             # Create anns
             transf_points_dict = self.create_anns(
-                transf_masks_dict, transf_width, transf_height, anns_type)
+                transf_masks_dict, transf_width, transf_height)
             self.save(img_name, transf_img, transf_points_dict)
 
 
 class KeypointAugmenter(Augmenter):
     def __init__(self,
-                 dataset_dir) -> None:
-        super().__init__(dataset_dir)
+                 raw_dir: str,
+                 dataset_dir: str,
+                 anns_type: str) -> None:
+        super().__init__(raw_dir, dataset_dir)
+
+        self.anns_type = anns_type
+
+        if anns_type != "keypoint":
+            raise ValueError(
+                f"anns_type must be 'keypoint'.")
 
     @property
     def augmenter(self) -> A.Compose:
@@ -347,7 +379,7 @@ class KeypointAugmenter(Augmenter):
                     keypoints_dict: dict[int, list] = None) -> tuple[np.ndarray, None] | tuple[np.ndarray, dict[int, list]]:
         # Transform without keypoints
         if keypoints_dict is None:
-            transf = self.augmenter(image=img)
+            transf = self.augmenter(image=img, class_labels=[])
             transf_img = transf["image"]
 
             return (transf_img, None)
@@ -380,7 +412,7 @@ class KeypointAugmenter(Augmenter):
         return transf_img, transf_keypoints_dict
 
     def augment(self,
-                num_images):
+                num_images) -> None:
         images_listdir = [img_name for img_name in os.listdir(
             self.train_dir) if img_name.endswith(".jpg")]
 
