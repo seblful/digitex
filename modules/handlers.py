@@ -100,7 +100,8 @@ class ImageHandler:
 
 
 class LabelHandler:
-    def _read_points(self, label_path: str) -> Dict[int, list[list[float]]]:
+    @staticmethod
+    def _read_points(label_path: str) -> Dict[int, list[list[float]]]:
         points_dict = dict()
         with open(label_path, "r") as f:
             for line in f:
@@ -116,8 +117,8 @@ class LabelHandler:
 
         return points_dict
 
-    def _get_random_points(self,
-                           classes_dict: Dict[int, str],
+    @staticmethod
+    def _get_random_points(classes_dict: Dict[int, str],
                            points_dict: Dict[int, list],
                            target_classes: List[str]) -> Tuple[int, List[float]]:
         # Create subset of dict with target classes
@@ -137,8 +138,8 @@ class LabelHandler:
 
         return rand_points_idx, rand_points
 
-    def get_random_label(self,
-                         image_name: str,
+    @staticmethod
+    def get_random_label(image_name: str,
                          labels_dir: str) -> str:
 
         label_name = os.path.splitext(image_name)[0] + '.txt'
@@ -150,8 +151,8 @@ class LabelHandler:
 
         return label_name, label_path
 
-    def points_to_abs_polygon(self,
-                              points: list[float],
+    @staticmethod
+    def points_to_abs_polygon(points: list[float],
                               image_width: int,
                               image_height: int) -> list[tuple[float]]:
         points = list(zip(points[::2], points[1::2]))
