@@ -39,7 +39,6 @@ class Augmenter:
         self.__label2id = None
 
         # Handlers
-        self.label_handler = LabelHandler()
         self.converter = Converter()
 
     @property
@@ -191,7 +190,7 @@ class OBB_PolygonAugmenter(Augmenter):
         anns_name = os.path.splitext(img_name)[0] + '.txt'
         anns_path = os.path.join(self.train_dir, anns_name)
 
-        points_dict = self.label_handler._read_points(anns_path)
+        points_dict = LabelHandler._read_points(anns_path)
 
         if not points_dict:
             return None
@@ -303,9 +302,7 @@ class KeypointAugmenter(Augmenter):
         if self._augmenter is None:
             augmenter = A.Compose(self.transforms,
                                   keypoint_params=A.KeypointParams(format='xy',
-                                                                   label_fields=[
-                                                                       "class_labels"],
-                                                                   remove_invisible=True))
+                                                                   remove_invisible=False))
 
         return augmenter
 
@@ -338,7 +335,7 @@ class KeypointAugmenter(Augmenter):
         anns_name = os.path.splitext(img_name)[0] + '.txt'
         anns_path = os.path.join(self.train_dir, anns_name)
 
-        points_dict = self.label_handler._read_points(anns_path)
+        points_dict = LabelHandler._read_points(anns_path)
 
         if not points_dict:
             return None
@@ -350,7 +347,7 @@ class KeypointAugmenter(Augmenter):
             for point in points:
                 keypoint = point[4:]
                 keypoint = Converter.point_to_keypoint(
-                    point, img_width, img_height)
+                    keypoint, img_width, img_height)
                 keypoints_dict[class_idx].append(keypoint)
 
         return keypoints_dict
@@ -379,35 +376,37 @@ class KeypointAugmenter(Augmenter):
                     keypoints_dict: dict[int, list] = None) -> tuple[np.ndarray, None] | tuple[np.ndarray, dict[int, list]]:
         # Transform without keypoints
         if keypoints_dict is None:
-            transf = self.augmenter(image=img, class_labels=[])
+            transf = self.augmenter(image=img)
             transf_img = transf["image"]
 
             return (transf_img, None)
 
         # Obtain keypoints
         keypoints = []
-        class_labels = []
         for class_idx, keypoint in keypoints_dict.items():
             for k in keypoint:
                 keypoints.extend(k)
 
-                for _ in range(len(k)):
-                    class_labels.append(self.id2label[class_idx])
-
         # Transform with keypoints
         transf = self.augmenter(image=img,
-                                keypoints=keypoints,
-                                class_labels=class_labels)
+                                keypoints=keypoints)
         transf_img = transf['image']
-        transf_class_labels = transf["class_labels"]
         transf_keypoints = transf['keypoints']
 
-        # TODO preserve keypoints for each object
         # Create transf_keypoints_dict
         transf_keypoints_dict = {key: [] for key in keypoints_dict.keys()}
-        for transf_class_label, transf_keypoint in zip(transf_class_labels, transf_keypoints):
-            transf_keypoints_dict[self.label2id[transf_class_label]].append(
-                transf_keypoint)
+        i = 0
+        for class_idx, keypoint in keypoints_dict.items():
+            for k in keypoint:
+                for _ in range(len(k)):
+                    # Clip values
+                    x = int(
+                        np.clip(transf_keypoints[i][0], 0, transf_img.shape[1]))
+                    y = int(
+                        np.clip(transf_keypoints[i][1], 0, transf_img.shape[0]))
+                    transf_keypoints_dict[class_idx].append([x, y])
+
+                    i += 1
 
         return transf_img, transf_keypoints_dict
 
