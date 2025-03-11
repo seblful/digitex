@@ -4,6 +4,8 @@ import os
 import shutil
 import random
 
+from .annotation import AnnotationCreator
+
 
 class DatasetCreator:
     def __init__(self,
@@ -28,6 +30,10 @@ class DatasetCreator:
         self.train_split = train_split
         self.val_split = 0.6 * (1 - self.train_split)
         self.test_split = 1 - self.train_split - self.val_split
+
+        self.anns_types = ["polygon", "obb", "keypoint"]
+
+        self.anns_creator = AnnotationCreator(raw_dir=raw_dir)
 
     @property
     def images_path(self) -> LiteralString | str:
@@ -133,7 +139,7 @@ class DatasetCreator:
 
         return classes
 
-    def write_data_yaml(self):
+    def write_data_yaml(self) -> None:
         # Read classes file
         classes = DatasetCreator.read_classes_file(
             classes_path=self.classes_path)
@@ -156,7 +162,7 @@ class DatasetCreator:
                              value,
                              images_path,
                              labels_path,
-                             copy_to):
+                             copy_to) -> None:
 
         shutil.copyfile(os.path.join(images_path, key),
                         os.path.join(copy_to, key))
@@ -201,8 +207,13 @@ class DatasetCreator:
                                                 labels_path=self.labels_path,
                                                 copy_to=self.test_folder)
 
-    def process(self):
-        # Create train, valid, test datasets
+    def create(self, anns_type: str) -> None:
+        # Check if annotation type is supported
+        assert anns_type in self.anns_types, f"anns_type must be one of {self.anns_types}."
+
+        # Create annotations
+        if anns_type == "keypoint":
+            self.anns_creator.create_keypoints_anns()
         print("Dataset is creating...")
         self.partitionate_data()
         print("Train, validation, test dataset has created.")
