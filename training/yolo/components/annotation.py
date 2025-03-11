@@ -22,21 +22,23 @@ class AnnotationCreator:
         return self.__labels_dir
 
     @staticmethod
-    def get_points_props(points: list[tuple[float]]) -> tuple[tuple[float, float], float, float]:
-        upper_left = min(points, key=lambda p: (p[0], -p[1]))
-        upper_right = max(points, key=lambda p: (p[0], p[1]))
-        down_left = min(points, key=lambda p: (p[0], p[1]))
-        down_right = max(points, key=lambda p: (p[0], -p[1]))
+    def get_points_props(points: list[tuple[float]],
+                         offset: float = 1.05) -> tuple[tuple[float, float], float, float]:
+        # Find min and max coordinates
+        min_x = min(p[0] for p in points)
+        max_x = max(p[0] for p in points)
+        min_y = min(p[1] for p in points)
+        max_y = max(p[1] for p in points)
 
-        width = max(upper_right[0], down_right[0]) - \
-            min(upper_left[0], down_left[0])
-        width = min(width + (width * 0.01), 1)
-        height = max(down_left[1], down_right[1]) - \
-            min(upper_left[1], upper_right[1])
-        height = min(height + (height * 0.01), 1)
-        center = (width / 2, height / 2)
+        # Calculate width and height
+        width = min((max_x - min_x) * offset, 1.0)
+        height = min((max_y - min_y) * offset, 1.0)
 
-        return center, width, height
+        # Calculate center coordinates
+        center_x = (min_x + max_x) / 2
+        center_y = (min_y + max_y) / 2
+
+        return (center_x, center_y), width, height
 
     def get_keypoints(self, task: dict) -> tuple:
         points = []
