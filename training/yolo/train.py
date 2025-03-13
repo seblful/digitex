@@ -17,7 +17,7 @@ parser.add_argument("--data_subdir",
 parser.add_argument("--model_type",
                     default='seg',
                     type=str,
-                    help="Type of yolo segmentation model ('seg', 'obb').")
+                    help="Type of yolo segmentation model ('seg', 'obb', 'pose').")
 
 # Get an arg for yolo model size
 parser.add_argument("--model_size",
@@ -53,7 +53,7 @@ parser.add_argument("--batch_size",
 
 # Get an arg for overlap mask
 parser.add_argument("--overlap_mask",
-                    action="store_true",
+                    action="store_false",
                     help="Determines whether segmentation masks should overlap during training.")
 
 
