@@ -19,9 +19,9 @@ class DatasetCreator:
         self.__images_path = None  # Raw images
         self.__labels_path = None  # Raw labels
 
-        self.__train_folder = None
-        self.__val_folder = None
-        self.__test_folder = None
+        self.__train_dir = None
+        self.__val_dir = None
+        self.__test_dir = None
 
         self.__images_labels_dict = None
         self.__classes_path = None
@@ -52,34 +52,34 @@ class DatasetCreator:
         return self.__labels_path
 
     @property
-    def train_folder(self) -> LiteralString | str:
-        if self.__train_folder is None:
-            train_folder = os.path.join(self.dataset_dir, 'train')
+    def train_dir(self) -> LiteralString | str:
+        if self.__train_dir is None:
+            train_dir = os.path.join(self.dataset_dir, 'train')
             # Creating folder for train set
-            os.makedirs(train_folder, exist_ok=True)
-            self.__train_folder = train_folder
+            os.makedirs(train_dir, exist_ok=True)
+            self.__train_dir = train_dir
 
-        return self.__train_folder
+        return self.__train_dir
 
     @property
-    def val_folder(self) -> LiteralString | str:
-        if self.__val_folder is None:
-            val_folder = os.path.join(self.dataset_dir, 'val')
+    def val_dir(self) -> LiteralString | str:
+        if self.__val_dir is None:
+            val_dir = os.path.join(self.dataset_dir, 'val')
             # Creating folder for val set
-            os.makedirs(val_folder, exist_ok=True)
-            self.__val_folder = val_folder
+            os.makedirs(val_dir, exist_ok=True)
+            self.__val_dir = val_dir
 
-        return self.__val_folder
+        return self.__val_dir
 
     @property
-    def test_folder(self) -> LiteralString | str:
-        if self.__test_folder is None:
-            test_folder = os.path.join(self.dataset_dir, 'test')
+    def test_dir(self) -> LiteralString | str:
+        if self.__test_dir is None:
+            test_dir = os.path.join(self.dataset_dir, 'test')
             # Creating folder for test set
-            os.makedirs(test_folder, exist_ok=True)
-            self.__test_folder = test_folder
+            os.makedirs(test_dir, exist_ok=True)
+            self.__test_dir = test_dir
 
-        return self.__test_folder
+        return self.__test_dir
 
     @property
     def data_yaml_path(self) -> LiteralString | str:
@@ -139,7 +139,8 @@ class DatasetCreator:
 
         return classes
 
-    def write_data_yaml(self) -> None:
+    def write_data_yaml(self,
+                        anns_type: str) -> None:
         # Read classes file
         classes = DatasetCreator.read_classes_file(
             classes_path=self.classes_path)
@@ -147,15 +148,18 @@ class DatasetCreator:
 
         # Write the data.yaml file
         with open(self.data_yaml_path, 'w', encoding="utf-8") as yaml_file:
+            path = os.path.normpath(self.dataset_dir)
+            yaml_file.write('path: ' + path + '\n')
+            yaml_file.write('train: ' + "train" + '\n')
+            yaml_file.write('val: ' + "val" + '\n')
+            yaml_file.write('test: ' + "test" + '\n')
+
             yaml_file.write('names:' + '\n')
-            for class_name in classes:
-                yaml_file.write(f"- {class_name}\n")
+            for i, class_name in enumerate(classes):
+                yaml_file.write(f"    {i}: {class_name}\n")
 
-            yaml_file.write('nc: ' + str(len(classes)) + '\n')
-
-            yaml_file.write('train: ' + self.train_folder + '\n')
-            yaml_file.write('val: ' + self.val_folder + '\n')
-            yaml_file.write('test: ' + self.test_folder + '\n')
+            if anns_type == "keypoint":
+                yaml_file.write("kpt_shape: [30, 2]")
 
     @staticmethod
     def copy_files_from_dict(key,
@@ -191,21 +195,21 @@ class DatasetCreator:
                                                 value=value,
                                                 images_path=self.images_path,
                                                 labels_path=self.labels_path,
-                                                copy_to=self.train_folder)
+                                                copy_to=self.train_dir)
 
         for key, value in val_data.items():
             DatasetCreator.copy_files_from_dict(key=key,
                                                 value=value,
                                                 images_path=self.images_path,
                                                 labels_path=self.labels_path,
-                                                copy_to=self.val_folder)
+                                                copy_to=self.val_dir)
 
         for key, value in test_data.items():
             DatasetCreator.copy_files_from_dict(key=key,
                                                 value=value,
                                                 images_path=self.images_path,
                                                 labels_path=self.labels_path,
-                                                copy_to=self.test_folder)
+                                                copy_to=self.test_dir)
 
     def create(self, anns_type: str) -> None:
         # Check if annotation type is supported
@@ -213,9 +217,9 @@ class DatasetCreator:
 
         # Create annotations
         if anns_type == "keypoint":
-            self.anns_creator.create_keypoints_anns()
+            self.anns_creator.create_keypoints()
         print("Dataset is creating...")
         self.partitionate_data()
         print("Train, validation, test dataset has created.")
-        self.write_data_yaml()
+        self.write_data_yaml(anns_type)
         print("data.yaml file has created.")
