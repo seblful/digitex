@@ -8,8 +8,8 @@ from modules.processors import FileProcessor
 
 class Keypoint:
     def __init__(self,
-                 x: float,
-                 y: float,
+                 x: float | int,
+                 y: float | int,
                  visible: int) -> None:
         assert visible in [
             0, 1], "Keypoint visibility parameter must be one of [0, 1]."
@@ -23,13 +23,21 @@ class KeypointsObject:
     def __init__(self,
                  class_idx: int,
                  keypoints: list[Keypoint],
-                 num_keypoints: int) -> None:
+                 num_keypoints: int,
+                 bbox_center: tuple[float | int] = None,
+                 bbox_width: float | int = None,
+                 bbox_height: float | int = None) -> None:
         self.class_idx = class_idx
         self.keypoints = self.pad_keypoints(keypoints, num_keypoints)
 
+        self.bbox_center = bbox_center
+        self.bbox_width = bbox_width
+        self.bbox_height = bbox_height
+
         self.bbox_offset = 1.05
 
-        self.calc_props()
+        if None in (self.bbox_center, self.bbox_width, self.bbox_height):
+            self.calc_props()
 
     def pad_keypoints(self, keypoints: list[Keypoint], num_keypoints: int) -> list[Keypoint]:
         keypoints = keypoints[:num_keypoints]
@@ -41,47 +49,74 @@ class KeypointsObject:
         return keypoints
 
     def calc_props(self) -> None:
+        print("CALCULATING PROPS")
         if self.class_idx is None:
-            self.width = 0
-            self.height = 0
-            self.center = (0, 0)
+            self.bbox_center = (0, 0)
+            self.bbox_width = 0
+            self.bbox_height = 0
 
             return
 
-        # Find min and max coordinates
-        min_x = min(k.x for k in self.keypoints if k.visible == 1)
-        max_x = max(k.x for k in self.keypoints if k.visible == 1)
-        min_y = min(k.y for k in self.keypoints if k.visible == 1)
-        max_y = max(k.y for k in self.keypoints if k.visible == 1)
+        visible_kps = [kp for kp in self.keypoints if kp.visible == 1]
+        if not visible_kps:
+            self.bbox_center = (0, 0)
+            self.bbox_width = 0
+            self.bbox_height = 0
+            return
 
-        # Calculate width and height
-        self.width = min((max_x - min_x) * self.bbox_offset, 1.0)
-        self.height = min((max_y - min_y) * self.bbox_offset, 1.0)
+        # Calculate min and max coordinates
+        min_x = min(kp.x for kp in visible_kps)
+        max_x = max(kp.x for kp in visible_kps)
+        min_y = min(kp.y for kp in visible_kps)
+        max_y = max(kp.y for kp in visible_kps)
 
-        # Calculate center coordinates
-        center_x = (min_x + max_x) / 2
-        center_y = (min_y + max_y) / 2
+        # Calculate
+        self.bbox_center = ((min_x + max_x) / 2, (min_y + max_y) / 2)
+        self.bbox_width = min((max_x - min_x) * self.bbox_offset, 1.0)
+        self.bbox_height = min((max_y - min_y) * self.bbox_offset, 1.0)
 
-        self.center = (center_x, center_y)
+    def to_relative(self,
+                    img_width: int,
+                    img_height: int,
+                    clip: bool = False) -> 'KeypointsObject':
+        # Convert coordinates
+        rel_keypoints = []
+
+        for kp in self.keypoints:
+            rel_x = int(kp.x * img_width)
+            rel_y = int(kp.y * img_height)
+
+            if clip:
+                rel_x = max(0, min(rel_x, img_width - 1))
+                rel_y = max(0, min(rel_y, img_height - 1))
+
+            rel_keypoints.append(Keypoint(rel_x, rel_y, kp.visible))
+
+        # Convert propertirs
+        center_x = int(self.bbox_center[0] * img_width)
+        center_y = int(self.bbox_center[1] * img_height)
+        bbox_center = (center_x, center_y)
+        bbox_width = int(self.bbox_width * img_width)
+        bbox_height = int(self.bbox_height * img_height)
+
+        return KeypointsObject(class_idx=self.class_idx,
+                               keypoints=rel_keypoints,
+                               num_keypoints=len(self.keypoints),
+                               bbox_center=bbox_center,
+                               bbox_width=bbox_width,
+                               bbox_height=bbox_height)
 
     def to_string(self) -> str:
         if self.class_idx is None:
             return ""
 
         # Get all props
-        props = [self.class_idx, self.center[0],
-                 self.center[1], self.width, self.height]
-        props = [str(prop) for prop in props]
+        props = [self.class_idx, self.bbox_center[0],
+                 self.bbox_center[1], self.bbox_width, self.bbox_height]
+        coords = [coord for kp in self.keypoints for coord in (
+            kp.x, kp.y, kp.visible)]
 
-        # Get all coords
-        coords = []
-        for keypoint in self.keypoints:
-            coords.append(keypoint.x)
-            coords.append(keypoint.y)
-            coords.append(keypoint.visible)
-        coords = [str(coord) for coord in coords]
-
-        keypoints_str = " ".join(props + coords)
+        keypoints_str = " ".join(map(str, props + coords))
 
         return keypoints_str
 
