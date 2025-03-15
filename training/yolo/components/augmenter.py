@@ -4,17 +4,17 @@ from PIL import Image
 import numpy as np
 import cv2
 
-import supervision as sv
-
-import albumentations as A
-
 from tqdm import tqdm
 
+import supervision as sv
+import albumentations as A
+
 from modules.handlers import LabelHandler
+from modules.processors import FileProcessor
 
 from .dataset import DatasetCreator
 from .converter import Converter
-from .annotation import AnnotationCreator
+from .annotation import Keypoint, KeypointsObject, AnnotationCreator
 from .utils import get_random_img
 
 
@@ -34,12 +34,8 @@ class Augmenter:
         self._transforms = None
         self._augmenter = None
 
-        # To do support dynamic creation
         self.__id2label = None
         self.__label2id = None
-
-        # Handlers
-        self.converter = Converter()
 
     @property
     def transforms(self) -> A.Compose:
@@ -328,29 +324,44 @@ class KeypointAugmenter(Augmenter):
 
                     file.write(line)
 
-    def create_keypoints(self,
-                         img_name: str,
-                         img_width: int,
-                         img_height: int):
+    def create_kps(self, nums: list[float]) -> list[Keypoint]:
+        points = nums[5:]
+        kps = []
+
+        for i in range(0, len(points), 3):
+            pts = points[i:i+3]
+            kp = Keypoint(pts[0], pts[1], int(pts[2]))
+            kps.append(kp)
+
+        return kps
+
+    def create_kps_objs(self,
+                        img_name: str) -> list[KeypointsObject]:
         anns_name = os.path.splitext(img_name)[0] + '.txt'
         anns_path = os.path.join(self.train_dir, anns_name)
 
-        points_dict = LabelHandler._read_points(anns_path)
+        kps_objs = []
 
-        if not points_dict:
-            return None
+        lines = FileProcessor.read_txt(anns_path)
 
-        keypoints_dict = {key: [] for key in points_dict.keys()}
+        for line in lines:
+            nums = line.strip().split()
+            nums = list(map(float, nums))
 
-        # Iterate through points and select only keypoints (x, y)
-        for class_idx, points in points_dict.items():
-            for point in points:
-                keypoint = point[4:]
-                keypoint = Converter.point_to_keypoint(
-                    keypoint, img_width, img_height)
-                keypoints_dict[class_idx].append(keypoint)
+            # Create keypoints
+            kps = self.create_kps(nums)
 
-        return keypoints_dict
+            # Create keypoints object
+            kps_obj = KeypointsObject(class_idx=int(nums[0]),
+                                      keypoints=kps,
+                                      num_keypoints=len(kps),
+                                      bbox_center=(nums[1], nums[2]),
+                                      bbox_width=nums[3],
+                                      bbox_height=nums[4])
+
+            kps_objs.append(kps_obj)
+
+        return kps_objs
 
     def create_anns(self,
                     keypoints_dict: dict[int, list],
@@ -420,13 +431,14 @@ class KeypointAugmenter(Augmenter):
             img_name, img = get_random_img(self.train_dir, images_listdir)
             orig_height, orig_width = img.shape[:2]
 
-            # Create keypoints
-            keypoints_dict = self.create_keypoints(
-                img_name, orig_width, orig_height)
+            # Create keypoints objects
+            abs_kps_objs = self.create_kps_objs(img_name)
+            rel_kps_objs = [kps_obj.to_relative(
+                orig_width, orig_height, clip=True) for kps_obj in abs_kps_objs]
 
             # Augment
             transf_img, transf_keypoints_dict = self.augment_img(
-                img, keypoints_dict)
+                img, rel_kps_objs)
             transf_height, transf_width = transf_img.shape[:2]
 
             # Create points and save
