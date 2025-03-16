@@ -119,6 +119,33 @@ class KeypointsObject:
                                bbox_width=bbox_width,
                                bbox_height=bbox_height)
 
+    def to_absolute(self,
+                    img_width: int,
+                    img_height: int) -> "KeypointsObject":
+        # Convert coordinates
+        abs_keypoints = []
+
+        for rel_kp in self.keypoints:
+            abs_x = int(rel_kp.x / img_width)
+            abs_y = int(rel_kp.y / img_height)
+            abs_kp = Keypoint(abs_x, abs_y, rel_kp.visible)
+
+            abs_keypoints.append(abs_kp)
+
+        # Convert propertirs
+        center_x = self.bbox_center[0] / img_width
+        center_y = self.bbox_center[1] / img_height
+        bbox_center = (center_x, center_y)
+        bbox_width = self.bbox_width / img_width
+        bbox_height = self.bbox_height / img_height
+
+        return KeypointsObject(class_idx=self.class_idx,
+                               keypoints=abs_keypoints,
+                               num_keypoints=len(self.keypoints),
+                               bbox_center=bbox_center,
+                               bbox_width=bbox_width,
+                               bbox_height=bbox_height)
+
     def get_vis_coords(self) -> list[tuple]:
         coords = []
 

@@ -382,6 +382,9 @@ class KeypointAugmenter(Augmenter):
                                     transf_coords: list[list],
                                     img_width: int,
                                     img_height: int) -> list[KeypointsObject]:
+        if not transf_coords:
+            return []
+
         transf_kps_objs = []
 
         coords_i = 0
@@ -404,25 +407,6 @@ class KeypointAugmenter(Augmenter):
             coords_i += num_vis
 
         return transf_kps_objs
-
-    def create_anns(self,
-                    keypoints_dict: dict[int, list],
-                    img_width: int,
-                    img_height: int) -> dict[int, list]:
-        if keypoints_dict is None:
-            return None
-
-        points_dict = {key: [] for key in keypoints_dict.keys()}
-
-        # Iterate through keypoints and create yolo points
-        for class_idx, keypoint in keypoints_dict.items():
-            points = Converter.keypoint_to_point(
-                keypoint, img_width, img_height)
-            center, width, height = AnnotationCreator.get_points_props(
-                points)
-            points_dict[class_idx].append((center, width, height, points))
-
-        return points_dict
 
     def augment_img(self,
                     img: np.ndarray,
@@ -468,10 +452,10 @@ class KeypointAugmenter(Augmenter):
             transf_height, transf_width = transf_img.shape[:2]
 
             # Create transformed keypoints objects from transf_coords
-            transf_kps_objs = self.create_kps_objs_from_coords(
+            transf_rel_kps_objs = self.create_kps_objs_from_coords(
                 rel_kps_objs, transf_coords, transf_width, transf_height)
+            transf_abs_kps_objs = [kps_obj.to_absolute(
+                transf_width, transf_height) for kps_obj in transf_rel_kps_objs]
 
-            # Create points and save
-            transf_points_dict = self.create_anns(
-                transf_kps_objs, transf_width, transf_height)
-            self.save(img_name, transf_img, transf_points_dict)
+            # Save annotation
+            self.save(img_name, transf_img)
