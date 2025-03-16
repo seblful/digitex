@@ -130,7 +130,6 @@ class Augmenter:
 
         name = self.find_name(img_name)
         self.save_image(name, img)
-
         self.save_anns(name, points_dict)
 
 
@@ -304,25 +303,16 @@ class KeypointAugmenter(Augmenter):
 
     def save_anns(self,
                   name: str,
-                  points_dict: dict[int, list]) -> None:
+                  kps_objs: list[KeypointsObject]) -> None:
         filename = f"{name}{self.anns_ext}"
         filepath = os.path.join(self.train_dir, filename)
 
-        # Write each class and anns to txt
-        with open(filepath, 'w') as file:
-            if points_dict is None:
-                return
+        keypoints_strs = []
 
-            for class_idx, anns in points_dict.items():
-                for ann in anns:
-                    center, width, height, points = ann
+        for kps_obj in kps_objs:
+            keypoints_strs.append(kps_obj.to_string())
 
-                    points = [str(coord)
-                              for point in points for coord in point]
-                    points_str = " ".join(points)
-                    line = f"{class_idx} {str(center[0])} {str(center[1])} {width} {height} {points_str}"
-
-                    file.write(line)
+        FileProcessor.write_txt(filepath, lines=keypoints_strs)
 
     def create_kps_from_nums(self, nums: list[float]) -> list[Keypoint]:
         points = nums[5:]
@@ -420,7 +410,7 @@ class KeypointAugmenter(Augmenter):
 
         # Retrieve all visible coordinates and save map
         coords = []
-        for i, kps_obj in enumerate(kps_objs):
+        for kps_obj in kps_objs:
             vis_coords = kps_obj.get_vis_coords()
             coords.extend(vis_coords)
 
@@ -458,4 +448,4 @@ class KeypointAugmenter(Augmenter):
                 transf_width, transf_height) for kps_obj in transf_rel_kps_objs]
 
             # Save annotation
-            self.save(img_name, transf_img)
+            self.save(img_name, transf_img, transf_abs_kps_objs)
