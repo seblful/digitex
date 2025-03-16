@@ -324,7 +324,7 @@ class KeypointAugmenter(Augmenter):
 
                     file.write(line)
 
-    def create_kps(self, nums: list[float]) -> list[Keypoint]:
+    def create_kps_from_nums(self, nums: list[float]) -> list[Keypoint]:
         points = nums[5:]
         kps = []
 
@@ -335,21 +335,35 @@ class KeypointAugmenter(Augmenter):
 
         return kps
 
-    def create_kps_objs(self,
-                        img_name: str) -> list[KeypointsObject]:
+    def create_kps_from_coords(self,
+                               coords: list[tuple],
+                               img_width: int,
+                               img_height: int) -> list[Keypoint]:
+        kps = []
+        for coord in coords:
+            kp = Keypoint(int(coord[0]), int(coord[1]), 1)
+            kp.clip(img_width, img_height)
+            kps.append(kp)
+
+        return kps
+
+    def create_kps_objs_from_file(self,
+                                  img_name: str) -> list[KeypointsObject]:
         anns_name = os.path.splitext(img_name)[0] + '.txt'
         anns_path = os.path.join(self.train_dir, anns_name)
 
-        kps_objs = []
-
         lines = FileProcessor.read_txt(anns_path)
 
+        if not lines:
+            return []
+
+        kps_objs = []
         for line in lines:
             nums = line.strip().split()
             nums = list(map(float, nums))
 
             # Create keypoints
-            kps = self.create_kps(nums)
+            kps = self.create_kps_from_nums(nums)
 
             # Create keypoints object
             kps_obj = KeypointsObject(class_idx=int(nums[0]),
@@ -362,6 +376,34 @@ class KeypointAugmenter(Augmenter):
             kps_objs.append(kps_obj)
 
         return kps_objs
+
+    def create_kps_objs_from_coords(self,
+                                    kps_objs: list[KeypointsObject],
+                                    transf_coords: list[list],
+                                    img_width: int,
+                                    img_height: int) -> list[KeypointsObject]:
+        transf_kps_objs = []
+
+        coords_i = 0
+        for kps_obj in kps_objs:
+            num_vis = len(kps_obj.get_vis_coords())
+            transf_coords = transf_coords[coords_i:num_vis]
+
+            # Create kps from transformed and from original non-visible
+            nonvis_kps = [kp for kp in kps_obj.keypoints[num_vis:]]
+            transf_kps = self.create_kps_from_coords(
+                transf_coords, img_width, img_height)
+            kps = transf_kps + nonvis_kps
+
+            # Create keypoints object
+            transf_kps_obj = KeypointsObject(class_idx=kps_obj.class_idx,
+                                             keypoints=kps,
+                                             num_keypoints=kps_obj.num_keypoints)
+            transf_kps_objs.append(transf_kps_obj)
+
+            coords_i += num_vis
+
+        return transf_kps_objs
 
     def create_anns(self,
                     keypoints_dict: dict[int, list],
@@ -384,42 +426,27 @@ class KeypointAugmenter(Augmenter):
 
     def augment_img(self,
                     img: np.ndarray,
-                    keypoints_dict: dict[int, list] = None) -> tuple[np.ndarray, None] | tuple[np.ndarray, dict[int, list]]:
+                    kps_objs: list[KeypointsObject]) -> tuple[np.ndarray, list]:
         # Transform without keypoints
-        if keypoints_dict is None:
+        if not kps_objs:
             transf = self.augmenter(image=img)
             transf_img = transf["image"]
 
-            return (transf_img, None)
+            return (transf_img, [])
 
-        # Obtain keypoints
-        keypoints = []
-        for class_idx, keypoint in keypoints_dict.items():
-            for k in keypoint:
-                keypoints.extend(k)
+        # Retrieve all visible coordinates and save map
+        coords = []
+        for i, kps_obj in enumerate(kps_objs):
+            vis_coords = kps_obj.get_vis_coords()
+            coords.extend(vis_coords)
 
         # Transform with keypoints
         transf = self.augmenter(image=img,
-                                keypoints=keypoints)
+                                keypoints=coords)
         transf_img = transf['image']
-        transf_keypoints = transf['keypoints']
+        transf_coords = transf['keypoints']
 
-        # Create transf_keypoints_dict
-        transf_keypoints_dict = {key: [] for key in keypoints_dict.keys()}
-        i = 0
-        for class_idx, keypoint in keypoints_dict.items():
-            for k in keypoint:
-                for _ in range(len(k)):
-                    # Clip values
-                    x = int(
-                        np.clip(transf_keypoints[i][0], 0, transf_img.shape[1]))
-                    y = int(
-                        np.clip(transf_keypoints[i][1], 0, transf_img.shape[0]))
-                    transf_keypoints_dict[class_idx].append([x, y])
-
-                    i += 1
-
-        return transf_img, transf_keypoints_dict
+        return transf_img, transf_coords
 
     def augment(self,
                 num_images) -> None:
@@ -431,17 +458,20 @@ class KeypointAugmenter(Augmenter):
             img_name, img = get_random_img(self.train_dir, images_listdir)
             orig_height, orig_width = img.shape[:2]
 
-            # Create keypoints objects
-            abs_kps_objs = self.create_kps_objs(img_name)
+            # Create keypoints objects from file
+            abs_kps_objs = self.create_kps_objs_from_file(img_name)
             rel_kps_objs = [kps_obj.to_relative(
                 orig_width, orig_height, clip=True) for kps_obj in abs_kps_objs]
 
             # Augment
-            transf_img, transf_keypoints_dict = self.augment_img(
-                img, rel_kps_objs)
+            transf_img, transf_coords = self.augment_img(img, rel_kps_objs)
             transf_height, transf_width = transf_img.shape[:2]
+
+            # Create transformed keypoints objects from transf_coords
+            transf_kps_objs = self.create_kps_objs_from_coords(
+                rel_kps_objs, transf_coords, transf_width, transf_height)
 
             # Create points and save
             transf_points_dict = self.create_anns(
-                transf_keypoints_dict, transf_width, transf_height)
+                transf_kps_objs, transf_width, transf_height)
             self.save(img_name, transf_img, transf_points_dict)
