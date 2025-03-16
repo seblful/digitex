@@ -18,6 +18,12 @@ class Keypoint:
         self.y = y
         self.visible = visible
 
+    def clip(self,
+             img_width: int,
+             img_height: int) -> None:
+        self.x = max(0, min(self.x, img_width - 1))
+        self.y = max(0, min(self.y, img_height - 1))
+
 
 class KeypointsObject:
     def __init__(self,
@@ -28,6 +34,7 @@ class KeypointsObject:
                  bbox_width: float | int = None,
                  bbox_height: float | int = None) -> None:
         self.class_idx = class_idx
+        self.num_keypoints = num_keypoints
         self.keypoints = self.pad_keypoints(keypoints, num_keypoints)
 
         self.bbox_center = bbox_center
@@ -71,9 +78,15 @@ class KeypointsObject:
         max_y = max(kp.y for kp in visible_kps)
 
         # Calculate
-        self.bbox_center = ((min_x + max_x) / 2, (min_y + max_y) / 2)
-        self.bbox_width = min((max_x - min_x) * self.bbox_offset, 1.0)
-        self.bbox_height = min((max_y - min_y) * self.bbox_offset, 1.0)
+        if max_x <= 1 or max_y <= 1:
+            self.bbox_center = ((min_x + max_x) / 2, (min_y + max_y) / 2)
+            self.bbox_width = min((max_x - min_x) * self.bbox_offset, 1.0)
+            self.bbox_height = min((max_y - min_y) * self.bbox_offset, 1.0)
+        else:
+            self.bbox_center = int((min_x + max_x) /
+                                   2), int((min_y + max_y) / 2)
+            self.bbox_width = int(max(max_x - min_x, 0))
+            self.bbox_height = int(max(max_y - min_y, 0))
 
     def to_relative(self,
                     img_width: int,
@@ -82,15 +95,15 @@ class KeypointsObject:
         # Convert coordinates
         rel_keypoints = []
 
-        for kp in self.keypoints:
-            rel_x = int(kp.x * img_width)
-            rel_y = int(kp.y * img_height)
+        for rel_kp in self.keypoints:
+            rel_x = int(rel_kp.x * img_width)
+            rel_y = int(rel_kp.y * img_height)
+            rel_kp = Keypoint(rel_x, rel_y, rel_kp.visible)
 
             if clip:
-                rel_x = max(0, min(rel_x, img_width - 1))
-                rel_y = max(0, min(rel_y, img_height - 1))
+                rel_kp.clip(img_width, img_height)
 
-            rel_keypoints.append(Keypoint(rel_x, rel_y, kp.visible))
+            rel_keypoints.append(rel_kp)
 
         # Convert propertirs
         center_x = int(self.bbox_center[0] * img_width)
@@ -105,6 +118,15 @@ class KeypointsObject:
                                bbox_center=bbox_center,
                                bbox_width=bbox_width,
                                bbox_height=bbox_height)
+
+    def get_vis_coords(self) -> list[tuple]:
+        coords = []
+
+        for kp in self.keypoints:
+            if kp.visible == 1:
+                coords.append((kp.x, kp.y))
+
+        return coords
 
     def to_string(self) -> str:
         if self.class_idx is None:
