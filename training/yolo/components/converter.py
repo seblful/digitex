@@ -48,30 +48,3 @@ class Converter:
         point = point.flatten().tolist()
 
         return point
-
-    @staticmethod
-    def point_to_keypoint(point: list[float],
-                          img_width: int,
-                          img_height: int,
-                          clip: bool = True) -> list[tuple[int]]:
-        point = np.array(point)
-        keypoint = point.reshape((-1, 2))
-        keypoint = keypoint * np.array((img_width, img_height))
-        keypoint = keypoint.astype(int)
-        if clip:
-            keypoint = np.clip(keypoint, [0, 0], [
-                               img_width - 1, img_height - 1])
-        keypoint = keypoint.tolist()
-        keypoint = [tuple(p) for p in keypoint]
-
-        return keypoint
-
-    @staticmethod
-    def keypoint_to_point(keypoint: list[tuple[int]],
-                          img_width: int,
-                          img_height: int) -> list[tuple[float]]:
-        keypoint = np.array(keypoint) / np.array((img_width, img_height))
-        point = keypoint.tolist()
-        point = [tuple(p) for p in point]
-
-        return point
