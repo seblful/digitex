@@ -37,6 +37,8 @@ class KeypointsObject:
         self.num_keypoints = num_keypoints
         self.keypoints = self.pad_keypoints(keypoints, num_keypoints)
 
+        self.__bbox = None
+
         self.bbox_center = bbox_center
         self.bbox_width = bbox_width
         self.bbox_height = bbox_height
@@ -45,6 +47,17 @@ class KeypointsObject:
 
         if None in (self.bbox_center, self.bbox_width, self.bbox_height):
             self.calc_props()
+
+    @property
+    def bbox(self) -> list[float | int]:
+        if self.__bbox is None:
+            x0 = self.bbox_center[0] - int(self.bbox_width / 2)
+            y0 = self.bbox_center[1] - int(self.bbox_height / 2)
+            x1 = self.bbox_center[0] + int(self.bbox_width / 2)
+            y1 = self.bbox_center[1] + int(self.bbox_height / 2)
+            self.__bbox = [x0, y0, x1, y1]
+
+        return self.__bbox
 
     def pad_keypoints(self, keypoints: list[Keypoint], num_keypoints: int) -> list[Keypoint]:
         keypoints = keypoints[:num_keypoints]
@@ -56,7 +69,6 @@ class KeypointsObject:
         return keypoints
 
     def calc_props(self) -> None:
-        print("CALCULATING PROPS")
         if self.class_idx is None:
             self.bbox_center = (0, 0)
             self.bbox_width = 0
@@ -126,8 +138,8 @@ class KeypointsObject:
         abs_keypoints = []
 
         for rel_kp in self.keypoints:
-            abs_x = int(rel_kp.x / img_width)
-            abs_y = int(rel_kp.y / img_height)
+            abs_x = rel_kp.x / img_width
+            abs_y = rel_kp.y / img_height
             abs_kp = Keypoint(abs_x, abs_y, rel_kp.visible)
 
             abs_keypoints.append(abs_kp)
