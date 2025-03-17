@@ -11,6 +11,7 @@ class DatasetCreator:
     def __init__(self,
                  raw_dir,
                  dataset_dir,
+                 num_keypoints=None,
                  train_split=0.8) -> None:
 
         self.raw_dir = raw_dir
@@ -27,13 +28,21 @@ class DatasetCreator:
         self.__classes_path = None
         self.__data_yaml_path = None
 
+        self.anns_types = ["polygon", "obb", "keypoint"]
+
+        self.__id2label = None
+        self.__label2id = None
+
+        self.num_keypoints = num_keypoints
+
         self.train_split = train_split
         self.val_split = 0.6 * (1 - self.train_split)
         self.test_split = 1 - self.train_split - self.val_split
 
-        self.anns_types = ["polygon", "obb", "keypoint"]
-
-        self.anns_creator = AnnotationCreator(raw_dir=raw_dir)
+        self.anns_creator = AnnotationCreator(raw_dir=raw_dir,
+                                              id2label=self.id2label,
+                                              label2id=self.label2id,
+                                              num_keypoints=num_keypoints)
 
     @property
     def images_path(self) -> LiteralString | str:
@@ -98,6 +107,21 @@ class DatasetCreator:
         return self.__classes_path
 
     @property
+    def id2label(self) -> dict[int, str]:
+        if self.__id2label is None:
+            classes = DatasetCreator.read_classes_file(self.classes_path)
+            self.__id2label = {k: v for k, v in enumerate(classes)}
+
+        return self.__id2label
+
+    @property
+    def label2id(self) -> dict[str, int]:
+        if self.__label2id is None:
+            self.__label2id = {v: k for k, v in self.id2label.items()}
+
+        return self.__label2id
+
+    @property
     def images_labels_dict(self) -> Dict[str, str]:
         '''
         Dict with names of images with corresponding 
@@ -141,10 +165,7 @@ class DatasetCreator:
 
     def write_data_yaml(self,
                         anns_type: str) -> None:
-        # Read classes file
-        classes = DatasetCreator.read_classes_file(
-            classes_path=self.classes_path)
-        print(f"Available classes is {classes}")
+        print(f"Available classes is {list(self.id2label.values())}")
 
         # Write the data.yaml file
         with open(self.data_yaml_path, 'w', encoding="utf-8") as yaml_file:
@@ -155,11 +176,11 @@ class DatasetCreator:
             yaml_file.write('test: ' + "test" + '\n')
 
             yaml_file.write('names:' + '\n')
-            for i, class_name in enumerate(classes):
-                yaml_file.write(f"    {i}: {class_name}\n")
+            for class_idx, class_name in self.id2label.items():
+                yaml_file.write(f"    {class_idx}: {class_name}\n")
 
             if anns_type == "keypoint":
-                yaml_file.write("kpt_shape: [30, 2]")
+                yaml_file.write(f"kpt_shape: [{self.num_keypoints}, 3]")
 
     @staticmethod
     def copy_files_from_dict(key,
