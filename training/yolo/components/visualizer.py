@@ -4,8 +4,11 @@ from PIL import Image, ImageDraw
 
 from tqdm import tqdm
 
-from .converter import Converter
 from modules.handlers import LabelHandler
+
+from .annotation import KeypointsObject
+from .augmenter import KeypointAugmenter
+from .converter import Converter
 
 
 class Visualizer:
@@ -144,47 +147,17 @@ class KeypointVisualizer(Visualizer):
             raise ValueError(
                 f"anns_type must be 'keypoint'.")
 
-    def create_bbox(self,
-                    point: list[float],
-                    img_width: int,
-                    img_height: int) -> list[int]:
-        center_x = int(point[0] * img_width)
-        center_y = int(point[1] * img_height)
-        bbox_width = int(point[2] * img_width)
-        bbox_height = int(point[3] * img_height)
-
-        # Step 2: Calculate bounding box
-        x0 = center_x - int(bbox_width / 2)
-        y0 = center_y - int(bbox_height / 2)
-        x1 = center_x + int(bbox_width / 2)
-        y1 = center_y + int(bbox_height / 2)
-
-        return [x0, y0, x1, y1]
-
     def create_annotations(self,
                            image_name: str,
                            set_dir: str,
                            img_width: int,
-                           img_height: int):
-        anns_path = os.path.join(
-            set_dir, os.path.splitext(image_name)[0] + '.txt')
-        points_dict = LabelHandler._read_points(anns_path)
+                           img_height: int) -> list[KeypointsObject]:
+        abs_kps_objs = KeypointAugmenter.create_kps_objs_from_file(
+            set_dir, image_name)
+        rel_kps_objs = [kps_obj.to_relative(
+            img_width, img_height, clip=False) for kps_obj in abs_kps_objs]
 
-        if not points_dict:
-            return None
-
-        keypoints = {key: [] for key in points_dict.keys()}
-
-        # Iterate through points and select only keypoints (x, y)
-        for class_idx, points in points_dict.items():
-            for point in points:
-                bbox = self.create_bbox(point, img_width, img_height)
-                keypoint = point[4:]
-                keypoint = Converter.point_to_keypoint(
-                    keypoint, img_width, img_height, clip=False)
-                keypoints[class_idx].append((bbox, keypoint))
-
-        return keypoints
+        return rel_kps_objs
 
     def draw_annotations(self,
                          image: Image.Image,
@@ -192,15 +165,16 @@ class KeypointVisualizer(Visualizer):
         if not annotations:
             return image
 
-        # TODO draw bbox
         draw = ImageDraw.Draw(image, 'RGBA')
-        for class_idx, keypoints in annotations.items():
-            for points in keypoints:
-                bbox, keypoint = points
+        for kps_obj in annotations:
+            draw.rectangle(kps_obj.bbox,
+                           outline=self.colors[kps_obj.class_idx],
+                           width=10)
 
-                draw.rectangle(bbox, outline=self.colors[class_idx], width=10)
-
-                for k in keypoint:
-                    draw.circle(k, radius=15, fill=self.colors[class_idx])
+            for kp in kps_obj.keypoints:
+                if kp.visible == 1:
+                    draw.circle((kp.x, kp.y),
+                                radius=15,
+                                fill=self.colors[kps_obj.class_idx])
 
         return image
