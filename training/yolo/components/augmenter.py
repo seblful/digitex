@@ -14,7 +14,7 @@ from modules.processors import FileProcessor
 
 from .dataset import DatasetCreator
 from .converter import Converter
-from .annotation import Keypoint, KeypointsObject, AnnotationCreator
+from .annotation import Keypoint, KeypointsObject
 from .utils import get_random_img
 
 
@@ -314,7 +314,8 @@ class KeypointAugmenter(Augmenter):
 
         FileProcessor.write_txt(filepath, lines=keypoints_strs)
 
-    def create_kps_from_nums(self, nums: list[float]) -> list[Keypoint]:
+    @staticmethod
+    def create_kps_from_nums(nums: list[float]) -> list[Keypoint]:
         points = nums[5:]
         kps = []
 
@@ -325,8 +326,8 @@ class KeypointAugmenter(Augmenter):
 
         return kps
 
-    def create_kps_from_coords(self,
-                               coords: list[tuple],
+    @staticmethod
+    def create_kps_from_coords(coords: list[tuple],
                                img_width: int,
                                img_height: int) -> list[Keypoint]:
         kps = []
@@ -337,10 +338,10 @@ class KeypointAugmenter(Augmenter):
 
         return kps
 
-    def create_kps_objs_from_file(self,
-                                  img_name: str) -> list[KeypointsObject]:
+    @staticmethod
+    def create_kps_objs_from_file(train_dir: str, img_name: str) -> list[KeypointsObject]:
         anns_name = os.path.splitext(img_name)[0] + '.txt'
-        anns_path = os.path.join(self.train_dir, anns_name)
+        anns_path = os.path.join(train_dir, anns_name)
 
         lines = FileProcessor.read_txt(anns_path)
 
@@ -353,7 +354,7 @@ class KeypointAugmenter(Augmenter):
             nums = list(map(float, nums))
 
             # Create keypoints
-            kps = self.create_kps_from_nums(nums)
+            kps = KeypointAugmenter.create_kps_from_nums(nums)
 
             # Create keypoints object
             kps_obj = KeypointsObject(class_idx=int(nums[0]),
@@ -367,8 +368,8 @@ class KeypointAugmenter(Augmenter):
 
         return kps_objs
 
-    def create_kps_objs_from_coords(self,
-                                    kps_objs: list[KeypointsObject],
+    @staticmethod
+    def create_kps_objs_from_coords(kps_objs: list[KeypointsObject],
                                     transf_coords: list[list],
                                     img_width: int,
                                     img_height: int) -> list[KeypointsObject]:
@@ -384,14 +385,27 @@ class KeypointAugmenter(Augmenter):
 
             # Create kps from transformed and from original non-visible
             nonvis_kps = [kp for kp in kps_obj.keypoints[num_vis:]]
-            transf_kps = self.create_kps_from_coords(
+            transf_kps = KeypointAugmenter.create_kps_from_coords(
                 transf_coords, img_width, img_height)
             kps = transf_kps + nonvis_kps
 
             # Create keypoints object
+            # TODO implement in class with image width and image_height
+            visible_kps = [kp for kp in kps if kp.visible == 1]
+            min_x = min(kp.x for kp in visible_kps)
+            max_x = max(kp.x for kp in visible_kps)
+            min_y = min(kp.y for kp in visible_kps)
+            max_y = max(kp.y for kp in visible_kps)
+            bbox_center = int((min_x + max_x) /
+                              2), int((min_y + max_y) / 2)
+            bbox_width = min((max_x - min_x) * 1.05, img_width)
+            bbox_height = min((max_y - min_y) * 1.05, img_height)
             transf_kps_obj = KeypointsObject(class_idx=kps_obj.class_idx,
                                              keypoints=kps,
-                                             num_keypoints=kps_obj.num_keypoints)
+                                             num_keypoints=kps_obj.num_keypoints,
+                                             bbox_center=bbox_center,
+                                             bbox_width=bbox_width,
+                                             bbox_height=bbox_height)
             transf_kps_objs.append(transf_kps_obj)
 
             coords_i += num_vis
@@ -433,7 +447,8 @@ class KeypointAugmenter(Augmenter):
             orig_height, orig_width = img.shape[:2]
 
             # Create keypoints objects from file
-            abs_kps_objs = self.create_kps_objs_from_file(img_name)
+            abs_kps_objs = self.create_kps_objs_from_file(
+                self.train_dir, img_name)
             rel_kps_objs = [kps_obj.to_relative(
                 orig_width, orig_height, clip=True) for kps_obj in abs_kps_objs]
 
