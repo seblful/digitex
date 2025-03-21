@@ -53,7 +53,7 @@ parser.add_argument("--batch_size",
 
 # Get an arg for overlap mask
 parser.add_argument("--overlap_mask",
-                    action="store_false",
+                    action="store_true",
                     help="Determines whether segmentation masks should overlap during training.")
 
 
