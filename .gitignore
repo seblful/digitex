@@ -16,6 +16,8 @@ training/yolo/runs
 training/mask2former/runs
 training/oneformer/runs
 
+# Extract
+extract/inputs
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
