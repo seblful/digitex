@@ -141,8 +141,12 @@ class FileProcessor:
 
     @staticmethod
     def read_json(json_path) -> dict:
-        with open(json_path, "r", encoding="utf-8") as json_file:
-            json_dict = json.load(json_file)
+        try:
+            with open(json_path, "r", encoding="utf-8") as json_file:
+                json_dict = json.load(json_file)
+
+        except FileNotFoundError:
+            json_dict = {}
 
         return json_dict
 
