@@ -32,6 +32,12 @@ class PDFHandler:
 
         pdf.save(output_path, version=17)
 
+    @staticmethod
+    def open_pdf(pdf_path: str):
+        pdf_obj = pdfium.PdfDocument(pdf_path)
+
+        return pdf_obj
+
     def get_page_image(self,
                        page: pdfium.PdfPage,
                        scale: int = 3) -> Image.Image:
@@ -45,7 +51,7 @@ class PDFHandler:
         # Take random pdf
         rand_pdf_name = random.choice(pdf_listdir)
         rand_pdf_path = os.path.join(pdf_dir, rand_pdf_name)
-        rand_pdf_obj = pdfium.PdfDocument(rand_pdf_path)
+        rand_pdf_obj = self.open_pdf(rand_pdf_path)
 
         # Take random pdf page and image
         rand_page_idx = random.randint(0, len(rand_pdf_obj) - 1)
