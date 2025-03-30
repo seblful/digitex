@@ -30,6 +30,10 @@ class ExtractorApp:
     def setup_root(self) -> None:
         self.root.title("Testing Digitizer")
         self.root.state('zoomed')
+        self.root.maxsize(self.root.winfo_screenwidth(),
+                          self.root.winfo_screenheight())
+        self.root.minsize(int(self.root.winfo_screenwidth() / 2),
+                          int(self.root.winfo_screenheight() / 2))
 
     def open_pdf(self) -> None:
         pdf_path = filedialog.askopenfilename(
@@ -92,6 +96,10 @@ class UserInterface:
         self.root = root
         self.main_app = main_app
 
+        self.left_width_weight = 3
+        self.right_width_weight = 7
+        self.right_weights = [1, 1]
+
         self.setup_ui()
 
     def setup_ui(self) -> None:
@@ -110,17 +118,39 @@ class UserInterface:
         self.root.config(menu=menubar)
 
     def setup_panes(self) -> None:
-        main_pane = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
-        self.left_pane = ttk.PanedWindow(main_pane)
-        self.right_pane = ttk.PanedWindow(main_pane, orient=tk.VERTICAL)
+        # Main horizontal paned window
+        self.main_pane = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
+        self.main_pane.pack(expand=True, fill=tk.BOTH)
 
-        self.setup_left_frame()
+        self.setup_left_pane()
+        self.setup_right_pane()
 
-    def setup_left_frame(self) -> None:
-        self.left_frame = ttk.Frame(self.left_pane)
-        self.left_canvas = tk.Canvas(self.left_frame, bg='white')
+    def setup_left_pane(self) -> None:
+        left_frame = ttk.Frame(self.main_pane)
+        self.left_canvas = tk.Canvas(left_frame, bg='lightgray')
         self.left_canvas.pack(expand=True, fill=tk.BOTH)
+        self.main_pane.add(left_frame, weight=self.left_width_weight)
         # self.setup_navigation_controls(self.left_pane)
+
+    def setup_right_pane(self) -> None:
+        right_frame = ttk.Frame(self.main_pane)
+        right_pane = ttk.PanedWindow(right_frame, orient=tk.VERTICAL)
+        right_pane.pack(expand=True, fill=tk.BOTH)
+
+        # Top frame
+        top_frame = ttk.Frame(right_pane)
+        top_canvas = tk.Canvas(top_frame, bg='lightgray')
+        top_canvas.pack(expand=True, fill=tk.BOTH)
+        right_pane.add(top_frame, weight=self.right_weights[0])
+
+        # Bottom frame
+        bottom_frame = ttk.Frame(right_pane)
+        bottom_canvas = tk.Canvas(bottom_frame, bg="lightgray")
+        bottom_canvas.pack(expand=True, fill=tk.BOTH)
+        right_pane.add(bottom_frame, weight=self.right_weights[1])
+
+        # Add the vertical paned window to the parent frame
+        self.main_pane.add(right_frame, weight=self.right_width_weight)
 
     def setup_status_bar(self) -> None:
         self.main_app.status = ttk.Label(
