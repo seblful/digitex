@@ -31,6 +31,58 @@ class ExtractorApp:
         self.root.title("Testing Digitizer")
         self.root.state('zoomed')
 
+    def open_pdf(self) -> None:
+        pdf_path = filedialog.askopenfilename(
+            filetypes=[("PDF Files", "*.pdf")])
+        if not pdf_path:
+            return
+
+        self.load_pdf(pdf_path)
+        self.save_ckpt()
+        self.update_status(f"Opened PDF file: {pdf_path}")
+
+    def load_pdf(self,
+                 pdf_path: str,
+                 current_page: int = 0) -> None:
+        self.current_pdf_path = pdf_path
+        self.current_pdf_obj = self.pdf_handler.open_pdf(pdf_path)
+        self.current_page = current_page
+
+        # Show image
+        pdf_page = self.current_pdf_obj[self.current_page]
+        self.current_image = self.pdf_handler.get_page_image(pdf_page)
+        self.show_image()
+
+    def show_image(self) -> None:
+        if self.current_image:
+            self.original_image = ImageTk.PhotoImage(self.current_image)
+            self.canvas_image = self.ui.left_canvas.create_image(
+                0, 0, anchor=tk.NW, image=self.original_image)
+            self.ui.left_canvas.config(
+                scrollregion=self.ui.left_canvas.bbox(tk.ALL))
+
+    def load_ckpt(self) -> None:
+        ckpt = self.file_processor.read_json(self.ckpt_path)
+
+        if not ckpt:
+            self.update_status(
+                f"Failed loading checkpoint")
+            return
+
+        self.load_pdf(pdf_path=ckpt["pdf_path"], current_page=ckpt["page"])
+        self.update_status(
+            f"Opened PDF file {self.current_pdf_path} from checkpoint")
+
+    def save_ckpt(self) -> None:
+        ckpt = {"pdf_path": self.current_pdf_path,
+                "page": self.current_page}
+
+        self.file_processor.write_json(ckpt, self.ckpt_path)
+
+    def update_status(self, message) -> None:
+        self.status.config(text=message)
+        self.root.update_idletasks()
+
     def run(self) -> None:
         self.root.mainloop()
 
