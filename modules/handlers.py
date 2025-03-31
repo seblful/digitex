@@ -69,6 +69,25 @@ class PDFHandler:
 
 class ImageHandler:
     @staticmethod
+    def resize_image(image: Image.Image,
+                     target_width: int,
+                     target_height: int) -> Image.Image:
+        image_width, image_height = image.size
+
+        # Calculate scaling factor while maintaining aspect ratio
+        width_ratio = target_width / image_width
+        height_ratio = target_height / image_height
+        scale_factor = min(width_ratio, height_ratio)
+
+        # Resize the image
+        new_width = int(image_width * scale_factor)
+        new_height = int(image_height * scale_factor)
+        resized_image = image.resize(
+            (new_width, new_height), Image.LANCZOS)
+
+        return resized_image
+
+    @staticmethod
     def crop_image(image: Image.Image,
                    points: List[float],
                    offset: float = 0.025) -> Image.Image:
