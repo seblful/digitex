@@ -1,39 +1,42 @@
 import os
+
 from PIL import Image, ImageTk
+import ctypes
+
 import tkinter as tk
 from tkinter import ttk, filedialog
 
-from modules.handlers import PDFHandler
+from modules.handlers import PDFHandler, ImageHandler
 from modules.processors import FileProcessor
 
 
 class ExtractorApp:
     def __init__(self, root) -> None:
         self.root = root
-        self.setup_root()
 
-        # Dirs
+        # Instances
+        self.ui = UserInterface(self.root, self)
+        self.ui.setup_ui()
+
+        self.pdf_handler = PDFHandler()
+        self.image_handler = ImageHandler()
+        self.file_processor = FileProcessor()
+
+        # Paths
         self.inputs_dir = "inputs"
         self.ckpt_path = os.path.join(
             self.inputs_dir, "checkpoints.json")
 
+        # Current
         self.current_pdf_path = None
         self.current_pdf_obj = None
-        self.current_image = None
         self.current_page = 0
 
-        self.ui = UserInterface(self.root, self)
-
-        self.pdf_handler = PDFHandler()
-        self.file_processor = FileProcessor()
-
-    def setup_root(self) -> None:
-        self.root.title("Testing Digitizer")
-        self.root.state('zoomed')
-        self.root.maxsize(self.root.winfo_screenwidth(),
-                          self.root.winfo_screenheight())
-        self.root.minsize(int(self.root.winfo_screenwidth() / 2),
-                          int(self.root.winfo_screenheight() / 2))
+        # Images
+        self.original_image = None
+        self.resized_image = None
+        self.tk_image = None
+        self.canvas_image = None
 
     def open_pdf(self) -> None:
         pdf_path = filedialog.askopenfilename(
@@ -54,16 +57,25 @@ class ExtractorApp:
 
         # Show image
         pdf_page = self.current_pdf_obj[self.current_page]
-        self.current_image = self.pdf_handler.get_page_image(pdf_page)
+        self.original_image = self.pdf_handler.get_page_image(pdf_page)
         self.show_image()
 
     def show_image(self) -> None:
-        if self.current_image:
-            self.original_image = ImageTk.PhotoImage(self.current_image)
-            self.canvas_image = self.ui.left_canvas.create_image(
-                0, 0, anchor=tk.NW, image=self.original_image)
-            self.ui.left_canvas.config(
-                scrollregion=self.ui.left_canvas.bbox(tk.ALL))
+        if not self.original_image:
+            return
+
+        # Resize image
+        canvas_width = self.ui.left_canvas.winfo_width()
+        canvas_height = self.ui.left_canvas.winfo_height()
+        self.resized_image = self.image_handler.resize_image(
+            self.original_image, canvas_width, canvas_height)
+
+        # Place image
+        self.tk_image = ImageTk.PhotoImage(self.resized_image)
+        self.canvas_image = self.ui.left_canvas.create_image(
+            0, 0, anchor=tk.NW, image=self.tk_image)
+        self.ui.left_canvas.config(
+            scrollregion=self.ui.left_canvas.bbox(tk.ALL))
 
     def load_ckpt(self) -> None:
         ckpt = self.file_processor.read_json(self.ckpt_path)
@@ -100,12 +112,24 @@ class UserInterface:
         self.right_width_weight = 7
         self.right_weights = [1, 1]
 
-        self.setup_ui()
-
     def setup_ui(self) -> None:
+        self.setup_root()
         self.setup_menubar()
         self.setup_panes()
         self.setup_status_bar()
+
+    def setup_root(self) -> None:
+        # DPI
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+
+        self.root.title("Testing Digitizer")
+        self.root.state('zoomed')
+
+        # Maxsize and minsize
+        maxsize = int(self.root.winfo_screenwidth() * 1.25)
+        minsize = int(self.root.winfo_screenheight() * 1.25)
+        self.root.maxsize(maxsize, minsize)
+        self.root.minsize(int(maxsize / 1.5), int(minsize / 1.5))
 
     def setup_menubar(self) -> None:
         menubar = tk.Menu(self.root)
