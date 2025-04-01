@@ -32,6 +32,12 @@ class ExtractorApp:
         self.current_pdf_obj = None
         self.current_page = 0
 
+        # On resize
+        self.last_canvas_width = None
+        self.last_canvas_height = None
+        self.resize_timer = None
+        self.resize_delay = 50
+
         # Images
         self.original_image = None
         self.resized_image = None
@@ -58,22 +64,50 @@ class ExtractorApp:
         # Show image
         pdf_page = self.current_pdf_obj[self.current_page]
         self.original_image = self.pdf_handler.get_page_image(pdf_page)
-        self.show_image()
+        self._resize_and_display_image()
 
-    def show_image(self) -> None:
+    def _on_resize(self, event: tk.Event) -> None:
+        if self.resize_timer is not None:
+            self.root.after_cancel(self.resize_timer)
+
+        self.resize_timer = self.root.after(
+            self.resize_delay, self._on_resize_complete, event)
+
+    def _on_resize_complete(self, event: tk.Event) -> None:
+        if (event.width != self.last_canvas_width or event.height != self.last_canvas_height):
+            self._resize_and_display_image()
+            self.last_canvas_width = event.width
+            self.last_canvas_height = event.height
+
+        self.resize_timer = None
+
+    def _resize_and_display_image(self) -> None:
         if not self.original_image:
             return
 
-        # Resize image
+        # Get current canvas dimensions
         canvas_width = self.ui.left_canvas.winfo_width()
         canvas_height = self.ui.left_canvas.winfo_height()
+
+        # Skip if canvas has no size
+        if canvas_width <= 1 or canvas_height <= 1:
+            return
+
+        # Resize image
         self.resized_image = self.image_handler.resize_image(
             self.original_image, canvas_width, canvas_height)
 
-        # Place image
+        # Update the image on canvas
         self.tk_image = ImageTk.PhotoImage(self.resized_image)
-        self.canvas_image = self.ui.left_canvas.create_image(
-            0, 0, anchor=tk.NW, image=self.tk_image)
+
+        # If an image already exists on canvas, update it
+        if hasattr(self.ui, 'canvas_image'):
+            self.ui.left_canvas.itemconfig(
+                self.ui.canvas_image, image=self.tk_image)
+        else:
+            self.ui.canvas_image = self.ui.left_canvas.create_image(
+                0, 0, anchor=tk.NW, image=self.tk_image)
+
         self.ui.left_canvas.config(
             scrollregion=self.ui.left_canvas.bbox(tk.ALL))
 
@@ -108,6 +142,8 @@ class UserInterface:
         self.root = root
         self.main_app = main_app
 
+        self.submenu_font = ("Segoe UI", 12)
+
         self.left_width_weight = 3
         self.right_width_weight = 7
         self.right_weights = [1, 1]
@@ -133,11 +169,12 @@ class UserInterface:
 
     def setup_menubar(self) -> None:
         menubar = tk.Menu(self.root)
-        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu = tk.Menu(menubar, tearoff=0, font=self.submenu_font)
         menubar.add_cascade(label="File", menu=file_menu)
         file_menu.add_command(label="Open", command=self.main_app.open_pdf)
         file_menu.add_command(label="Load checkpoints",
                               command=self.main_app.load_ckpt)
+        file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
         self.root.config(menu=menubar)
 
@@ -153,6 +190,7 @@ class UserInterface:
         left_frame = ttk.Frame(self.main_pane)
         self.left_canvas = tk.Canvas(left_frame, bg='lightgray')
         self.left_canvas.pack(expand=True, fill=tk.BOTH)
+        self.left_canvas.bind('<Configure>', self.main_app._on_resize)
         self.main_pane.add(left_frame, weight=self.left_width_weight)
         # self.setup_navigation_controls(self.left_pane)
 
