@@ -31,6 +31,7 @@ class ExtractorApp:
         self.current_pdf_path = None
         self.current_pdf_obj = None
         self.current_page = 0
+        self.page_number = 0
         self.zoom_level = 1.0
         self.base_image_width = 595
         self.base_image_height = 842
@@ -58,6 +59,7 @@ class ExtractorApp:
         self.current_pdf_path = pdf_path
         self.current_pdf_obj = self.pdf_handler.open_pdf(pdf_path)
         self.current_page = current_page
+        self.page_number = len(self.current_pdf_obj)
 
         # Show image
         pdf_page = self.current_pdf_obj[self.current_page]
@@ -140,6 +142,22 @@ class ExtractorApp:
 
         self.file_processor.write_json(ckpt, self.ckpt_path)
 
+    def prev_page(self) -> None:
+        if self.current_page > 0:
+            self.current_page -= 1
+            self.load_pdf(self.current_pdf_path, self.current_page)
+            self.save_ckpt()
+
+    def next_page(self) -> None:
+        if self.current_page < self.page_number - 1:
+            self.current_page += 1
+            self.load_pdf(self.current_pdf_path, self.current_page)
+            self.save_ckpt()
+
+    def reset_view(self):
+        self.zoom_level = 1.0
+        self._resize_and_display_image()
+
     def update_status(self, message) -> None:
         self.status.config(text=message)
         self.root.update_idletasks()
@@ -200,12 +218,15 @@ class UserInterface:
     def setup_left_pane(self) -> None:
         left_frame = ttk.Frame(self.main_pane)
 
+        # Main container for canvas and scrollbars
+        canvas_frame = ttk.Frame(left_frame)
+
         # Scrollbars
-        h_scroll = ttk.Scrollbar(left_frame, orient=tk.HORIZONTAL)
-        v_scroll = ttk.Scrollbar(left_frame, orient=tk.VERTICAL)
+        h_scroll = ttk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL)
+        v_scroll = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL)
 
         self.left_canvas = tk.Canvas(
-            left_frame,
+            canvas_frame,
             bg='lightgray',
             xscrollcommand=h_scroll.set,
             yscrollcommand=v_scroll.set
@@ -214,17 +235,34 @@ class UserInterface:
         h_scroll.config(command=self.left_canvas.xview)
         v_scroll.config(command=self.left_canvas.yview)
 
-        # Grid layout
-        self.left_canvas.grid(row=0, column=0, sticky='nsew')
-        v_scroll.grid(row=0, column=1, sticky='ns')
-        h_scroll.grid(row=1, column=0, sticky='ew')
+        # Pack canvas and scrollbars in their own frame
+        v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        h_scroll.pack(side=tk.BOTTOM, fill=tk.X)
+        self.left_canvas.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
 
-        left_frame.rowconfigure(0, weight=1)
-        left_frame.columnconfigure(0, weight=1)
+        # Pack the canvas frame at top (will expand to fill available space)
+        canvas_frame.pack(side=tk.TOP, expand=True, fill=tk.BOTH)
+
+        # Navigation controls at very bottom
+        self.setup_navigation_controls(left_frame)
 
         self.left_canvas.bind('<MouseWheel>', self.main_app.on_mousewheel)
 
         self.main_pane.add(left_frame, weight=self.left_width_weight)
+
+    def setup_navigation_controls(self, parent) -> None:
+        nav_frame = ttk.Frame(parent)
+        prev_btn = ttk.Button(nav_frame, text="< Prev",
+                              command=self.main_app.prev_page)
+        next_btn = ttk.Button(nav_frame, text="Next >",
+                              command=self.main_app.next_page)
+        reset_btn = ttk.Button(nav_frame, text="Reset view",
+                               command=self.main_app.reset_view)
+
+        prev_btn.pack(side=tk.LEFT)
+        next_btn.pack(side=tk.LEFT)
+        reset_btn.pack(side=tk.LEFT)
+        nav_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
     def setup_right_pane(self) -> None:
         right_frame = ttk.Frame(self.main_pane)
