@@ -31,15 +31,13 @@ class ExtractorApp:
         self.current_pdf_path = None
         self.current_pdf_obj = None
         self.current_page = 0
-
-        # On resize
-        self.last_canvas_width = None
-        self.last_canvas_height = None
-        self.resize_timer = None
-        self.resize_delay = 50
+        self.zoom_level = 1.0
+        self.base_image_width = 595
+        self.base_image_height = 842
 
         # Images
         self.original_image = None
+        self.base_image = None
         self.resized_image = None
         self.tk_image = None
         self.canvas_image = None
@@ -64,59 +62,72 @@ class ExtractorApp:
         # Show image
         pdf_page = self.current_pdf_obj[self.current_page]
         self.original_image = self.pdf_handler.get_page_image(pdf_page)
+        self.base_image = self.image_handler.resize_image(
+            self.original_image, self.base_image_width, self.base_image_height)
+        self.zoom_level = 1.0  # Reset zoom when loading new PDF
         self._resize_and_display_image()
 
-    def _on_resize(self, event: tk.Event) -> None:
-        if self.resize_timer is not None:
-            self.root.after_cancel(self.resize_timer)
-
-        self.resize_timer = self.root.after(
-            self.resize_delay, self._on_resize_complete, event)
-
-    def _on_resize_complete(self, event: tk.Event) -> None:
-        if (event.width != self.last_canvas_width or event.height != self.last_canvas_height):
-            self._resize_and_display_image()
-            self.last_canvas_width = event.width
-            self.last_canvas_height = event.height
-
-        self.resize_timer = None
-
     def _resize_and_display_image(self) -> None:
-        if not self.original_image:
+        if not self.base_image:
             return
 
-        # Get current canvas dimensions
         canvas_width = self.ui.left_canvas.winfo_width()
         canvas_height = self.ui.left_canvas.winfo_height()
 
-        # Skip if canvas has no size
         if canvas_width <= 1 or canvas_height <= 1:
             return
 
-        # Resize image
-        self.resized_image = self.image_handler.resize_image(
-            self.original_image, canvas_width, canvas_height)
+        # Apply zoom or fit to canvas
+        if self.zoom_level == 1.0:
+            # Fit to canvas
+            self.resized_image = self.image_handler.resize_image(
+                self.base_image, canvas_width, canvas_height)
+        else:
+            # Apply zoom level
+            width = int(self.base_image.width * self.zoom_level)
+            height = int(self.base_image.height * self.zoom_level)
+            self.resized_image = self.base_image.resize(
+                (width, height), Image.Resampling.LANCZOS)
 
         # Update the image on canvas
         self.tk_image = ImageTk.PhotoImage(self.resized_image)
-
-        # If an image already exists on canvas, update it
-        if hasattr(self.ui, 'canvas_image'):
+        if self.canvas_image:
             self.ui.left_canvas.itemconfig(
-                self.ui.canvas_image, image=self.tk_image)
+                self.canvas_image, image=self.tk_image)
         else:
-            self.ui.canvas_image = self.ui.left_canvas.create_image(
+            self.canvas_image = self.ui.left_canvas.create_image(
                 0, 0, anchor=tk.NW, image=self.tk_image)
 
         self.ui.left_canvas.config(
             scrollregion=self.ui.left_canvas.bbox(tk.ALL))
 
+    def on_mousewheel(self, event: tk.Event) -> None:
+        # Check if Control key is pressed (state 0x0004 is Control on Windows)
+        if event.state & 0x0004:
+            # Zoom in/out
+            if event.delta > 0:
+                self.zoom_in()
+            else:
+                self.zoom_out()
+        else:
+            # Scroll vertically
+            scroll_amount = -event.delta // 120  # 1 step per wheel click
+            self.ui.left_canvas.yview_scroll(scroll_amount, "units")
+        return 'break'  # Prevent other handlers
+
+    def zoom_in(self) -> None:
+        self.zoom_level *= 1.1
+        self._resize_and_display_image()
+
+    def zoom_out(self) -> None:
+        self.zoom_level /= 1.1
+        self._resize_and_display_image()
+
     def load_ckpt(self) -> None:
         ckpt = self.file_processor.read_json(self.ckpt_path)
 
         if not ckpt:
-            self.update_status(
-                f"Failed loading checkpoint")
+            self.update_status(f"Failed loading checkpoint")
             return
 
         self.load_pdf(pdf_path=ckpt["pdf_path"], current_page=ckpt["page"])
@@ -188,11 +199,32 @@ class UserInterface:
 
     def setup_left_pane(self) -> None:
         left_frame = ttk.Frame(self.main_pane)
-        self.left_canvas = tk.Canvas(left_frame, bg='lightgray')
-        self.left_canvas.pack(expand=True, fill=tk.BOTH)
-        self.left_canvas.bind('<Configure>', self.main_app._on_resize)
+
+        # Scrollbars
+        h_scroll = ttk.Scrollbar(left_frame, orient=tk.HORIZONTAL)
+        v_scroll = ttk.Scrollbar(left_frame, orient=tk.VERTICAL)
+
+        self.left_canvas = tk.Canvas(
+            left_frame,
+            bg='lightgray',
+            xscrollcommand=h_scroll.set,
+            yscrollcommand=v_scroll.set
+        )
+
+        h_scroll.config(command=self.left_canvas.xview)
+        v_scroll.config(command=self.left_canvas.yview)
+
+        # Grid layout
+        self.left_canvas.grid(row=0, column=0, sticky='nsew')
+        v_scroll.grid(row=0, column=1, sticky='ns')
+        h_scroll.grid(row=1, column=0, sticky='ew')
+
+        left_frame.rowconfigure(0, weight=1)
+        left_frame.columnconfigure(0, weight=1)
+
+        self.left_canvas.bind('<MouseWheel>', self.main_app.on_mousewheel)
+
         self.main_pane.add(left_frame, weight=self.left_width_weight)
-        # self.setup_navigation_controls(self.left_pane)
 
     def setup_right_pane(self) -> None:
         right_frame = ttk.Frame(self.main_pane)
@@ -211,7 +243,6 @@ class UserInterface:
         bottom_canvas.pack(expand=True, fill=tk.BOTH)
         right_pane.add(bottom_frame, weight=self.right_weights[1])
 
-        # Add the vertical paned window to the parent frame
         self.main_pane.add(right_frame, weight=self.right_width_weight)
 
     def setup_status_bar(self) -> None:
