@@ -32,9 +32,13 @@ class ExtractorApp:
         self.current_pdf_obj = None
         self.current_page = 0
         self.page_number = 0
-        self.zoom_level = 1.0
+
         self.base_image_width = 595
         self.base_image_height = 842
+
+        # Zoom and drag
+        self.zoom_level = 1.0
+        self.dragging = False
 
         # Images
         self.original_image = None
@@ -117,14 +121,6 @@ class ExtractorApp:
             self.ui.left_canvas.yview_scroll(scroll_amount, "units")
         return 'break'  # Prevent other handlers
 
-    def zoom_in(self) -> None:
-        self.zoom_level *= 1.1
-        self._resize_and_display_image()
-
-    def zoom_out(self) -> None:
-        self.zoom_level /= 1.1
-        self._resize_and_display_image()
-
     def load_ckpt(self) -> None:
         ckpt = self.file_processor.read_json(self.ckpt_path)
 
@@ -141,6 +137,27 @@ class ExtractorApp:
                 "page": self.current_page}
 
         self.file_processor.write_json(ckpt, self.ckpt_path)
+
+    def zoom_in(self) -> None:
+        self.zoom_level *= 1.1
+        self._resize_and_display_image()
+
+    def zoom_out(self) -> None:
+        self.zoom_level /= 1.1
+        self._resize_and_display_image()
+
+    def start_drag(self, event) -> None:
+        self.dragging = True
+        # Set initial mark for dragging
+        self.ui.left_canvas.scan_mark(event.x, event.y)
+
+    def on_drag(self, event) -> None:
+        if self.dragging:
+            # Move the canvas based on the current mouse position relative to the initial mark
+            self.ui.left_canvas.scan_dragto(event.x, event.y, gain=1)
+
+    def stop_drag(self, event) -> None:
+        self.dragging = False
 
     def prev_page(self) -> None:
         if self.current_page > 0:
@@ -246,7 +263,11 @@ class UserInterface:
         # Navigation controls at very bottom
         self.setup_navigation_controls(left_frame)
 
+        # Event Bindings
         self.left_canvas.bind('<MouseWheel>', self.main_app.on_mousewheel)
+        self.left_canvas.bind("<ButtonPress-1>", self.main_app.start_drag)
+        self.left_canvas.bind("<B1-Motion>", self.main_app.on_drag)
+        self.left_canvas.bind("<ButtonRelease-1>", self.main_app.stop_drag)
 
         self.main_pane.add(left_frame, weight=self.left_width_weight)
 
