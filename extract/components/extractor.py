@@ -199,14 +199,23 @@ class ExtractorApp:
         if not self.original_image:
             return
 
-        page_pred_results = self.page_predictor.predict(self.original_image)
+        page_pred_result = self.page_predictor.predict(self.original_image)
         drawn_image = self.draw_polygons(
-            self.original_image, page_pred_results.id2polygons)
+            self.original_image, page_pred_result.id2polygons)
         self.base_image = self.image_handler.resize_image(
             drawn_image, self.base_image_width, self.base_image_height)
 
-        # TODO extract question images
+        # Extract question images
+        # TODO extract option and part
         self.question_images = []
+
+        for cls, polygons in page_pred_result.id2polygons.items():
+            if page_pred_result.id2label[cls] == "question":
+                for polygon in polygons:
+                    question_image = self.image_handler.crop_image(
+                        self.original_image, polygon)
+                    question_image.show()
+                    self.question_images.append(question_image)
 
         self._resize_and_display_image()
 
