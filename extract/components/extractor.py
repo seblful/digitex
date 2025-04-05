@@ -1,6 +1,6 @@
 import os
 
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw
 import ctypes
 
 import tkinter as tk
@@ -8,11 +8,14 @@ from tkinter import ttk, filedialog
 
 from modules.handlers import PDFHandler, ImageHandler
 from modules.processors import FileProcessor
+from modules.predictors.segmentation import YOLO_SegmentationPredictor
 
 
 class ExtractorApp:
-    def __init__(self, root) -> None:
-        self.root = root
+    def __init__(self, cfg: dict) -> None:
+        self.cfg = cfg
+
+        self.root = tk.Tk()
 
         # Instances
         self.ui = UserInterface(self.root, self)
@@ -46,6 +49,23 @@ class ExtractorApp:
         self.resized_image = None
         self.tk_image = None
         self.canvas_image = None
+
+        self.colors = {
+            0: (255, 0, 0, 128),
+            1: (0, 255, 0, 128),
+            2: (0, 0, 255, 128),
+            3: (255, 255, 0, 128),
+            4: (255, 0, 255, 128),
+            5: (0, 255, 255, 128),
+            6: (128, 0, 128, 128),
+            7: (255, 165, 0, 128)
+        }
+
+        # Predictors
+        self.page_predictor = YOLO_SegmentationPredictor(
+            cfg["model_path"]["page"])
+        self.qustion_predictor = YOLO_SegmentationPredictor(
+            cfg["model_path"]["question"])
 
     def open_pdf(self) -> None:
         pdf_path = filedialog.askopenfilename(
@@ -171,9 +191,34 @@ class ExtractorApp:
             self.load_pdf(self.current_pdf_path, self.current_page)
             self.save_ckpt()
 
-    def reset_view(self):
+    def reset_view(self) -> None:
         self.zoom_level = 1.0
         self._resize_and_display_image()
+
+    def run_ml(self) -> None:
+        if not self.original_image:
+            return
+
+        page_pred_results = self.page_predictor.predict(self.original_image)
+        drawn_image = self.draw_polygons(
+            self.original_image, page_pred_results.id2polygons)
+        self.base_image = self.image_handler.resize_image(
+            drawn_image, self.base_image_width, self.base_image_height)
+
+        # TODO extract question images
+        self.question_images = []
+
+        self._resize_and_display_image()
+
+    def draw_polygons(self,
+                      image: Image.Image,
+                      id2polygons: dict[int, list]) -> None:
+        draw = ImageDraw.Draw(image, 'RGBA')
+        for cls, polygons in id2polygons.items():
+            for polygon in polygons:
+                draw.polygon(polygon, fill=self.colors[cls], outline="black")
+
+        return image
 
     def update_status(self, message) -> None:
         self.status.config(text=message)
@@ -279,10 +324,13 @@ class UserInterface:
                               command=self.main_app.next_page)
         reset_btn = ttk.Button(nav_frame, text="Reset view",
                                command=self.main_app.reset_view)
+        run_ml_bth = ttk.Button(nav_frame, text="Run ML",
+                                command=self.main_app.run_ml)
 
         prev_btn.pack(side=tk.LEFT)
         next_btn.pack(side=tk.LEFT)
         reset_btn.pack(side=tk.LEFT)
+        run_ml_bth.pack(side=tk.LEFT)
         nav_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
     def setup_right_pane(self) -> None:
