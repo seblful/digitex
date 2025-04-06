@@ -1,11 +1,8 @@
 import os
-
 from PIL import Image, ImageTk, ImageDraw
 import ctypes
-
 import tkinter as tk
 from tkinter import ttk, filedialog
-
 from modules.handlers import PDFHandler, ImageHandler
 from modules.processors import FileProcessor
 from modules.predictors.segmentation import YOLO_SegmentationPredictor
@@ -14,10 +11,7 @@ from modules.predictors.segmentation import YOLO_SegmentationPredictor
 class ExtractorApp:
     def __init__(self, cfg: dict) -> None:
         self.cfg = cfg
-
         self.root = tk.Tk()
-
-        # Instances
         self.ui = UserInterface(self.root, self)
         self.ui.setup_ui()
 
@@ -25,32 +19,33 @@ class ExtractorApp:
         self.image_handler = ImageHandler()
         self.file_processor = FileProcessor()
 
-        # Paths
         self.inputs_dir = "inputs"
-        self.ckpt_path = os.path.join(
-            self.inputs_dir, "checkpoints.json")
+        self.ckpt_path = os.path.join(self.inputs_dir, "checkpoints.json")
 
-        # Current
         self.current_pdf_path = None
         self.current_pdf_obj = None
         self.current_page = 0
-        self.page_number = 0
+        self.page_count = 0
 
-        self.base_image_width = 595
-        self.base_image_height = 842
-
-        # Zoom and drag
+        self.base_image_dimensions = (595, 842)
         self.zoom_level = 1.0
         self.dragging = False
 
-        # Images
         self.original_image = None
         self.base_image = None
         self.resized_image = None
         self.tk_image = None
         self.canvas_image = None
 
-        self.colors = {
+        self.colors = self._initialize_colors()
+        self.page_predictor = YOLO_SegmentationPredictor(
+            cfg["model_path"]["page"])
+        self.question_predictor = YOLO_SegmentationPredictor(
+            cfg["model_path"]["question"])
+
+    @staticmethod
+    def _initialize_colors() -> dict:
+        return {
             0: (255, 0, 0, 128),
             1: (0, 255, 0, 128),
             2: (0, 0, 255, 128),
@@ -58,42 +53,45 @@ class ExtractorApp:
             4: (255, 0, 255, 128),
             5: (0, 255, 255, 128),
             6: (128, 0, 128, 128),
-            7: (255, 165, 0, 128)
+            7: (255, 165, 0, 128),
         }
-
-        # Predictors
-        self.page_predictor = YOLO_SegmentationPredictor(
-            cfg["model_path"]["page"])
-        self.qustion_predictor = YOLO_SegmentationPredictor(
-            cfg["model_path"]["question"])
 
     def open_pdf(self) -> None:
         pdf_path = filedialog.askopenfilename(
             filetypes=[("PDF Files", "*.pdf")])
-        if not pdf_path:
-            return
+        if pdf_path:
+            self.load_pdf(pdf_path)
+            self.save_checkpoint()
+            self.update_status(f"Opened PDF file: {pdf_path}")
 
-        self.load_pdf(pdf_path)
-        self.save_ckpt()
-        self.update_status(f"Opened PDF file: {pdf_path}")
-
-    def load_pdf(self,
-                 pdf_path: str,
-                 current_page: int = 0) -> None:
+    def load_pdf(self, pdf_path: str, current_page: int = 0) -> None:
         self.current_pdf_path = pdf_path
         self.current_pdf_obj = self.pdf_handler.open_pdf(pdf_path)
         self.current_page = current_page
-        self.page_number = len(self.current_pdf_obj)
+        self.page_count = len(self.current_pdf_obj)
 
-        # Show image
+        self._load_page_image()
+
+    def _load_page_image(self) -> None:
         pdf_page = self.current_pdf_obj[self.current_page]
         self.original_image = self.pdf_handler.get_page_image(pdf_page)
         self.base_image = self.image_handler.resize_image(
-            self.original_image, self.base_image_width, self.base_image_height)
-        self.zoom_level = 1.0  # Reset zoom when loading new PDF
-        self._resize_and_display_image()
+            self.original_image, *self.base_image_dimensions
+        )
+        self.zoom_level = 1.0
+        self._update_canvas_image()
 
-    def _resize_and_display_image(self) -> None:
+    def _resize_image(self, canvas_width: int, canvas_height: int) -> Image.Image:
+        """Resize the image based on the current zoom level or fit it to the canvas."""
+        if self.zoom_level == 1.0:
+            return self.image_handler.resize_image(self.base_image, canvas_width, canvas_height)
+        else:
+            width = int(self.base_image.width * self.zoom_level)
+            height = int(self.base_image.height * self.zoom_level)
+            return self.base_image.resize((width, height), Image.Resampling.LANCZOS)
+
+    def _update_canvas_image(self) -> None:
+        """Update the canvas with the resized image."""
         if not self.base_image:
             return
 
@@ -103,20 +101,9 @@ class ExtractorApp:
         if canvas_width <= 1 or canvas_height <= 1:
             return
 
-        # Apply zoom or fit to canvas
-        if self.zoom_level == 1.0:
-            # Fit to canvas
-            self.resized_image = self.image_handler.resize_image(
-                self.base_image, canvas_width, canvas_height)
-        else:
-            # Apply zoom level
-            width = int(self.base_image.width * self.zoom_level)
-            height = int(self.base_image.height * self.zoom_level)
-            self.resized_image = self.base_image.resize(
-                (width, height), Image.Resampling.LANCZOS)
-
-        # Update the image on canvas
+        self.resized_image = self._resize_image(canvas_width, canvas_height)
         self.tk_image = ImageTk.PhotoImage(self.resized_image)
+
         if self.canvas_image:
             self.ui.left_canvas.itemconfig(
                 self.canvas_image, image=self.tk_image)
@@ -127,295 +114,244 @@ class ExtractorApp:
         self.ui.left_canvas.config(
             scrollregion=self.ui.left_canvas.bbox(tk.ALL))
 
-    def on_mousewheel(self, event: tk.Event) -> None:
-        # Check if Control key is pressed (state 0x0004 is Control on Windows)
-        if event.state & 0x0004:
-            # Zoom in/out
-            if event.delta > 0:
-                self.zoom_in()
-            else:
-                self.zoom_out()
-        else:
-            # Scroll vertically
-            scroll_amount = -event.delta // 120  # 1 step per wheel click
-            self.ui.left_canvas.yview_scroll(scroll_amount, "units")
-        return 'break'  # Prevent other handlers
-
-    def load_ckpt(self) -> None:
-        ckpt = self.file_processor.read_json(self.ckpt_path)
-
-        if not ckpt:
-            self.update_status(f"Failed loading checkpoint")
-            return
-
-        self.load_pdf(pdf_path=ckpt["pdf_path"], current_page=ckpt["page"])
-        self.update_status(
-            f"Opened PDF file {self.current_pdf_path} from checkpoint")
-
-    def save_ckpt(self) -> None:
-        ckpt = {"pdf_path": self.current_pdf_path,
-                "page": self.current_page}
-
-        self.file_processor.write_json(ckpt, self.ckpt_path)
-
     def zoom_in(self) -> None:
         self.zoom_level *= 1.1
-        self._resize_and_display_image()
+        self._update_canvas_image()
 
     def zoom_out(self) -> None:
         self.zoom_level /= 1.1
-        self._resize_and_display_image()
+        self._update_canvas_image()
 
-    def start_drag(self, event) -> None:
-        self.dragging = True
-        # Set initial mark for dragging
-        self.ui.left_canvas.scan_mark(event.x, event.y)
+    def navigate_page(self, direction: int) -> None:
+        new_page = self.current_page + direction
+        if 0 <= new_page < self.page_count:
+            self.current_page = new_page
+            self._load_page_image()
+            self.save_checkpoint()
 
-    def on_drag(self, event) -> None:
-        if self.dragging:
-            # Move the canvas based on the current mouse position relative to the initial mark
-            self.ui.left_canvas.scan_dragto(event.x, event.y, gain=1)
+    def save_checkpoint(self) -> None:
+        checkpoint = {"pdf_path": self.current_pdf_path,
+                      "page": self.current_page}
+        self.file_processor.write_json(checkpoint, self.ckpt_path)
 
-    def stop_drag(self, event) -> None:
-        self.dragging = False
-
-    def prev_page(self) -> None:
-        if self.current_page > 0:
-            self.current_page -= 1
-            self.load_pdf(self.current_pdf_path, self.current_page)
-            self.save_ckpt()
-
-    def next_page(self) -> None:
-        if self.current_page < self.page_number - 1:
-            self.current_page += 1
-            self.load_pdf(self.current_pdf_path, self.current_page)
-            self.save_ckpt()
-
-    def reset_view(self) -> None:
-        self.zoom_level = 1.0
-        self._resize_and_display_image()
+    def load_checkpoint(self) -> None:
+        checkpoint = self.file_processor.read_json(self.ckpt_path)
+        if checkpoint:
+            self.load_pdf(
+                pdf_path=checkpoint["pdf_path"], current_page=checkpoint["page"])
+            self.update_status(
+                f"Opened PDF file {self.current_pdf_path} from checkpoint")
+        else:
+            self.update_status("Failed loading checkpoint")
 
     def run_ml(self) -> None:
         if not self.original_image:
             return
 
-        page_pred_result = self.page_predictor.predict(self.original_image)
-        drawn_image = self.draw_polygons(
-            self.original_image, page_pred_result.id2polygons)
+        page_predictions = self.page_predictor.predict(self.original_image)
+        self._process_predictions(page_predictions)
+
+    def _process_predictions(self, predictions) -> None:
+        drawn_image = self._draw_polygons(
+            self.original_image, predictions.id2polygons)
         self.base_image = self.image_handler.resize_image(
-            drawn_image, self.base_image_width, self.base_image_height)
+            drawn_image, *self.base_image_dimensions)
 
-        # Extract question images
-        # TODO extract option and part
-        self.question_images = []
-
-        for cls, polygons in page_pred_result.id2polygons.items():
-            if page_pred_result.id2label[cls] == "question":
-                for polygon in polygons:
-                    question_image = self.image_handler.crop_image(
-                        self.original_image, polygon)
-                    self.question_images.append(question_image)
+        self.question_images = [
+            self.image_handler.crop_image(self.original_image, polygon)
+            for cls, polygons in predictions.id2polygons.items()
+            if predictions.id2label[cls] == "question"
+            for polygon in polygons
+        ]
 
         self.ui.setup_question_controls(len(self.question_images))
+        self._update_canvas_image()
 
-        self._resize_and_display_image()
-
-    def draw_polygons(self,
-                      image: Image.Image,
-                      id2polygons: dict[int, list]) -> None:
+    def _draw_polygons(self, image: Image.Image, id2polygons: dict) -> Image.Image:
         drawn_image = image.copy()
-        draw = ImageDraw.Draw(drawn_image, 'RGBA')
+        draw = ImageDraw.Draw(drawn_image, "RGBA")
         for cls, polygons in id2polygons.items():
             for polygon in polygons:
                 draw.polygon(polygon, fill=self.colors[cls], outline="black")
-
         return drawn_image
 
-    def update_status(self, message) -> None:
-        self.status.config(text=message)
-        self.root.update_idletasks()
+    def update_status(self, message: str) -> None:
+        self.ui.update_status(message)
 
     def run(self) -> None:
         self.root.mainloop()
 
+    def reset_view(self) -> None:
+        """Reset the zoom level and update the canvas image."""
+        self.zoom_level = 1.0
+        self._update_canvas_image()
+
+    def start_drag(self, event: tk.Event) -> None:
+        """Start dragging the canvas."""
+        self.dragging = True
+        self.ui.left_canvas.scan_mark(event.x, event.y)
+
+    def on_drag(self, event: tk.Event) -> None:
+        """Handle dragging the canvas."""
+        if self.dragging:
+            self.ui.left_canvas.scan_dragto(event.x, event.y, gain=1)
+
+    def stop_drag(self, event: tk.Event) -> None:
+        """Stop dragging the canvas."""
+        self.dragging = False
+
+    def on_mousewheel(self, event: tk.Event) -> None:
+        """Handle mouse wheel events for zooming or scrolling."""
+        if event.state & 0x0004:  # Check if Control key is pressed
+            if event.delta > 0:
+                self.zoom_in()
+            else:
+                self.zoom_out()
+        else:
+            scroll_amount = -event.delta // 120  # Scroll vertically
+            self.ui.left_canvas.yview_scroll(scroll_amount, "units")
+        return "break"  # Prevent other handlers from processing the event
+
 
 class UserInterface:
-    def __init__(self, root: tk.Tk, main_app: ExtractorApp) -> None:
+    def __init__(self, root: tk.Tk, app: ExtractorApp) -> None:
         self.root = root
-        self.main_app = main_app
-
+        self.app = app
         self.submenu_font = ("Segoe UI", 12)
-
         self.left_width_weight = 3
         self.right_width_weight = 7
-        self.right_weights = [1, 1]
 
     def setup_ui(self) -> None:
-        self.setup_root()
-        self.setup_menubar()
-        self.setup_panes()
-        self.setup_status_bar()
+        self._setup_root()
+        self._setup_menubar()
+        self._setup_panes()
+        self._setup_status_bar()
 
-    def setup_root(self) -> None:
-        # DPI
+    def _setup_root(self) -> None:
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
-
         self.root.title("Testing Digitizer")
-        self.root.state('zoomed')
+        self.root.state("zoomed")
+        screen_width, screen_height = self.root.winfo_screenwidth(
+        ), self.root.winfo_screenheight()
+        self.root.maxsize(int(screen_width * 1.25), int(screen_height * 1.25))
+        self.root.minsize(int(screen_width * 0.8), int(screen_height * 0.8))
 
-        # Maxsize and minsize
-        maxsize = int(self.root.winfo_screenwidth() * 1.25)
-        minsize = int(self.root.winfo_screenheight() * 1.25)
-        self.root.maxsize(maxsize, minsize)
-        self.root.minsize(int(maxsize / 1.5), int(minsize / 1.5))
-
-    def setup_menubar(self) -> None:
+    def _setup_menubar(self) -> None:
         menubar = tk.Menu(self.root)
         file_menu = tk.Menu(menubar, tearoff=0, font=self.submenu_font)
-        menubar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="Open", command=self.main_app.open_pdf)
-        file_menu.add_command(label="Load checkpoints",
-                              command=self.main_app.load_ckpt)
+        file_menu.add_command(label="Open", command=self.app.open_pdf)
+        file_menu.add_command(label="Load Checkpoint",
+                              command=self.app.load_checkpoint)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
+        menubar.add_cascade(label="File", menu=file_menu)
         self.root.config(menu=menubar)
 
-    def setup_panes(self) -> None:
-        # Main horizontal paned window
+    def _setup_panes(self) -> None:
         self.main_pane = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
         self.main_pane.pack(expand=True, fill=tk.BOTH)
+        self._setup_left_pane()
+        self._setup_right_pane()
 
-        self.setup_left_pane()
-        self.setup_right_pane()
-
-    def setup_left_pane(self) -> None:
+    def _setup_left_pane(self) -> None:
         left_frame = ttk.Frame(self.main_pane)
-
-        # Main container for canvas and scrollbars
         canvas_frame = ttk.Frame(left_frame)
-
-        # Scrollbars
-        h_scroll = ttk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL)
-        v_scroll = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL)
-
-        self.left_canvas = tk.Canvas(
-            canvas_frame,
-            bg='lightgray',
-            xscrollcommand=h_scroll.set,
-            yscrollcommand=v_scroll.set
-        )
-
-        h_scroll.config(command=self.left_canvas.xview)
-        v_scroll.config(command=self.left_canvas.yview)
-
-        # Pack canvas and scrollbars in their own frame
-        v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        h_scroll.pack(side=tk.BOTTOM, fill=tk.X)
-        self.left_canvas.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
-
-        # Pack the canvas frame at top (will expand to fill available space)
+        self.left_canvas = self._create_canvas_with_scrollbars(canvas_frame)
         canvas_frame.pack(side=tk.TOP, expand=True, fill=tk.BOTH)
-
-        # Navigation controls at very bottom
-        self.setup_navigation_controls(left_frame)
-
-        # Event Bindings
-        self.left_canvas.bind('<MouseWheel>', self.main_app.on_mousewheel)
-        self.left_canvas.bind("<ButtonPress-1>", self.main_app.start_drag)
-        self.left_canvas.bind("<B1-Motion>", self.main_app.on_drag)
-        self.left_canvas.bind("<ButtonRelease-1>", self.main_app.stop_drag)
-
+        self._setup_navigation_controls(left_frame)
         self.main_pane.add(left_frame, weight=self.left_width_weight)
 
-    def setup_navigation_controls(self, parent) -> None:
-        nav_frame = ttk.Frame(parent)
-        prev_btn = ttk.Button(nav_frame, text="< Prev",
-                              command=self.main_app.prev_page)
-        next_btn = ttk.Button(nav_frame, text="Next >",
-                              command=self.main_app.next_page)
-        reset_btn = ttk.Button(nav_frame, text="Reset view",
-                               command=self.main_app.reset_view)
-        run_ml_bth = ttk.Button(nav_frame, text="Run ML",
-                                command=self.main_app.run_ml)
+    def _create_canvas_with_scrollbars(self, parent: ttk.Frame) -> tk.Canvas:
+        """Create a canvas with horizontal and vertical scrollbars."""
+        h_scroll = ttk.Scrollbar(parent, orient=tk.HORIZONTAL)
+        v_scroll = ttk.Scrollbar(parent, orient=tk.VERTICAL)
+        canvas = tk.Canvas(
+            parent, bg="lightgray", xscrollcommand=h_scroll.set, yscrollcommand=v_scroll.set
+        )
+        h_scroll.config(command=canvas.xview)
+        v_scroll.config(command=canvas.yview)
+        v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        h_scroll.pack(side=tk.BOTTOM, fill=tk.X)
+        canvas.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
 
-        prev_btn.pack(side=tk.LEFT)
-        next_btn.pack(side=tk.LEFT)
-        reset_btn.pack(side=tk.LEFT)
-        run_ml_bth.pack(side=tk.LEFT)
+        # Bind events for zooming and dragging
+        canvas.bind("<MouseWheel>", self.app.on_mousewheel)
+        canvas.bind("<ButtonPress-1>", self.app.start_drag)
+        canvas.bind("<B1-Motion>", self.app.on_drag)
+        canvas.bind("<ButtonRelease-1>", self.app.stop_drag)
+
+        return canvas
+
+    def _setup_navigation_controls(self, parent: ttk.Frame) -> None:
+        nav_frame = ttk.Frame(parent)
+        ttk.Button(nav_frame, text="< Prev",
+                   command=lambda: self.app.navigate_page(-1)).pack(side=tk.LEFT)
+        ttk.Button(nav_frame, text="Next >",
+                   command=lambda: self.app.navigate_page(1)).pack(side=tk.LEFT)
+        ttk.Button(nav_frame, text="Reset View",
+                   command=self.app.reset_view).pack(side=tk.LEFT)
+        ttk.Button(nav_frame, text="Run ML",
+                   command=self.app.run_ml).pack(side=tk.LEFT)
         nav_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
-    def setup_right_pane(self) -> None:
+    def _setup_right_pane(self) -> None:
         right_frame = ttk.Frame(self.main_pane)
         right_pane = ttk.PanedWindow(right_frame, orient=tk.VERTICAL)
         right_pane.pack(expand=True, fill=tk.BOTH)
 
-        # Top frame
-        top_frame = ttk.Frame(right_pane)
-
-        # Question navigation frame at the top of top_frame
-        self.question_nav_frame = ttk.Frame(top_frame)
-        self.question_nav_frame.pack(side=tk.TOP, fill=tk.X, pady=5)
-
-        # Store reference to top_canvas
-        self.top_canvas = tk.Canvas(top_frame, bg='lightgray')
-        self.top_canvas.pack(expand=True, fill=tk.BOTH)
-        right_pane.add(top_frame, weight=1)  # Set weight to 1 for 1/3 height
-
-        # Bottom frame
-        bottom_frame = ttk.Frame(right_pane)
-        bottom_canvas = tk.Canvas(bottom_frame, bg="lightgray")
-        bottom_canvas.pack(expand=True, fill=tk.BOTH)
-        # Set weight to 2 for 2/3 height
-        right_pane.add(bottom_frame, weight=2)
+        self._setup_top_frame(right_pane)
+        self._setup_bottom_frame(right_pane)
 
         self.main_pane.add(right_frame, weight=self.right_width_weight)
 
-    def setup_question_controls(self, images_num: int) -> None:
-        # Clear existing buttons
+    def _setup_top_frame(self, parent: ttk.PanedWindow) -> None:
+        top_frame = ttk.Frame(parent)
+        self.question_nav_frame = ttk.Frame(top_frame)
+        self.question_nav_frame.pack(side=tk.TOP, fill=tk.X, pady=5)
+        self.top_canvas = tk.Canvas(top_frame, bg="lightgray")
+        self.top_canvas.pack(expand=True, fill=tk.BOTH)
+        parent.add(top_frame, weight=1)
+
+    def _setup_bottom_frame(self, parent: ttk.PanedWindow) -> None:
+        bottom_frame = ttk.Frame(parent)
+        bottom_canvas = tk.Canvas(bottom_frame, bg="lightgray")
+        bottom_canvas.pack(expand=True, fill=tk.BOTH)
+        parent.add(bottom_frame, weight=2)
+
+    def setup_question_controls(self, num_questions: int) -> None:
         for widget in self.question_nav_frame.winfo_children():
             widget.destroy()
 
-        # Add new buttons for page numbers
-        for i in range(1, images_num + 1):
-            def show_image(index=i - 1):  # Capture the current index
-                self.display_question_image(index)
-
-            num_btn = ttk.Button(self.question_nav_frame,
-                                 text=str(i), command=show_image)
-            num_btn.pack(side=tk.LEFT)
+        for i in range(1, num_questions + 1):
+            ttk.Button(self.question_nav_frame, text=str(
+                i), command=lambda idx=i - 1: self.display_question_image(idx)).pack(side=tk.LEFT)
 
     def display_question_image(self, index: int) -> None:
-        # Clear the canvas
         self.top_canvas.delete("all")
-
-        # Get the image from the main app
-        question_image = self.main_app.question_images[index]
-
-        # Get canvas dimensions
-        canvas_width = self.top_canvas.winfo_width()
-        canvas_height = self.top_canvas.winfo_height()
-
-        # Resize the image to fit within the canvas while maintaining aspect ratio
-        img_width, img_height = question_image.size
-        scale = min(canvas_width / img_width, canvas_height / img_height)
-        new_width = int(img_width * scale)
-        new_height = int(img_height * scale)
-        resized_image = question_image.resize(
-            (new_width, new_height), Image.Resampling.LANCZOS)
-
-        # Convert the resized image to a format suitable for Tkinter
+        question_image = self.app.question_images[index]
+        canvas_width, canvas_height = self.top_canvas.winfo_width(
+        ), self.top_canvas.winfo_height()
+        resized_image = self._resize_image_to_fit_canvas(
+            question_image, canvas_width, canvas_height)
         tk_image = ImageTk.PhotoImage(resized_image)
-
-        # Display the image centered on the canvas
-        x_offset = (canvas_width - new_width) // 2
-        y_offset = (canvas_height - new_height) // 2
+        x_offset = (canvas_width - resized_image.width) // 2
+        y_offset = (canvas_height - resized_image.height) // 2
         self.top_canvas.create_image(
             x_offset, y_offset, anchor=tk.NW, image=tk_image)
-
-        # Keep a reference to avoid garbage collection
         self.top_canvas.image = tk_image
 
-    def setup_status_bar(self) -> None:
-        self.main_app.status = ttk.Label(
+    @staticmethod
+    def _resize_image_to_fit_canvas(image: Image.Image, canvas_width: int, canvas_height: int) -> Image.Image:
+        img_width, img_height = image.size
+        scale = min(canvas_width / img_width, canvas_height / img_height)
+        new_dimensions = (int(img_width * scale), int(img_height * scale))
+        return image.resize(new_dimensions, Image.Resampling.LANCZOS)
+
+    def _setup_status_bar(self) -> None:
+        self.status_label = ttk.Label(
             self.root, text="Ready", relief=tk.SUNKEN)
-        self.main_app.status.pack(side=tk.BOTTOM, fill=tk.X)
+        self.status_label.pack(side=tk.BOTTOM, fill=tk.X)
+
+    def update_status(self, message: str) -> None:
+        self.status_label.config(text=message)
+        self.root.update_idletasks()
