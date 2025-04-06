@@ -143,3 +143,7 @@ class UserInterface:
     def update_status(self, message: str) -> None:
         self.status_label.config(text=message)
         self.root.update_idletasks()
+
+    def clear_top_canvas(self) -> None:
+        """Clear the right top frame canvas."""
+        self.top_canvas.delete("all")
