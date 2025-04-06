@@ -214,20 +214,22 @@ class ExtractorApp:
                 for polygon in polygons:
                     question_image = self.image_handler.crop_image(
                         self.original_image, polygon)
-                    question_image.show()
                     self.question_images.append(question_image)
+
+        self.ui.setup_question_controls(len(self.question_images))
 
         self._resize_and_display_image()
 
     def draw_polygons(self,
                       image: Image.Image,
                       id2polygons: dict[int, list]) -> None:
-        draw = ImageDraw.Draw(image, 'RGBA')
+        drawn_image = image.copy()
+        draw = ImageDraw.Draw(drawn_image, 'RGBA')
         for cls, polygons in id2polygons.items():
             for polygon in polygons:
                 draw.polygon(polygon, fill=self.colors[cls], outline="black")
 
-        return image
+        return drawn_image
 
     def update_status(self, message) -> None:
         self.status.config(text=message)
@@ -349,17 +351,69 @@ class UserInterface:
 
         # Top frame
         top_frame = ttk.Frame(right_pane)
-        top_canvas = tk.Canvas(top_frame, bg='lightgray')
-        top_canvas.pack(expand=True, fill=tk.BOTH)
-        right_pane.add(top_frame, weight=self.right_weights[0])
+
+        # Question navigation frame at the top of top_frame
+        self.question_nav_frame = ttk.Frame(top_frame)
+        self.question_nav_frame.pack(side=tk.TOP, fill=tk.X, pady=5)
+
+        # Store reference to top_canvas
+        self.top_canvas = tk.Canvas(top_frame, bg='lightgray')
+        self.top_canvas.pack(expand=True, fill=tk.BOTH)
+        right_pane.add(top_frame, weight=1)  # Set weight to 1 for 1/3 height
 
         # Bottom frame
         bottom_frame = ttk.Frame(right_pane)
         bottom_canvas = tk.Canvas(bottom_frame, bg="lightgray")
         bottom_canvas.pack(expand=True, fill=tk.BOTH)
-        right_pane.add(bottom_frame, weight=self.right_weights[1])
+        # Set weight to 2 for 2/3 height
+        right_pane.add(bottom_frame, weight=2)
 
         self.main_pane.add(right_frame, weight=self.right_width_weight)
+
+    def setup_question_controls(self, images_num: int) -> None:
+        # Clear existing buttons
+        for widget in self.question_nav_frame.winfo_children():
+            widget.destroy()
+
+        # Add new buttons for page numbers
+        for i in range(1, images_num + 1):
+            def show_image(index=i - 1):  # Capture the current index
+                self.display_question_image(index)
+
+            num_btn = ttk.Button(self.question_nav_frame,
+                                 text=str(i), command=show_image)
+            num_btn.pack(side=tk.LEFT)
+
+    def display_question_image(self, index: int) -> None:
+        # Clear the canvas
+        self.top_canvas.delete("all")
+
+        # Get the image from the main app
+        question_image = self.main_app.question_images[index]
+
+        # Get canvas dimensions
+        canvas_width = self.top_canvas.winfo_width()
+        canvas_height = self.top_canvas.winfo_height()
+
+        # Resize the image to fit within the canvas while maintaining aspect ratio
+        img_width, img_height = question_image.size
+        scale = min(canvas_width / img_width, canvas_height / img_height)
+        new_width = int(img_width * scale)
+        new_height = int(img_height * scale)
+        resized_image = question_image.resize(
+            (new_width, new_height), Image.Resampling.LANCZOS)
+
+        # Convert the resized image to a format suitable for Tkinter
+        tk_image = ImageTk.PhotoImage(resized_image)
+
+        # Display the image centered on the canvas
+        x_offset = (canvas_width - new_width) // 2
+        y_offset = (canvas_height - new_height) // 2
+        self.top_canvas.create_image(
+            x_offset, y_offset, anchor=tk.NW, image=tk_image)
+
+        # Keep a reference to avoid garbage collection
+        self.top_canvas.image = tk_image
 
     def setup_status_bar(self) -> None:
         self.main_app.status = ttk.Label(
