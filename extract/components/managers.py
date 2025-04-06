@@ -57,13 +57,17 @@ class ImageManager:
 
 class PredictionManager:
     def __init__(self, cfg: dict, image_handler: ImageHandler) -> None:
+        self._load_models(cfg)
+
+        self.image_handler = image_handler
+        self.colors = self._initialize_colors()
+        self.question_images = []
+
+    def _load_models(self, cfg: dict[str, str]) -> None:
         self.page_predictor = YOLO_SegmentationPredictor(
             cfg["model_path"]["page"])
         self.question_predictor = YOLO_SegmentationPredictor(
             cfg["model_path"]["question"])
-        self.image_handler = image_handler
-        self.colors = self._initialize_colors()
-        self.question_images = []
 
     @staticmethod
     def _initialize_colors() -> dict:
