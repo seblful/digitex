@@ -75,6 +75,9 @@ class ExtractorApp:
             self.pdf_manager.current_page = new_page
             self._load_page_image()
             self.pdf_manager.save_checkpoint()
+            self.question_images = []  # Reset question images
+            self.ui.setup_question_controls(0)  # Clear question controls
+            self.ui.clear_top_canvas()  # Clear the right top frame
 
     def run_ml(self) -> None:
         if not self.image_manager.original_image:
@@ -89,6 +92,9 @@ class ExtractorApp:
         self.question_images = self.prediction_manager.question_images  # Update question_images
         self.ui.setup_question_controls(num_questions)
         self._update_canvas_image()
+
+        if self.question_images:  # Display the first question image
+            self.ui.display_question_image(0)
 
     def update_status(self, message: str) -> None:
         self.ui.update_status(message)
