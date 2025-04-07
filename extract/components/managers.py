@@ -1,6 +1,7 @@
 import os
 from PIL import Image, ImageDraw
 from modules.handlers import PDFHandler, ImageHandler
+from modules.predictors.prediction_result import SegmentationPredictionResult
 from modules.processors import FileProcessor
 from modules.predictors.segmentation import YOLO_SegmentationPredictor
 
@@ -83,24 +84,34 @@ class PredictionManager:
         }
 
     def run_ml(self, original_image: Image.Image) -> tuple:
-        page_predictions = self.page_predictor.predict(original_image)
+        page_predictions = self.predict_page(original_image)
         drawn_image = self._draw_polygons(
             original_image, page_predictions.id2polygons
         )
+        self.predict_questions(original_image, page_predictions)
+        return drawn_image, len(self.question_images)
+
+    def predict_page(self, original_image: Image.Image) -> SegmentationPredictionResult:
+        return self.page_predictor.predict(original_image)
+
+    def predict_questions(self, original_image: Image.Image, page_predictions):
         question_data = [
             (self.image_handler.crop_image(original_image, polygon), polygon)
             for cls, polygons in page_predictions.id2polygons.items()
             if page_predictions.id2label[cls] == "question"
             for polygon in polygons
         ]
-
-        # Sort question images by the vertical center of their polygons
-        question_data.sort(
-            key=lambda item: sum(point[1] for point in item[1]) / len(item[1])
-        )
-
         self.question_images = [data[0] for data in question_data]
-        return drawn_image, len(self.question_images)
+
+        # Create copies of question images and draw polygons on them
+        self.processed_question_images = []
+        for question_image in self.question_images:
+            question_predictions = self.question_predictor.predict(
+                question_image)
+            processed_image = self._draw_polygons(
+                question_image, question_predictions.id2polygons
+            )
+            self.processed_question_images.append(processed_image)
 
     def _draw_polygons(self, image: Image.Image, id2polygons: dict) -> Image.Image:
         drawn_image = image.copy()

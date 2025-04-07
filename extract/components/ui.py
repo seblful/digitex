@@ -116,7 +116,7 @@ class UserInterface:
 
     def display_question_image(self, index: int) -> None:
         self.top_canvas.delete("all")
-        question_image = self.app.question_images[index]
+        question_image = self.app.processed_question_images[index]
         canvas_width, canvas_height = self.top_canvas.winfo_width(
         ), self.top_canvas.winfo_height()
         resized_image = self._resize_image_to_fit_canvas(

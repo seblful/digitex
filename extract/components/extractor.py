@@ -92,12 +92,12 @@ class ExtractorApp:
         self.image_manager.base_image = self.image_manager.image_handler.resize_image(
             drawn_image, *self.image_manager.base_image_dimensions
         )
-        # Use sorted question images
         self.question_images = self.prediction_manager.question_images
+        self.processed_question_images = self.prediction_manager.processed_question_images
         self.ui.setup_question_controls(num_questions)
         self._update_canvas_image()
 
-        if self.question_images:  # Display the first question image
+        if self.processed_question_images:  # Display the first processed question image
             self.ui.display_question_image(0)
 
         # Update status after running ML
