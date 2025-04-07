@@ -81,6 +81,11 @@ class SegmentationPredictionResult(PredictionResult):
                 id_to_polygons[idx] = []
             id_to_polygons[idx].append(polygon)
 
+        # Sort the polygons for each ID by the vertical center of their polygons
+        for idx in id_to_polygons:
+            id_to_polygons[idx].sort(
+                key=lambda p: sum(y for x, y in p) / len(p))
+
         return id_to_polygons
 
 
