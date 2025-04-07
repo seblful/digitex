@@ -1,5 +1,4 @@
-import os
-from PIL import Image, ImageTk
+from PIL import ImageTk
 import tkinter as tk
 from tkinter import filedialog
 from modules.handlers import PDFHandler, ImageHandler
@@ -79,6 +78,10 @@ class ExtractorApp:
             self.ui.setup_question_controls(0)  # Clear question controls
             self.ui.clear_top_canvas()  # Clear the right top frame
 
+            # Update status after navigating pages
+            self.update_status(
+                f"Navigated to page {new_page + 1} of {self.pdf_manager.page_count}.")
+
     def run_ml(self) -> None:
         if not self.image_manager.original_image:
             return
@@ -89,12 +92,17 @@ class ExtractorApp:
         self.image_manager.base_image = self.image_manager.image_handler.resize_image(
             drawn_image, *self.image_manager.base_image_dimensions
         )
-        self.question_images = self.prediction_manager.question_images  # Update question_images
+        # Use sorted question images
+        self.question_images = self.prediction_manager.question_images
         self.ui.setup_question_controls(num_questions)
         self._update_canvas_image()
 
         if self.question_images:  # Display the first question image
             self.ui.display_question_image(0)
+
+        # Update status after running ML
+        self.update_status(
+            f"ML processing completed. {num_questions} questions detected.")
 
     def update_status(self, message: str) -> None:
         self.ui.update_status(message)

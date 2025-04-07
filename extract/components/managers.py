@@ -85,13 +85,21 @@ class PredictionManager:
     def run_ml(self, original_image: Image.Image) -> tuple:
         page_predictions = self.page_predictor.predict(original_image)
         drawn_image = self._draw_polygons(
-            original_image, page_predictions.id2polygons)
-        self.question_images = [
-            self.image_handler.crop_image(original_image, polygon)
+            original_image, page_predictions.id2polygons
+        )
+        question_data = [
+            (self.image_handler.crop_image(original_image, polygon), polygon)
             for cls, polygons in page_predictions.id2polygons.items()
             if page_predictions.id2label[cls] == "question"
             for polygon in polygons
         ]
+
+        # Sort question images by the vertical center of their polygons
+        question_data.sort(
+            key=lambda item: sum(point[1] for point in item[1]) / len(item[1])
+        )
+
+        self.question_images = [data[0] for data in question_data]
         return drawn_image, len(self.question_images)
 
     def _draw_polygons(self, image: Image.Image, id2polygons: dict) -> Image.Image:
