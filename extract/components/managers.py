@@ -43,9 +43,9 @@ class ImageManager:
 
     def load_page_image(self, pdf_page) -> None:
         self.original_image = self.pdf_handler.get_page_image(pdf_page)
-        self.base_image = self.image_handler.resize_image(
-            self.original_image, *self.base_image_dimensions
-        )
+        self.original_image = self.image_handler.resize_image(
+            self.original_image, *self.base_image_dimensions)
+        self.base_image = self.original_image.copy()
 
     def resize_image(self, zoom_level: float, canvas_width: int, canvas_height: int) -> Image.Image:
         if zoom_level == 1.0:
@@ -63,6 +63,7 @@ class PredictionManager:
         self.image_handler = image_handler
         self.colors = self._initialize_colors()
         self.question_images = []
+        self.processed_question_images = []
 
     def _load_models(self, cfg: dict[str, str]) -> None:
         self.page_predictor = YOLO_SegmentationPredictor(

@@ -1,3 +1,4 @@
+import os
 from PIL import ImageTk
 import tkinter as tk
 from tkinter import filedialog
@@ -15,7 +16,7 @@ class ExtractorApp:
         self.ui.setup_ui()
 
         self.pdf_manager = PDFManager(PDFHandler(), FileProcessor(), "inputs")
-        self.image_manager = ImageManager(ImageHandler(), (595, 842))
+        self.image_manager = ImageManager(ImageHandler(), (1525, 2048))
         self.prediction_manager = PredictionManager(cfg, ImageHandler())
 
         self.zoom_level = 1.0
@@ -29,6 +30,10 @@ class ExtractorApp:
             self.pdf_manager.open_pdf(pdf_path)
             self._load_page_image()
             self.pdf_manager.save_checkpoint()
+            self.question_images = []
+            self.prediction_manager.processed_question_images = []
+            self.ui.setup_question_controls(0)
+            self.ui.clear_top_canvas()
             self.update_status(f"Opened PDF file: {pdf_path}")
 
     def _load_page_image(self) -> None:
@@ -74,9 +79,10 @@ class ExtractorApp:
             self.pdf_manager.current_page = new_page
             self._load_page_image()
             self.pdf_manager.save_checkpoint()
-            self.question_images = []  # Reset question images
-            self.ui.setup_question_controls(0)  # Clear question controls
-            self.ui.clear_top_canvas()  # Clear the right top frame
+            self.question_images = []
+            self.prediction_manager.processed_question_images = []
+            self.ui.setup_question_controls(0)
+            self.ui.clear_top_canvas()
 
             # Update status after navigating pages
             self.update_status(
@@ -93,11 +99,10 @@ class ExtractorApp:
             drawn_image, *self.image_manager.base_image_dimensions
         )
         self.question_images = self.prediction_manager.question_images
-        self.processed_question_images = self.prediction_manager.processed_question_images
         self.ui.setup_question_controls(num_questions)
         self._update_canvas_image()
 
-        if self.processed_question_images:  # Display the first processed question image
+        if self.prediction_manager.processed_question_images:  # Display the first processed question image
             self.ui.display_question_image(0)
 
         # Update status after running ML
@@ -152,3 +157,38 @@ class ExtractorApp:
             )
         else:
             self.update_status("Failed loading checkpoint")
+
+    def save_page_image(self) -> None:
+        if not self.image_manager.original_image:
+            self.update_status("No page image to save.")
+            return
+
+        pdf_filename = os.path.splitext(
+            os.path.basename(self.pdf_manager.current_pdf_path))[0]
+        save_dir = self.cfg["train_data_path"]["page"]
+        os.makedirs(save_dir, exist_ok=True)
+        page_filename = f"{pdf_filename}_{self.pdf_manager.current_page}.jpg"
+        save_path = os.path.join(save_dir, page_filename)
+        self.image_manager.original_image.save(save_path)
+        self.update_status(f"Page image saved to {save_path}.")
+
+    def save_question_image(self) -> None:
+        """Save the currently selected question image to the configured directory."""
+        if not self.prediction_manager.processed_question_images:
+            self.update_status("No question image to save.")
+            return
+
+        selected_index = self.ui.selected_question_index
+        if selected_index < 0 or selected_index >= len(self.prediction_manager.processed_question_images):
+            self.update_status("Invalid question index selected.")
+            return
+
+        pdf_filename = os.path.splitext(
+            os.path.basename(self.pdf_manager.current_pdf_path))[0]
+        save_dir = self.cfg["train_data_path"]["question"]
+        os.makedirs(save_dir, exist_ok=True)
+        question_filename = f"{pdf_filename}_{self.pdf_manager.current_page}_{selected_index}.jpg"
+        save_path = os.path.join(save_dir, question_filename)
+        self.prediction_manager.question_images[selected_index].save(save_path)
+
+        self.update_status(f"Question image saved to {save_path}.")
