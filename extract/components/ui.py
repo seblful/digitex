@@ -11,6 +11,7 @@ class UserInterface:
         self.submenu_font = ("Segoe UI", 12)
         self.left_width_weight = 3
         self.right_width_weight = 7
+        self.selected_question_index = -1  # Initialize with no selection
 
     def setup_ui(self) -> None:
         self._setup_root()
@@ -29,14 +30,29 @@ class UserInterface:
 
     def _setup_menubar(self) -> None:
         menubar = tk.Menu(self.root)
+        file_menu = self._create_file_menu(menubar)
+        image_menu = self._create_image_menu(menubar)
+        menubar.add_cascade(label="File", menu=file_menu)
+        menubar.add_cascade(label="Image", menu=image_menu)
+        self.root.config(menu=menubar)
+
+    def _create_file_menu(self, menubar: tk.Menu) -> tk.Menu:
         file_menu = tk.Menu(menubar, tearoff=0, font=self.submenu_font)
         file_menu.add_command(label="Open", command=self.app.open_pdf)
         file_menu.add_command(label="Load Checkpoint",
                               command=self.app.load_checkpoint)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
-        menubar.add_cascade(label="File", menu=file_menu)
-        self.root.config(menu=menubar)
+        return file_menu
+
+    def _create_image_menu(self, menubar: tk.Menu) -> tk.Menu:
+        """Create the 'Image' menu."""
+        image_menu = tk.Menu(menubar, tearoff=0, font=self.submenu_font)
+        image_menu.add_command(label="Save Page Image",
+                               command=self.app.save_page_image)
+        image_menu.add_command(label="Save Question Image",
+                               command=self.app.save_question_image)
+        return image_menu
 
     def _setup_panes(self) -> None:
         self.main_pane = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
@@ -115,8 +131,9 @@ class UserInterface:
                 i), command=lambda idx=i - 1: self.display_question_image(idx)).pack(side=tk.LEFT)
 
     def display_question_image(self, index: int) -> None:
+        self.selected_question_index = index
         self.top_canvas.delete("all")
-        question_image = self.app.processed_question_images[index]
+        question_image = self.app.prediction_manager.processed_question_images[index]
         canvas_width, canvas_height = self.top_canvas.winfo_width(
         ), self.top_canvas.winfo_height()
         resized_image = self._resize_image_to_fit_canvas(
