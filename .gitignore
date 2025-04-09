@@ -18,6 +18,8 @@ training/oneformer/runs
 
 # Extract
 extract/inputs
+extract/outputs
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
