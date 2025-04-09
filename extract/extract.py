@@ -3,8 +3,8 @@ import yaml
 
 from components.extractor import ExtractorApp
 
-CONFIG_DIRECTORY = "inputs"
-CONFIG_FILE = os.path.join(CONFIG_DIRECTORY, "config.yaml")
+INPUTS_DIR = "inputs"
+CONFIG_PATH = os.path.join(INPUTS_DIR, "config.yaml")
 
 
 def load_config(config_path: str) -> dict:
@@ -13,7 +13,7 @@ def load_config(config_path: str) -> dict:
 
 
 def main() -> None:
-    config = load_config(CONFIG_FILE)
+    config = load_config(CONFIG_PATH)
     app = ExtractorApp(cfg=config)
     app.run()
 
