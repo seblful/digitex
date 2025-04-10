@@ -104,6 +104,7 @@ class UserInterface:
         right_pane.pack(expand=True, fill=tk.BOTH)
 
         self._setup_top_frame(right_pane)
+        self._setup_middle_frame(right_pane)  # Add middle frame setup
         self._setup_bottom_frame(right_pane)
 
         self.main_pane.add(right_frame, weight=self.right_width_weight)
@@ -114,13 +115,44 @@ class UserInterface:
         self.question_nav_frame.pack(side=tk.TOP, fill=tk.X, pady=5)
         self.top_canvas = tk.Canvas(top_frame, bg="lightgray")
         self.top_canvas.pack(expand=True, fill=tk.BOTH)
-        parent.add(top_frame, weight=1)
+        parent.add(top_frame, weight=5)
+
+    def _setup_middle_frame(self, parent: ttk.PanedWindow) -> None:
+        middle_frame = ttk.Frame(
+            parent, padding=10, height=10)  # Set minimum height
+        # Prevent resizing below the minimum height
+        middle_frame.pack_propagate(False)
+        info_frame = ttk.Frame(middle_frame)
+
+        ttk.Label(info_frame, text="Subject:").pack(
+            side=tk.LEFT, padx=0, pady=0)
+        self.subject_entry = ttk.Entry(info_frame, width=20)
+        self.subject_entry.pack(side=tk.LEFT, padx=5, pady=0)
+
+        ttk.Label(info_frame, text="Year:").pack(
+            side=tk.LEFT, padx=(50, 0), pady=0)
+        self.year_entry = ttk.Entry(info_frame, width=20)
+        self.year_entry.pack(side=tk.LEFT, padx=5, pady=0)
+
+        ttk.Label(info_frame, text="Option:").pack(
+            side=tk.LEFT, padx=(50, 0), pady=0)
+        self.option_entry = ttk.Entry(info_frame, width=20)
+        self.option_entry.pack(side=tk.LEFT, padx=5, pady=0)
+
+        ttk.Label(info_frame, text="Part:").pack(
+            side=tk.LEFT, padx=(50, 0), pady=0)
+        self.part_entry = ttk.Entry(info_frame, width=20)
+        self.part_entry.pack(side=tk.LEFT, padx=5, pady=0)
+
+        info_frame.pack(side=tk.TOP, fill=tk.X)
+        middle_frame.pack(side=tk.TOP, fill=tk.X)
+        parent.add(middle_frame, weight=1)
 
     def _setup_bottom_frame(self, parent: ttk.PanedWindow) -> None:
         bottom_frame = ttk.Frame(parent)
         bottom_canvas = tk.Canvas(bottom_frame, bg="lightgray")
         bottom_canvas.pack(expand=True, fill=tk.BOTH)
-        parent.add(bottom_frame, weight=2)
+        parent.add(bottom_frame, weight=10)
 
     def setup_question_controls(self, num_questions: int) -> None:
         for widget in self.question_nav_frame.winfo_children():
