@@ -1,11 +1,12 @@
 [project]
-name = "modules"
+name = "digitex"
 version = "0.1.0"
-description = "Helper classes for data processing"
-
-[build-system]
-build-backend = "flit_core.buildapi"
-requires = ["flit_core >=3.2,<4"]
-
-[tool.setuptools]
-py-modules = []
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.2.4",
+    "opencv-python>=4.11.0.86",
+    "paddleocr>=2.10.0",
+    "paddlepaddle-gpu>=2.6.2",
+]
