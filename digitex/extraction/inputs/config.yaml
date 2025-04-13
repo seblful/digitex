@@ -1,0 +1,9 @@
+model_path:
+  page: inputs/models/page.pt
+  question: inputs/models/question.pt
+  word_detection: inputs/models/word_detection.pt
+  word_recognition: inputs/models/word-recognition
+
+train_data_path:
+  page: outputs/train-data/page
+  question: outputs/train-data/question
