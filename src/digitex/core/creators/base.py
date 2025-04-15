@@ -1,9 +1,12 @@
 import os
+import random
 from PIL import Image
 
-from digitex.core.img import ImgProcessor
-from digitex.core.file import FileProcessor
-from handlers import PDFHandler, ImageHandler, LabelHandler
+from digitex.core.processors.img import ImgProcessor
+from digitex.core.processors.file import FileProcessor
+from digitex.core.handlers.pdf import PDFHandler
+from digitex.core.handlers.label import LabelHandler
+from digitex.core.utils import crop_image
 
 
 class BaseDataCreator:
@@ -11,12 +14,41 @@ class BaseDataCreator:
         self.img_processor = ImgProcessor()
         self.file_processor = FileProcessor()
         self.pdf_handler = PDFHandler()
-        self.image_handler = ImageHandler()
         self.label_handler = LabelHandler()
 
     def _read_classes(self, classes_path: str) -> dict[int, str]:
         classes = self.file_processor.read_txt(classes_path)
         return {i: cl.strip() for i, cl in enumerate(classes)}
+
+    def _process_image(self, image: Image.Image) -> Image.Image:
+        img = ImgProcessor.image2img(image=image)
+        img = ImgProcessor.remove_blue(img)
+        image = ImgProcessor.img2image(img=img)
+        return image
+
+    def _get_listdir_random_image(
+        self, images_listdir: list, images_dir: str
+    ) -> tuple[Image.Image, str]:
+        rand_image_name = random.choice(images_listdir)
+        rand_image_path = os.path.join(images_dir, rand_image_name)
+        rand_image = Image.open(rand_image_path)
+        return rand_image, rand_image_name
+
+    def _get_pdf_random_image(
+        self, pdf_listdir: list, pdf_dir: str
+    ) -> tuple[str, int, Image.Image]:
+        return self.pdf_handler.get_random_image(
+            pdf_listdir=pdf_listdir, pdf_dir=pdf_dir
+        )
+
+    def _process_image(self, image) -> Image.Image:
+        img = self.img_processor.image2img(image)
+        img = self.img_processor.remove_blue(img)
+        image = self.img_processor.img2image(img)
+        return image
+
+    def _crop_image(self, image, points, offset: float = 0.0) -> Image.Image:
+        return crop_image(image=image, points=points, offset=offset)
 
     def _save_image(
         self,
@@ -39,30 +71,9 @@ class BaseDataCreator:
 
         return num_saved
 
-    def _get_random_image(self, images_listdir: list, images_dir: str):
-        return self.image_handler.get_random_image(
-            images_listdir=images_listdir, images_dir=images_dir
-        )
-
-    def get_pdf_random_image(self, pdf_listdir: list, pdf_dir: str):
-        return self.pdf_handler.get_random_image(
-            pdf_listdir=pdf_listdir, pdf_dir=pdf_dir
-        )
-
-    def get_listdir_random_image(self, images_listdir: list, images_dir: str):
-        return self._get_random_image(
-            images_listdir=images_listdir, images_dir=images_dir
-        )
-
-    def _process_image(self, image, scan_type: str):
-        return self.img_processor.process(image=image, scan_type=scan_type)
-
-    def _crop_image(self, image, points, offset: float = 0.0):
-        return self.image_handler.crop_image(image=image, points=points, offset=offset)
-
     def _get_points(
         self, image_name: str, labels_dir: str, classes_dict: dict, target_classes: list
-    ):
+    ) -> tuple[int, list[float]]:
         return self.label_handler.get_points(
             image_name=image_name,
             labels_dir=labels_dir,
@@ -74,3 +85,9 @@ class BaseDataCreator:
         return self.label_handler.points_to_abs_polygon(
             points=points, image_width=image_width, image_height=image_height
         )
+
+    def extract(self, *args):
+        raise NotImplementedError("This method should be overridden by subclasses.")
+
+    def predict(self, *args):
+        raise NotImplementedError("This method should be overridden by subclasses.")
