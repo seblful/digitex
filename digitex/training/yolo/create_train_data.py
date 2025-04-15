@@ -1,7 +1,7 @@
 import os
 
-from modules.data_creator import DataCreator
-from modules.utils import create_pdf_from_images
+from digitex.core.creators.page import PageDataCreator
+from digitex.core.utils import create_pdf_from_images
 
 # Paths
 HOME = os.getcwd()
@@ -23,7 +23,7 @@ TABLE_TRAIN_DIR = os.path.join(HOME, "data", "table", "train-data")
 
 def main() -> None:
     # Create DataCreator instance
-    data_creator = DataCreator()
+    data_creator = PageDataCreator()
 
     # # Creat pdfs from images
     # for image_dir in os.listdir(IMAGES_DIR):
@@ -50,19 +50,23 @@ def main() -> None:
     #                                num_images=100)
 
     # Create data for table from annotations
-    data_creator.extract_parts(question_raw_dir=QUESTION_RAW_DIR,
-                               train_dir=TABLE_TRAIN_DIR,
-                               num_images=80,
-                               target_classes=["table"])
+    data_creator.extract_parts(
+        question_raw_dir=QUESTION_RAW_DIR,
+        train_dir=TABLE_TRAIN_DIR,
+        num_images=80,
+        target_classes=["table"],
+    )
 
     # Create data for table from YOLO predictions
-    data_creator.predict_parts(raw_dir=RAW_DATA_DIR,
-                               train_dir=TABLE_TRAIN_DIR,
-                               yolo_page_model_path=PAGE_YOLO_PATH,
-                               yolo_question_model_path=QUESTION_YOLO_PATH,
-                               scan_type="color",
-                               num_images=80,
-                               target_classes=["table"])
+    data_creator.predict_parts(
+        raw_dir=RAW_DATA_DIR,
+        train_dir=TABLE_TRAIN_DIR,
+        yolo_page_model_path=PAGE_YOLO_PATH,
+        yolo_question_model_path=QUESTION_YOLO_PATH,
+        scan_type="color",
+        num_images=80,
+        target_classes=["table"],
+    )
 
 
 if __name__ == "__main__":
