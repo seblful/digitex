@@ -6,21 +6,21 @@ from urllib.parse import unquote
 
 from tqdm import tqdm
 
-from modules.processors import FileProcessor
+from digitex.core.processors.file import FileProcessor
 
 
-class DatasetCreator():
-    def __init__(self,
-                 raw_dir: str,
-                 dataset_dir: str,
-                 train_split: float = 0.8,
-                 max_text_length=31) -> None:
-
+class DatasetCreator:
+    def __init__(
+        self,
+        raw_dir: str,
+        dataset_dir: str,
+        train_split: float = 0.8,
+        max_text_length=31,
+    ) -> None:
         # Input paths
         self.raw_dir = raw_dir
         self.chars_txt_path = os.path.join(raw_dir, "chars.txt")
-        self.replaces_json_path = os.path.join(
-            raw_dir, "replaces.json")
+        self.replaces_json_path = os.path.join(raw_dir, "replaces.json")
 
         # Output paths
         self.dataset_dir = dataset_dir
@@ -34,9 +34,11 @@ class DatasetCreator():
         self.sources = ["ls", "synth"]
 
         # Annotation creator
-        self.annotation_creator = AnnotationCreator(charset=self.charset,
-                                                    replaces_json_path=self.replaces_json_path,
-                                                    max_text_length=max_text_length)
+        self.annotation_creator = AnnotationCreator(
+            charset=self.charset,
+            replaces_json_path=self.replaces_json_path,
+            max_text_length=max_text_length,
+        )
 
     def __setup_splits(self, train_split: float) -> None:
         self.train_split = train_split
@@ -96,9 +98,7 @@ class DatasetCreator():
 
         return None
 
-    def __copy_data(self,
-                    gt: dict[str, str],
-                    set_dir: str) -> None:
+    def __copy_data(self, gt: dict[str, str], set_dir: str) -> None:
         dir_name = os.path.basename(set_dir)
 
         # Create list to store gt lines for txt gt
@@ -109,8 +109,10 @@ class DatasetCreator():
 
         for image_path, text in tqdm(gt.items(), desc=f"Partitioning {dir_name} data"):
             image_name = os.path.basename(image_path)
-            shutil.copyfile(os.path.join(self.raw_dir, image_path),
-                            os.path.join(set_dir, "images", image_name))
+            shutil.copyfile(
+                os.path.join(self.raw_dir, image_path),
+                os.path.join(set_dir, "images", image_name),
+            )
 
             # Create line and append it to the gt_lines
             gt_line = f"{image_name}\t{text}\n"
@@ -118,22 +120,19 @@ class DatasetCreator():
 
         # Write set gt to txt
         gt_txt_path = os.path.join(set_dir, "gt.txt")
-        FileProcessor.write_txt(txt_path=gt_txt_path,
-                                lines=gt_lines)
+        FileProcessor.write_txt(txt_path=gt_txt_path, lines=gt_lines)
 
-    def __partitionate_data(self,
-                            gt_dict: dict[str, str],
-                            aug_gt_dict: dict[str, str] = None) -> None:
+    def __partitionate_data(
+        self, gt_dict: dict[str, str], aug_gt_dict: dict[str, str] = None
+    ) -> None:
         # Shuffle gt_dict
         gt_dict = self.shuffle_dict(gt_dict)
 
         # Create train and validation gt dicts
         num_train = int(len(gt_dict) * self.train_split)
         #  num_val = int(len(gt_dict) * self.val_split)
-        train_gt_dict = {key: gt_dict[key]
-                         for key in list(gt_dict.keys())[:num_train]}
-        val_gt_dict = {key: gt_dict[key] for key in list(
-            gt_dict.keys())[num_train:]}
+        train_gt_dict = {key: gt_dict[key] for key in list(gt_dict.keys())[:num_train]}
+        val_gt_dict = {key: gt_dict[key] for key in list(gt_dict.keys())[num_train:]}
 
         # Update train_gt_dict with aug_gt_dict and shuffle
         if aug_gt_dict is not None:
@@ -142,13 +141,13 @@ class DatasetCreator():
 
         # Copy data to corresponding folder
         for gt_dict, set_dir in zip((train_gt_dict, val_gt_dict), self.dataset_dirs):
-            self.__copy_data(gt=gt_dict,
-                             set_dir=set_dir)
+            self.__copy_data(gt=gt_dict, set_dir=set_dir)
 
     def create_dataset(self, source: str, use_aug=False) -> None:
         # Assert if right source
         assert source in self.sources, f"Source of raw images must be one of {
-            self.sources}."
+            self.sources
+        }."
 
         # Create dataset dirs
         self.__setup_dataset_dirs()
@@ -156,36 +155,37 @@ class DatasetCreator():
         # Create annotations
         if source == "ls":
             images_dir = "images"
-            data_json_path = os.path.join(self.raw_dir, 'data.json')
-            gt_dict = self.annotation_creator.create_ls_gt(images_dir=images_dir,
-                                                           data_json_path=data_json_path)
+            data_json_path = os.path.join(self.raw_dir, "data.json")
+            gt_dict = self.annotation_creator.create_ls_gt(
+                images_dir=images_dir, data_json_path=data_json_path
+            )
         else:
             images_dir = "images"
             gt_txt_path = os.path.join(self.raw_dir, "gt.txt")
-            gt_dict = self.annotation_creator.create_synth_gt(images_dir=images_dir,
-                                                              gt_txt_path=gt_txt_path)
+            gt_dict = self.annotation_creator.create_synth_gt(
+                images_dir=images_dir, gt_txt_path=gt_txt_path
+            )
 
         if use_aug is True:
             images_dir = "aug-images"
             gt_txt_path = os.path.join(self.raw_dir, "aug_gt.txt")
-            aug_gt_dict = self.annotation_creator.create_synth_gt(images_dir=images_dir,
-                                                                  gt_txt_path=gt_txt_path)
+            aug_gt_dict = self.annotation_creator.create_synth_gt(
+                images_dir=images_dir, gt_txt_path=gt_txt_path
+            )
         else:
             aug_gt_dict = None
 
         # Create dataset
-        self.__partitionate_data(gt_dict=gt_dict,
-                                 aug_gt_dict=aug_gt_dict)
+        self.__partitionate_data(gt_dict=gt_dict, aug_gt_dict=aug_gt_dict)
 
         # Create charser
         self.__create_charset()
 
 
 class AnnotationCreator:
-    def __init__(self,
-                 charset: set[str],
-                 replaces_json_path: str,
-                 max_text_length: int) -> None:
+    def __init__(
+        self, charset: set[str], replaces_json_path: str, max_text_length: int
+    ) -> None:
         self.charset = charset
 
         # Paths
@@ -205,8 +205,9 @@ class AnnotationCreator:
 
     def check_length(self, text: str) -> None:
         if len(text) > self.max_text_length:
-            raise ValueError(f"Length of text {text} is greater than {
-                             self.max_text_length}.")
+            raise ValueError(
+                f"Length of text {text} is greater than {self.max_text_length}."
+            )
 
     def check_chars(self, text: str) -> None:
         for char in text:
@@ -227,8 +228,8 @@ class AnnotationCreator:
 
     def __get_text(self, task: dict) -> str:
         # Retrieve result and label
-        result = task['annotations'][0]['result']
-        text = result[0]['value']['text'][0]
+        result = task["annotations"][0]["result"]
+        text = result[0]["value"]["text"][0]
 
         return text
 
@@ -238,9 +239,7 @@ class AnnotationCreator:
 
         return image_path
 
-    def create_ls_gt(self,
-                     images_dir: str,
-                     data_json_path: str) -> dict[str, str]:
+    def create_ls_gt(self, images_dir: str, data_json_path: str) -> dict[str, str]:
         # Read jsons
         json_dict = FileProcessor.read_json(data_json_path)
 
@@ -267,9 +266,7 @@ class AnnotationCreator:
 
         return gt
 
-    def create_synth_gt(self,
-                        images_dir: str,
-                        gt_txt_path: str) -> dict[str, str]:
+    def create_synth_gt(self, images_dir: str, gt_txt_path: str) -> dict[str, str]:
         lines = FileProcessor.read_txt(gt_txt_path)
 
         texts = []

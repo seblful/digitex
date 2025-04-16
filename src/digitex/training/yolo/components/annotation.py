@@ -3,36 +3,32 @@ from urllib.parse import unquote
 
 from tqdm import tqdm
 
-from modules.processors import FileProcessor
+from digitex.core.processors.file import FileProcessor
 
 
 class Keypoint:
-    def __init__(self,
-                 x: float | int,
-                 y: float | int,
-                 visible: int) -> None:
-        assert visible in [
-            0, 1], "Keypoint visibility parameter must be one of [0, 1]."
+    def __init__(self, x: float | int, y: float | int, visible: int) -> None:
+        assert visible in [0, 1], "Keypoint visibility parameter must be one of [0, 1]."
 
         self.x = x
         self.y = y
         self.visible = visible
 
-    def clip(self,
-             img_width: int,
-             img_height: int) -> None:
+    def clip(self, img_width: int, img_height: int) -> None:
         self.x = max(0, min(self.x, img_width - 1))
         self.y = max(0, min(self.y, img_height - 1))
 
 
 class KeypointsObject:
-    def __init__(self,
-                 class_idx: int,
-                 keypoints: list[Keypoint],
-                 num_keypoints: int,
-                 bbox_center: tuple[float | int] = None,
-                 bbox_width: float | int = None,
-                 bbox_height: float | int = None) -> None:
+    def __init__(
+        self,
+        class_idx: int,
+        keypoints: list[Keypoint],
+        num_keypoints: int,
+        bbox_center: tuple[float | int] = None,
+        bbox_width: float | int = None,
+        bbox_height: float | int = None,
+    ) -> None:
         self.class_idx = class_idx
         self.num_keypoints = num_keypoints
         self.keypoints = self.pad_keypoints(keypoints, num_keypoints)
@@ -59,12 +55,15 @@ class KeypointsObject:
 
         return self.__bbox
 
-    def pad_keypoints(self, keypoints: list[Keypoint], num_keypoints: int) -> list[Keypoint]:
+    def pad_keypoints(
+        self, keypoints: list[Keypoint], num_keypoints: int
+    ) -> list[Keypoint]:
         keypoints = keypoints[:num_keypoints]
 
         if len(keypoints) < num_keypoints:
-            keypoints = keypoints + \
-                [Keypoint(0, 0, 0)] * (num_keypoints - len(keypoints))
+            keypoints = keypoints + [Keypoint(0, 0, 0)] * (
+                num_keypoints - len(keypoints)
+            )
 
         return keypoints
 
@@ -95,15 +94,13 @@ class KeypointsObject:
             self.bbox_width = min((max_x - min_x) * self.bbox_offset, 1.0)
             self.bbox_height = min((max_y - min_y) * self.bbox_offset, 1.0)
         else:
-            self.bbox_center = int((min_x + max_x) /
-                                   2), int((min_y + max_y) / 2)
+            self.bbox_center = int((min_x + max_x) / 2), int((min_y + max_y) / 2)
             self.bbox_width = int(max(max_x - min_x, 0))
             self.bbox_height = int(max(max_y - min_y, 0))
 
-    def to_relative(self,
-                    img_width: int,
-                    img_height: int,
-                    clip: bool = False) -> 'KeypointsObject':
+    def to_relative(
+        self, img_width: int, img_height: int, clip: bool = False
+    ) -> "KeypointsObject":
         # Convert coordinates
         rel_keypoints = []
 
@@ -124,16 +121,16 @@ class KeypointsObject:
         bbox_width = int(self.bbox_width * img_width)
         bbox_height = int(self.bbox_height * img_height)
 
-        return KeypointsObject(class_idx=self.class_idx,
-                               keypoints=rel_keypoints,
-                               num_keypoints=len(self.keypoints),
-                               bbox_center=bbox_center,
-                               bbox_width=bbox_width,
-                               bbox_height=bbox_height)
+        return KeypointsObject(
+            class_idx=self.class_idx,
+            keypoints=rel_keypoints,
+            num_keypoints=len(self.keypoints),
+            bbox_center=bbox_center,
+            bbox_width=bbox_width,
+            bbox_height=bbox_height,
+        )
 
-    def to_absolute(self,
-                    img_width: int,
-                    img_height: int) -> "KeypointsObject":
+    def to_absolute(self, img_width: int, img_height: int) -> "KeypointsObject":
         # Convert coordinates
         abs_keypoints = []
 
@@ -151,12 +148,14 @@ class KeypointsObject:
         bbox_width = self.bbox_width / img_width
         bbox_height = self.bbox_height / img_height
 
-        return KeypointsObject(class_idx=self.class_idx,
-                               keypoints=abs_keypoints,
-                               num_keypoints=len(self.keypoints),
-                               bbox_center=bbox_center,
-                               bbox_width=bbox_width,
-                               bbox_height=bbox_height)
+        return KeypointsObject(
+            class_idx=self.class_idx,
+            keypoints=abs_keypoints,
+            num_keypoints=len(self.keypoints),
+            bbox_center=bbox_center,
+            bbox_width=bbox_width,
+            bbox_height=bbox_height,
+        )
 
     def get_vis_coords(self) -> list[tuple]:
         coords = []
@@ -172,10 +171,14 @@ class KeypointsObject:
             return ""
 
         # Get all props
-        props = [self.class_idx, self.bbox_center[0],
-                 self.bbox_center[1], self.bbox_width, self.bbox_height]
-        coords = [coord for kp in self.keypoints for coord in (
-            kp.x, kp.y, kp.visible)]
+        props = [
+            self.class_idx,
+            self.bbox_center[0],
+            self.bbox_center[1],
+            self.bbox_width,
+            self.bbox_height,
+        ]
+        coords = [coord for kp in self.keypoints for coord in (kp.x, kp.y, kp.visible)]
 
         keypoints_str = " ".join(map(str, props + coords))
 
@@ -183,14 +186,16 @@ class KeypointsObject:
 
 
 class AnnotationCreator:
-    def __init__(self,
-                 raw_dir: str,
-                 id2label: dict[int, str],
-                 label2id: dict[str, int],
-                 num_keypoints: int = 30) -> None:
+    def __init__(
+        self,
+        raw_dir: str,
+        id2label: dict[int, str],
+        label2id: dict[str, int],
+        num_keypoints: int = 30,
+    ) -> None:
         self.raw_dir = raw_dir
         self.data_json_path = os.path.join(raw_dir, "data.json")
-        self.classes_path = os.path.join(raw_dir, 'classes.txt')
+        self.classes_path = os.path.join(raw_dir, "classes.txt")
         self.__labels_dir = None
 
         self.id2label = id2label
@@ -221,13 +226,15 @@ class AnnotationCreator:
             keypoints.append(keypoint)
 
         if not keypoints:
-            return KeypointsObject(class_idx=None,
-                                   keypoints=[],
-                                   num_keypoints=self.num_keypoints)
+            return KeypointsObject(
+                class_idx=None, keypoints=[], num_keypoints=self.num_keypoints
+            )
 
-        return KeypointsObject(class_idx=self.label2id[label],
-                               keypoints=keypoints,
-                               num_keypoints=self.num_keypoints)
+        return KeypointsObject(
+            class_idx=self.label2id[label],
+            keypoints=keypoints,
+            num_keypoints=self.num_keypoints,
+        )
 
     def create_keypoints(self) -> None:
         # Read json

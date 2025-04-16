@@ -1,6 +1,6 @@
 import os
 
-from modules.anns_converter import OCRBBOXAnnsConverter, OCRCaptionConverter
+from digitex.core.anns_converter import OCRBBOXAnnsConverter, OCRCaptionConverter
 
 # Paths
 HOME = os.getcwd()
@@ -19,9 +19,9 @@ def main():
 
     # Convert ocr to caption
     ocr_caption_converter = OCRCaptionConverter(ls_upload_dir=LS_UPLOAD_DIR)
-    ocr_caption_converter.convert(input_json_path=DATA_JSON_PATH,
-                                  output_project_num=11,
-                                  output_dir=RAW_DIR)
+    ocr_caption_converter.convert(
+        input_json_path=DATA_JSON_PATH, output_project_num=11, output_dir=RAW_DIR
+    )
 
 
 if __name__ == "__main__":
