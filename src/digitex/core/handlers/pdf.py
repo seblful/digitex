@@ -28,7 +28,7 @@ class PDFHandler:
         pdf.save(output_path, version=17)
 
     @staticmethod
-    def open_pdf(pdf_path: str) -> pdfium.PdfDocument[str]:
+    def open_pdf(pdf_path: str) -> pdfium.PdfDocument:
         pdf_obj = pdfium.PdfDocument(pdf_path)
 
         return pdf_obj
