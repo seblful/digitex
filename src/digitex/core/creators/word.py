@@ -5,9 +5,7 @@ from ..predictors.detection import FAST_DetectionPredictor
 
 
 class WordDataCreator(BaseDataCreator):
-    def extract_words(
-        self, parts_raw_dir: str, train_dir: str, num_images: int
-    ) -> None:
+    def extract(self, parts_raw_dir: str, train_dir: str, num_images: int) -> None:
         images_dir = os.path.join(parts_raw_dir, "images")
         labels_dir = os.path.join(parts_raw_dir, "labels")
         classes_path = os.path.join(parts_raw_dir, "classes.txt")
@@ -17,7 +15,7 @@ class WordDataCreator(BaseDataCreator):
         num_saved = 0
 
         while num_images != num_saved:
-            rand_image, rand_image_name = self.get_listdir_random_image(
+            rand_image, rand_image_name = self._get_listdir_random_image(
                 images_listdir, images_dir
             )
             rand_points_idx, rand_points = self._get_points(
@@ -41,30 +39,27 @@ class WordDataCreator(BaseDataCreator):
                 num_images=num_images,
             )
 
-    def predict_words(
+    def predict(
         self,
-        raw_dir: str,
+        pdf_dir: str,
         train_dir: str,
         yolo_page_model_path: str,
         yolo_question_model_path: str,
         fast_word_model_path: str,
-        scan_type: str,
         num_images: int,
     ) -> None:
         yolo_page_predictor = YOLO_SegmentationPredictor(yolo_page_model_path)
         yolo_question_predictor = YOLO_SegmentationPredictor(yolo_question_model_path)
         fast_word_predictor = FAST_DetectionPredictor(fast_word_model_path)
-        pdf_listdir = [pdf for pdf in os.listdir(raw_dir) if pdf.endswith("pdf")]
+        pdf_listdir = [pdf for pdf in os.listdir(pdf_dir) if pdf.endswith("pdf")]
         parts_target_classes = ["answer", "number", "option", "question", "spec"]
         num_saved = 0
 
         while num_images != num_saved:
-            page_rand_image, rand_image_name, rand_page_idx = self.get_pdf_random_image(
-                pdf_listdir, raw_dir
+            page_rand_image, rand_image_name, rand_page_idx = (
+                self._get_pdf_random_image(pdf_listdir, pdf_dir)
             )
-            page_rand_image = self._process_image(
-                image=page_rand_image, scan_type=scan_type
-            )
+            page_rand_image = self._process_image(image=page_rand_image)
             page_pred_result = yolo_page_predictor(page_rand_image)
             page_points_dict = page_pred_result.id2polygons
             question_rand_points_idx, question_rand_points = (
