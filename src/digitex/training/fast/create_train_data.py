@@ -1,39 +1,39 @@
 import os
 
-from modules.data_creator import DataCreator
+from digitex.core.creators.part import PartDataCreator
 
 # Paths
 HOME = os.getcwd()
-TESTING_DIR = os.path.dirname(os.path.dirname(HOME))
+BOOKS_DIR = os.path.join(HOME, "books")
+PDF_DIR = os.path.join(BOOKS_DIR, "biology", "new")
 
-RAW_DATA_DIR = os.path.join(TESTING_DIR, "raw-data", "biology", "new")
+FAST_DIR = os.path.join(HOME, "src", "digitex", "training", "fast")
+PARTS_TRAIN_DIR = os.path.join(FAST_DIR, "data", "train-data")
 
-PARTS_TRAIN_DIR = os.path.join(HOME, "data", "train-data")
+YOLO_DIR = os.path.join(HOME, "src", "digitex", "training", "yolo")
+QUESTION_RAW_DIR = os.path.join(YOLO_DIR, "data", "question", "raw-data")
 
-YOLO_DIR = os.path.join(TESTING_DIR, "training", "yolo")
-QUESTION_RAW_DIR = os.path.join(YOLO_DIR, "data", "question2", "raw-data")
-
-YOLO_PAGE_PATH = os.path.join(YOLO_DIR, "models", "yolov11", "page_m.pt")
-YOLO_QUESTION_PATH = os.path.join(
-    YOLO_DIR, "models", "yolov11", "question_x3.pt")
+YOLO_PAGE_MODEL_PATH = os.path.join(HOME, "models", "page.pt")
+YOLO_QUSTION_MODEL_PATH = os.path.join(HOME, "models", "question.pt")
 
 
 def main() -> None:
     # Create DataCreator instance
-    data_creator = DataCreator()
+    data_creator = PartDataCreator()
 
     # Create parts data from question annotations
-    data_creator.extract_parts(question_raw_dir=QUESTION_RAW_DIR,
-                               train_dir=PARTS_TRAIN_DIR,
-                               num_images=100)
+    data_creator.extract(
+        question_raw_dir=QUESTION_RAW_DIR, train_dir=PARTS_TRAIN_DIR, num_images=100
+    )
 
     # Create parts data from page and questions predictions
-    data_creator.predict_parts(raw_dir=RAW_DATA_DIR,
-                               train_dir=PARTS_TRAIN_DIR,
-                               yolo_page_model_path=YOLO_PAGE_PATH,
-                               yolo_question_model_path=YOLO_QUESTION_PATH,
-                               scan_type="color",
-                               num_images=100)
+    data_creator.predict(
+        pdf_dir=PDF_DIR,
+        train_dir=PARTS_TRAIN_DIR,
+        yolo_page_model_path=YOLO_PAGE_MODEL_PATH,
+        yolo_question_model_path=YOLO_QUSTION_MODEL_PATH,
+        num_images=100,
+    )
 
 
 if __name__ == "__main__":
