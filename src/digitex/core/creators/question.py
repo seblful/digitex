@@ -41,10 +41,10 @@ class QuestionDataCreator(BaseDataCreator):
         self,
         pdf_dir: str,
         train_dir: str,
-        yolo_model_path: str,
+        yolo_question_model_path: str,
         num_images: int,
     ) -> None:
-        yolo_predictor = YOLO_SegmentationPredictor(model_path=yolo_model_path)
+        yolo_predictor = YOLO_SegmentationPredictor(model_path=yolo_question_model_path)
         pdf_listdir = [pdf for pdf in os.listdir(pdf_dir) if pdf.endswith("pdf")]
         num_saved = 0
 

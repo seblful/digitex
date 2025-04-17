@@ -18,11 +18,11 @@ YOLO_DATA_DIR = os.path.join(YOLO_DIR, "data")
 
 PAGE_RAW_DIR = os.path.join(YOLO_DATA_DIR, "page", "raw-data")
 PAGE_TRAIN_DIR = os.path.join(YOLO_DATA_DIR, "page", "train-data")
-PAGE_YOLO_PATH = os.path.join(HOME, "models", "page.pt")
+YOLO_PAGE_MODEL_PATH = os.path.join(HOME, "models", "page.pt")
 
 QUESTION_RAW_DIR = os.path.join(YOLO_DATA_DIR, "question", "raw-data")
 QUESTION_TRAIN_DIR = os.path.join(YOLO_DATA_DIR, "question", "train-data")
-QUESTION_YOLO_PATH = os.path.join(HOME, "models", "question.pt")
+YOLO_QUSTION_MODEL_PATH = os.path.join(HOME, "models", "question.pt")
 
 TABLE_TRAIN_DIR = os.path.join(YOLO_DATA_DIR, "table-obb", "train-data")
 
@@ -47,7 +47,7 @@ def main() -> None:
     data_creator.predict(
         pdf_dir=PDF_DIR,
         train_dir=QUESTION_TRAIN_DIR,
-        yolo_model_path=PAGE_YOLO_PATH,
+        yolo_question_model_path=YOLO_PAGE_MODEL_PATH,
         num_images=100,
     )
 
@@ -64,8 +64,8 @@ def main() -> None:
     data_creator.predict(
         pdf_dir=PDF_DIR,
         train_dir=TABLE_TRAIN_DIR,
-        yolo_page_model_path=PAGE_YOLO_PATH,
-        yolo_question_model_path=QUESTION_YOLO_PATH,
+        yolo_page_model_path=YOLO_PAGE_MODEL_PATH,
+        yolo_question_model_path=YOLO_QUSTION_MODEL_PATH,
         num_images=80,
         target_classes=["table"],
     )
