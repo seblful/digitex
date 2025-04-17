@@ -1,42 +1,41 @@
 import os
 
-from modules.data_creator import DataCreator
+from digitex.core.creators.word import WordDataCreator
 
 # Paths
 HOME = os.getcwd()
-TESTING_DIR = os.path.dirname(os.path.dirname(HOME))
+BOOKS_DIR = os.path.join(HOME, "books")
+PDF_DIR = os.path.join(BOOKS_DIR, "biology", "new")
 
-RAW_DATA_DIR = os.path.join(TESTING_DIR, "raw-data", "biology", "new")
+SVTR_DIR = os.path.join(HOME, "src", "digitex", "training", "svtr")
+WORDS_TRAIN_DIR = os.path.join(SVTR_DIR, "data", "finetune", "train-data")
 
-WORDS_TRAIN_DIR = os.path.join(HOME, "data", "finetune", "train-data")
-
-FAST_DIR = os.path.join(TESTING_DIR, "training", "fast")
+FAST_DIR = os.path.join(HOME, "src", "digitex", "training", "fast")
 PARTS_RAW_DIR = os.path.join(FAST_DIR, "data", "raw-data")
-FAST_WORD_MODEL_PATH = os.path.join(FAST_DIR, "models", "fast_base2.pt")
 
-YOLO_DIR = os.path.join(TESTING_DIR, "training", "yolo")
-YOLO_PAGE_MODEL_PATH = os.path.join(YOLO_DIR, "models", "yolov11", "page_m.pt")
-YOLO_QUESTION_MODEL_PATH = os.path.join(
-    YOLO_DIR, "models", "yolov11", "question_x3.pt")
+YOLO_PAGE_MODEL_PATH = os.path.join(HOME, "models", "page.pt")
+YOLO_QUESTION_MODEL_PATH = os.path.join(HOME, "models", "question.pt")
+FAST_WORD_MODEL_PATH = os.path.join(HOME, "models", "word.pt")
 
 
 def main() -> None:
     # Create DataCreator instance
-    data_creator = DataCreator()
+    data_creator = WordDataCreator()
 
     # Create parts data from question annotations
-    data_creator.extract_words(parts_raw_dir=PARTS_RAW_DIR,
-                               train_dir=WORDS_TRAIN_DIR,
-                               num_images=100)
+    data_creator.extract(
+        parts_raw_dir=PARTS_RAW_DIR, train_dir=WORDS_TRAIN_DIR, num_images=100
+    )
 
     # Create parts data from page and questions predictions
-    data_creator.predict_words(raw_dir=RAW_DATA_DIR,
-                               train_dir=WORDS_TRAIN_DIR,
-                               yolo_page_model_path=YOLO_PAGE_MODEL_PATH,
-                               yolo_question_model_path=YOLO_QUESTION_MODEL_PATH,
-                               fast_word_model_path=FAST_WORD_MODEL_PATH,
-                               scan_type="color",
-                               num_images=1)
+    data_creator.predict(
+        pdf_dir=PDF_DIR,
+        train_dir=WORDS_TRAIN_DIR,
+        yolo_page_model_path=YOLO_PAGE_MODEL_PATH,
+        yolo_question_model_path=YOLO_QUESTION_MODEL_PATH,
+        fast_word_model_path=FAST_WORD_MODEL_PATH,
+        num_images=100,
+    )
 
 
 if __name__ == "__main__":
