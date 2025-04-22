@@ -10,6 +10,96 @@ from urllib.parse import unquote
 from digitex.core.processors.file import FileProcessor
 
 
+class DatasetCreator:
+    def __init__(
+        self, raw_dir: str, dataset_dir: str, train_split: float = 0.8
+    ) -> None:
+        # Paths
+        self.raw_dir = raw_dir
+        self.raw_images_dir = os.path.join(raw_dir, "images")
+        self.anns_json_path = os.path.join(raw_dir, "anns.json")
+
+        self.dataset_dir = dataset_dir
+        self._setup_dataset_dirs()
+
+        # Input dirs
+        self.data_json_path = os.path.join(raw_dir, "data.json")
+        self.classes_path = os.path.join(raw_dir, "classes.txt")
+
+        # Data split
+        self.train_split = train_split
+        self.val_split = 1 - self.train_split
+
+        # Annotation creator
+        self.annotation_creator = AnnotationCreator(
+            raw_images_dir=self.raw_images_dir,
+            data_json_path=self.data_json_path,
+            anns_json_path=self.anns_json_path,
+        )
+
+    def _setup_dataset_dirs(self) -> None:
+        os.mkdir(self.dataset_dir)
+
+        # Train dirs
+        self.train_dir = os.path.join(self.dataset_dir, "train")
+        train_images_dir = os.path.join(self.train_dir, "images")
+        os.makedirs(train_images_dir)
+
+        # Val dirs
+        self.val_dir = os.path.join(self.dataset_dir, "val")
+        val_images_dir = os.path.join(self.val_dir, "images")
+        os.makedirs(val_images_dir)
+
+    def _copy_data(self, listdir: list[str], set_dir: str, anns_dict: dict) -> None:
+        # Create empty dict to store formatted annotations
+        set_anns_dict = {}
+
+        # Copy image
+        for image_name in listdir:
+            shutil.copyfile(
+                os.path.join(self.raw_images_dir, image_name),
+                os.path.join(set_dir, "images", image_name),
+            )
+            set_anns_dict[image_name] = anns_dict[image_name]
+
+        # Convert annotations to strings
+        lines = []
+        for k, v in set_anns_dict.items():
+            lines.append(k + "\t" + str(v) + "\n")
+
+        label_path = os.path.join(set_dir, "labels.txt")
+        FileProcessor.write_txt(label_path, lines)
+
+    def _partitionate_data(self) -> None:
+        # Images listdir and shuffle
+        images_listdir = os.listdir(self.raw_images_dir)
+        random.shuffle(images_listdir)
+
+        # Create train and validation listdirs
+        num_train = int(len(images_listdir) * self.train_split)
+        num_val = int(len(images_listdir) * self.val_split)
+        train_listdir = images_listdir[:num_train]
+        val_listdir = images_listdir[num_train : num_train + num_val]
+
+        # Load anns dict
+        anns_dict = FileProcessor.read_json(json_path=self.anns_json_path)
+
+        # Copy the images to folders and create annotation file
+        for listdir, set_dir in zip(
+            (train_listdir, val_listdir), (self.train_dir, self.val_dir)
+        ):
+            self._copy_data(listdir=listdir, set_dir=set_dir, anns_dict=anns_dict)
+
+    def create_dataset(self) -> None:
+        # Create annotations
+        print("Annotations are creating...")
+        self.annotation_creator.create_annotations()
+
+        # Create dataset
+        print("Data is partitioning...")
+        self._partitionate_data()
+
+
 class AnnotationCreator:
     def __init__(
         self, raw_images_dir: str, data_json_path: str, anns_json_path: str
