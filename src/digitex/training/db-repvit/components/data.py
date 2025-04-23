@@ -1,10 +1,9 @@
 import os
 import shutil
-
-import math
 import random
+import json
+import math
 
-import hashlib
 from urllib.parse import unquote
 
 from digitex.core.processors.file import FileProcessor
@@ -65,7 +64,10 @@ class DatasetCreator:
         # Convert annotations to strings
         lines = []
         for k, v in set_anns_dict.items():
-            lines.append(k + "\t" + str(v) + "\n")
+            path = os.path.join("images", k)
+            ann = json.dumps(v, ensure_ascii=False)
+
+            lines.append(path + "\t" + ann + "\n")
 
         label_path = os.path.join(set_dir, "labels.txt")
         FileProcessor.write_txt(label_path, lines)
@@ -108,14 +110,6 @@ class AnnotationCreator:
         self.raw_images_dir = raw_images_dir
         self.data_json_path = data_json_path
         self.anns_json_path = anns_json_path
-
-    def image_hash(self, image_name: str) -> str:
-        image_path = os.path.join(self.raw_images_dir, image_name)
-        with open(image_path, "rb") as f:
-            bytes = f.read()
-            hash = hashlib.sha256(bytes).hexdigest()
-
-        return hash
 
     @staticmethod
     def bbox_to_points(
