@@ -74,7 +74,8 @@ class Visualizer:
             anns_txt_path = os.path.join(set_dir, "labels.txt")
             anns_dict = self._load_annotations(anns_txt_path, num_images)
 
-            for image_name, annotations in anns_dict.items():
+            for image_path, annotations in anns_dict.items():
+                image_name = os.path.basename(image_path)
                 self._process_image(image_name, annotations, images_dir, set_dir)
 
     def _save_image(self, image: Image, image_name: str, set_dir: str) -> None:
