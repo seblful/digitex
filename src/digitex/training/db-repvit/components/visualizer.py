@@ -1,6 +1,7 @@
 import os
 import json
 import random
+from textwrap import wrap
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -21,17 +22,42 @@ class Visualizer:
 
     @staticmethod
     def _add_transcription_text(
-        image: Image, transcriptions: list[str], font_size: int = 30
+        image: Image, transcriptions: list[str], font_size: int = 30, padding: int = 10
     ) -> Image:
         font = ImageFont.truetype("arial.ttf", size=font_size)
-        text_height = font_size + 10
+        text = " | ".join(transcriptions)
+
+        # Calculate text wrapping based on image width
+        max_text_width = image.width - 2 * padding
+        lines = []
+        current_line = ""
+        for word in text.split():
+            test_line = f"{current_line} {word}".strip()
+            test_line_width = font.getbbox(test_line)[2]  # Get text width
+            if test_line_width <= max_text_width:
+                current_line = test_line
+            else:
+                lines.append(current_line)
+                current_line = word
+        if current_line:
+            lines.append(current_line)
+
+        # Calculate new image height to fit text
+        text_height = len(lines) * (font_size + padding)
         new_image = Image.new(
-            "RGBA", (image.width, image.height + text_height), "white"
+            "RGBA", (image.width, image.height + text_height + padding), "white"
         )
         new_image.paste(image, (0, 0))
+
+        # Draw text on the new image
         draw = ImageDraw.Draw(new_image)
-        text = " | ".join(transcriptions)
-        draw.text((10, image.height + 5), text, fill="black", font=font)
+        y_text = image.height + padding
+        for line in lines:
+            text_width = font.getbbox(line)[2]  # Get text width
+            x_text = (image.width - text_width) // 2  # Center align text
+            draw.text((x_text, y_text), line, fill="black", font=font)
+            y_text += font_size + padding
+
         return new_image
 
     def _draw_image(
