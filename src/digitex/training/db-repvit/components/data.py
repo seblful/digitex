@@ -3,6 +3,7 @@ import shutil
 import random
 import json
 import math
+import re
 
 from urllib.parse import unquote
 
@@ -185,3 +186,35 @@ class AnnotationCreator:
 
         # Save annotation
         FileProcessor.write_json(json_dict=anns_dict, json_path=self.anns_json_path)
+
+
+class DataChecker:
+    def __init__(self, raw_dir: str) -> None:
+        self.data_json_path = os.path.join(raw_dir, "data.json")
+
+        # Define regex patterns
+        self.patterns = {
+            "B": r'[^"]*B[^"]*',
+            "З": r'[^"]*З[^"]*',
+        }
+
+    def _print_matches(self, task_id: int, char: str, text: str) -> None:
+        print(f"Task ID: {task_id}, Found '{char}' in {text}")
+
+    def check_text(self) -> None:
+        # Read json data
+        json_dict = FileProcessor.read_json(self.data_json_path)
+
+        # Iterate through tasks
+        for task in json_dict:
+            task_id = task.get("id")
+
+            result = task["annotations"][0]["result"]
+
+            for entry in result:
+                if {"x", "text"}.issubset(entry["value"].keys()):
+                    transcription = entry["value"]["text"][0]
+
+                    for char, pattern in self.patterns.items():
+                        if re.search(pattern, transcription):
+                            self._print_matches(task_id, char, transcription)
