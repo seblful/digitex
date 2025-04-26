@@ -1,7 +1,7 @@
 import os
 import argparse
 
-from components.data import DatasetCreator
+from components.data import DatasetCreator, DataChecker
 from components.visualizer import Visualizer
 
 
@@ -29,6 +29,10 @@ CHECK_IMAGES_DIR = os.path.join(DATA, "check-images")
 
 
 def main() -> None:
+    # Check transcription in data.json
+    data_checker = DataChecker(raw_dir=RAW_DIR)
+    data_checker.check_text()
+
     # Initializing dataset creator and process data
     dataset_creator = DatasetCreator(
         raw_dir=RAW_DIR, dataset_dir=DATASET_DIR, train_split=TRAIN_SPLIT
