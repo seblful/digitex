@@ -1,7 +1,6 @@
 import os
 import json
 import random
-from textwrap import wrap
 
 from PIL import Image, ImageDraw, ImageFont
 
