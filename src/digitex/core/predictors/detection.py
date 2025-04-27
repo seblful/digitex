@@ -1,6 +1,7 @@
 from PIL import Image
 
 import numpy as np
+import torch
 
 from openocr import OpenDetector
 from openocr.tools.engine.config import Config
@@ -9,8 +10,8 @@ from .abstract_predictor import Predictor
 from .prediction_result import DetectionPredictionResult
 
 
-class DP_RepVitDetectionPredictor(Predictor):
-    def __init__(self, model_path: str, config_path: str, device: str) -> None:
+class DB_RepVitDetectionPredictor(Predictor):
+    def __init__(self, model_path: str, config_path: str, device: torch.device) -> None:
         self.model_path = model_path
         self.config_path = config_path
         self.device = device
@@ -50,6 +51,9 @@ class DP_RepVitDetectionPredictor(Predictor):
             bbox = bbox.astype(np.int32).flatten().tolist()
             ids.append(0)
             points.append(bbox)
+
+        if len(ids) == 0:
+            return None
 
         # Create result
         result = DetectionPredictionResult(ids=ids, points=points, id2label={0: "text"})

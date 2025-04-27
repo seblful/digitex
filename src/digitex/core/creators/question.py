@@ -1,4 +1,5 @@
 import os
+from digitex.settings import settings
 from .base import BaseDataCreator
 from ..predictors.segmentation import YOLO_SegmentationPredictor
 
@@ -44,7 +45,9 @@ class QuestionDataCreator(BaseDataCreator):
         yolo_question_model_path: str,
         num_images: int,
     ) -> None:
-        yolo_predictor = YOLO_SegmentationPredictor(model_path=yolo_question_model_path)
+        yolo_predictor = YOLO_SegmentationPredictor(
+            model_path=yolo_question_model_path, device=settings.DEVICE
+        )
         pdf_listdir = [pdf for pdf in os.listdir(pdf_dir) if pdf.endswith("pdf")]
         num_saved = 0
 

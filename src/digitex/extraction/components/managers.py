@@ -1,5 +1,7 @@
 import os
 from PIL import Image, ImageDraw
+
+from digitex.settings import settings
 from modules.handlers import PDFHandler, ImageHandler
 from modules.predictors.prediction_result import SegmentationPredictionResult
 from modules.processors import FileProcessor
@@ -7,7 +9,9 @@ from modules.predictors.segmentation import YOLO_SegmentationPredictor
 
 
 class PDFManager:
-    def __init__(self, pdf_handler: PDFHandler, file_processor: FileProcessor, inputs_dir: str) -> None:
+    def __init__(
+        self, pdf_handler: PDFHandler, file_processor: FileProcessor, inputs_dir: str
+    ) -> None:
         self.pdf_handler = pdf_handler
         self.file_processor = file_processor
         self.ckpt_path = os.path.join(inputs_dir, "checkpoints.json")
@@ -23,8 +27,7 @@ class PDFManager:
         self.page_count = len(self.current_pdf_obj)
 
     def save_checkpoint(self) -> None:
-        checkpoint = {"pdf_path": self.current_pdf_path,
-                      "page": self.current_page}
+        checkpoint = {"pdf_path": self.current_pdf_path, "page": self.current_page}
         self.file_processor.write_json(checkpoint, self.ckpt_path)
 
     def load_checkpoint(self) -> dict:
@@ -32,7 +35,9 @@ class PDFManager:
 
 
 class ImageManager:
-    def __init__(self, image_handler: ImageHandler, base_image_dimensions: tuple) -> None:
+    def __init__(
+        self, image_handler: ImageHandler, base_image_dimensions: tuple
+    ) -> None:
         self.image_handler = image_handler
         self.pdf_handler = PDFHandler()
         self.base_image_dimensions = base_image_dimensions
@@ -44,12 +49,17 @@ class ImageManager:
     def load_page_image(self, pdf_page) -> None:
         self.original_image = self.pdf_handler.get_page_image(pdf_page)
         self.original_image = self.image_handler.resize_image(
-            self.original_image, *self.base_image_dimensions)
+            self.original_image, *self.base_image_dimensions
+        )
         self.base_image = self.original_image.copy()
 
-    def resize_image(self, zoom_level: float, canvas_width: int, canvas_height: int) -> Image.Image:
+    def resize_image(
+        self, zoom_level: float, canvas_width: int, canvas_height: int
+    ) -> Image.Image:
         if zoom_level == 1.0:
-            return self.image_handler.resize_image(self.base_image, canvas_width, canvas_height)
+            return self.image_handler.resize_image(
+                self.base_image, canvas_width, canvas_height
+            )
         else:
             width = int(self.base_image.width * zoom_level)
             height = int(self.base_image.height * zoom_level)
@@ -67,9 +77,11 @@ class PredictionManager:
 
     def _load_models(self, cfg: dict[str, str]) -> None:
         self.page_predictor = YOLO_SegmentationPredictor(
-            cfg["model_path"]["page"])
+            cfg["model_path"]["page"], device=settings.DEVICE
+        )
         self.question_predictor = YOLO_SegmentationPredictor(
-            cfg["model_path"]["question"])
+            cfg["model_path"]["question"], device=settings.DEVICE
+        )
 
     @staticmethod
     def _initialize_colors() -> dict:
@@ -86,9 +98,7 @@ class PredictionManager:
 
     def run_ml(self, original_image: Image.Image) -> tuple:
         page_predictions = self.predict_page(original_image)
-        drawn_image = self._draw_polygons(
-            original_image, page_predictions.id2polygons
-        )
+        drawn_image = self._draw_polygons(original_image, page_predictions.id2polygons)
         self.predict_questions(original_image, page_predictions)
         return drawn_image, len(self.question_images)
 
@@ -107,8 +117,7 @@ class PredictionManager:
         # Create copies of question images and draw polygons on them
         self.processed_question_images = []
         for question_image in self.question_images:
-            question_predictions = self.question_predictor.predict(
-                question_image)
+            question_predictions = self.question_predictor.predict(question_image)
             processed_image = self._draw_polygons(
                 question_image, question_predictions.id2polygons
             )
