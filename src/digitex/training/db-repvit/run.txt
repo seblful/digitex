@@ -1,0 +1,1 @@
+python tools/train_det.py --c configs/det/dbnet/config.yml --o Global.pretrained_model=./pretrained.pth Global.epoch_num=500
