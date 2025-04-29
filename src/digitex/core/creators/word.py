@@ -1,7 +1,8 @@
 import os
+from digitex.settings import settings
 from .base import BaseDataCreator
 from ..predictors.segmentation import YOLO_SegmentationPredictor
-from ..predictors.detection import FAST_DetectionPredictor
+from ..predictors.detection import DB_RepVitDetectionPredictor
 
 
 class WordDataCreator(BaseDataCreator):
@@ -46,11 +47,18 @@ class WordDataCreator(BaseDataCreator):
         yolo_page_model_path: str,
         yolo_question_model_path: str,
         fast_word_model_path: str,
+        fast_word_config_path: str,
         num_images: int,
     ) -> None:
-        yolo_page_predictor = YOLO_SegmentationPredictor(yolo_page_model_path)
-        yolo_question_predictor = YOLO_SegmentationPredictor(yolo_question_model_path)
-        fast_word_predictor = FAST_DetectionPredictor(fast_word_model_path)
+        yolo_page_predictor = YOLO_SegmentationPredictor(
+            yolo_page_model_path, device=settings.DEVICE
+        )
+        yolo_question_predictor = YOLO_SegmentationPredictor(
+            yolo_question_model_path, device=settings.DEVICE
+        )
+        fast_word_predictor = DB_RepVitDetectionPredictor(
+            fast_word_model_path, fast_word_config_path, device=settings.DEVICE
+        )
         pdf_listdir = [pdf for pdf in os.listdir(pdf_dir) if pdf.endswith("pdf")]
         parts_target_classes = ["answer", "number", "option", "question", "spec"]
         num_saved = 0
@@ -85,6 +93,10 @@ class WordDataCreator(BaseDataCreator):
                 image=question_rand_image, points=part_rand_points
             )
             word_pred_result = fast_word_predictor(part_rand_image)
+
+            if not word_pred_result:
+                continue
+
             word_points_dict = word_pred_result.id2polygons
             word_rand_points_idx, word_rand_points = (
                 self.label_handler._get_random_points(
@@ -93,6 +105,7 @@ class WordDataCreator(BaseDataCreator):
                     target_classes=["text"],
                 )
             )
+
             word_rand_image = self._crop_image(
                 image=part_rand_image, points=word_rand_points
             )
