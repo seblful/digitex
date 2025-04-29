@@ -148,6 +148,11 @@ class AnnotationCreator:
         # Retrieve result
         result = task["annotations"][0]["result"]
 
+        # If no result
+        if not result:
+            return []
+
+        # If result
         for entry in result:
             # Image width and height
             image_width = entry["original_width"]
@@ -195,13 +200,34 @@ class DataChecker:
         # Define regex patterns
         self.patterns = {
             "B": r'[^"]*B[^"]*',
+            "A": r'[^"]*A[^"]*',
             "З": r'[^"]*З[^"]*',
+            "О": r'[^"]*О[^"]*',
         }
 
     def _print_matches(self, task_id: int, char: str, text: str) -> None:
         print(f"Task ID: {task_id}, Found '{char}' in {text}")
 
-    def check_text(self) -> None:
+    def _print_values(self, task_id: int, name: str, value: int, text: str) -> None:
+        print(f"Task ID: {task_id}, Found {name}={value:.3e} in '{text}'")
+
+    def check_text(self, task_id: int, entry: dict) -> None:
+        transcription = entry["value"]["text"][0]
+
+        for char, pattern in self.patterns.items():
+            if re.search(pattern, transcription):
+                self._print_matches(task_id, char, transcription)
+
+    def check_bbox(self, task_id: int, entry: dict) -> None:
+        values = entry["value"]
+        text = values["text"][0]
+        values = {name: value for name, value in values.items() if name != "text"}
+
+        for name, value in values.items():
+            if value < 0:
+                self._print_values(task_id, name, value, text)
+
+    def check(self) -> None:
         # Read json data
         json_dict = FileProcessor.read_json(self.data_json_path)
 
@@ -213,8 +239,5 @@ class DataChecker:
 
             for entry in result:
                 if {"x", "text"}.issubset(entry["value"].keys()):
-                    transcription = entry["value"]["text"][0]
-
-                    for char, pattern in self.patterns.items():
-                        if re.search(pattern, transcription):
-                            self._print_matches(task_id, char, transcription)
+                    self.check_text(task_id, entry)
+                    self.check_bbox(task_id, entry)

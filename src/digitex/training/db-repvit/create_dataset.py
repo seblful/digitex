@@ -31,7 +31,7 @@ CHECK_IMAGES_DIR = os.path.join(DATA, "check-images")
 def main() -> None:
     # Check transcription in data.json
     data_checker = DataChecker(raw_dir=RAW_DIR)
-    data_checker.check_text()
+    data_checker.check()
 
     # Initializing dataset creator and process data
     dataset_creator = DatasetCreator(
