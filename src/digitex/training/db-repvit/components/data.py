@@ -159,7 +159,7 @@ class AnnotationCreator:
             image_height = entry["original_height"]
 
             # Extract annotation from bbox
-            if {"x", "text"}.issubset(entry["value"].keys()):
+            if entry["from_name"] == "transcription":
                 ann = {}
                 ann["transcription"] = entry["value"]["text"][0]
                 bbox = {k: v for k, v in entry["value"].items() if k != "text"}
@@ -238,6 +238,6 @@ class DataChecker:
             result = task["annotations"][0]["result"]
 
             for entry in result:
-                if {"x", "text"}.issubset(entry["value"].keys()):
+                if entry["from_name"] == "transcription":
                     self.check_text(task_id, entry)
                     self.check_bbox(task_id, entry)
