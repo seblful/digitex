@@ -23,16 +23,16 @@ class QuestionDataCreator(BaseDataCreator):
                 classes_dict=classes_dict,
                 target_classes=["question"],
             )
-            rand_points = self._convert_points_to_polygon(
+            rand_polygon = self._convert_points_to_polygon(
                 points=rand_points,
                 image_width=rand_image.width,
                 image_height=rand_image.height,
             )
-            rand_image = self._crop_image(image=rand_image, points=rand_points)
+            cropped_image = self._crop_image(image=rand_image, polygon=rand_polygon)
             num_saved = self._save_image(
                 rand_points_idx,
                 output_dir=train_dir,
-                image=rand_image,
+                image=cropped_image,
                 image_name=rand_image_name,
                 num_saved=num_saved,
                 num_images=num_images,
@@ -52,24 +52,28 @@ class QuestionDataCreator(BaseDataCreator):
         num_saved = 0
 
         while num_images != num_saved:
-            rand_image, rand_image_name, rand_page_idx = self._get_pdf_random_image(
-                pdf_listdir, pdf_dir
+            page_rand_image, page_rand_image_name, page_rand_idx = (
+                self._get_pdf_random_image(pdf_listdir, pdf_dir)
             )
-            rand_image = self._process_image(image=rand_image)
-            pred_result = yolo_predictor(image=rand_image)
-            points_dict = pred_result.id2polygons
-            rand_points_idx, rand_points = self.label_handler._get_random_points(
-                classes_dict=pred_result.id2label,
-                points_dict=points_dict,
-                target_classes=["question"],
+            page_rand_image = self._process_image(image=page_rand_image)
+            page_pred_result = yolo_predictor(image=page_rand_image)
+            page_points_dict = page_pred_result.id2polygons
+            question_rand_idx, question_rand_polygon = (
+                self.label_handler._get_random_points(
+                    classes_dict=page_pred_result.id2label,
+                    points_dict=page_points_dict,
+                    target_classes=["question"],
+                )
             )
-            rand_image = self._crop_image(image=rand_image, points=rand_points)
+            question_rand_image = self._crop_image(
+                image=page_rand_image, polygon=question_rand_polygon
+            )
             num_saved = self._save_image(
-                rand_page_idx,
-                rand_points_idx,
+                page_rand_idx,
+                question_rand_idx,
                 output_dir=train_dir,
-                image=rand_image,
-                image_name=rand_image_name,
+                image=question_rand_image,
+                image_name=page_rand_image_name,
                 num_saved=num_saved,
                 num_images=num_images,
             )

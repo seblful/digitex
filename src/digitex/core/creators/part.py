@@ -22,30 +22,29 @@ class PartDataCreator(BaseDataCreator):
         processed_count = 0
 
         while num_images != processed_count:
-            source_image, image_filename = self._get_listdir_random_image(
+            rand_image, rand_image_name = self._get_listdir_random_image(
                 available_images, source_images_dir
             )
-            part_idx, part_coords = self._get_points(
-                image_name=image_filename,
+            rand_points_idx, rand_points = self._get_points(
+                image_name=rand_image_name,
                 labels_dir=annotation_dir,
                 classes_dict=class_mapping,
                 target_classes=target_classes,
             )
-            if not part_coords:
+            if not rand_points:
                 continue
-            part_absolute_coords = self._convert_points_to_polygon(
-                points=part_coords,
-                image_width=source_image.width,
-                image_height=source_image.height,
+
+            rand_polygon = self._convert_points_to_polygon(
+                points=rand_points,
+                image_width=rand_image.width,
+                image_height=rand_image.height,
             )
-            cropped_part = self._crop_image(
-                image=source_image, points=part_absolute_coords
-            )
+            cropped_image = self._crop_image(image=rand_image, polygon=rand_polygon)
             processed_count = self._save_image(
-                part_idx,
+                rand_points_idx,
                 output_dir=train_dir,
-                image=cropped_part,
-                image_name=image_filename,
+                image=cropped_image,
+                image_name=rand_image_name,
                 num_saved=processed_count,
                 num_images=num_images,
             )
@@ -69,13 +68,13 @@ class PartDataCreator(BaseDataCreator):
         num_saved = 0
 
         while num_images != num_saved:
-            page_rand_image, rand_image_name, rand_page_idx = (
+            page_rand_image, page_rand_image_name, page_rand_idx = (
                 self._get_pdf_random_image(pdf_listdir, pdf_dir)
             )
             page_rand_image = self._process_image(image=page_rand_image)
             page_pred_result = yolo_page_predictor(page_rand_image)
             page_points_dict = page_pred_result.id2polygons
-            question_rand_points_idx, question_rand_points = (
+            question_rand_idx, question_rand_polygon = (
                 self.label_handler._get_random_points(
                     classes_dict=page_pred_result.id2label,
                     points_dict=page_points_dict,
@@ -83,29 +82,28 @@ class PartDataCreator(BaseDataCreator):
                 )
             )
             question_rand_image = self._crop_image(
-                image=page_rand_image, points=question_rand_points
+                image=page_rand_image, polygon=question_rand_polygon
             )
             question_pred_result = yolo_question_predictor(question_rand_image)
             question_points_dict = question_pred_result.id2polygons
-            part_rand_points_idx, part_rand_points = (
-                self.label_handler._get_random_points(
-                    classes_dict=question_pred_result.id2label,
-                    points_dict=question_points_dict,
-                    target_classes=target_classes,
-                )
+            part_rand_idx, part_rand_polygon = self.label_handler._get_random_points(
+                classes_dict=question_pred_result.id2label,
+                points_dict=question_points_dict,
+                target_classes=target_classes,
             )
-            if not part_rand_points:
+            if not part_rand_polygon:
                 continue
+
             part_rand_image = self._crop_image(
-                image=question_rand_image, points=part_rand_points
+                image=question_rand_image, polygon=part_rand_polygon
             )
             num_saved = self._save_image(
-                rand_page_idx,
-                question_rand_points_idx,
-                part_rand_points_idx,
+                page_rand_idx,
+                question_rand_idx,
+                part_rand_idx,
                 output_dir=train_dir,
                 image=part_rand_image,
-                image_name=rand_image_name,
+                image_name=page_rand_image_name,
                 num_saved=num_saved,
                 num_images=num_images,
             )
