@@ -2,16 +2,16 @@ import os
 import random
 from PIL import Image
 
-from digitex.core.processors.img import ImgProcessor
+from digitex.core.processors.img import ImgProcessor, ImgCropper
 from digitex.core.processors.file import FileProcessor
 from digitex.core.handlers.pdf import PDFHandler
 from digitex.core.handlers.label import LabelHandler
-from digitex.core.utils import crop_image
 
 
 class BaseDataCreator:
     def __init__(self) -> None:
         self.img_processor = ImgProcessor()
+        self.img_cropper = ImgCropper()
         self.file_processor = FileProcessor()
         self.pdf_handler = PDFHandler()
         self.label_handler = LabelHandler()
@@ -19,12 +19,6 @@ class BaseDataCreator:
     def _read_classes(self, classes_path: str) -> dict[int, str]:
         classes = self.file_processor.read_txt(classes_path)
         return {i: cl.strip() for i, cl in enumerate(classes)}
-
-    def _process_image(self, image: Image.Image) -> Image.Image:
-        img = ImgProcessor.image2img(image=image)
-        img = ImgProcessor.remove_blue(img)
-        image = ImgProcessor.img2image(img=img)
-        return image
 
     def _get_listdir_random_image(
         self, images_listdir: list, images_dir: str
@@ -41,14 +35,20 @@ class BaseDataCreator:
             pdf_listdir=pdf_listdir, pdf_dir=pdf_dir
         )
 
-    def _process_image(self, image) -> Image.Image:
+    def _process_image(self, image: Image.Image) -> Image.Image:
         img = self.img_processor.image2img(image)
         img = self.img_processor.remove_blue(img)
         image = self.img_processor.img2image(img)
         return image
 
-    def _crop_image(self, image, points, offset: float = 0.0) -> Image.Image:
-        return crop_image(image=image, points=points, offset=offset)
+    def _crop_image(
+        self, image: Image.Image, polygon: list[tuple[int, int]], offset: float = 0.025
+    ) -> Image.Image:
+        img = self.img_processor.image2img(image)
+        cropped_img = self.img_cropper.crop_img_by_polygon(img, polygon)
+        result_img = self.img_cropper.paste_img_on_background(cropped_img, offset)
+        result_image = self.img_processor.img2image(result_img)
+        return result_image
 
     def _save_image(
         self,
@@ -81,7 +81,9 @@ class BaseDataCreator:
             target_classes=target_classes,
         )
 
-    def _convert_points_to_polygon(self, points, image_width: int, image_height: int):
+    def _convert_points_to_polygon(
+        self, points: list[float], image_width: int, image_height: int
+    ) -> list[tuple[int, int]]:
         return self.label_handler.points_to_abs_polygon(
             points=points, image_width=image_width, image_height=image_height
         )
