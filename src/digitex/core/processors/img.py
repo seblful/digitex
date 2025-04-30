@@ -28,7 +28,7 @@ class ImgProcessor:
         return image
 
     @staticmethod
-    def resize_image(
+    def resize_img(
         img: np.ndarray, target_width: int, target_height: int
     ) -> np.ndarray:
         img_height, img_width = img.shape[:2]
@@ -94,3 +94,66 @@ class ImgProcessor:
         img = cv2.inpaint(img, mask, 3, cv2.INPAINT_TELEA)
 
         return img
+
+
+class ImgCropper:
+    @staticmethod
+    def isolate_box(polygon: list[tuple[int, int]]) -> tuple[tuple, np.ndarray]:
+        contours = np.array(polygon, dtype=np.int32)
+        box = cv2.boundingRect(contours)
+        contours = contours - [box[0], box[1]]
+        return box, contours
+
+    @staticmethod
+    def crop_to_mask(
+        img: np.ndarray, box: tuple[int, int, int, int], contours: np.ndarray
+    ) -> np.ndarray:
+        # Crop the image to the box
+        x, y, w, h = box
+        cropped_img = img[y : y + h, x : x + w]
+
+        # Create a mask and apply it to the cropped image
+        mask = np.zeros(cropped_img.shape[:2], dtype=np.uint8)
+
+        cv2.drawContours(
+            mask, [contours], -1, 255, thickness=cv2.FILLED, lineType=cv2.LINE_AA
+        )
+        result = cv2.bitwise_and(cropped_img, cropped_img, mask=mask)
+        return result
+
+    @staticmethod
+    def crop_img_by_polygon(
+        img: np.ndarray, polygon: list[tuple[int, int]]
+    ) -> np.ndarray:
+        bbox, contours = ImgCropper.isolate_box(polygon)
+        cropped_img = ImgCropper.crop_to_mask(img, bbox, contours)
+        return cropped_img
+
+    @staticmethod
+    def warp_img():
+        pass
+
+    @staticmethod
+    def paste_img_on_background(img: np.ndarray, offset: float = 0.025) -> np.ndarray:
+        # Create a white background
+        bg = np.full_like(img, 255, dtype=np.uint8)
+
+        # Create a mask from the image
+        mask = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY)[1]
+
+        # Combine the image with the background using the mask
+        result = cv2.add(img, cv2.bitwise_and(bg, bg, mask=cv2.bitwise_not(mask)))
+
+        # Add a border around the result
+        border = int(img.shape[0] * offset)
+        result = cv2.copyMakeBorder(
+            result,
+            border,
+            border,
+            border,
+            border,
+            cv2.BORDER_CONSTANT,
+            value=[255, 255, 255],
+        )
+        return result
