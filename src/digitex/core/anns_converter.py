@@ -2,7 +2,7 @@ import os
 from urllib.parse import quote, unquote
 from PIL import Image
 import numpy as np
-import cv2
+from .processors.img import ImgProcessor, ImgWarper
 from .processors.file import FileProcessor
 
 
@@ -11,14 +11,40 @@ class AnnsConverter:
         self.ls_upload_dir = ls_upload_dir
         self.bbox_keys = ["x", "y", "width", "height", "rotation"]
 
-    def add_filename_index(self, filename: str, index: int) -> str:
-        name, ext = os.path.splitext(filename)
-        return f"{name}_{index}{ext}"
+    def unquote_path(self, path: str) -> str:
+        return unquote(path)
+
+    def normalize_path(self, path: str) -> str:
+        return os.path.normpath(path)
+
+    def standardize_path(self, path: str) -> str:
+        path = self.unquote_path(path)
+        path = self.normalize_path(path)
+
+        return path
+
+    def parse_path(self, path: str) -> tuple[int, str]:
+        path = self.standardize_path(path)
+        project_num, filename = path.split(os.sep)[-2:]
+        return int(project_num), filename
 
     def normalize_task_path(self, task_path: str) -> str:
         task_path = unquote(task_path)
         task_path = os.path.normpath(task_path)
         return "/".join(task_path.split(os.sep)[3:])
+
+    def add_filename_index(self, filename: str, index: int) -> str:
+        name, ext = os.path.splitext(filename)
+        return f"{name}_{index}{ext}"
+
+    def remove_last_filename_index(self, filename: str) -> str:
+        name, ext = os.path.splitext(filename)
+        if "_" in name:
+            name = "_".join(name.split("_")[:-1])
+        return f"{name}{ext}"
+
+    def remove_prefixes(self, filename: str) -> str:
+        return filename.split("-")[-1].strip()
 
     def create_local_path(self, task_path: str) -> str:
         normalized_path = self.normalize_task_path(task_path)
@@ -85,39 +111,44 @@ class OCRBBOXAnnsConverter(OCRAnnsConverter):
 class OCRCaptionConverter(OCRAnnsConverter):
     def __init__(self, ls_upload_dir: str) -> None:
         super().__init__(ls_upload_dir)
-        self.output_json_name = "caption_data.json"
+        self.output_json_name = "converted_data.json"
 
-    def cut_rotated_bbox(
-        self, image: Image, image_width: int, image_height: int, bbox: dict
-    ) -> Image:
-        img = np.array(image)
-        x, y, width, height, angle = self.calculate_absolute_bbox(
-            image_width, image_height, bbox
-        )
-        rect = ((x + width / 2, y + height / 2), (width, height), angle)
-        return self.extract_rotated_region(img, rect, width, height)
+    def get_abs_box(self, entry: dict) -> tuple[int, int, int, int]:
+        rel_box = {k: v for k, v in entry["value"].items() if k in self.bbox_keys}
+        x = int(rel_box["x"] * entry["original_width"] / 100)
+        y = int(rel_box["y"] * entry["original_height"] / 100)
+        width = int(rel_box["width"] * entry["original_width"] / 100)
+        height = int(rel_box["height"] * entry["original_height"] / 100)
 
-    def calculate_absolute_bbox(
-        self, image_width: int, image_height: int, bbox: dict
-    ) -> tuple:
-        x = int(bbox["x"] * image_width / 100)
-        y = int(bbox["y"] * image_height / 100)
-        width = int(bbox["width"] * image_width / 100)
-        height = int(bbox["height"] * image_height / 100)
-        angle = bbox["rotation"]
-        return x, y, width, height, angle
+        return x, y, width, height
 
-    def extract_rotated_region(
-        self, img: np.ndarray, rect: tuple, width: int, height: int
-    ) -> Image:
-        rect_points = cv2.boxPoints(rect).astype(np.float32)
-        dst_pts = np.array(
-            [[0, height - 1], [0, 0], [width - 1, 0], [width - 1, height - 1]],
-            dtype=np.float32,
-        )
-        M = cv2.getPerspectiveTransform(rect_points, dst_pts)
-        result = cv2.warpPerspective(img, M, (width, height))
-        return Image.fromarray(result)
+    def _crop_image(
+        self, image: Image.Image, box: tuple[int, int, int, int], angle: int
+    ) -> np.ndarray:
+        img = ImgProcessor.image2img(image)
+        cropped_img = ImgWarper.warp_img_by_box(img, box, angle)
+        cropped_image = ImgProcessor.img2image(cropped_img)
+
+        return cropped_image
+
+    def get_present_image_filenames(self, caption_json_path: str) -> set[str]:
+        caption_json_dicts = FileProcessor.read_json(caption_json_path)
+        present_image_filenames = set()
+        for task in caption_json_dicts:
+            _, image_filename = self.parse_path(task["data"]["captioning"])
+            image_filename = self.remove_last_filename_index(image_filename)
+            image_filename = self.remove_prefixes(image_filename)
+            present_image_filenames.add(image_filename)
+        return present_image_filenames
+
+    def image_is_presented(
+        self, image_filename: str, present_image_filenames: set[str]
+    ) -> bool:
+        image_filename = self.remove_prefixes(image_filename)
+
+        if image_filename in present_image_filenames:
+            return True
+        return False
 
     def create_output_path(
         self, output_dir: str, input_image_path: str, index: int
@@ -139,39 +170,48 @@ class OCRCaptionConverter(OCRAnnsConverter):
         return predictions
 
     def convert(
-        self, input_json_path: str, output_project_num: int, output_dir: str
+        self,
+        ocr_json_path: str,
+        caption_json_path: str,
+        caption_project_num: int,
+        output_dir: str,
     ) -> None:
-        ocr_json_dicts = FileProcessor.read_json(input_json_path)
-        caption_images_dir = os.path.join(output_dir, "caption-images")
-        os.makedirs(caption_images_dir, exist_ok=True)
+        output_images_dir = os.path.join(output_dir, "converted-images")
+        os.makedirs(output_images_dir, exist_ok=True)
+
+        present_image_filenames = self.get_present_image_filenames(caption_json_path)
 
         output_json_dicts = []
+        ocr_json_dicts = FileProcessor.read_json(ocr_json_path)
         for task in ocr_json_dicts:
+            ocr_project_num, image_filename = self.parse_path(task["data"]["ocr"])
+
+            # Check if the image is already presented in the caption project
+            if self.image_is_presented(image_filename, present_image_filenames):
+                continue
+
             input_image_path = self.create_local_path(task["data"]["ocr"])
+
             image = Image.open(input_image_path)
 
             i = 0
             for entry in task["annotations"][0]["result"]:
                 if entry["type"] == "textarea":
-                    bbox = {
-                        k: v for k, v in entry["value"].items() if k in self.bbox_keys
-                    }
-                    cropped_image = self.cut_rotated_bbox(
-                        image=image,
-                        image_width=entry["original_width"],
-                        image_height=entry["original_height"],
-                        bbox=bbox,
+                    box = self.get_abs_box(entry)
+
+                    cropped_image = self._crop_image(
+                        image, box, entry["value"]["rotation"]
                     )
-                    caption_image_path = self.create_task_path(
-                        input_image_path, output_project_num, i
+                    task_image_path = self.create_task_path(
+                        input_image_path, caption_project_num, i
                     )
                     output_image_path = self.create_output_path(
-                        caption_images_dir, input_image_path, i
+                        output_images_dir, input_image_path, i
                     )
                     cropped_image.save(output_image_path)
 
                     anns_dict = {
-                        "data": {"captioning": caption_image_path},
+                        "data": {"captioning": task_image_path},
                         "predictions": self.extract_caption_predictions(entry),
                     }
                     output_json_dicts.append(anns_dict)
