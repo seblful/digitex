@@ -46,9 +46,9 @@ class BaseDataCreator:
     ) -> Image.Image:
         img = self.img_processor.image2img(image)
         cropped_img = self.img_cropper.crop_img_by_polygon(img, polygon)
-        result_img = self.img_cropper.paste_img_on_background(cropped_img, offset)
-        result_image = self.img_processor.img2image(result_img)
-        return result_image
+        bg_img = self.img_cropper.paste_img_on_background(cropped_img, offset)
+        bg_image = self.img_processor.img2image(bg_img)
+        return bg_image
 
     def _save_image(
         self,

@@ -57,7 +57,7 @@ class LabelHandler:
     @staticmethod
     def points_to_abs_polygon(
         points: list[float], image_width: int, image_height: int
-    ) -> list[tuple[float]]:
+    ) -> list[tuple[int, int]]:
         points = list(zip(points[::2], points[1::2]))
         points = [(int(x * image_width), int(y * image_height)) for x, y in points]
 
