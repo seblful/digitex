@@ -130,10 +130,6 @@ class ImgCropper:
         return cropped_img
 
     @staticmethod
-    def warp_img():
-        pass
-
-    @staticmethod
     def paste_img_on_background(img: np.ndarray, offset: float = 0.025) -> np.ndarray:
         # Create a white background
         bg = np.full_like(img, 255, dtype=np.uint8)
@@ -143,12 +139,12 @@ class ImgCropper:
         mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY)[1]
 
         # Combine the image with the background using the mask
-        result = cv2.add(img, cv2.bitwise_and(bg, bg, mask=cv2.bitwise_not(mask)))
+        bg_img = cv2.add(img, cv2.bitwise_and(bg, bg, mask=cv2.bitwise_not(mask)))
 
         # Add a border around the result
         border = int(img.shape[0] * offset)
-        result = cv2.copyMakeBorder(
-            result,
+        bg_img = cv2.copyMakeBorder(
+            bg_img,
             border,
             border,
             border,
@@ -156,4 +152,30 @@ class ImgCropper:
             cv2.BORDER_CONSTANT,
             value=[255, 255, 255],
         )
-        return result
+        return bg_img
+
+
+class ImgWarper:
+    @staticmethod
+    def get_transform_matrix(
+        x: int, y: int, width: int, height: int, angle: int = 0
+    ) -> np.ndarray:
+        rect = ((x + width / 2, y + height / 2), (width, height), angle)
+        rel_bbox = cv2.boxPoints(rect).astype(np.float32)
+        dst_pts = np.array(
+            [[0, height - 1], [0, 0], [width - 1, 0], [width - 1, height - 1]],
+            dtype=np.float32,
+        )
+        M = cv2.getPerspectiveTransform(rel_bbox, dst_pts)
+
+        return M
+
+    @staticmethod
+    def warp_img_by_box(
+        img: np.ndarray, box: tuple[int, int, int, int], angle: int = 0
+    ) -> np.ndarray:
+        x, y, width, height = box
+        M = ImgWarper.get_transform_matrix(x, y, width, height, angle)
+        warped_img = cv2.warpPerspective(img, M, (width, height))
+
+        return warped_img
