@@ -7,9 +7,14 @@ from .processors.file import FileProcessor
 
 
 class AnnsConverter:
-    def __init__(self, ls_upload_dir: str) -> None:
-        self.ls_upload_dir = ls_upload_dir
+    def __init__(self, ls_local_storage_path: str) -> None:
+        self.ls_local_storage_path = ls_local_storage_path
+        self.ls_local_storage_prefix = "/data/local-files/?d="
+
         self.bbox_keys = ["x", "y", "width", "height", "rotation"]
+
+    def quote_path(self, path: str) -> str:
+        return quote(path)
 
     def unquote_path(self, path: str) -> str:
         return unquote(path)
@@ -23,15 +28,10 @@ class AnnsConverter:
 
         return path
 
-    def parse_path(self, path: str) -> tuple[int, str]:
+    def get_filename(self, path: str) -> str:
         path = self.standardize_path(path)
-        project_num, filename = path.split(os.sep)[-2:]
-        return int(project_num), filename
-
-    def normalize_task_path(self, task_path: str) -> str:
-        task_path = unquote(task_path)
-        task_path = os.path.normpath(task_path)
-        return "/".join(task_path.split(os.sep)[3:])
+        filename = os.path.basename(path)
+        return filename
 
     def add_filename_index(self, filename: str, index: int) -> str:
         name, ext = os.path.splitext(filename)
@@ -46,26 +46,10 @@ class AnnsConverter:
     def remove_prefixes(self, filename: str) -> str:
         return filename.split("-")[-1].strip()
 
-    def create_local_path(self, task_path: str) -> str:
-        normalized_path = self.normalize_task_path(task_path)
-        local_path = os.path.join(self.ls_upload_dir, normalized_path)
-        return os.path.normpath(local_path)
-
-    def create_task_path(
-        self, local_path: str, project_num: str = None, index: int = None
-    ) -> str:
-        path_split = local_path.split(os.sep)
-        if project_num is not None:
-            path_split[-2] = str(project_num)
-        filename = path_split[-1]
-        if index is not None:
-            filename = self.add_filename_index(filename, index)
-        return f"/data/{path_split[-3]}/{path_split[-2]}/{quote(filename)}"
-
 
 class OCRAnnsConverter(AnnsConverter):
-    def __init__(self, ls_upload_dir: str) -> None:
-        super().__init__(ls_upload_dir)
+    def __init__(self, ls_local_storage_path: str) -> None:
+        super().__init__(ls_local_storage_path)
 
 
 class OCRBBOXAnnsConverter(OCRAnnsConverter):
@@ -109,11 +93,11 @@ class OCRBBOXAnnsConverter(OCRAnnsConverter):
 
 
 class OCRCaptionConverter(OCRAnnsConverter):
-    def __init__(self, ls_upload_dir: str) -> None:
-        super().__init__(ls_upload_dir)
+    def __init__(self, ls_local_storage_path: str) -> None:
+        super().__init__(ls_local_storage_path)
         self.output_json_name = "converted_data.json"
 
-    def get_abs_box(self, entry: dict) -> tuple[int, int, int, int]:
+    def _get_abs_box(self, entry: dict) -> tuple[int, int, int, int]:
         rel_box = {k: v for k, v in entry["value"].items() if k in self.bbox_keys}
         x = int(rel_box["x"] * entry["original_width"] / 100)
         y = int(rel_box["y"] * entry["original_height"] / 100)
@@ -131,32 +115,42 @@ class OCRCaptionConverter(OCRAnnsConverter):
 
         return cropped_image
 
-    def get_present_image_filenames(self, caption_json_path: str) -> set[str]:
+    def _get_exist_image_filenames(self, caption_json_path: str) -> set[str]:
         caption_json_dicts = FileProcessor.read_json(caption_json_path)
-        present_image_filenames = set()
+        exist_image_filenames = set()
         for task in caption_json_dicts:
-            _, image_filename = self.parse_path(task["data"]["captioning"])
+            image_filename = self.get_filename(task["data"]["captioning"])
             image_filename = self.remove_last_filename_index(image_filename)
             image_filename = self.remove_prefixes(image_filename)
-            present_image_filenames.add(image_filename)
-        return present_image_filenames
+            exist_image_filenames.add(image_filename)
+        return exist_image_filenames
 
-    def image_is_presented(
-        self, image_filename: str, present_image_filenames: set[str]
+    def _image_is_exist(
+        self, image_filename: str, exist_image_filenames: set[str]
     ) -> bool:
         image_filename = self.remove_prefixes(image_filename)
 
-        if image_filename in present_image_filenames:
+        if image_filename in exist_image_filenames:
             return True
         return False
 
-    def create_output_path(
-        self, output_dir: str, input_image_path: str, index: int
-    ) -> str:
-        image_name = self.add_filename_index(os.path.basename(input_image_path), index)
-        return os.path.normpath(os.path.join(output_dir, image_name))
+    def create_local_path(self, dir: str, filename: str) -> str:
+        local_path = os.path.join(dir, filename)
+        local_path = self.normalize_path(local_path)
+        return local_path
 
-    def extract_caption_predictions(self, entry: dict) -> list[dict]:
+    def create_output_path(self, filename: str, i: int) -> str:
+        output_filename = self.add_filename_index(filename, i)
+        output_path = os.path.join(self.ls_local_storage_path, output_filename)
+        output_path = self.normalize_path(output_path)
+        return output_path
+
+    def create_task_path(self, path: str) -> str:
+        task_path = self.ls_local_storage_prefix + path
+        task_path = self.normalize_path(task_path).replace("\\", "/")
+        return task_path
+
+    def _get_caption_preds(self, entry: dict) -> list[dict]:
         predictions = [{"result": []}]
         predictions[0]["result"].append(
             {
@@ -171,48 +165,46 @@ class OCRCaptionConverter(OCRAnnsConverter):
 
     def convert(
         self,
+        ocr_images_dir: str,
         ocr_json_path: str,
         caption_json_path: str,
-        caption_project_num: int,
         output_dir: str,
     ) -> None:
-        output_images_dir = os.path.join(output_dir, "converted-images")
-        os.makedirs(output_images_dir, exist_ok=True)
-
-        present_image_filenames = self.get_present_image_filenames(caption_json_path)
+        exist_image_filenames = self._get_exist_image_filenames(caption_json_path)
 
         output_json_dicts = []
         ocr_json_dicts = FileProcessor.read_json(ocr_json_path)
         for task in ocr_json_dicts:
-            ocr_project_num, image_filename = self.parse_path(task["data"]["ocr"])
+            input_image_filename = self.get_filename(task["data"]["ocr"])
 
-            # Check if the image is already presented in the caption project
-            if self.image_is_presented(image_filename, present_image_filenames):
+            # Check if the image is already exist in the caption project
+            if self._image_is_exist(input_image_filename, exist_image_filenames):
                 continue
 
-            input_image_path = self.create_local_path(task["data"]["ocr"])
+            # Open image
+            input_image_path = self.create_local_path(
+                ocr_images_dir, input_image_filename
+            )
+            input_image = Image.open(input_image_path)
 
-            image = Image.open(input_image_path)
-
+            # Iterate through each entry in the task and crop the image
             i = 0
             for entry in task["annotations"][0]["result"]:
                 if entry["type"] == "textarea":
-                    box = self.get_abs_box(entry)
-
+                    box = self._get_abs_box(entry)
                     cropped_image = self._crop_image(
-                        image, box, entry["value"]["rotation"]
+                        input_image, box, entry["value"]["rotation"]
                     )
-                    task_image_path = self.create_task_path(
-                        input_image_path, caption_project_num, i
-                    )
-                    output_image_path = self.create_output_path(
-                        output_images_dir, input_image_path, i
-                    )
+
+                    # Save image
+                    output_image_path = self.create_output_path(input_image_filename, i)
                     cropped_image.save(output_image_path)
 
+                    # Add task to output json dict
+                    task_image_path = self.create_task_path(output_image_path)
                     anns_dict = {
                         "data": {"captioning": task_image_path},
-                        "predictions": self.extract_caption_predictions(entry),
+                        "predictions": self._get_caption_preds(entry),
                     }
                     output_json_dicts.append(anns_dict)
 
