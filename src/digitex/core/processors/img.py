@@ -100,6 +100,7 @@ class ImgCropper:
     @staticmethod
     def isolate_box(polygon: list[tuple[int, int]]) -> tuple[tuple, np.ndarray]:
         contours = np.array(polygon, dtype=np.int32)
+        # Change to cv2 minarea rect, because rotated bbox
         box = cv2.boundingRect(contours)
         contours = contours - [box[0], box[1]]
         return box, contours
@@ -115,6 +116,7 @@ class ImgCropper:
         # Create a mask and apply it to the cropped image
         mask = np.zeros(cropped_img.shape[:2], dtype=np.uint8)
 
+        # TODO maybe delete this line
         cv2.drawContours(
             mask, [contours], -1, 255, thickness=cv2.FILLED, lineType=cv2.LINE_AA
         )
@@ -122,7 +124,64 @@ class ImgCropper:
         return result
 
     @staticmethod
+    def warp_perspective(
+        img: np.ndarray, pts: np.ndarray, width: int, height: int
+    ) -> np.ndarray:
+        # Create destination points
+        dst_points = np.array(
+            [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]],
+            dtype=np.float32,
+        )
+
+        # Compute the perspective transform matrix
+        M = cv2.getPerspectiveTransform(pts, dst_points)
+
+        # Warp the image
+        warped_img = cv2.warpPerspective(img, M, (width, height))
+
+        return warped_img
+
+    @staticmethod
     def crop_img_by_polygon(
+        img: np.ndarray, polygon: list[tuple[int, int]]
+    ) -> np.ndarray:
+        # TODO convert polygon to xyxyxyxy if len > 8
+
+        # Convert points to numpy array
+        pts = np.array(polygon, dtype="float32")
+
+        # Determine the width and height of the output image
+        width = max(np.linalg.norm(pts[0] - pts[1]), np.linalg.norm(pts[2] - pts[3]))
+        height = max(np.linalg.norm(pts[0] - pts[3]), np.linalg.norm(pts[1] - pts[2]))
+
+        # Crop the image
+        cropped_img = ImgCropper.warp_perspective(img, pts, int(width), int(height))
+
+        return cropped_img
+
+    @staticmethod
+    def crop_img_by_box(
+        img: np.ndarray, box: tuple[int, int, int, int], angle: int = 0
+    ) -> np.ndarray:
+        x, y, width, height = box
+
+        # Get the rotation matrix
+        rotation_matrix = cv2.getRotationMatrix2D((x, y), angle, 1.0)
+
+        # Calculate the four corners of the rectangle and rotate them
+        pts = np.array(
+            [[x, y], [x + width, y], [x + width, y + height], [x, y + height]],
+            dtype=np.float32,
+        )
+        rotated_pts = cv2.transform(np.array([pts]), rotation_matrix)[0]
+
+        # Crop the image
+        cropped_img = ImgCropper.warp_perspective(img, rotated_pts, width, height)
+
+        return cropped_img
+
+    @staticmethod
+    def cut_out_img_by_polygon(
         img: np.ndarray, polygon: list[tuple[int, int]]
     ) -> np.ndarray:
         bbox, contours = ImgCropper.isolate_box(polygon)
@@ -130,7 +189,7 @@ class ImgCropper:
         return cropped_img
 
     @staticmethod
-    def paste_img_on_background(img: np.ndarray, offset: float = 0.025) -> np.ndarray:
+    def paste_img_on_bg(img: np.ndarray, offset: float = 0.025) -> np.ndarray:
         # Create a white background
         bg = np.full_like(img, 255, dtype=np.uint8)
 
@@ -153,83 +212,3 @@ class ImgCropper:
             value=[255, 255, 255],
         )
         return bg_img
-
-
-class ImgWarper:
-    @staticmethod
-    def get_transform_matrix(rect: tuple[float, float, float, float]) -> np.ndarray:
-        width, height = rect[1][0], rect[1][1]
-        rel_bbox = cv2.boxPoints(rect).astype(np.float32)
-        dst_pts = np.array(
-            [[0, height - 1], [0, 0], [width - 1, 0], [width - 1, height - 1]],
-            dtype=np.float32,
-        )
-        M = cv2.getPerspectiveTransform(rel_bbox, dst_pts)
-
-        return M
-
-    @staticmethod
-    def warp_img_by_polygon(
-        img: np.ndarray, polygon: list[tuple[int, int]]
-    ) -> np.ndarray:
-        # Convert points to numpy array
-        pts = np.array(polygon, dtype="float32")
-
-        # Determine the width and height of the output image
-        width = max(np.linalg.norm(pts[0] - pts[1]), np.linalg.norm(pts[2] - pts[3]))
-        height = max(np.linalg.norm(pts[0] - pts[3]), np.linalg.norm(pts[1] - pts[2]))
-
-        # Create destination points
-        dst = np.array(
-            [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]],
-            dtype="float32",
-        )
-
-        # Compute the perspective transform matrix
-        M = cv2.getPerspectiveTransform(pts, dst)
-
-        # Warp the image
-        warped = cv2.warpPerspective(img, M, (int(width), int(height)))
-
-        return warped
-
-    @staticmethod
-    def warp_img_by_box(
-        img: np.ndarray, box: tuple[int, int, int, int], angle: int = 0
-    ) -> np.ndarray:
-        x, y, width, height = box
-        rect = ((x + width / 2, y + height / 2), (width, height), angle)
-        M = ImgWarper.get_transform_matrix(rect)
-        warped_img = cv2.warpPerspective(img, M, (width, height))
-
-        return warped_img
-
-    @staticmethod
-    def warp_img_by_box(
-        img: np.ndarray, box: tuple[int, int, int, int], angle: int = 0
-    ) -> np.ndarray:
-        x, y, w, h = box
-
-        # Get the rotation matrix
-        rotation_matrix = cv2.getRotationMatrix2D((x, y), angle, 1.0)
-
-        # Calculate the four corners of the rectangle
-        corners = np.array(
-            [[x, y], [x + w, y], [x + w, y + h], [x, y + h]], dtype=np.float32
-        )
-
-        # Rotate the corners
-        rotated_corners = cv2.transform(np.array([corners]), rotation_matrix)[0]
-
-        # Get the destination points for perspective transform
-        dst_points = np.array(
-            [[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]], dtype=np.float32
-        )
-
-        # Get the perspective transform matrix
-        M = cv2.getPerspectiveTransform(rotated_corners, dst_points)
-
-        # Apply the perspective transform to crop the rotated rectangle
-        cropped = cv2.warpPerspective(img, M, (int(w), int(h)))
-
-        return cropped
