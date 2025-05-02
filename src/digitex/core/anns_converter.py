@@ -95,6 +95,7 @@ class OCRBBOXAnnsConverter(OCRAnnsConverter):
 class OCRCaptionConverter(OCRAnnsConverter):
     def __init__(self, ls_local_storage_path: str) -> None:
         super().__init__(ls_local_storage_path)
+        self.convertation_name = "conv_ocr_to_caption"
         self.output_json_name = "converted_data.json"
 
     def _get_abs_box(self, entry: dict) -> tuple[int, int, int, int]:
@@ -151,7 +152,7 @@ class OCRCaptionConverter(OCRAnnsConverter):
         return task_path
 
     def _get_caption_preds(self, entry: dict) -> list[dict]:
-        predictions = [{"result": []}]
+        predictions = [{"model_version": self.convertation_name, "result": []}]
         predictions[0]["result"].append(
             {
                 "from_name": "caption",
