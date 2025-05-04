@@ -155,6 +155,8 @@ class ImgCropper:
 
         # Compute the minimum area rectangle enclosing the polygon
         rect = cv2.minAreaRect(pts)
+
+        # TODO angle check (from -0.0 tp 90.0)
         angle = rect[2]
         # Get the four corners of the rotated rectangle
         bbox = cv2.boxPoints(rect)
@@ -183,9 +185,8 @@ class ImgCropper:
 
         return bg_img
 
-    @staticmethod
     def crop_img_by_box(
-        img: np.ndarray, box: tuple[int, int, int, int], angle: int = 0
+        self, img: np.ndarray, box: tuple[int, int, int, int], angle: int = 0
     ) -> np.ndarray:
         x, y, width, height = box
 
@@ -200,25 +201,28 @@ class ImgCropper:
         rotated_pts = cv2.transform(np.array([pts]), rotation_matrix)[0]
 
         # Crop the image
-        cropped_img = ImgCropper.warp_perspective(img, rotated_pts, width, height)
+        persp_M = self.get_perspective_matrix(rotated_pts, width, height)
+        cropped_img = self.warp_perspective(img, persp_M, width, height)
 
         return cropped_img
 
     def crop_img_by_polygon(
         self, img: np.ndarray, polygon: list[tuple[int, int]]
     ) -> np.ndarray:
-        # Convert points to numpy array
-        pts = np.array(polygon, dtype=np.float32)
-
-        # TODO convert polygon to xyxyxyxy if len > 8
-        if len(pts) > 8:
-            pass
+        # Convert polygon to numpy quadrilateral
+        if len(polygon) == 4:
+            pts = np.array(polygon, dtype=np.float32)
+        elif len(polygon) > 4:
+            pts = self.polygon_to_quadrilateral(polygon)
+        else:
+            raise ValueError("Polygon must have 4 or more than 4 points.")
 
         # Determine the width and height of the output image
         width, height = self.get_quadrilateral_size(pts)
 
         # Crop the image
-        cropped_img = ImgCropper.warp_perspective(img, pts, int(width), int(height))
+        persp_M = self.get_perspective_matrix(pts, width, height)
+        cropped_img = self.warp_perspective(img, persp_M, int(width), int(height))
 
         return cropped_img
 
