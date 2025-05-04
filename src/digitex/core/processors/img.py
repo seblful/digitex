@@ -97,25 +97,11 @@ class ImgProcessor:
 
 
 class ImgCropper:
-    # @staticmethod
-    # def crop_to_mask(
-    #     img: np.ndarray, box: tuple[int, int, int, int], contours: np.ndarray
-    # ) -> np.ndarray:
-    #     # Crop the image to the box
-    #     x, y, w, h = box
-    #     cropped_img = img[y : y + h, x : x + w]
+    def __init__(self) -> None:
+        pass
 
-    #     # Create a mask and apply it to the cropped image
-    #     mask = np.zeros(cropped_img.shape[:2], dtype=np.uint8)
-    #     cv2.drawContours(
-    #         mask, [contours], -1, 255, thickness=cv2.FILLED, lineType=cv2.LINE_AA
-    #     )
-    #     result = cv2.bitwise_and(cropped_img, cropped_img, mask=mask)
-    #     return result
-
-    @staticmethod
-    def warp_perspective(
-        img: np.ndarray, pts: np.ndarray, width: int, height: int
+    def get_perspective_matrix(
+        self, pts: np.ndarray, width: int, height: int
     ) -> np.ndarray:
         # Create destination points
         dst_points = np.array(
@@ -125,35 +111,34 @@ class ImgCropper:
 
         # Compute the perspective transform matrix
         M = cv2.getPerspectiveTransform(pts, dst_points)
+        return M
 
-        # Warp the image
-        warped_img = cv2.warpPerspective(img, M, (width, height))
+    def perspective_transform(
+        self, polygon: list[tuple[int, int]], persp_M: np.ndarray
+    ) -> np.ndarray:
+        poly_np = np.array(polygon, dtype=np.float32).reshape(-1, 1, 2)
+        warped_poly = cv2.perspectiveTransform(poly_np, persp_M).astype(np.int32)
+        return warped_poly
 
+    def warp_perspective(
+        self, img: np.ndarray, persp_M: np.ndarray, width: int, height: int
+    ) -> np.ndarray:
+        warped_img = cv2.warpPerspective(img, persp_M, (width, height))
         return warped_img
 
-    @staticmethod
-    def crop_img_by_polygon(
-        img: np.ndarray, polygon: list[tuple[int, int]]
-    ) -> np.ndarray:
-        # Convert points to numpy array
-        pts = np.array(polygon, dtype="float32")
+    def get_quadrilateral_size(self, pts: np.ndarray) -> tuple[int, int]:
+        width_a = np.linalg.norm(pts[0] - pts[1])
+        width_b = np.linalg.norm(pts[2] - pts[3])
+        max_width = max(int(width_a), int(width_b))
 
-        # TODO convert polygon to xyxyxyxy if len > 8
-        if len(pts) > 8:
-            pass
+        height_a = np.linalg.norm(pts[1] - pts[2])
+        height_b = np.linalg.norm(pts[3] - pts[0])
+        max_height = max(int(height_a), int(height_b))
 
-        # Determine the width and height of the output image
-        width = max(np.linalg.norm(pts[0] - pts[1]), np.linalg.norm(pts[2] - pts[3]))
-        height = max(np.linalg.norm(pts[0] - pts[3]), np.linalg.norm(pts[1] - pts[2]))
+        return max_width, max_height
 
-        # Crop the image
-        cropped_img = ImgCropper.warp_perspective(img, pts, int(width), int(height))
-
-        return cropped_img
-
-    @staticmethod
-    def order_points(pts):
-        rect = np.zeros((4, 2), dtype="float32")
+    def order_points(self, pts: np.ndarray) -> np.ndarray:
+        rect = np.zeros((4, 2), dtype=np.float32)
         s = pts.sum(axis=1)
         rect[0] = pts[np.argmin(s)]
         rect[2] = pts[np.argmax(s)]
@@ -161,6 +146,42 @@ class ImgCropper:
         rect[1] = pts[np.argmin(diff)]
         rect[3] = pts[np.argmax(diff)]
         return rect
+
+    def polygon_to_quadrilateral(
+        self,
+        polygon: list[tuple[int, int]],
+    ) -> np.ndarray:
+        pts = np.array(polygon, dtype=np.int32)
+
+        # Compute the minimum area rectangle enclosing the polygon
+        rect = cv2.minAreaRect(pts)
+        angle = rect[2]
+        # Get the four corners of the rotated rectangle
+        bbox = cv2.boxPoints(rect)
+
+        # Order the points for perspective transform
+        bbox = self.order_points(bbox)
+        pts = np.array(bbox, dtype=np.float32)
+
+        return pts
+
+    def paste_img_on_bg(
+        self, img: np.ndarray, pts: np.ndarray, width: int, height: int
+    ) -> np.ndarray:
+        # Create mask for the polygon in the image
+        mask = np.zeros((height, width), dtype=np.uint8)
+        cv2.fillPoly(mask, [pts], 255)
+
+        # Apply mask to image
+        result = cv2.bitwise_and(img, img, mask=mask)
+
+        # Paste on white background to remove black outside polygon
+        white_bg = np.ones_like(result) * 255
+        mask_inv = cv2.bitwise_not(mask)
+        white_masked = cv2.bitwise_and(white_bg, white_bg, mask=mask_inv)
+        bg_img = cv2.add(result, white_masked)
+
+        return bg_img
 
     @staticmethod
     def crop_img_by_box(
@@ -183,98 +204,44 @@ class ImgCropper:
 
         return cropped_img
 
-    # @staticmethod
-    # def cut_out_img_by_polygon(
-    #     img: np.ndarray, polygon: list[tuple[int, int]]
-    # ) -> np.ndarray:
-    #     cropped_img = ImgCropper.crop_img_by_polygon(img, polygon)
-
-    #     contours = np.array(polygon, dtype=np.int32)
-    #     # TODO Change to cv2 minarea rect, because rotated bbox
-    #     box = cv2.boundingRect(contours)
-    #     contours = contours - [box[0], box[1]]
-    #     cropped_img = ImgCropper.crop_to_mask(img, box, contours)
-
-    #     return cropped_img
-
-    @staticmethod
-    def paste_img_on_bg(img: np.ndarray, offset: float = 0.025) -> np.ndarray:
-        # Create a white background
-        bg = np.full_like(img, 255, dtype=np.uint8)
-
-        # Create a mask from the image
-        mask = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY)[1]
-
-        # Combine the image with the background using the mask
-        bg_img = cv2.add(img, cv2.bitwise_and(bg, bg, mask=cv2.bitwise_not(mask)))
-
-        # Add a border around the result
-        border = int(img.shape[0] * offset)
-        bg_img = cv2.copyMakeBorder(
-            bg_img,
-            border,
-            border,
-            border,
-            border,
-            cv2.BORDER_CONSTANT,
-            value=[255, 255, 255],
-        )
-        return bg_img
-
-    @staticmethod
-    def paste_img_on_bg(img: np.ndarray) -> np.ndarray:
-        # Create a white background
-        white_bg = np.ones_like(img) * 255
-
-        # Create a mask from the non-black pixels in the warped image
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        _, mask = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
-
-        # Apply the mask to combine warped image with white background
-        masked_img = cv2.bitwise_and(img, img, mask=mask)
-        mask_inv = cv2.bitwise_not(mask)
-        white_masked = cv2.bitwise_and(white_bg, white_bg, mask=mask_inv)
-        bg_img = cv2.add(masked_img, white_masked)
-
-        return bg_img
-
-    @staticmethod
-    def polygon_to_quadrilateral(
-        polygon: list[tuple[int, int]],
+    def crop_img_by_polygon(
+        self, img: np.ndarray, polygon: list[tuple[int, int]]
     ) -> np.ndarray:
-        pts = np.array(polygon, dtype=np.int32)
+        # Convert points to numpy array
+        pts = np.array(polygon, dtype=np.float32)
 
-        # Compute the minimum area rectangle enclosing the polygon
-        rect = cv2.minAreaRect(pts)
+        # TODO convert polygon to xyxyxyxy if len > 8
+        if len(pts) > 8:
+            pass
 
-        # Get the four corners of the rotated rectangle
-        bbox = cv2.boxPoints(rect)
+        # Determine the width and height of the output image
+        width, height = self.get_quadrilateral_size(pts)
 
-        # Order the points for perspective transform
-        bbox = ImgCropper.order_points(bbox)
-        pts = np.array(bbox, dtype=np.float32)
+        # Crop the image
+        cropped_img = ImgCropper.warp_perspective(img, pts, int(width), int(height))
 
-        return pts
+        return cropped_img
 
-    @staticmethod
-    def get_quadrilateral_size(pts: np.ndarray) -> tuple[int, int]:
-        width_a = np.linalg.norm(pts[0] - pts[1])
-        width_b = np.linalg.norm(pts[2] - pts[3])
-        max_width = max(int(width_a), int(width_b))
+    def cut_out_img_by_polygon(
+        self, img: np.ndarray, polygon: list[tuple[int, int]]
+    ) -> np.ndarray:
+        # TODO If rotation is too big, don't rotate, just crop
+        # Convert polygon to quadrilateral (minimum area rectangle enclosing the polygon)
+        pts = self.polygon_to_quadrilateral(polygon)
 
-        height_a = np.linalg.norm(pts[1] - pts[2])
-        height_b = np.linalg.norm(pts[3] - pts[0])
-        max_height = max(int(height_a), int(height_b))
+        # Determine the width and height of the quadrilateral
+        width, height = self.get_quadrilateral_size(pts)
 
-        return max_width, max_height
+        # Compute the perspective transformation matrix for the quadrilateral
+        persp_M = self.get_perspective_matrix(pts, width, height)
 
-    @staticmethod
-    def cut_out_img_by_polygon(img, polygon: list[tuple[int, int]]) -> np.ndarray:
-        # TODO it is cutting whole rectangle not only polygon, fix it
-        pts = ImgCropper.polygon_to_quadrilateral(polygon)
-        width, height = ImgCropper.get_quadrilateral_size(pts)
-        warped_img = ImgCropper.warp_perspective(img, pts, width, height)
-        bg_img = ImgCropper.paste_img_on_bg(warped_img)
+        # Apply the perspective transformation to warp the image
+        warped_img = self.warp_perspective(img, persp_M, width, height)
+
+        # Transform the original polygon points using the perspective matrix
+        tr_pts = self.perspective_transform(polygon, persp_M)
+
+        # Paste the warped image onto a white background using the transformed polygon points
+        bg_img = self.paste_img_on_bg(warped_img, tr_pts, width, height)
 
         return bg_img
