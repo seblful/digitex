@@ -2,12 +2,15 @@ import os
 from urllib.parse import quote, unquote
 from PIL import Image
 import numpy as np
-from .processors.img import ImgProcessor, ImgWarper
+from .processors.img import ImgProcessor, ImgCropper
 from .processors.file import FileProcessor
 
 
 class AnnsConverter:
     def __init__(self, ls_local_storage_path: str) -> None:
+        self.img_processor = ImgProcessor()
+        self.img_cropper = ImgCropper()
+
         self.ls_local_storage_path = ls_local_storage_path
         self.ls_local_storage_prefix = "/data/local-files/?d="
 
@@ -95,6 +98,7 @@ class OCRBBOXAnnsConverter(OCRAnnsConverter):
 class OCRCaptionConverter(OCRAnnsConverter):
     def __init__(self, ls_local_storage_path: str) -> None:
         super().__init__(ls_local_storage_path)
+
         self.convertation_name = "conv_ocr_to_caption"
         self.output_json_name = "converted_data.json"
 
@@ -110,9 +114,9 @@ class OCRCaptionConverter(OCRAnnsConverter):
     def _crop_image(
         self, image: Image.Image, box: tuple[int, int, int, int], angle: int
     ) -> np.ndarray:
-        img = ImgProcessor.image2img(image)
-        cropped_img = ImgWarper.warp_img_by_box(img, box, angle)
-        cropped_image = ImgProcessor.img2image(cropped_img)
+        img = self.img_processor.image2img(image)
+        cropped_img = self.img_cropper.crop_img_by_box(img, box, angle)
+        cropped_image = self.img_processor.img2image(cropped_img)
 
         return cropped_image
 
