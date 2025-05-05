@@ -30,6 +30,7 @@ class WordDataCreator(BaseDataCreator):
                 image_width=rand_image.width,
                 image_height=rand_image.height,
             )
+
             cropped_image = self._crop_image(image=rand_image, polygon=rand_polygon)
             num_saved = self._save_image(
                 rand_points_idx,
@@ -79,7 +80,7 @@ class WordDataCreator(BaseDataCreator):
                     target_classes=["question"],
                 )
             )
-            question_rand_image = self._crop_image(
+            question_rand_image = self._cut_out_image(
                 image=page_rand_image, polygon=question_rand_polygon
             )
             question_pred_result = yolo_question_predictor(question_rand_image)
@@ -89,7 +90,7 @@ class WordDataCreator(BaseDataCreator):
                 points_dict=question_points_dict,
                 target_classes=parts_target_classes,
             )
-            part_rand_image = self._crop_image(
+            part_rand_image = self._cut_out_image(
                 image=question_rand_image, polygon=part_rand_polygon
             )
             word_pred_result = db_repvit_word_predictor(part_rand_image)

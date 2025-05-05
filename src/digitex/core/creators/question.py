@@ -28,7 +28,7 @@ class QuestionDataCreator(BaseDataCreator):
                 image_width=rand_image.width,
                 image_height=rand_image.height,
             )
-            cropped_image = self._crop_image(image=rand_image, polygon=rand_polygon)
+            cropped_image = self._cut_out_image(image=rand_image, polygon=rand_polygon)
             num_saved = self._save_image(
                 rand_points_idx,
                 output_dir=train_dir,
@@ -65,7 +65,7 @@ class QuestionDataCreator(BaseDataCreator):
                     target_classes=["question"],
                 )
             )
-            question_rand_image = self._crop_image(
+            question_rand_image = self._cut_out_image(
                 image=page_rand_image, polygon=question_rand_polygon
             )
             num_saved = self._save_image(

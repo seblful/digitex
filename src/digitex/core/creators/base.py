@@ -12,6 +12,7 @@ class BaseDataCreator:
     def __init__(self) -> None:
         self.img_processor = ImgProcessor()
         self.img_cropper = ImgCropper()
+
         self.file_processor = FileProcessor()
         self.pdf_handler = PDFHandler()
         self.label_handler = LabelHandler()
@@ -41,14 +42,21 @@ class BaseDataCreator:
         image = self.img_processor.img2image(img)
         return image
 
+    def _cut_out_image(
+        self, image: Image.Image, polygon: list[tuple[int, int]]
+    ) -> Image.Image:
+        img = self.img_processor.image2img(image)
+        cutted_img = self.img_cropper.cut_out_img_by_polygon(img, polygon)
+        cutted_image = self.img_processor.img2image(cutted_img)
+        return cutted_image
+
     def _crop_image(
-        self, image: Image.Image, polygon: list[tuple[int, int]], offset: float = 0.025
+        self, image: Image.Image, polygon: list[tuple[int, int]]
     ) -> Image.Image:
         img = self.img_processor.image2img(image)
         cropped_img = self.img_cropper.crop_img_by_polygon(img, polygon)
-        bg_img = self.img_cropper.paste_img_on_background(cropped_img, offset)
-        bg_image = self.img_processor.img2image(bg_img)
-        return bg_image
+        cropped_image = self.img_processor.img2image(cropped_img)
+        return cropped_image
 
     def _save_image(
         self,
