@@ -97,9 +97,6 @@ class ImgProcessor:
 
 
 class ImgCropper:
-    def __init__(self) -> None:
-        pass
-
     def get_perspective_matrix(
         self, pts: np.ndarray, width: int, height: int
     ) -> np.ndarray:
@@ -150,22 +147,29 @@ class ImgCropper:
     def polygon_to_quadrilateral(
         self,
         polygon: list[tuple[int, int]],
+        max_angle: float = 4.0,
     ) -> np.ndarray:
         pts = np.array(polygon, dtype=np.int32)
 
         # Compute the minimum area rectangle enclosing the polygon
         rect = cv2.minAreaRect(pts)
 
-        # TODO angle check (from -0.0 tp 90.0)
+        # Check the angle of the rectangle
+        # If the angle is too large, use cv2.boundingRect
         angle = rect[2]
-        # Get the four corners of the rotated rectangle
-        bbox = cv2.boxPoints(rect)
+        angle_delta = abs(min(angle - 0, 90 - angle))
+        if angle_delta > max_angle:
+            x, y, w, h = cv2.boundingRect(pts)
+            bbox = np.array(
+                [[x, y], [x + w, y], [x + w, y + h], [x, y + h]], dtype=np.float32
+            )
+        else:
+            bbox = cv2.boxPoints(rect)
 
         # Order the points for perspective transform
         bbox = self.order_points(bbox)
-        pts = np.array(bbox, dtype=np.float32)
 
-        return pts
+        return bbox
 
     def paste_img_on_bg(
         self, img: np.ndarray, pts: np.ndarray, width: int, height: int
@@ -229,7 +233,6 @@ class ImgCropper:
     def cut_out_img_by_polygon(
         self, img: np.ndarray, polygon: list[tuple[int, int]]
     ) -> np.ndarray:
-        # TODO If rotation is too big, don't rotate, just crop
         # Convert polygon to quadrilateral (minimum area rectangle enclosing the polygon)
         pts = self.polygon_to_quadrilateral(polygon)
 
