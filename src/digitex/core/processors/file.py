@@ -4,16 +4,21 @@ import yaml
 
 class FileProcessor:
     @staticmethod
-    def read_txt(txt_path) -> list[str]:
+    def read_txt(txt_path, strip: bool = False) -> list[str]:
         with open(txt_path, "r", encoding="utf-8") as txt_file:
             content = txt_file.readlines()
+            if strip:
+                content = [line.strip() for line in content]
 
         return content
 
     @staticmethod
-    def write_txt(txt_path: str, lines: list[str]) -> None:
+    def write_txt(txt_path: str, lines: list[str], newline: bool = False) -> None:
         with open(txt_path, "w", encoding="utf-8") as txt_file:
-            txt_file.writelines(lines)
+            if newline:
+                txt_file.writelines(f"{line}\n" for line in lines)
+            else:
+                txt_file.writelines(lines)
 
         return None
 
