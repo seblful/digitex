@@ -146,3 +146,46 @@ class WordsCreator:
 
         # Write words to txt
         FileProcessor.write_txt(output_txt_path, lines=all_words, newline=True)
+
+
+class FormulasCreator:
+    def __init__(self, elements_txt_path: str, ions_txt_path: str) -> None:
+        self.elements_txt_path = elements_txt_path
+        self.ions_txt_path = ions_txt_path
+
+        self.__elements = None
+        self.__ions = None
+        self.__cations = None
+        self.__anions = None
+
+    @property
+    def elements(self) -> list[str]:
+        if self.__elements is None:
+            self.__elements = FileProcessor.read_txt(self.elements_txt_path, strip=True)
+        return self.__elements
+
+    @property
+    def ions(self) -> list[str]:
+        if self.__ions is None:
+            self.__ions = FileProcessor.read_txt(self.ions_txt_path, strip=True)
+        return self.__ions
+
+    @property
+    def anions(self) -> list[str]:
+        if self.__anions is None:
+            self.__anions = [ion for ion in self.ions if ion.endswith("⁻")]
+        return self.__anions
+
+    @property
+    def cations(self) -> list[str]:
+        if self.__cations is None:
+            self.__cations = [ion for ion in self.ions if ion.endswith("⁺")]
+        return self.__cations
+
+    def to_subscript(self, text) -> str:
+        subscript_map = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+        return text.translate(subscript_map)
+
+    def to_superscript(self, text) -> str:
+        superscript_map = str.maketrans("+-0123456789", "⁺⁻⁰¹²³⁴⁵⁶⁷⁸⁹")
+        return text.translate(superscript_map)
