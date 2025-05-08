@@ -1,4 +1,5 @@
 import random
+import re
 
 from digitex.core.processors.file import FileProcessor
 
@@ -153,6 +154,10 @@ class FormulasCreator:
         self.elements_txt_path = elements_txt_path
         self.ions_txt_path = ions_txt_path
 
+        self.scripts = "0123456789"
+        self.superscripts = "⁰¹²³⁴⁵⁶⁷⁸⁹"
+        self.subscripts = "₀₁₂₃₄₅₆₇₈₉"
+
         self.__elements = None
         self.__ions = None
         self.__cations = None
@@ -182,10 +187,53 @@ class FormulasCreator:
             self.__cations = [ion for ion in self.ions if ion.endswith("⁺")]
         return self.__cations
 
-    def to_subscript(self, text) -> str:
-        subscript_map = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+    def num_to_subscript(self, text) -> str:
+        subscript_map = str.maketrans(self.scripts, self.subscripts)
         return text.translate(subscript_map)
 
-    def to_superscript(self, text) -> str:
-        superscript_map = str.maketrans("+-0123456789", "⁺⁻⁰¹²³⁴⁵⁶⁷⁸⁹")
+    def num_to_superscript(self, text) -> str:
+        superscript_map = str.maketrans(self.scripts, self.superscripts)
         return text.translate(superscript_map)
+
+    def subscript_to_num(self, text) -> str:
+        subscript_map = str.maketrans(self.subscripts, self.scripts)
+        return text.translate(subscript_map)
+
+    def superscript_to_num(self, text) -> str:
+        superscript_map = str.maketrans(self.superscripts, self.scripts)
+        return text.translate(superscript_map)
+
+    def get_ion_with_charge(self, ion) -> tuple[str, int]:
+        # Regex to find all charge patterns
+        charge_pattern = r"([⁰¹²³⁴⁵⁶⁷⁸⁹]+[⁺⁻]|[⁺⁻]|\d+[+-]|[+-])"
+        matches = re.findall(charge_pattern, ion)
+
+        total_charge = 0
+        for pattern in matches:
+            # Check if it's superscript with digits
+            if re.fullmatch(r"[⁰¹²³⁴⁵⁶⁷⁸⁹]+[⁺⁻]", pattern):
+                digits_part = pattern[:-1]
+                sign = pattern[-1]
+                charge = 0
+                for c in digits_part:
+                    charge = charge * 10 + int(self.superscript_to_num(c))
+                total_charge += charge if sign == "⁺" else -charge
+
+            # Check if it's a superscript sign alone
+            elif pattern in ("⁺", "⁻"):
+                total_charge += 1 if pattern == "⁺" else -1
+
+            # Check if it's regular digits with sign
+            elif re.fullmatch(r"\d+[+-]", pattern):
+                digits_part = pattern[:-1]
+                sign = pattern[-1]
+                charge = int(digits_part)
+                total_charge += charge if sign == "+" else -charge
+
+            # Check if it's a regular sign alone
+            elif pattern in ("+", "-"):
+                total_charge += 1 if pattern == "+" else -1
+
+        # Remove all charge patterns to get ion_part
+        ion_part = re.sub(charge_pattern, "", ion)
+        return (ion_part, total_charge)
