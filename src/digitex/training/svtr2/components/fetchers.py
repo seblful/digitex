@@ -62,8 +62,8 @@ class PubChemFetcher:
             print(f"Failed to fetch data from {url}.")
             return None
 
-    def create_name_cid_json(self, output_path: str) -> None:
-        name_cid = {}
+    def create_element_cids_txt(self, output_path: str) -> None:
+        cids = []
         for name in self.element_names:
             # Get json data with the CID
             url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{name}/property/Title/json"
@@ -71,8 +71,8 @@ class PubChemFetcher:
             if data is None:
                 continue
 
-            # Extract the CID from the json and add it to the dictionary
+            # Extract the CID from the json and add it to the list
             cid = data["PropertyTable"]["Properties"][0]["CID"]
-            name_cid[name] = cid
+            cids.append(str(cid))
 
-        FileProcessor.write_json(name_cid, output_path)
+        FileProcessor.write_txt(output_path, cids, newline=True)
