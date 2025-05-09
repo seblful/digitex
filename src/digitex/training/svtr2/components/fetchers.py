@@ -4,13 +4,12 @@ from digitex.core.processors.file import FileProcessor
 
 
 class PubChemFetcher:
-    "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/oxygen/property/Title/json"
-
     "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/fastsubstructure/cid/5359268/cids/json"
+
     "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/5359268,9989226/property/MolecularFormula/json"
 
-    def __init__(self, elements_info_json: str) -> None:
-        self.__elements_info_json = elements_info_json
+    def __init__(self, elements_info_json_path: str) -> None:
+        self.__elements_info_json_path = elements_info_json_path
 
         self.__symbols2names = None
         self.__element_symbols = None
@@ -22,7 +21,7 @@ class PubChemFetcher:
             return self.__symbols2names
 
         # Parse the JSON string
-        data = FileProcessor.read_json(self.__elements_info_json)
+        data = FileProcessor.read_json(self.__elements_info_json_path)
         columns = data["Table"]["Columns"]["Column"]
         rows = data["Table"]["Row"]
 
@@ -55,5 +54,25 @@ class PubChemFetcher:
 
         return self.__element_names
 
-    def create_elements_to_cid(self, elements_json: str):
-        pass
+    def get_response_json(self, url: str) -> dict | None:
+        response = requests.get(url)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"Failed to fetch data from {url}.")
+            return None
+
+    def create_name_cid_json(self, output_path: str) -> None:
+        name_cid = {}
+        for name in self.element_names:
+            # Get json data with the CID
+            url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{name}/property/Title/json"
+            data = self.get_response_json(url)
+            if data is None:
+                continue
+
+            # Extract the CID from the json and add it to the dictionary
+            cid = data["PropertyTable"]["Properties"][0]["CID"]
+            name_cid[name] = cid
+
+        FileProcessor.write_json(name_cid, output_path)
