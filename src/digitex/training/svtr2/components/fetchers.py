@@ -1,5 +1,7 @@
 import requests
 
+from tqdm import tqdm
+
 from digitex.core.processors.file import FileProcessor
 
 
@@ -76,3 +78,27 @@ class PubChemFetcher:
             cids.append(str(cid))
 
         FileProcessor.write_txt(output_path, cids, newline=True)
+
+    def create_substructure_cids_txt(
+        self, element_cids_txt_path: str, output_path: str
+    ) -> None:
+        # Read the element CIDs from the file
+        element_cids = FileProcessor.read_txt(element_cids_txt_path, strip=True)
+
+        # Create a list to store the substructure CIDs
+        substructure_cids = set()
+
+        for cid in tqdm(element_cids, desc="Fetching substructure CIDs", unit="cid"):
+            # Get json data with the substructure CIDs
+            url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/fastsubstructure/cid/{cid}/cids/json"
+            data = self.get_response_json(url)
+            if data is None:
+                continue
+
+            # Extract the substructure CIDs from the json and add them to the set
+            cids = data["IdentifierList"]["CID"]
+            cids = list(map(str, cids))
+            substructure_cids.update(cids)
+
+        substructure_cids = sorted(substructure_cids)
+        FileProcessor.write_txt(output_path, substructure_cids, newline=True)
