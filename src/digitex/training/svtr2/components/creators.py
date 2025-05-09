@@ -1,5 +1,6 @@
 import random
 import re
+import math
 
 from digitex.core.processors.file import FileProcessor
 
@@ -237,3 +238,50 @@ class FormulasCreator:
         # Remove all charge patterns to get ion_part
         ion_part = re.sub(charge_pattern, "", ion)
         return (ion_part, total_charge)
+
+    def is_single_element(self, formula: str) -> bool:
+        if len(formula) not in (1, 2):
+            return False
+        if not formula[0].isupper():
+            return False
+        if len(formula) == 2 and not formula[1].islower():
+            return False
+        return True
+
+    def format_part(self, formula, divisor) -> str:
+        if divisor == 1:
+            return formula
+        if self.is_single_element(formula):
+            return f"{formula}{self.num_to_subscript(str(divisor))}"
+        else:
+            return f"({formula}){self.num_to_subscript(str(divisor))}"
+
+    def create(self, output_txt_path: str, n_formulas: int) -> None:
+        all_formulas = []
+
+        for _ in range(n_formulas):
+            # Randomly select a cation and anion
+            cation = random.choice(self.cations)
+            anion = random.choice(self.anions)
+
+            # Get ion base and charge
+            cat_base, cat_charge = self.get_ion_with_charge(cation)
+            ani_base, ani_charge = self.get_ion_with_charge(anion)
+
+            # Find greatest common divisor and ions subscripts
+            cat_charge = abs(cat_charge)
+            ani_charge = abs(ani_charge)
+            gcd_val = math.gcd(cat_charge, ani_charge)
+
+            cation_subscript = ani_charge // gcd_val
+            anion_subscript = cat_charge // gcd_val
+
+            # Create ions
+            cation_part = self.format_part(cat_base, cation_subscript)
+            anion_part = self.format_part(ani_base, anion_subscript)
+            all_formulas.append(cation_part + anion_part)
+
+        all_formulas = sorted(list(set(all_formulas)))
+
+        # Write formulas to txt
+        FileProcessor.write_txt(output_txt_path, lines=all_formulas, newline=True)
