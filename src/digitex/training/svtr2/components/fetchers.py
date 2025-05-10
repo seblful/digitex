@@ -1,4 +1,5 @@
 import requests
+from json import JSONDecodeError
 
 from tqdm import tqdm
 
@@ -6,10 +7,6 @@ from digitex.core.processors.file import FileProcessor
 
 
 class PubChemFetcher:
-    "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/fastsubstructure/cid/5359268/cids/json"
-
-    "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/5359268,9989226/property/MolecularFormula/json"
-
     def __init__(self, elements_info_json_path: str) -> None:
         self.__elements_info_json_path = elements_info_json_path
 
@@ -57,12 +54,15 @@ class PubChemFetcher:
         return self.__element_names
 
     def get_response_json(self, url: str) -> dict | None:
-        response = requests.get(url)
-        if response.status_code == 200:
+        try:
+            response = requests.get(url)
+            response.raise_for_status()  # Raise an HTTPError for bad responses
             return response.json()
-        else:
-            print(f"Failed to fetch data from {url}.")
-            return None
+        except requests.exceptions.RequestException as e:
+            print(f"Request error for {url}: {e}")
+        except JSONDecodeError:
+            print(f"Failed to decode JSON from {url}.")
+        return None
 
     def create_element_cids_txt(self, output_path: str) -> None:
         cids = []
@@ -102,3 +102,38 @@ class PubChemFetcher:
 
         substructure_cids = sorted(substructure_cids)
         FileProcessor.write_txt(output_path, substructure_cids, newline=True)
+
+    def create_mfs_txt(
+        self,
+        substructure_cids_txt_path: str,
+        output_path: str,
+        start_idx: int = 0,
+        batch_size: int = 10,
+    ) -> None:
+        # Read the substructure CIDs from the file
+        substructure_cids = FileProcessor.read_txt(
+            substructure_cids_txt_path, strip=True
+        )
+        substructure_cids = substructure_cids[start_idx:]
+
+        # Open the output file in append mode
+        with open(output_path, "a") as output_file:
+            for i in tqdm(
+                range(0, len(substructure_cids), batch_size),
+                desc="Fetching molecular formulas",
+                unit="batch",
+            ):
+                # Get a batch of CIDs
+                batch_cids = substructure_cids[i : i + batch_size]
+                cids_str = ",".join(batch_cids)
+
+                # Get json data with the molecular formulas
+                url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cids_str}/property/MolecularFormula/json"
+
+                data = self.get_response_json(url)
+                if data is None:
+                    continue
+
+                # Extract the molecular formulas from the json and write them to the file
+                for prop in data["PropertyTable"]["Properties"]:
+                    output_file.write(f"{prop['MolecularFormula']}\n")
