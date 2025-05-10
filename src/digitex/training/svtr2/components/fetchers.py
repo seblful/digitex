@@ -66,6 +66,25 @@ class PubChemFetcher:
             print(f"Failed to decode JSON from {url}.")
         return None
 
+    def _mf_to_unicode(self, mf: str) -> str:
+        # Convert numbers to subscripts, charges to superscripts
+        sub_map = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+        super_map = str.maketrans("0123456789+-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻")
+
+        # Replace numbers after element symbols with subscripts
+        def subscript_numbers(match):
+            return match.group(1) + match.group(2).translate(sub_map)
+
+        mf = re.sub(r"([A-Za-z\)])(\d+)", subscript_numbers, mf)
+
+        # Replace charge at the end (e.g., 2+, 3-, +, -, 2+5, 4-7) with superscript
+        mf = re.sub(
+            r"^(.*?)([+-]\d*|\d+[+-]\d*)$",
+            lambda m: m.group(1) + m.group(2).translate(super_map),
+            mf,
+        )
+        return mf
+
     def _categorize_mf(self, mf: str) -> str:
         # Organic: contains C and H, possibly with O, N, S, etc.
         # Ion: ends with + or -
