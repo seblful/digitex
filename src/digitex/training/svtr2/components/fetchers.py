@@ -172,3 +172,24 @@ class PubChemFetcher:
                 # Extract the molecular formulas from the json and write them to the file
                 for prop in data["PropertyTable"]["Properties"]:
                     output_file.write(f"{prop['MolecularFormula']}\n")
+
+    def create_mf_unicode_txts(self, all_mfs_txt_path: str, output_dir: str) -> None:
+        # Read the molecular formulas from the file
+        all_mfs = FileProcessor.read_txt(all_mfs_txt_path, strip=True)
+        all_mfs = sorted(list(set(all_mfs)))
+
+        categories = {
+            "in_formulas": [],
+            "in_ions": [],
+            "org_formulas": [],
+            "org_ions": [],
+        }
+
+        for mf in all_mfs:
+            unicode_mf = self._mf_to_unicode(mf)
+            cat = self._categorize_mf(mf)
+            categories[cat].append(unicode_mf)
+
+        for cat, formulas in categories.items():
+            out_path = os.path.join(output_dir, f"{cat}.txt")
+            FileProcessor.write_txt(out_path, sorted(formulas), newline=True)
