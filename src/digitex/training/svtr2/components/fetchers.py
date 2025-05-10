@@ -1,3 +1,5 @@
+import os
+import re
 import requests
 from json import JSONDecodeError
 
@@ -53,7 +55,7 @@ class PubChemFetcher:
 
         return self.__element_names
 
-    def get_response_json(self, url: str) -> dict | None:
+    def _get_response_json(self, url: str) -> dict | None:
         try:
             response = requests.get(url)
             response.raise_for_status()  # Raise an HTTPError for bad responses
@@ -64,12 +66,26 @@ class PubChemFetcher:
             print(f"Failed to decode JSON from {url}.")
         return None
 
+    def _categorize_mf(self, mf: str) -> str:
+        # Organic: contains C and H, possibly with O, N, S, etc.
+        # Ion: ends with + or -
+        is_ion = bool(re.search(r"[+-]\d*$|\d+[+-]$", mf))
+        is_organic = bool(re.match(r"C\d*H\d*", mf))
+        if is_organic and is_ion:
+            return "org_ions"
+        elif is_organic:
+            return "org_formulas"
+        elif is_ion:
+            return "in_ions"
+        else:
+            return "in_formulas"
+
     def create_element_cids_txt(self, output_path: str) -> None:
         cids = []
         for name in self.element_names:
             # Get json data with the CID
             url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{name}/property/Title/json"
-            data = self.get_response_json(url)
+            data = self._get_response_json(url)
             if data is None:
                 continue
 
@@ -91,7 +107,7 @@ class PubChemFetcher:
         for cid in tqdm(element_cids, desc="Fetching substructure CIDs", unit="cid"):
             # Get json data with the substructure CIDs
             url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/fastsubstructure/cid/{cid}/cids/json"
-            data = self.get_response_json(url)
+            data = self._get_response_json(url)
             if data is None:
                 continue
 
@@ -103,7 +119,7 @@ class PubChemFetcher:
         substructure_cids = sorted(substructure_cids)
         FileProcessor.write_txt(output_path, substructure_cids, newline=True)
 
-    def create_mfs_txt(
+    def create_all_mfs_txt(
         self,
         substructure_cids_txt_path: str,
         output_path: str,
@@ -130,7 +146,7 @@ class PubChemFetcher:
                 # Get json data with the molecular formulas
                 url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cids_str}/property/MolecularFormula/json"
 
-                data = self.get_response_json(url)
+                data = self._get_response_json(url)
                 if data is None:
                     continue
 
