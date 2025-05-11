@@ -228,7 +228,6 @@ dependencies = [
 requires-dist = [
     { name = "albumentations", specifier = ">=2.0.5" },
     { name = "beautifulsoup4", specifier = ">=4.13.4" },
-    { name = "digitex", directory = "." },
     { name = "doxapy", specifier = ">=0.9.2" },
     { name = "lmdb", specifier = ">=1.6.2" },
     { name = "numpy", specifier = ">=2.2.4" },
