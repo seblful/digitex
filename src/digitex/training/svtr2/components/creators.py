@@ -5,7 +5,7 @@ import math
 from digitex.core.processors.file import FileProcessor
 
 
-class WordsCreator:
+class TestsCreator:
     def __init__(self, n_words_cat: int = 2500) -> None:
         self.n_words_cat = n_words_cat
 
