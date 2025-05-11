@@ -4,10 +4,54 @@ import random
 from digitex.core.processors.file import FileProcessor
 
 
-class CorpusAugmenter:
-    def __init__(self, symbols_txt_path: str) -> None:
-        self.symbols_txt_path = symbols_txt_path
-        self.__symbols = None
+class BaseAugmenter:
+    def __init__(self) -> None:
+        self.textcases = ["lower", "upper", "capitalize", "mixed"]
+        self.greek_transl = str.maketrans({"Α": "α", "Β": "β"})
+
+    def random_textcase(self, word: str) -> str:
+        style = random.choice(self.textcases)
+
+        if style == "upper":
+            word = word.upper()
+        elif style == "lower":
+            word = word.lower()
+        elif style == "capitalize":
+            word = word.capitalize()
+        elif style == "mixed":
+            word = "".join(random.choice((str.upper, str.lower))(char) for char in word)
+
+        word = word.translate(self.greek_transl)
+
+        return word
+
+    def augment(self, input_txt_path: str, n_words_aug) -> None:
+        corpus = FileProcessor.read_txt(input_txt_path, strip=True)
+
+        all_words = []
+
+        for _ in range(n_words_aug):
+            rnd_word = random.choice(corpus)
+            rnd_method = random.choice(self.aug_methods)
+
+            word = self.random_textcase(rnd_word)
+            word = rnd_method(word)
+            word = word.strip()
+            all_words.append(word)
+
+        # Write words to txt
+        output_dir = os.path.dirname(input_txt_path)
+        input_name, ext = os.path.splitext(os.path.basename(input_txt_path))
+        output_name = input_name + "_aug" + ext
+        output_txt_path = os.path.join(output_dir, output_name)
+        FileProcessor.write_txt(output_txt_path, lines=all_words, newline=True)
+
+
+class SpecCharsAugmenter(BaseAugmenter):
+    def __init__(self, spec_chars_txt_path: str) -> None:
+        super().__init__()
+        self.spec_chars_txt_path = spec_chars_txt_path
+        self.__spec_chars = None
 
         self.aug_methods = [
             self.augment_prefix,
@@ -19,86 +63,69 @@ class CorpusAugmenter:
         ]
 
     @property
-    def symbols(self) -> str:
-        if self.__symbols is None:
-            self.__symbols = FileProcessor.read_txt(self.symbols_txt_path, strip=True)[
-                0
-            ]
+    def spec_chars(self) -> str:
+        if self.__spec_chars is None:
+            self.__spec_chars = FileProcessor.read_txt(
+                self.spec_chars_txt_path, strip=True
+            )[0]
 
-        return self.__symbols
+        return self.__spec_chars
 
     def augment_prefix(self, word: str) -> str:
-        symbol = random.choice(self.symbols)
-        word = f"{symbol}{word}"
+        char = random.choice(self.spec_chars)
+        word = f"{char}{word}"
 
         return word
 
     def augment_postfix(self, word: str) -> str:
-        symbol = random.choice(self.symbols)
-        word = f"{word}{symbol}"
+        char = random.choice(self.spec_chars)
+        word = f"{word}{char}"
 
         return word
 
     def augment_both(self, word: str) -> str:
-        prefix = random.choice(self.symbols)
-        suffix = random.choice(self.symbols)
+        prefix = random.choice(self.spec_chars)
+        suffix = random.choice(self.spec_chars)
         word = f"{prefix}{word}{suffix}"
 
         return word
 
     def augment_surround(self, word: str) -> str:
-        symbol = random.choice(self.symbols)
-        word = f"{symbol}{word}{symbol}"
+        char = random.choice(self.spec_chars)
+        word = f"{char}{word}{char}"
 
         return word
 
     def augment_middle(self, word: str) -> str:
-        symbol = random.choice(self.symbols)
+        char = random.choice(self.spec_chars)
 
         if len(word) <= 1:
-            word = f"{word}{symbol}"
+            word = f"{word}{char}"
 
         else:
             pos = random.randint(1, len(word) - 1)
-            word = f"{word[:pos]}{symbol}{word[pos:]}"
+            word = f"{word[:pos]}{char}{word[pos:]}"
 
         return word
 
     def augment_double_middle(self, word: str) -> str:
-        symbol1 = random.choice(self.symbols)
-        symbol2 = random.choice(self.symbols)
+        char1 = random.choice(self.spec_chars)
+        char2 = random.choice(self.spec_chars)
 
         if len(word) <= 1:
-            word = f"{word}{symbol1}{symbol2}"
+            word = f"{word}{char1}{char2}"
 
         else:
             pos = random.randint(1, len(word) - 1)
-            word = f"{word[:pos]}{symbol1}{symbol2}{word[pos:]}"
+            word = f"{word[:pos]}{char1}{char2}{word[pos:]}"
 
         return word
 
-    def augment(self, corpus_txt_path: str, n_words_aug: int = 100000) -> None:
-        corpus = FileProcessor.read_txt(corpus_txt_path, strip=True)
 
-        all_words = []
-
-        for _ in range(n_words_aug):
-            rnd_word = random.choice(corpus)
-            rnd_method = random.choice(self.aug_methods)
-            word = rnd_method(rnd_word)
-            word = word.strip()
-            all_words.append(word)
-
-        # Write words to txt
-        output_dir = os.path.dirname(corpus_txt_path)
-        input_name, ext = os.path.splitext(os.path.basename(corpus_txt_path))
-        output_name = input_name + "_aug" + ext
-        output_txt_path = os.path.join(output_dir, output_name)
-        FileProcessor.write_txt(output_txt_path, lines=all_words, newline=True)
-
-
-class WordsAugmenter:
+class TestsAugmenter(BaseAugmenter):
     def __init__(self) -> None:
+        super().__init__()
+
         self.cmn_lower_letters = "абвгдеж"
         self.cmn_upper_letters = "AБВГДЕЖ"
         self.cmn_letters = self.cmn_lower_letters + self.cmn_upper_letters
@@ -166,21 +193,3 @@ class WordsAugmenter:
         word = self.postfix_punct(word)
 
         return word
-
-    def augment(self, input_txt_path: str, n_words_aug: int = 25000) -> None:
-        corpus = FileProcessor.read_txt(input_txt_path, strip=True)
-
-        all_words = []
-
-        for _ in range(n_words_aug):
-            rnd_word = random.choice(corpus)
-            rnd_method = random.choice(self.aug_methods)
-            word = rnd_method(rnd_word)
-            all_words.append(word)
-
-        # Write words to txt
-        output_dir = os.path.dirname(input_txt_path)
-        input_name, ext = os.path.splitext(os.path.basename(input_txt_path))
-        output_name = input_name + "_aug" + ext
-        output_txt_path = os.path.join(output_dir, output_name)
-        FileProcessor.write_txt(output_txt_path, lines=all_words, newline=True)
