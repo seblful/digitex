@@ -59,7 +59,7 @@ class DatasetCreator:
         return {key: d[key] for key in keys}
 
     @staticmethod
-    def sort_gt_key(key) -> tuple:
+    def sort_anns_key(key) -> tuple:
         filepath = key[0]
         basename = os.path.basename(filepath)
         filename = os.path.splitext(basename)[0]
@@ -73,46 +73,58 @@ class DatasetCreator:
         FileProcessor.write_txt(self.charset_txt_path, chars, newline=True)
 
     def _copy_data(
-        self, gt: dict[str, str], set_dir: str, images_per_folder: int = 10000
+        self, anns_dict: dict[str, str], set_dir: str, images_per_folder: int = 10000
     ) -> None:
         dir_name = os.path.basename(set_dir)
         images_dir = os.path.join(set_dir, "images")
-        gt_lines = []
-        gt = dict(sorted(gt.items(), key=self.sort_gt_key))
+
+        lines = []
+        anns_dict = dict(sorted(anns_dict.items(), key=self.sort_anns_key))
         subfolder_idx = img_in_subfolder = 0
-        for idx, (image_path, text) in enumerate(
-            tqdm(gt.items(), desc=f"Partitioning {dir_name} data")
+
+        for image_path, text in tqdm(
+            anns_dict.items(), desc=f"Partitioning {dir_name} data"
         ):
             if img_in_subfolder >= images_per_folder:
                 subfolder_idx += 1
                 img_in_subfolder = 0
             subfolder_name = str(subfolder_idx)
             subfolder_path = os.path.join(images_dir, subfolder_name)
+
             if not os.path.exists(subfolder_path):
                 os.mkdir(subfolder_path)
+
             src_image_path = os.path.join(self.raw_dir, image_path)
             image_basename = os.path.basename(image_path)
             dst_image_path = os.path.join("images", subfolder_name, image_basename)
             shutil.copyfile(src_image_path, os.path.join(set_dir, dst_image_path))
-            gt_lines.append(f"{dst_image_path}\t{text}")
+
+            lines.append(f"{dst_image_path}\t{text}")
             img_in_subfolder += 1
-        gt_txt_path = os.path.join(set_dir, "gt.txt")
-        FileProcessor.write_txt(txt_path=gt_txt_path, lines=gt_lines, newline=True)
+
+        labels_txt_path = os.path.join(set_dir, "labels.txt")
+        FileProcessor.write_txt(txt_path=labels_txt_path, lines=lines, newline=True)
 
     def _partitionate_data(
-        self, gt_dict: dict[str, str], aug_gt_dict: dict[str, str] = None
+        self, anns_dict: dict[str, str], aug_anns_dict: dict[str, str] = None
     ) -> None:
-        gt_dict = self.shuffle_dict(gt_dict)
-        num_train = int(len(gt_dict) * self.train_split)
-        train_keys = list(gt_dict.keys())[:num_train]
-        val_keys = list(gt_dict.keys())[num_train:]
-        train_gt_dict = {key: gt_dict[key] for key in train_keys}
-        val_gt_dict = {key: gt_dict[key] for key in val_keys}
-        if aug_gt_dict:
-            train_gt_dict.update(aug_gt_dict)
-            train_gt_dict = self.shuffle_dict(train_gt_dict)
-        for gt, set_dir in zip((train_gt_dict, val_gt_dict), self.dataset_dirs):
-            self._copy_data(gt=gt, set_dir=set_dir)
+        anns_dict = self.shuffle_dict(anns_dict)
+
+        num_train = int(len(anns_dict) * self.train_split)
+        train_keys = list(anns_dict.keys())[:num_train]
+        val_keys = list(anns_dict.keys())[num_train:]
+
+        train_anns_dict = {key: anns_dict[key] for key in train_keys}
+        val_anns_dict = {key: anns_dict[key] for key in val_keys}
+
+        if aug_anns_dict:
+            train_anns_dict.update(aug_anns_dict)
+            train_anns_dict = self.shuffle_dict(train_anns_dict)
+
+        for an_dict, set_dir in zip(
+            (train_anns_dict, val_anns_dict), self.dataset_dirs
+        ):
+            self._copy_data(anns_dict=an_dict, set_dir=set_dir)
 
     def create_dataset(self, source: str, use_aug=False) -> None:
         assert source in self.sources, (
@@ -122,23 +134,24 @@ class DatasetCreator:
         if source == "ls":
             images_dir = "images"
             data_json_path = os.path.join(self.raw_dir, "data.json")
-            gt_dict = self.annotation_creator.create_ls_gt(
+            anns_dict = self.annotation_creator.create_ls_anns(
                 images_dir=images_dir, data_json_path=data_json_path
             )
         else:
             images_dir = "images"
             gt_txt_path = os.path.join(self.raw_dir, "gt.txt")
-            gt_dict = self.annotation_creator.create_synth_gt(
+            anns_dict = self.annotation_creator.create_synth_anns(
                 images_dir=images_dir, gt_txt_path=gt_txt_path
             )
-        aug_gt_dict = None
+        aug_anns_dict = None
+
         if use_aug:
             images_dir = "aug-images"
             gt_txt_path = os.path.join(self.raw_dir, "aug_gt.txt")
-            aug_gt_dict = self.annotation_creator.create_synth_gt(
+            aug_anns_dict = self.annotation_creator.create_synth_anns(
                 images_dir=images_dir, gt_txt_path=gt_txt_path
             )
-        self._partitionate_data(gt_dict=gt_dict, aug_gt_dict=aug_gt_dict)
+        self._partitionate_data(anns_dict=anns_dict, aug_anns_dict=aug_anns_dict)
         self._create_charset()
 
 
@@ -169,7 +182,7 @@ class AnnotationCreator:
             if char not in self.charset:
                 raise ValueError(f"Char {char} not in charset.")
 
-    def _create_gt(self, image_paths: list[str], texts: list[str]) -> dict[str, str]:
+    def _create_anns(self, image_paths: list[str], texts: list[str]) -> dict[str, str]:
         return dict(zip(image_paths, texts))
 
     def _get_text(self, task: dict) -> str:
@@ -179,29 +192,33 @@ class AnnotationCreator:
         image_path = unquote(os.path.basename(task["data"]["captioning"]))
         return os.path.join(images_dir, image_path)
 
-    def create_ls_gt(self, images_dir: str, data_json_path: str) -> dict[str, str]:
+    def create_ls_anns(self, images_dir: str, data_json_path: str) -> dict[str, str]:
         json_dict = FileProcessor.read_json(data_json_path)
         texts, image_paths = [], []
+
         for task in tqdm(json_dict, desc="Creating annotations from Label Studio"):
             image_path = self._get_image_path(task, images_dir)
+
             text = self._get_text(task).translate(self.replaces_table)
             self.check_length(text)
             self.check_chars(text)
             texts.append(text)
             image_paths.append(image_path)
-        return self._create_gt(image_paths, texts)
+        return self._create_anns(image_paths, texts)
 
-    def create_synth_gt(self, images_dir: str, gt_txt_path: str) -> dict[str, str]:
+    def create_synth_anns(self, images_dir: str, gt_txt_path: str) -> dict[str, str]:
         lines = FileProcessor.read_txt(gt_txt_path, strip=True)
         texts, image_paths = [], []
+
         for line in tqdm(lines, desc="Creating annotations from synthesized data"):
             image_path, text = line.split("\t", maxsplit=1)
             image_path = os.path.join(
                 images_dir, os.path.relpath(image_path, start="images")
             )
+
             text = text.translate(self.replaces_table)
             self.check_length(text)
             self.check_chars(text)
             texts.append(text)
             image_paths.append(image_path)
-        return self._create_gt(image_paths, texts)
+        return self._create_anns(image_paths, texts)
