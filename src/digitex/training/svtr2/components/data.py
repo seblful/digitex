@@ -97,6 +97,7 @@ class DatasetCreator:
             src_image_path = os.path.join(self.raw_dir, image_path)
             image_basename = os.path.basename(image_path)
             dst_image_path = os.path.join("images", subfolder_name, image_basename)
+            dst_image_path = os.path.normpath(dst_image_path).replace("\\", "/")
             shutil.copyfile(src_image_path, os.path.join(set_dir, dst_image_path))
 
             lines.append(f"{dst_image_path}\t{text}")
