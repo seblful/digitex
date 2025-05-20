@@ -171,6 +171,119 @@ class SimpleDatasetCreator(BaseDatasetCreator):
         self._create_charset()
 
 
+class LMDBDatasetCreator(BaseDatasetCreator):
+    def _setup_dataset_dirs(self) -> None:
+        os.makedirs(self.dataset_dir, exist_ok=True)
+        self.train_dir = os.path.join(self.dataset_dir, "train")
+        self.val_dir = os.path.join(self.dataset_dir, "val")
+        self.dataset_dirs = (self.train_dir, self.val_dir)
+        for dir in self.dataset_dirs:
+            os.makedirs(dir, exist_ok=True)
+
+    def _dict_to_list(self, anns_dict: dict[str, str]) -> list:
+        # Convert dict to list of [image_path, label]
+        return [[os.path.join(self.raw_dir, k), v] for k, v in anns_dict.items()]
+
+    def _calculate_map_size(self, data_list):
+        total_size = 0
+        for imagePath, _ in data_list:
+            if os.path.exists(imagePath):
+                total_size += os.path.getsize(imagePath)
+        # Add 50% buffer and minimum 128MB to avoid map full error
+        return max(int(total_size * 1.5), 128 * 1024 * 1024)
+
+    def _write_lmdb(self, data_list, outputPath, checkValid=True) -> None:
+        os.makedirs(outputPath, exist_ok=True)
+        map_size = self._calculate_map_size(data_list)
+        env = lmdb.open(outputPath, map_size=map_size)
+        cache = {}
+        cnt = 1
+        for image_path, label in tqdm(
+            data_list, desc=f"Partitioning {os.path.basename(outputPath)} data"
+        ):
+            try:
+                with open(image_path, "rb") as f:
+                    image_bin = f.read()
+                    buf = io.BytesIO(image_bin)
+                    w, h = Image.open(buf).size
+                if checkValid:
+                    if not self._is_image_valid(image_bin):
+                        print("%s is not a valid image" % image_path)
+                        continue
+            except Exception:
+                continue
+
+            image_key = "image-%09d".encode() % cnt
+            label_key = "label-%09d".encode() % cnt
+            wh_key = "wh-%09d".encode() % cnt
+            cache[image_key] = image_bin
+            cache[label_key] = label.encode()
+            cache[wh_key] = (str(w) + "_" + str(h)).encode()
+
+            if cnt % 1000 == 0:
+                self._write_cache(env, cache)
+                cache = {}
+            cnt += 1
+        num_samples = cnt - 1
+        cache["num-samples".encode()] = str(num_samples).encode()
+        self._write_cache(env, cache)
+
+    @staticmethod
+    def _is_image_valid(imageBin):
+        if imageBin is None:
+            return False
+        image_buf = np.frombuffer(imageBin, dtype=np.uint8)
+        img = cv2.imdecode(image_buf, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            return False
+        imgH, imgW = img.shape[0], img.shape[1]
+        if imgH * imgW == 0:
+            return False
+        return True
+
+    @staticmethod
+    def _write_cache(env, cache):
+        with env.begin(write=True) as txn:
+            for k, v in cache.items():
+                txn.put(k, v)
+
+    def create_dataset(self, source: str, use_aug=False) -> None:
+        assert source in self.sources, (
+            f"Source of raw images must be one of {self.sources}."
+        )
+        self._setup_dataset_dirs()
+        if source == "ls":
+            images_dir = "images"
+            data_json_path = os.path.join(self.raw_dir, "data.json")
+            anns_dict = self.annotation_creator.create_ls_anns(
+                images_dir=images_dir, data_json_path=data_json_path
+            )
+        else:
+            images_dir = "images"
+            gt_txt_path = os.path.join(self.raw_dir, "gt.txt")
+            anns_dict = self.annotation_creator.create_synth_anns(
+                images_dir=images_dir, gt_txt_path=gt_txt_path
+            )
+        aug_anns_dict = None
+
+        if use_aug:
+            images_dir = "aug-images"
+            gt_txt_path = os.path.join(self.raw_dir, "aug_gt.txt")
+            aug_anns_dict = self.annotation_creator.create_synth_anns(
+                images_dir=images_dir, gt_txt_path=gt_txt_path
+            )
+        train_anns_dict, val_anns_dict = self._partitionate_data(
+            anns_dict=anns_dict, aug_anns_dict=aug_anns_dict
+        )
+        # Write LMDB for train and val
+        for an_dict, set_dir in zip(
+            (train_anns_dict, val_anns_dict), self.dataset_dirs
+        ):
+            data_list = self._dict_to_list(an_dict)
+            self._write_lmdb(data_list, set_dir)
+        self._create_charset()
+
+
 class AnnotationCreator:
     def __init__(
         self, charset: set[str], replaces_json_path: str, max_text_length: int
