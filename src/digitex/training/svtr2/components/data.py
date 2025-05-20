@@ -4,9 +4,16 @@ import random
 from urllib.parse import unquote
 from tqdm import tqdm
 from digitex.core.processors.file import FileProcessor
+from abc import ABC, abstractmethod
+
+import lmdb
+import cv2
+import numpy as np
+import io
+from PIL import Image
 
 
-class DatasetCreator:
+class BaseDatasetCreator(ABC):
     def __init__(
         self,
         raw_dir: str,
@@ -35,16 +42,6 @@ class DatasetCreator:
         self.train_split = train_split
         self.val_split = 1 - train_split
 
-    def _setup_dataset_dirs(self) -> None:
-        os.mkdir(self.dataset_dir)
-        self.train_dir = os.path.join(self.dataset_dir, "train")
-        self.val_dir = os.path.join(self.dataset_dir, "val")
-        self.dataset_dirs = (self.train_dir, self.val_dir)
-        for dir in self.dataset_dirs:
-            os.mkdir(dir)
-            images_dir = os.path.join(dir, "images")
-            os.mkdir(images_dir)
-
     @property
     def charset(self) -> set[str]:
         if self._charset is None:
@@ -71,6 +68,39 @@ class DatasetCreator:
     def _create_charset(self) -> None:
         chars = sorted(self.charset)
         FileProcessor.write_txt(self.charset_txt_path, chars, newline=True)
+
+    def _partitionate_data(
+        self, anns_dict: dict[str, str], aug_anns_dict: dict[str, str] = None
+    ):
+        anns_dict = self.shuffle_dict(anns_dict)
+        num_train = int(len(anns_dict) * self.train_split)
+        train_keys = list(anns_dict.keys())[:num_train]
+        val_keys = list(anns_dict.keys())[num_train:]
+
+        train_anns_dict = {key: anns_dict[key] for key in train_keys}
+        val_anns_dict = {key: anns_dict[key] for key in val_keys}
+
+        if aug_anns_dict:
+            train_anns_dict.update(aug_anns_dict)
+            train_anns_dict = self.shuffle_dict(train_anns_dict)
+
+        return train_anns_dict, val_anns_dict
+
+    @abstractmethod
+    def create_dataset(self, source: str, use_aug=False) -> None:
+        pass
+
+
+class SimpleDatasetCreator(BaseDatasetCreator):
+    def _setup_dataset_dirs(self) -> None:
+        os.mkdir(self.dataset_dir)
+        self.train_dir = os.path.join(self.dataset_dir, "train")
+        self.val_dir = os.path.join(self.dataset_dir, "val")
+        self.dataset_dirs = (self.train_dir, self.val_dir)
+        for dir in self.dataset_dirs:
+            os.mkdir(dir)
+            images_dir = os.path.join(dir, "images")
+            os.mkdir(images_dir)
 
     def _copy_data(
         self, anns_dict: dict[str, str], set_dir: str, images_per_folder: int = 10000
@@ -106,27 +136,6 @@ class DatasetCreator:
         labels_txt_path = os.path.join(set_dir, "labels.txt")
         FileProcessor.write_txt(txt_path=labels_txt_path, lines=lines, newline=True)
 
-    def _partitionate_data(
-        self, anns_dict: dict[str, str], aug_anns_dict: dict[str, str] = None
-    ) -> None:
-        anns_dict = self.shuffle_dict(anns_dict)
-
-        num_train = int(len(anns_dict) * self.train_split)
-        train_keys = list(anns_dict.keys())[:num_train]
-        val_keys = list(anns_dict.keys())[num_train:]
-
-        train_anns_dict = {key: anns_dict[key] for key in train_keys}
-        val_anns_dict = {key: anns_dict[key] for key in val_keys}
-
-        if aug_anns_dict:
-            train_anns_dict.update(aug_anns_dict)
-            train_anns_dict = self.shuffle_dict(train_anns_dict)
-
-        for an_dict, set_dir in zip(
-            (train_anns_dict, val_anns_dict), self.dataset_dirs
-        ):
-            self._copy_data(anns_dict=an_dict, set_dir=set_dir)
-
     def create_dataset(self, source: str, use_aug=False) -> None:
         assert source in self.sources, (
             f"Source of raw images must be one of {self.sources}."
@@ -152,7 +161,13 @@ class DatasetCreator:
             aug_anns_dict = self.annotation_creator.create_synth_anns(
                 images_dir=images_dir, gt_txt_path=gt_txt_path
             )
-        self._partitionate_data(anns_dict=anns_dict, aug_anns_dict=aug_anns_dict)
+        train_anns_dict, val_anns_dict = self._partitionate_data(
+            anns_dict=anns_dict, aug_anns_dict=aug_anns_dict
+        )
+        for an_dict, set_dir in zip(
+            (train_anns_dict, val_anns_dict), self.dataset_dirs
+        ):
+            self._copy_data(anns_dict=an_dict, set_dir=set_dir)
         self._create_charset()
 
 
