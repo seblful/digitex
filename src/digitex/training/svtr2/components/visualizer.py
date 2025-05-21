@@ -101,3 +101,40 @@ class SimpleVisualizer(BaseVisualizer):
                 with Image.open(image_path) as image:
                     drawn_image = self._draw_image(image=image, label=text)
                     self._save_image(set_dir=set_dir, image=drawn_image, idx=counter)
+
+
+class LMDBVisualizer(BaseVisualizer):
+    def _get_lmdb_data(self, lmdb_dir: str, num_images: int):
+        env = lmdb.open(lmdb_dir, readonly=True, lock=False)
+        with env.begin() as txn:
+            num_samples = int(txn.get("num-samples".encode()).decode())
+            indices = random.sample(
+                range(1, num_samples + 1), min(num_images, num_samples)
+            )
+            images, labels = [], []
+            for idx in indices:
+                image_key = f"image-{idx:09d}".encode()
+                label_key = f"label-{idx:09d}".encode()
+                image_bin = txn.get(image_key)
+                label = txn.get(label_key)
+                if image_bin is None or label is None:
+                    continue
+                image = Image.open(io.BytesIO(image_bin)).convert("RGB")
+                label = label.decode("utf-8")
+                images.append(image)
+                labels.append(label)
+        return images, labels
+
+    def visualize(self, num_images: int = 10) -> None:
+        for set_dir in self.dataset_dirs:
+            dir_name = os.path.basename(set_dir)
+            images, labels = self._get_lmdb_data(set_dir, num_images)
+            for idx, (image, label) in enumerate(
+                tqdm(
+                    zip(images, labels),
+                    desc=f"Visualizing {dir_name} images",
+                    total=len(images),
+                )
+            ):
+                drawn_image = self._draw_image(image=image, label=label)
+                self._save_image(set_dir=set_dir, image=drawn_image, idx=idx)
