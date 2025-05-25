@@ -1,0 +1,13 @@
+synthesize (synthtiger with numpy==1.26.4 and Pillow==9.5.0):
+python tools/extract_font_charset.py -w 4 resources/font/
+python tools/create_colormap.py --max_k 3 -w 1 resources/image/ resources/colormap/train_colormap.txt
+python tools/create_colormap.py --max_k 3 -w 4 resources/image/ resources/colormap/finetune_colormap.txt
+synthtiger -o results -c 300000 -w 8 -v examples/synthtiger/template.py SynthTiger examples/synthtiger/config_train.yaml
+synthtiger -o results -c 10000 -w 8 -v examples/synthtiger/template.py SynthTiger examples/synthtiger/config_finetune.yaml
+
+train:
+local:
+uv run tools/train_rec.py --c ./configs/rec/svtrv2/config.yml --o Global.epoch_num=100 Optimizer.lr=0.001 Train.loader.batch_size_per_card=64 Eval.loader.batch_size_per_card=32
+
+GPU P100:
+!python -m torch.distributed.launch --nproc_per_node=1 tools/train_rec.py --c ./configs/rec/svtrv2/config.yml --o Global.epoch_num=20 Global.pretrained_model=./base-models/repsvtrv.pth Train.dataset.data_dir=/kaggle/input/svtr2-word-recognition/train Eval.dataset.data_dir=/kaggle/input/svtr2-word-recognition/val Train.loader.batch_size_per_card=512 Eval.loader.batch_size_per_card=512
