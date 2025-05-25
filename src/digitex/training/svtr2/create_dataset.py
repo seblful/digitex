@@ -2,8 +2,14 @@ import os
 import argparse
 
 
-from digitex.training.svtr2.components.data import DatasetCreator
-from digitex.training.svtr2.components.visualizer import Visualizer
+from digitex.training.svtr2.components.data import (
+    SimpleDatasetCreator,
+    LMDBDatasetCreator,
+)
+from digitex.training.svtr2.components.visualizer import (
+    SimpleVisualizer,
+    LMDBVisualizer,
+)
 
 
 # Create a parser
@@ -40,6 +46,15 @@ parser.add_argument(
     "--num_check_images", default=100, type=int, help="Number of images to visualize."
 )
 
+# Add argument for dataset type
+parser.add_argument(
+    "--dataset_type",
+    default="lmdb",
+    type=str,
+    choices=["simple", "lmdb"],
+    help="Type of dataset to create: 'simple' or 'lmdb'.",
+)
+
 
 # Get our arguments from the parser
 args = parser.parse_args()
@@ -58,8 +73,16 @@ FONT_PATH = os.path.join(SVTR_DIR, "font", "Inter.ttf")
 
 
 def main() -> None:
+    # Choose dataset creator and visualizer based on dataset_type
+    if args.dataset_type == "simple":
+        dataset_creator_cls = SimpleDatasetCreator
+        visualizer_cls = SimpleVisualizer
+    else:
+        dataset_creator_cls = LMDBDatasetCreator
+        visualizer_cls = LMDBVisualizer
+
     # Initializing dataset creator and process data
-    dataset_creator = DatasetCreator(
+    dataset_creator = dataset_creator_cls(
         raw_dir=RAW_DIR,
         dataset_dir=DATASET_DIR,
         train_split=args.train_split,
@@ -68,7 +91,7 @@ def main() -> None:
     dataset_creator.create_dataset(source=args.source, use_aug=args.use_aug)
 
     # Visualize dataset annotations
-    visualizer = Visualizer(
+    visualizer = visualizer_cls(
         dataset_dir=DATASET_DIR, check_images_dir=CHECK_IMAGES_DIR, font_path=FONT_PATH
     )
     visualizer.visualize(num_images=args.num_check_images)
