@@ -11,9 +11,9 @@ from .prediction_result import DetectionPredictionResult
 
 
 class DB_RepVitDetectionPredictor(Predictor):
-    def __init__(self, model_path: str, config_path: str, device: torch.device) -> None:
-        self.model_path = model_path
+    def __init__(self, config_path: str, model_path: str, device: torch.device) -> None:
         self.config_path = config_path
+        self.model_path = model_path
         self.device = device
 
         self.__config = None
