@@ -67,6 +67,10 @@ class BaseDatasetCreator(ABC):
 
     def _create_charset(self) -> None:
         chars = sorted(self.charset)
+
+        # Remove space from charset if it exists (because config use_space_char=True)
+        if " " in chars:
+            chars.remove(" ")
         FileProcessor.write_txt(self.charset_txt_path, chars, newline=True)
 
     def _partitionate_data(
