@@ -2,26 +2,39 @@
 Use synthtiger with `numpy==1.26.4` and `Pillow==9.5.0`:
 
 ```cmd
-python tools/extract_font_charset.py -w 4 resources/font/
+cd C:\Users\seblful\synthtiger
 ```
 
 ```cmd
-python tools/create_colormap.py --max_k 3 -w 1 resources/image/ resources/colormap/train_colormap.txt
+.venv\Scripts\activate
+```
+
+### For train
+```cmd
+uv run tools/extract_font_charset.py -w 4 resources/font/
 ```
 
 ```cmd
-python tools/create_colormap.py --max_k 3 -w 4 resources/image/ resources/colormap/finetune_colormap.txt
+uv run tools/create_colormap.py --max_k 3 -w 1 resources/image/ resources/colormap/train_colormap.txt
 ```
 
 ```cmd
 synthtiger -o results -c 300000 -w 8 -v examples/synthtiger/template.py SynthTiger examples/synthtiger/config_train.yaml
 ```
 
+
+### For finetune
+```cmd
+uv run tools/extract_font_charset.py -w 4 resources/font/
+```
+
+```cmd
+uv run tools/create_colormap.py --max_k 3 -w 4 resources/image/ resources/colormap/finetune_colormap.txt
+```
+
 ```cmd
 synthtiger -o results -c 10000 -w 8 -v examples/synthtiger/template.py SynthTiger examples/synthtiger/config_finetune.yaml
 ```
-
-create dataset:
 
 ## 2. Create dataset
 ### From synhtiger data
@@ -69,5 +82,5 @@ cd C:\Users\seblful\OpenOCR
 ```
 
 ```cmd
-uv run ./tools/train_rec.py --c ./configs/rec/svtrv2/config.yml --o Global.epoch_num=100 Global.pretrained_model=./base-models/svtr2_tiny.pth Train.sampler.first_bs=128 Train.loader.batch_size_per_card=128 Eval.sampler.first_bs=128 Eval.loader.batch_size_per_card=128
+uv run ./tools/train_rec.py --c ./configs/rec/svtrv2/config.yml --o Global.epoch_num=50 Global.pretrained_model=./base-models/svtr2_tiny.pth Train.sampler.first_bs=128 Train.loader.batch_size_per_card=128 Eval.sampler.first_bs=128 Eval.loader.batch_size_per_card=128
 ```
