@@ -24,6 +24,15 @@ parser.add_argument(
     help="Raw data source.",
 )
 
+# Get an arg for dataset type
+parser.add_argument(
+    "--dataset_type",
+    default="lmdb",
+    type=str,
+    choices=["simple", "lmdb"],
+    help="Type of dataset to create: 'simple' or 'lmdb'.",
+)
+
 # Get an arg for whether to use augmented images
 parser.add_argument(
     "--use_aug",
@@ -44,15 +53,6 @@ parser.add_argument(
 # Get an arg for number of images to visualize
 parser.add_argument(
     "--num_check_images", default=100, type=int, help="Number of images to visualize."
-)
-
-# Add argument for dataset type
-parser.add_argument(
-    "--dataset_type",
-    default="lmdb",
-    type=str,
-    choices=["simple", "lmdb"],
-    help="Type of dataset to create: 'simple' or 'lmdb'.",
 )
 
 
