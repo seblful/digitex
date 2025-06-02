@@ -11,11 +11,11 @@ import albumentations as A
 
 from digitex.core.handlers.label import LabelHandler
 from digitex.core.processors.file import FileProcessor
+from digitex.core.utils import get_random_img
 
-from .dataset import DatasetCreator
+from .data import DatasetCreator
 from .converter import Converter
 from .annotation import Keypoint, KeypointsObject
-from .utils import get_random_img
 
 
 class Augmenter:
