@@ -22,9 +22,7 @@ class DatasetCreator:
         self.dataset_dir = dataset_dir
         self._setup_dataset_dirs()
 
-        # Input dirs
         self.data_json_path = os.path.join(raw_dir, "data.json")
-        self.classes_path = os.path.join(raw_dir, "classes.txt")
 
         # Data split
         self.train_split = train_split
