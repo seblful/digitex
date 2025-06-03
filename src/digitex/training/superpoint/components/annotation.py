@@ -162,3 +162,60 @@ class AbsoluteKeypointsObject(BaseKeypointsObject):
             keypoints=rel_keypoints,
             num_keypoints=len(self.keypoints),
         )
+
+
+class AnnotationCreator:
+    def __init__(
+        self,
+        data_json_path: str,
+        anns_json_path: str,
+        num_keypoints: int = 30,
+    ) -> None:
+        self.data_json_path = data_json_path
+        self.anns_json_path = anns_json_path
+
+        self.num_keypoints = num_keypoints
+
+    def get_keypoints_obj(self, task: dict) -> BaseKeypointsObject:
+        keypoints = []
+
+        # Get points
+        result = task["annotations"][0]["result"]
+
+        for entry in result:
+            value = entry["value"]
+            x = value["x"] / 100
+            y = value["y"] / 100
+            # label = value["keypointlabels"][0]
+            keypoint = RelativeKeypoint(x, y, 1)
+            keypoints.append(keypoint)
+
+        if not keypoints:
+            return RelativeKeypointsObject(
+                class_idx=None, keypoints=[], num_keypoints=self.num_keypoints
+            )
+
+        return RelativeKeypointsObject(
+            class_idx=0,  # Assuming a single class for keypoints
+            keypoints=keypoints,
+            num_keypoints=self.num_keypoints,
+        )
+
+    def create_annotations(self) -> None:
+        # Read json
+        json_dict = FileProcessor.read_json(self.data_json_path)
+
+        # Create empty dict to store formatted annotations
+        anns_dict = {}
+
+        # Iterate through json dict
+        for task in tqdm(json_dict, desc="Creating keypoints annotations"):
+            image_name = unquote(os.path.basename(task["data"]["img"]))
+
+            keypoints_obj = self.get_keypoints_obj(task)
+            coords = [(kp.x, kp.y) for kp in keypoints_obj.keypoints]
+
+            anns_dict[image_name] = coords
+
+        # Save annotation
+        FileProcessor.write_json(json_dict=anns_dict, json_path=self.anns_json_path)
