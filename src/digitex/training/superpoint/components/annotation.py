@@ -79,6 +79,9 @@ class RelativeKeypointsObject(BaseKeypointsObject):
     ) -> list[RelativeKeypoint]:
         keypoints = keypoints[:num_keypoints]
 
+        if not keypoints:
+            return []
+
         if len(keypoints) < num_keypoints:
             keypoints = keypoints + [RelativeKeypoint(0, 0, 0)] * (
                 num_keypoints - len(keypoints)
@@ -140,6 +143,10 @@ class AbsoluteKeypointsObject(BaseKeypointsObject):
 
     def pad_keypoints(self, keypoints: list[AbsoluteKeypoint], num_keypoints: int):
         keypoints = keypoints[:num_keypoints]
+
+        if not keypoints:
+            return []
+
         if len(keypoints) < num_keypoints:
             keypoints = keypoints + [AbsoluteKeypoint(0, 0, 0)] * (
                 num_keypoints - len(keypoints)
@@ -213,7 +220,7 @@ class AnnotationCreator:
             image_name = unquote(os.path.basename(task["data"]["img"]))
 
             keypoints_obj = self.get_keypoints_obj(task)
-            coords = [(kp.x, kp.y) for kp in keypoints_obj.keypoints]
+            coords = [(kp.x, kp.y, kp.visible) for kp in keypoints_obj.keypoints]
 
             anns_dict[image_name] = coords
 
