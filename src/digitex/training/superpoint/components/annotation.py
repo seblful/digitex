@@ -72,6 +72,9 @@ class BaseKeypointsObject:
 
         return coords
 
+    def get_label(self) -> list[list]:
+        return [[kp.x, kp.y, kp.visible] for kp in self.keypoints]
+
 
 class RelativeKeypointsObject(BaseKeypointsObject):
     def pad_keypoints(
@@ -141,7 +144,9 @@ class AbsoluteKeypointsObject(BaseKeypointsObject):
 
         return self.__bbox
 
-    def pad_keypoints(self, keypoints: list[AbsoluteKeypoint], num_keypoints: int):
+    def pad_keypoints(
+        self, keypoints: list[AbsoluteKeypoint], num_keypoints: int
+    ) -> list[AbsoluteKeypoint]:
         keypoints = keypoints[:num_keypoints]
 
         if not keypoints:
@@ -220,9 +225,9 @@ class AnnotationCreator:
             image_name = unquote(os.path.basename(task["data"]["img"]))
 
             keypoints_obj = self.get_keypoints_obj(task)
-            coords = [(kp.x, kp.y, kp.visible) for kp in keypoints_obj.keypoints]
+            label = keypoints_obj.get_label()
 
-            anns_dict[image_name] = coords
+            anns_dict[image_name] = label
 
         # Save annotation
         FileProcessor.write_json(json_dict=anns_dict, json_path=self.anns_json_path)
