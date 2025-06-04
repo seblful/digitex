@@ -94,3 +94,144 @@ class BaseAugmenter:
         image.save(aug_img_path)
 
         return aug_img_filename
+
+
+class KeypointAugmenter(BaseAugmenter):
+    def __init__(self, raw_dir: str, dataset_dir: str) -> None:
+        super().__init__(raw_dir, dataset_dir)
+
+    @property
+    def augmenter(self) -> A.Compose:
+        if self._augmenter is None:
+            augmenter = A.Compose(
+                self.transforms,
+                keypoint_params=A.KeypointParams(format="xy", remove_invisible=False),
+            )
+
+        return augmenter
+
+    def create_rel_kps_from_label(
+        self, label: list[list], clip: bool
+    ) -> list[RelativeKeypoint]:
+        kps = []
+
+        for value in label:
+            kp = RelativeKeypoint(value[0], value[1], int(value[2]))
+            if clip:
+                kp.clip()
+            kps.append(kp)
+
+        return kps
+
+    def create_abs_kps_from_label(
+        self,
+        label: list[list],
+        clip: bool,
+        img_width: int = None,
+        img_height: int = None,
+    ) -> list[AbsoluteKeypoint]:
+        kps = []
+
+        for value in label:
+            kp = AbsoluteKeypoint(value[0], value[1], int(value[2]))
+            if clip:
+                kp.clip(img_width, img_height)
+            kps.append(kp)
+
+        return kps
+
+    def create_rel_kps_obj_from_label(
+        self, label: list[list], clip: bool
+    ) -> RelativeKeypointsObject:
+        if not label:
+            return RelativeKeypointsObject(0, [], 0)
+
+        kps = self.create_rel_kps_from_label(label, clip)
+        kps_obj = RelativeKeypointsObject(
+            0,
+            kps,
+            len(kps),
+        )
+
+        return kps_obj
+
+    def create_abs_kps_obj_from_label(
+        self,
+        label: list[list],
+        clip: bool,
+        img_width: int = None,
+        img_height: int = None,
+        num_keypoints: int = None,
+    ) -> AbsoluteKeypointsObject:
+        if not label:
+            return AbsoluteKeypointsObject(0, [], 0)
+
+        kps = self.create_abs_kps_from_label(label, clip, img_width, img_height)
+        num_keypoints = num_keypoints if num_keypoints is not None else len(kps)
+        kps_obj = AbsoluteKeypointsObject(0, kps, num_keypoints)
+
+        return kps_obj
+
+    def augment_img(
+        self, img: np.ndarray, kps_obj: RelativeKeypointsObject
+    ) -> tuple[np.ndarray, list]:
+        # Transform without keypoints
+        if not kps_obj.keypoints:
+            transf = self.augmenter(image=img)
+            transf_img = transf["image"]
+
+            return (transf_img, [])
+
+        # Retrieve all visible coordinates
+        vis_coords = kps_obj.get_vis_coords()
+
+        # Transform with keypoints
+        transf = self.augmenter(image=img, keypoints=vis_coords)
+        transf_img = transf["image"]
+        transf_label = [
+            [int(value[0]), int(value[1]), 1] for value in transf["keypoints"]
+        ]
+
+        return transf_img, transf_label
+
+    def augment(self, num_images) -> None:
+        label_path = os.path.join(self.train_dir, "labels.json")
+        labels_dict = FileProcessor.read_json(label_path)
+
+        for _ in tqdm(range(num_images), desc="Augmenting images"):
+            # Get random img
+            img_path, img = get_random_img(self.train_dir, list(labels_dict.keys()))
+            orig_height, orig_width = img.shape[:2]
+
+            # Create KeypointsObject from labels
+            rel_kps_obj = self.create_rel_kps_obj_from_label(
+                labels_dict[img_path], clip=False
+            )
+            abs_kps_obj = rel_kps_obj.to_absolute(orig_width, orig_height, clip=False)
+
+            # Augment
+            transf_img, transf_label = self.augment_img(img, abs_kps_obj)
+            transf_height, transf_width = transf_img.shape[:2]
+
+            # Create transformed keypoints object from transf_label
+            transf_abs_kps_obj = self.create_abs_kps_obj_from_label(
+                label=transf_label,
+                clip=True,
+                img_width=transf_width,
+                img_height=transf_height,
+                num_keypoints=len(abs_kps_obj.keypoints),
+            )
+            transf_rel_kps_obj = transf_abs_kps_obj.to_relative(
+                transf_width, transf_height, clip=False
+            )
+
+            # Save augmented image
+            aug_img_path = self.save_image(img_path, transf_img)
+
+            # Add label to labels_dict
+            labels_dict[aug_img_path] = transf_rel_kps_obj.get_label()
+
+        # Save annotation
+        FileProcessor.write_json(labels_dict, label_path)
+
+        return None
