@@ -1,7 +1,7 @@
 import os
 import argparse
 
-from digitex.training.superpoint.components.dataset import DatasetCreator
+from digitex.training.superpoint.components.data import DatasetCreator
 from digitex.training.superpoint.components.augmenter import KeypointAugmenter
 from digitex.training.superpoint.components.visualizer import KeypointVisualizer
 
