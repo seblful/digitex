@@ -110,8 +110,9 @@ class KeypointAugmenter(BaseAugmenter):
 
         return augmenter
 
+    @staticmethod
     def create_rel_kps_from_label(
-        self, label: list[list], clip: bool
+        label: list[list], clip: bool
     ) -> list[RelativeKeypoint]:
         kps = []
 
@@ -123,8 +124,8 @@ class KeypointAugmenter(BaseAugmenter):
 
         return kps
 
+    @staticmethod
     def create_abs_kps_from_label(
-        self,
         label: list[list],
         clip: bool,
         img_width: int = None,
@@ -140,13 +141,14 @@ class KeypointAugmenter(BaseAugmenter):
 
         return kps
 
+    @staticmethod
     def create_rel_kps_obj_from_label(
-        self, label: list[list], clip: bool
+        label: list[list], clip: bool
     ) -> RelativeKeypointsObject:
         if not label:
             return RelativeKeypointsObject(0, [], 0)
 
-        kps = self.create_rel_kps_from_label(label, clip)
+        kps = KeypointAugmenter.create_rel_kps_from_label(label, clip)
         kps_obj = RelativeKeypointsObject(
             0,
             kps,
@@ -155,8 +157,8 @@ class KeypointAugmenter(BaseAugmenter):
 
         return kps_obj
 
+    @staticmethod
     def create_abs_kps_obj_from_label(
-        self,
         label: list[list],
         clip: bool,
         img_width: int = None,
@@ -166,7 +168,9 @@ class KeypointAugmenter(BaseAugmenter):
         if not label:
             return AbsoluteKeypointsObject(0, [], 0)
 
-        kps = self.create_abs_kps_from_label(label, clip, img_width, img_height)
+        kps = KeypointAugmenter.create_abs_kps_from_label(
+            label, clip, img_width, img_height
+        )
         num_keypoints = num_keypoints if num_keypoints is not None else len(kps)
         kps_obj = AbsoluteKeypointsObject(0, kps, num_keypoints)
 
