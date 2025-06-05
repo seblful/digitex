@@ -10,13 +10,8 @@ from digitex.training.superpoint.components.visualizer import KeypointVisualizer
 parser = argparse.ArgumentParser(description="Get some hyperparameters.")
 
 parser.add_argument(
-    "--data_subdir", default="page", type=str, help="Type of task type."
-)
-
-parser.add_argument(
     "--train_split", default=0.8, type=float, help="Split of train set."
 )
-
 
 parser.add_argument(
     "--num_keypoints", default=30, type=int, help="Number of keypoints per object."
