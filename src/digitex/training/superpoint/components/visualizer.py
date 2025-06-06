@@ -78,10 +78,9 @@ class KeypointVisualizer:
                 img_width, img_height = image.size
 
                 # Create keypoints object
-                rel_kps_obj = KeypointAugmenter.create_rel_kps_obj_from_label(
+                abs_kps_obj = KeypointAugmenter.create_abs_kps_obj_from_label(
                     labels_dict[image_filename], clip=False
                 )
-                abs_kps_obj = rel_kps_obj.to_absolute(img_width, img_height, clip=False)
 
                 # Draw and save image
                 drawn_image = self.draw_annotations(image, abs_kps_obj)

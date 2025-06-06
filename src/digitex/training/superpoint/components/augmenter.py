@@ -208,10 +208,12 @@ class KeypointAugmenter(BaseAugmenter):
             orig_height, orig_width = img.shape[:2]
 
             # Create KeypointsObject from labels
-            rel_kps_obj = self.create_rel_kps_obj_from_label(
-                labels_dict[img_path], clip=False
+            abs_kps_obj = self.create_abs_kps_obj_from_label(
+                label=labels_dict[img_path],
+                clip=False,
+                img_width=orig_width,
+                img_height=orig_height,
             )
-            abs_kps_obj = rel_kps_obj.to_absolute(orig_width, orig_height, clip=False)
 
             # Augment
             transf_img, transf_label = self.augment_img(img, abs_kps_obj)
@@ -225,15 +227,12 @@ class KeypointAugmenter(BaseAugmenter):
                 img_height=transf_height,
                 num_keypoints=len(abs_kps_obj.keypoints),
             )
-            transf_rel_kps_obj = transf_abs_kps_obj.to_relative(
-                transf_width, transf_height, clip=False
-            )
 
             # Save augmented image
             aug_img_path = self.save_image(img_path, transf_img)
 
             # Add label to labels_dict
-            labels_dict[aug_img_path] = transf_rel_kps_obj.get_label()
+            labels_dict[aug_img_path] = transf_abs_kps_obj.get_label()
 
         # Save annotation
         FileProcessor.write_json(labels_dict, label_path)

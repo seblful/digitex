@@ -25,6 +25,16 @@ class RelativeKeypoint(BaseKeypoint):
     Keypoint with coordinates in [0, 1] relative to image size.
     """
 
+    def __init__(self, x: float, y: float, visible: int) -> None:
+        assert isinstance(x, float) and isinstance(y, float), (
+            "Coordinates x, y must be float."
+        )
+        assert 0 <= x <= 1 and 0 <= y <= 1, (
+            "Keypoints coordinates should be in interval [0, 1]"
+        )
+
+        super().__init__(x, y, visible)
+
     def clip(self) -> None:
         self.x = max(0, min(self.x, 1.0))
         self.y = max(0, min(self.y, 1.0))
@@ -39,6 +49,13 @@ class AbsoluteKeypoint(BaseKeypoint):
     """
     Keypoint with coordinates in absolute pixel values.
     """
+
+    def __init__(self, x: int, y: int, visible: int) -> None:
+        assert isinstance(x, int) and isinstance(y, int), (
+            "Coordinates x, y must be int."
+        )
+
+        super().__init__(x, y, visible)
 
     def clip(self, img_width: int, img_height: int) -> None:
         self.x = max(0, min(self.x, img_width - 1))
@@ -188,7 +205,7 @@ class AnnotationCreator:
 
         self.num_keypoints = num_keypoints
 
-    def get_keypoints_obj(self, task: dict) -> BaseKeypointsObject:
+    def get_abs_kps_obj(self, task: dict) -> BaseKeypointsObject:
         keypoints = []
 
         # Get points
@@ -196,18 +213,18 @@ class AnnotationCreator:
 
         for entry in result:
             value = entry["value"]
-            x = value["x"] / 100
-            y = value["y"] / 100
+            x = int(value["x"] / 100 * entry["original_width"])
+            y = int(value["y"] / 100 * entry["original_height"])
             # label = value["keypointlabels"][0]
-            keypoint = RelativeKeypoint(x, y, 1)
+            keypoint = AbsoluteKeypoint(x, y, 1)
             keypoints.append(keypoint)
 
         if not keypoints:
-            return RelativeKeypointsObject(
+            return AbsoluteKeypointsObject(
                 class_idx=None, keypoints=[], num_keypoints=self.num_keypoints
             )
 
-        return RelativeKeypointsObject(
+        return AbsoluteKeypointsObject(
             class_idx=0,  # Assuming a single class for keypoints
             keypoints=keypoints,
             num_keypoints=self.num_keypoints,
@@ -224,8 +241,8 @@ class AnnotationCreator:
         for task in tqdm(json_dict, desc="Creating keypoints annotations"):
             image_name = unquote(os.path.basename(task["data"]["img"]))
 
-            keypoints_obj = self.get_keypoints_obj(task)
-            label = keypoints_obj.get_label()
+            abs_kps_obj = self.get_abs_kps_obj(task)
+            label = abs_kps_obj.get_label()
 
             anns_dict[image_name] = label
 
