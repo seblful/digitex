@@ -18,8 +18,6 @@ class KeypointDataset(Dataset):
         image_size: tuple[int, int],
         heatmap_size: tuple[int, int],
         max_keypoints: int,
-        transform=None,
-        target_transform=None,
         load_heatmaps: bool = False,
         heatmap_dir: Optional[str] = None,
         sigma: float = 2.0,
@@ -30,17 +28,12 @@ class KeypointDataset(Dataset):
             image_size: Tuple (H, W) to resize images to.
             heatmap_size: Tuple (H, W) to resize heatmaps to.
             max_keypoints: Maximum number of keypoints to keep.
-            transform: Optional transform to apply to images.
-            target_transform: Optional transform to apply to targets.
             load_heatmaps: If True, load precomputed heatmaps/masks from heatmap_dir.
             heatmap_dir: Directory containing precomputed heatmaps/masks (if used).
             sigma: Standard deviation for Gaussian kernel in heatmap generation.
         """
         self.dataset_dir = dataset_dir
         self.labels_json_path = os.path.join(dataset_dir, "labels.json")
-
-        self.transform = transform
-        self.target_transform = target_transform
 
         self.load_heatmaps = load_heatmaps
         self.heatmap_dir = heatmap_dir
@@ -57,40 +50,61 @@ class KeypointDataset(Dataset):
         # Compose resize transform for images
         self._resize_image = T.Resize(self.image_size, antialias=True)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.image_relpaths)
 
-    def __getitem__(self, idx):
+    def __getitem__(
+        self, idx
+    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
         relpath = self.image_relpaths[idx]
         label = self.labels[relpath]
-        abs_kps_obj = KeypointAugmenter.create_abs_kps_obj_from_label(label, clip=False)
-        vis_coords = abs_kps_obj.get_vis_coords()
 
-        image = self._load_image(relpath)
-        target = self._get_target(relpath, vis_coords, image)
-
-        if self.transform:
-            image = self.transform(image)
-        if self.target_transform:
-            target = self.target_transform(target)
-
-        return image, target
-
-    def _load_image(self, relpath: str) -> torch.Tensor:
+        # Get an image
         image_path = os.path.join(self.dataset_dir, relpath)
         img = read_image(image_path)
+        orig_img_height, orig_img_width = img.shape[1], img.shape[2]
+        img = self.transform(img)
+
+        # Get target
+        abs_kps_obj = KeypointAugmenter.create_abs_kps_obj_from_label(label, clip=False)
+        vis_coords = abs_kps_obj.get_vis_coords()
+        vis_coords_resized = self._resize_coords(
+            vis_coords, (orig_img_height, orig_img_width)
+        )
+        target = self._get_target(relpath, vis_coords_resized)
+
+        return img, target
+
+    def transform(self, img: torch.Tensor) -> torch.Tensor:
         img = self._resize_image(img)
         img = img.float() / 255.0  # shape: (C, H, W), normalized
 
         return img
 
-    def _get_target(self, relpath: str, vis_coords, image: torch.Tensor):
+    def _resize_coords(
+        self, vis_coords, orig_image_size: tuple[int, int]
+    ) -> list[tuple[int, int]]:
+        """Scale keypoints from original image space to resized image space."""
+        if not vis_coords:
+            return []
+
+        scale_x = self.image_size[1] / orig_image_size[1]
+        scale_y = self.image_size[0] / orig_image_size[0]
+        return [(x * scale_x, y * scale_y) for x, y in vis_coords]
+
+    def _get_target(
+        self,
+        relpath: str,
+        vis_coords,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         if self.load_heatmaps and self.heatmap_dir is not None:
             return self._load_precomputed_heatmaps(relpath)
         else:
-            return self._generate_heatmaps_on_the_fly(vis_coords, image)
+            return self._generate_heatmaps_on_the_fly(vis_coords)
 
-    def _load_precomputed_heatmaps(self, relpath: str):
+    def _load_precomputed_heatmaps(
+        self, relpath: str
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         base = os.path.splitext(os.path.basename(relpath))[0]
         heatmap_path = os.path.join(self.heatmap_dir, f"{base}_heatmap.pt")
         mask_path = os.path.join(self.heatmap_dir, f"{base}_mask.pt")
@@ -98,7 +112,10 @@ class KeypointDataset(Dataset):
         mask = torch.load(mask_path)
         return (heatmaps, mask)
 
-    def _generate_heatmaps_on_the_fly(self, vis_coords, image: torch.Tensor):
+    def _generate_heatmaps_on_the_fly(
+        self,
+        vis_coords,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         max_keypoints = self.max_keypoints  # Use fixed max_keypoints
 
         if not vis_coords:
@@ -142,7 +159,7 @@ class KeypointDataset(Dataset):
             keypoints: List of keypoints per image, each tensor of shape (N, 2)
                        (x, y coordinates in original image space)
             image_size: Original image dimensions (height, width)
-            output_size: Output heatmap dimensions (height, width)
+            heatmap_size: Output heatmap dimensions (height, width)
             max_keypoints: Maximum number of keypoints to support
             sigma: Standard deviation for Gaussian kernel
 
