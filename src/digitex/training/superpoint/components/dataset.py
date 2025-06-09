@@ -11,7 +11,7 @@ from digitex.core.processors.file import FileProcessor
 from .augmenter import KeypointAugmenter
 
 
-class KeypointDataset(Dataset):
+class HeatmapKeypointDataset(Dataset):
     def __init__(
         self,
         dataset_dir: str,
@@ -49,6 +49,9 @@ class KeypointDataset(Dataset):
 
         # Compose resize transform for images
         self._resize_image = T.Resize(self.image_size, antialias=True)
+        self._normalize = T.Normalize(
+            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+        )
 
     def __len__(self) -> int:
         return len(self.image_relpaths)
@@ -77,7 +80,8 @@ class KeypointDataset(Dataset):
 
     def transform(self, img: torch.Tensor) -> torch.Tensor:
         img = self._resize_image(img)
-        img = img.float() / 255.0  # shape: (C, H, W), normalized
+        img = img.float() / 255.0
+        img = self._normalize(img)
 
         return img
 
