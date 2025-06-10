@@ -76,7 +76,7 @@ class HeatmapKeypointDataset(Dataset):
         )
         target = self._get_target(relpath, vis_coords_resized)
 
-        return img, target
+        return img, *target
 
     def transform(self, img: torch.Tensor) -> torch.Tensor:
         img = self._resize_image(img)

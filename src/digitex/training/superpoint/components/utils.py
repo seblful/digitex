@@ -36,8 +36,7 @@ def visualize_sample(dataset, idx) -> None:
         idx: Index of the sample to visualize
     """
     # Fetch sample
-    img, target = dataset[idx]
-    heatmaps, _ = target
+    img, heatmaps, _ = dataset[idx]
 
     # Prepare image: (C, H, W) -> (H, W, C)
     img = detransform(img)
