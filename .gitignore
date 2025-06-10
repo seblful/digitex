@@ -15,9 +15,7 @@ draft*.ipynb
 draft*.txt
 
 # Training
-training/yolo/runs
-training/mask2former/runs
-training/oneformer/runs
+runs
 
 # Extract
 extract/inputs
