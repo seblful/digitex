@@ -66,6 +66,16 @@ class AbsoluteKeypoint(BaseKeypoint):
         rel_y = self.y / img_height
         return RelativeKeypoint(rel_x, rel_y, self.visible)
 
+    def resize(
+        self,
+        orig_img_width: int,
+        orig_img_height: int,
+        new_img_width: int,
+        new_img_height: int,
+    ) -> None:
+        self.x = int(self.x * new_img_width / orig_img_width)
+        self.y = int(self.y * new_img_height / orig_img_height)
+
 
 class BaseKeypointsObject:
     def __init__(
@@ -174,6 +184,16 @@ class AbsoluteKeypointsObject(BaseKeypointsObject):
                 num_keypoints - len(keypoints)
             )
         return keypoints
+
+    def resize_keypoints(
+        self,
+        orig_img_width: int,
+        orig_img_height: int,
+        new_img_width: int,
+        new_img_height: int,
+    ) -> None:
+        for kp in self.keypoints:
+            kp.resize(orig_img_width, orig_img_height, new_img_width, new_img_height)
 
     def to_relative(
         self, img_width: int, img_height: int, clip: bool = False
