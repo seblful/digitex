@@ -3,7 +3,6 @@ import random
 from PIL import Image
 
 import torch
-from torchvision.io import read_image
 import torchvision.transforms as T
 
 from tqdm import tqdm
@@ -38,6 +37,7 @@ class DatasetCreator:
         self.val_split = 1 - self.train_split
 
         # Image resizing
+        self._to_pil = T.ToPILImage()
         self._resize_image = T.Resize(self.image_size, antialias=True)
 
         self.anns_creator = AnnotationCreator(
@@ -82,11 +82,9 @@ class DatasetCreator:
     def _transform_and_save_image(
         self, set_dir: str, image_filename: str
     ) -> tuple[int, int]:
-        img = read_image(os.path.join(self.raw_images_dir, image_filename))
-        img_height, img_width = img.shape[1], img.shape[2]
-        img = self._resize_image(img)
-        img = img.permute(1, 2, 0).to("cpu", torch.uint8).numpy()
-        image = Image.fromarray(img)
+        image = Image.open(os.path.join(self.raw_images_dir, image_filename))
+        img_width, img_height = image.size
+        image = self._resize_image(image)
         image.save(os.path.join(set_dir, "images", image_filename))
 
         return img_height, img_width
