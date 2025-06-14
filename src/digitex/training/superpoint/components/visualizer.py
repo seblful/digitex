@@ -94,3 +94,81 @@ class KeypointVisualizer(BaseVisualizer):
                 )
                 drawn_image = self.draw_annotations(image, abs_kps_obj)
                 self.save_image(drawn_image, image_filename, set_name, "keypoints")
+
+
+class HeatmapsVisualizer(BaseVisualizer):
+    def __init__(
+        self,
+        dataset_dir: str,
+        check_images_dir: str,
+        heatmaps_dir: str = "heatmaps",
+        mask_dir: str = "masks",
+    ) -> None:
+        super().__init__(dataset_dir, check_images_dir)
+        self.heatmaps_dir = heatmaps_dir
+        self.mask_dir = mask_dir
+
+    def _normalize_heatmap(self, heatmaps: torch.Tensor, img_size: tuple[int, int]):
+        combined_heatmap = torch.max(heatmaps, dim=0)[0]  # (h, w)
+
+        # Resize heatmap to image size
+        heatmap_resized = (
+            F.interpolate(
+                combined_heatmap.unsqueeze(0).unsqueeze(0),
+                size=img_size,
+                mode="bilinear",
+                align_corners=False,
+            )
+            .squeeze()
+            .cpu()
+            .numpy()
+        )  # (h, w)
+
+        # Normalize heatmap to [0, 255]
+        heatmap_norm = (heatmap_resized - heatmap_resized.min()) / (
+            np.ptp(heatmap_resized) + 1e-6
+        )
+
+        return heatmap_norm
+
+    def visualize(self, num_images: int = 10) -> None:
+        for set_dir in (self.train_dir, self.val_dir):
+            set_name = os.path.basename(set_dir)
+            images_dir = os.path.join(set_dir, "images")
+            heatmaps_dir = os.path.join(set_dir, self.heatmaps_dir)
+
+            images_listdir = os.listdir(images_dir)
+            random.shuffle(images_listdir)
+            images_listdir = images_listdir[:num_images]
+
+            for image_filename in tqdm(
+                images_listdir, desc=f"Visualizing {set_name} heatmaps"
+            ):
+                base = os.path.splitext(image_filename)[0]
+                image_path = os.path.join(images_dir, image_filename)
+                heatmap_path = os.path.join(heatmaps_dir, f"{base}.pt")
+                # Load image
+                img = read_image(image_path).float() / 255.0  # (C, H, W)
+                img = img.permute(1, 2, 0).cpu().numpy()  # (H, W, C), float32
+
+                # Load heatmap
+                heatmaps = torch.load(heatmap_path)  # (K, h, w)
+                heatmap_norm = self._normalize_heatmap(heatmaps, img.shape[0:2])
+
+                # Apply colormap (jet)
+                cmap = matplotlib.cm.get_cmap("jet")
+                heatmap_color = cmap(heatmap_norm)[:, :, :3]  # (h, w, 3), RGB float
+                heatmap_color = (heatmap_color * 255).astype(np.uint8)
+                heatmap_img = Image.fromarray(heatmap_color)
+
+                # Overlay heatmap on image
+                img_uint8 = (img * 255).clip(0, 255).astype(np.uint8)
+                image = Image.fromarray(img_uint8)
+                overlay = Image.blend(
+                    image.convert("RGBA"), heatmap_img.convert("RGBA"), alpha=0.5
+                )
+
+                # Save overlay image
+                self.save_image(
+                    overlay.convert("RGB"), image_filename, set_name, "heatmaps"
+                )
