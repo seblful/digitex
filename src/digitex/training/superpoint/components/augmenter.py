@@ -2,6 +2,7 @@ import os
 from PIL import Image
 
 import numpy as np
+import torchvision.transforms as T
 import albumentations as A
 from tqdm import tqdm
 
@@ -16,14 +17,24 @@ from digitex.training.superpoint.components.annotation import (
 
 
 class BaseAugmenter:
-    def __init__(self, raw_dir: str, dataset_dir: str) -> None:
+    def __init__(
+        self,
+        raw_dir: str,
+        dataset_dir: str,
+        image_size: tuple[int, int],
+    ) -> None:
         # Paths
         self.raw_dir = raw_dir
         self.dataset_dir = dataset_dir
         self.train_dir = os.path.join(self.dataset_dir, "train")
+        self.images_dir = os.path.join(self.train_dir, "images")
 
         self.img_ext = ".jpg"
         self.anns_ext = ".txt"
+
+        # Image resizing
+        self.image_size = image_size
+        self._resize_image = T.Resize(self.image_size, antialias=True)
 
         self._transforms = None
         self._augmenter = None
@@ -85,20 +96,25 @@ class BaseAugmenter:
                 return filename
             increment += 1
 
-    def save_image(self, img_path: str, img: np.ndarray) -> None:
+    def transform_and_save_image(self, img_path: str, img: np.ndarray) -> None:
         aug_img_filename = self.find_path(img_path)
-        aug_img_path = os.path.join(self.train_dir, aug_img_filename)
+        aug_img_path = os.path.join(self.images_dir, aug_img_filename)
+
+        # Resize image
+        image = Image.fromarray(img)
+        image = self._resize_image(image)
 
         # Save image
-        image = Image.fromarray(img)
         image.save(aug_img_path)
 
         return aug_img_filename
 
 
 class KeypointAugmenter(BaseAugmenter):
-    def __init__(self, raw_dir: str, dataset_dir: str) -> None:
-        super().__init__(raw_dir, dataset_dir)
+    def __init__(
+        self, raw_dir: str, dataset_dir: str, image_size: tuple[int, int]
+    ) -> None:
+        super().__init__(raw_dir, dataset_dir, image_size)
 
     @property
     def augmenter(self) -> A.Compose:
@@ -204,7 +220,7 @@ class KeypointAugmenter(BaseAugmenter):
 
         for _ in tqdm(range(num_images), desc="Augmenting images"):
             # Get random img
-            img_path, img = get_random_img(self.train_dir, list(labels_dict.keys()))
+            img_path, img = get_random_img(self.images_dir, list(labels_dict.keys()))
             orig_height, orig_width = img.shape[:2]
 
             # Create KeypointsObject from labels
@@ -219,7 +235,7 @@ class KeypointAugmenter(BaseAugmenter):
             transf_img, transf_label = self.augment_img(img, abs_kps_obj)
             transf_height, transf_width = transf_img.shape[:2]
 
-            # Create transformed keypoints object from transf_label
+            # Create transformed keypoints object from transf_label and resize
             transf_abs_kps_obj = self.create_abs_kps_obj_from_label(
                 label=transf_label,
                 clip=True,
@@ -227,9 +243,12 @@ class KeypointAugmenter(BaseAugmenter):
                 img_height=transf_height,
                 num_keypoints=len(abs_kps_obj.keypoints),
             )
+            transf_abs_kps_obj.resize_keypoints(
+                transf_width, transf_height, self.image_size[1], self.image_size[0]
+            )
 
-            # Save augmented image
-            aug_img_path = self.save_image(img_path, transf_img)
+            # Transform and save augmented image
+            aug_img_path = self.transform_and_save_image(img_path, transf_img)
 
             # Add label to labels_dict
             labels_dict[aug_img_path] = transf_abs_kps_obj.get_label()
