@@ -63,13 +63,13 @@ class KeypointVisualizer(BaseVisualizer):
         draw = ImageDraw.Draw(image, "RGBA")
         box = [kps_obj.bbox[0], kps_obj.bbox[2]]
         draw.rectangle(
-            box, outline=self.colors.get(kps_obj.class_idx, (255, 0, 0, 128)), width=5
+            box, outline=self.colors.get(kps_obj.class_idx, (255, 0, 0, 128)), width=11
         )
 
         for kp in kps_obj.keypoints:
             if kp.visible == 1:
                 draw.ellipse(
-                    (kp.x - 5, kp.y - 5, kp.x + 5, kp.y + 5),
+                    (kp.x - 10, kp.y - 10, kp.x + 10, kp.y + 10),
                     fill=self.colors.get(kps_obj.class_idx, (255, 0, 0, 128)),
                 )
         return image
