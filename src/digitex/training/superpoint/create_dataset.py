@@ -1,9 +1,13 @@
 import os
 import argparse
+import yaml
 
-from digitex.training.superpoint.components.data import DatasetCreator
+from digitex.training.superpoint.components.data import DatasetCreator, HeatmapsCreator
 from digitex.training.superpoint.components.augmenter import KeypointAugmenter
-from digitex.training.superpoint.components.visualizer import KeypointVisualizer
+from digitex.training.superpoint.components.visualizer import (
+    KeypointVisualizer,
+    HeatmapsVisualizer,
+)
 
 
 # Create a parser
@@ -11,10 +15,6 @@ parser = argparse.ArgumentParser(description="Get some hyperparameters.")
 
 parser.add_argument(
     "--train_split", default=0.8, type=float, help="Split of train set."
-)
-
-parser.add_argument(
-    "--num_keypoints", default=30, type=int, help="Number of keypoints per object."
 )
 
 parser.add_argument(
@@ -38,7 +38,6 @@ args = parser.parse_args()
 
 # Setup hyperparameters
 TRAIN_SPLIT = args.train_split
-NUM_KEYPOINTS = args.num_keypoints
 AUGMENT = args.augment
 AUG_IMAGES = args.aug_images
 VISUALIZE = args.visualize
@@ -52,28 +51,55 @@ RAW_DIR = os.path.join(DATA_DIR, "raw-data")
 DATASET_DIR = os.path.join(DATA_DIR, "dataset")
 CHECK_IMAGES_DIR = os.path.join(DATA_DIR, "check-images")
 
+CONFIG_PATH = os.path.join(
+    HOME, "src", "digitex", "training", "superpoint", "config", "config.yml"
+)
+
 
 def main() -> None:
+    # Load config
+    with open(CONFIG_PATH, "r") as f:
+        config = yaml.safe_load(f)
+
     # Create dataset
     dataset_creator = DatasetCreator(
         raw_dir=RAW_DIR,
         dataset_dir=DATASET_DIR,
-        num_keypoints=NUM_KEYPOINTS,
+        image_size=config["dataset"]["image_size"],
+        max_keypoints=config["dataset"]["max_keypoints"],
         train_split=TRAIN_SPLIT,
     )
     dataset_creator.create_dataset()
 
     # Augment dataset
     if AUGMENT:
-        augmenter = KeypointAugmenter(raw_dir=RAW_DIR, dataset_dir=DATASET_DIR)
+        augmenter = KeypointAugmenter(
+            raw_dir=RAW_DIR,
+            dataset_dir=DATASET_DIR,
+            image_size=config["dataset"]["image_size"],
+        )
         augmenter.augment(num_images=AUG_IMAGES)
+
+    heatmaps_creator = HeatmapsCreator(
+        dataset_dir=DATASET_DIR,
+        image_size=config["dataset"]["image_size"],
+        heatmap_size=config["dataset"]["heatmap_size"],
+        max_keypoints=config["dataset"]["max_keypoints"],
+        heatmap_sigma=config["dataset"]["heatmap_sigma"],
+    )
+    heatmaps_creator.create_heatmaps()
 
     # Visualize dataset
     if VISUALIZE:
-        visualizer = KeypointVisualizer(
+        keypoint_visualizer = KeypointVisualizer(
             dataset_dir=DATASET_DIR, check_images_dir=CHECK_IMAGES_DIR
         )
-        visualizer.visualize(num_images=VIS_IMAGES)
+        keypoint_visualizer.visualize(num_images=VIS_IMAGES)
+
+        heatmaps_visualizer = HeatmapsVisualizer(
+            dataset_dir=DATASET_DIR, check_images_dir=CHECK_IMAGES_DIR
+        )
+        heatmaps_visualizer.visualize(num_images=VIS_IMAGES)
 
 
 if __name__ == "__main__":
