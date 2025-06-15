@@ -65,7 +65,6 @@ def main() -> None:
     dataset_creator = DatasetCreator(
         raw_dir=RAW_DIR,
         dataset_dir=DATASET_DIR,
-        image_size=config["dataset"]["image_size"],
         max_keypoints=config["dataset"]["max_keypoints"],
         train_split=TRAIN_SPLIT,
     )
@@ -76,15 +75,13 @@ def main() -> None:
         augmenter = KeypointAugmenter(
             raw_dir=RAW_DIR,
             dataset_dir=DATASET_DIR,
-            image_size=config["dataset"]["image_size"],
         )
         augmenter.augment(num_images=AUG_IMAGES)
 
     heatmaps_creator = HeatmapsCreator(
         dataset_dir=DATASET_DIR,
-        image_size=config["dataset"]["image_size"],
-        heatmap_size=config["dataset"]["heatmap_size"],
         max_keypoints=config["dataset"]["max_keypoints"],
+        heatmap_size=config["dataset"]["heatmap_size"],
         heatmap_sigma=config["dataset"]["heatmap_sigma"],
     )
     heatmaps_creator.create_heatmaps()

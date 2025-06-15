@@ -1,9 +1,9 @@
 import os
 import random
+import shutil
 from PIL import Image
 
 import torch
-import torchvision.transforms as T
 
 from tqdm import tqdm
 
@@ -18,7 +18,6 @@ class DatasetCreator:
         self,
         raw_dir,
         dataset_dir,
-        image_size: tuple[int, int],
         max_keypoints: int,
         train_split=0.8,
     ) -> None:
@@ -30,15 +29,9 @@ class DatasetCreator:
         self.dataset_dir = dataset_dir
         self._setup_dataset_dirs()
 
-        self.image_size = image_size
-
         # Data split
         self.train_split = train_split
         self.val_split = 1 - self.train_split
-
-        # Image resizing
-        self._to_pil = T.ToPILImage()
-        self._resize_image = T.Resize(self.image_size, antialias=True)
 
         self.anns_creator = AnnotationCreator(
             data_json_path=self.data_json_path,
@@ -69,38 +62,15 @@ class DatasetCreator:
 
         return train_listdir, val_listdir
 
-    def _resize_coords(
-        self, vis_coords, orig_image_size: tuple[int, int]
-    ) -> list[tuple[int, int]]:
-        if not vis_coords:
-            return []
+    def _copy_image(self, set_dir: str, image_filename: str) -> None:
+        # Copy image
+        src_path = os.path.join(self.raw_images_dir, image_filename)
+        dst_path = os.path.join(set_dir, "images", image_filename)
 
-        scale_x = self.image_size[1] / orig_image_size[1]
-        scale_y = self.image_size[0] / orig_image_size[0]
-        return [(x * scale_x, y * scale_y) for x, y in vis_coords]
+        # Copy the image file
+        shutil.copy2(src_path, dst_path)
 
-    def _transform_and_save_image(
-        self, set_dir: str, image_filename: str
-    ) -> tuple[int, int]:
-        image = Image.open(os.path.join(self.raw_images_dir, image_filename))
-        img_width, img_height = image.size
-        image = self._resize_image(image)
-        image.save(os.path.join(set_dir, "images", image_filename))
-
-        return img_height, img_width
-
-    def _transform_label(
-        self,
-        label: list[tuple[int, int]],
-        orig_img_size: tuple[int, int],
-    ) -> None:
-        abs_kps_obj = KeypointAugmenter.create_abs_kps_obj_from_label(label, clip=False)
-        abs_kps_obj.resize_keypoints(
-            orig_img_size[1], orig_img_size[0], self.image_size[1], self.image_size[0]
-        )
-        transf_label = abs_kps_obj.get_label()
-
-        return transf_label
+        return None
 
     def _partitionate_data(self) -> None:
         # Split listdir
@@ -118,13 +88,11 @@ class DatasetCreator:
                 listdir, desc=f"Partitioning {os.path.basename(set_dir)} data"
             ):
                 # Image processing
-                img_size = self._transform_and_save_image(set_dir, image_filename)
+                self._copy_image(set_dir, image_filename)
 
                 # Label processing
                 label = total_labels_dict[image_filename]
-                transf_label = self._transform_label(label, img_size)
-
-                set_labels_dict[image_filename] = transf_label
+                set_labels_dict[image_filename] = label
 
             # Write labels
             label_path = os.path.join(set_dir, "labels.json")
@@ -139,17 +107,15 @@ class HeatmapsCreator:
     def __init__(
         self,
         dataset_dir: str,
-        image_size: tuple[int, int],
-        heatmap_size: tuple[int, int],
         max_keypoints: int,
+        heatmap_size: tuple[int, int] = (256, 256),
         heatmap_sigma: float = 2.0,
     ) -> None:
         self.dataset_dir = dataset_dir
         self._setup_dataset_dirs()
 
-        self.image_size = image_size
-        self.heatmap_size = heatmap_size
         self.max_keypoints = max_keypoints
+        self.heatmap_size = heatmap_size
         self.heatmap_sigma = heatmap_sigma
 
     def _setup_dataset_dirs(self) -> None:
@@ -176,7 +142,7 @@ class HeatmapsCreator:
         heatmaps = torch.zeros(max_keypoints, heatmap_size[0], heatmap_size[1])
         mask = torch.zeros(max_keypoints, dtype=torch.float32)
 
-        # Scale factors for coordinate transformation
+        # Scale factors for coordinate transformation from image space to heatmap space
         h_scale = heatmap_size[0] / image_size[0]
         w_scale = heatmap_size[1] / image_size[1]
 
@@ -193,7 +159,7 @@ class HeatmapsCreator:
 
             mask[p_idx] = 1.0
 
-            # Scale keypoint coordinates to heatmap space
+            # Scale keypoint coordinates from image space to heatmap space
             x = p[0] * w_scale
             y = p[1] * h_scale
 
@@ -224,18 +190,28 @@ class HeatmapsCreator:
 
         return points
 
+    def _get_image_size(self, set_dir: str, image_filename: str) -> tuple[int, int]:
+        image_path = os.path.join(set_dir, "images", image_filename)
+        image = Image.open(image_path)
+        img_width, img_height = image.size
+        image.close()
+        return img_height, img_width
+
     def _transform_and_save_heatmaps(
         self,
         set_dir: str,
         label: list[tuple[int, int]],
         image_filename: str,
     ) -> None:
+        # Get the actual image size
+        image_size = self._get_image_size(set_dir, image_filename)
+
         abs_kps_obj = KeypointAugmenter.create_abs_kps_obj_from_label(label, clip=False)
         vis_coords = abs_kps_obj.get_vis_coords()
         points = self._create_points(vis_coords)
         heatmaps, mask = self.generate_heatmaps(
             points,
-            self.image_size,
+            image_size,
             self.heatmap_size,
             self.max_keypoints,
             self.heatmap_sigma,

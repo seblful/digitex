@@ -2,7 +2,6 @@ import os
 from PIL import Image
 
 import numpy as np
-import torchvision.transforms as T
 import albumentations as A
 from tqdm import tqdm
 
@@ -21,7 +20,6 @@ class BaseAugmenter:
         self,
         raw_dir: str,
         dataset_dir: str,
-        image_size: tuple[int, int],
     ) -> None:
         # Paths
         self.raw_dir = raw_dir
@@ -31,10 +29,6 @@ class BaseAugmenter:
 
         self.img_ext = ".jpg"
         self.anns_ext = ".txt"
-
-        # Image resizing
-        self.image_size = image_size
-        self._resize_image = T.Resize(self.image_size, antialias=True)
 
         self._transforms = None
         self._augmenter = None
@@ -100,21 +94,16 @@ class BaseAugmenter:
         aug_img_filename = self.find_path(img_path)
         aug_img_path = os.path.join(self.images_dir, aug_img_filename)
 
-        # Resize image
-        image = Image.fromarray(img)
-        image = self._resize_image(image)
-
         # Save image
+        image = Image.fromarray(img)
         image.save(aug_img_path)
 
         return aug_img_filename
 
 
 class KeypointAugmenter(BaseAugmenter):
-    def __init__(
-        self, raw_dir: str, dataset_dir: str, image_size: tuple[int, int]
-    ) -> None:
-        super().__init__(raw_dir, dataset_dir, image_size)
+    def __init__(self, raw_dir: str, dataset_dir: str) -> None:
+        super().__init__(raw_dir, dataset_dir)
 
     @property
     def augmenter(self) -> A.Compose:
@@ -235,16 +224,13 @@ class KeypointAugmenter(BaseAugmenter):
             transf_img, transf_label = self.augment_img(img, abs_kps_obj)
             transf_height, transf_width = transf_img.shape[:2]
 
-            # Create transformed keypoints object from transf_label and resize
+            # Create transformed keypoints object from transf_label
             transf_abs_kps_obj = self.create_abs_kps_obj_from_label(
                 label=transf_label,
                 clip=True,
                 img_width=transf_width,
                 img_height=transf_height,
                 num_keypoints=len(abs_kps_obj.keypoints),
-            )
-            transf_abs_kps_obj.resize_keypoints(
-                transf_width, transf_height, self.image_size[1], self.image_size[0]
             )
 
             # Transform and save augmented image
