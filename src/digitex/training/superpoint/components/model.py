@@ -13,9 +13,10 @@ class HeatmapKeypointModel(nn.Module):
         backbone_stride: int,
         deconv_channels: int,
         output_stride: int,
+        freeze_backbone_params: bool,
     ) -> None:
         """
-        Heatmap-based keypoint prediction model.
+        Heatmap-based keypoint prediction model with visibility mask prediction.
 
         Args:
             backbone: Feature extraction backbone (e.g., ResNet50 without classification head)
@@ -23,6 +24,7 @@ class HeatmapKeypointModel(nn.Module):
             backbone_out_channels: Number of output channels from the backbone
             deconv_channels: Number of channels in deconvolution layers
             output_stride: Target output stride relative to input (must be power of 2)
+            freeze_backbone_params: Whether to freeze the backbone parameters
         """
         super().__init__()
         self.max_keypoints = max_keypoints
@@ -32,21 +34,32 @@ class HeatmapKeypointModel(nn.Module):
             raise ValueError("output_stride must be a power of 2")
 
         # Create backbone
-        self.backbone = self.create_backbone(freeze_initial_layers=True)
+        self.backbone = self.create_backbone(
+            freeze_backbone_params=freeze_backbone_params
+        )
 
         # Create deconvolution layers
         self.deconv_layers = self.create_deconv_layers(
             backbone_out_channels, backbone_stride, deconv_channels, output_stride
         )
 
-        # Create final prediction layer
+        # Create final prediction layer for heatmaps
         self.final_conv = nn.Conv2d(deconv_channels, max_keypoints, kernel_size=1)
 
-        # # TODO maybe add sigmoid
-        # self.final_conv = nn.Sequential(
-        #     nn.Conv2d(deconv_channels, max_keypoints, kernel_size=1),
-        #     nn.Sigmoid(),  # Ensures heatmap values in [0,1]
-        # )
+        # Create visibility prediction head
+        # Global average pooling followed by fully connected layers
+        self.visibility_head = nn.Sequential(
+            nn.AdaptiveAvgPool2d(
+                1
+            ),  # Global average pooling: (B, deconv_channels, H, W) -> (B, deconv_channels, 1, 1)
+            nn.Flatten(),  # (B, deconv_channels, 1, 1) -> (B, deconv_channels)
+            nn.Linear(deconv_channels, deconv_channels // 2),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.1),
+            nn.Linear(
+                deconv_channels // 2, max_keypoints
+            ),  # Output: (B, max_keypoints)
+        )
 
         # Initialize weights
         self._initialize_weights()
@@ -77,22 +90,23 @@ class HeatmapKeypointModel(nn.Module):
             )
             deconv_layers.append(nn.BatchNorm2d(deconv_channels))
             deconv_layers.append(nn.ReLU(inplace=True))
+            deconv_layers.append(nn.Dropout(0.1))
             in_channels = deconv_channels
 
         return deconv_layers
 
     def create_backbone(
         self,
-        freeze_initial_layers: bool = True,
+        freeze_backbone_params: bool,
     ) -> nn.Module:
         # Load pretrained model
-        resnet = getattr(models, "resnet50")(weights="IMAGENET1K_V2")
+        resnet = getattr(models, "resnet50")(weights="ResNet50_Weights.DEFAULT")
 
         # Remove avgpool and fc layers
         backbone = nn.Sequential(*list(resnet.children())[:-2])
 
         # Freeze initial layers if specified
-        if freeze_initial_layers:
+        if freeze_backbone_params:
             for param in backbone.parameters():
                 param.requires_grad = False
 
@@ -107,11 +121,17 @@ class HeatmapKeypointModel(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-        # Initialize final layer
+        # Initialize final heatmap layer
         nn.init.normal_(self.final_conv.weight, std=0.001)
         nn.init.constant_(self.final_conv.bias, 0)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Initialize visibility head
+        for m in self.visibility_head.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, std=0.001)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass of the model.
 
@@ -119,10 +139,21 @@ class HeatmapKeypointModel(nn.Module):
             x: Input tensor of shape (B, C, H, W)
 
         Returns:
-            Heatmaps tensor of shape (B, max_keypoints, H//output_stride, W//output_stride)
+            Tuple containing:
+            - Heatmaps tensor of shape (B, max_keypoints, H//output_stride, W//output_stride)
+              with values bounded between 0 and 1 (sigmoid activation applied)
+            - Visibility masks tensor of shape (B, max_keypoints)
+              with values bounded between 0 and 1 (sigmoid activation applied)
         """
         features = self.backbone(x)
         upsampled = self.deconv_layers(features)
-        heatmaps = self.final_conv(upsampled)
 
-        return heatmaps
+        # Predict heatmaps
+        heatmaps = self.final_conv(upsampled)
+        heatmaps = torch.sigmoid(heatmaps)
+
+        # Predict visibility masks
+        visibility = self.visibility_head(upsampled)
+        visibility = torch.sigmoid(visibility)
+
+        return heatmaps, visibility
