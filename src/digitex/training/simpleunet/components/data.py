@@ -16,34 +16,33 @@ class MaskGenerator:
     def __init__(self, mask_radius_ratio: float = 0.02) -> None:
         self.mask_radius_ratio = mask_radius_ratio
 
-    def calculate_mask_radius(self, image_dimensions: tuple[int, int]) -> int:
-        height, width = image_dimensions
-        min_dimension = min(height, width)
-        radius = int(min_dimension * self.mask_radius_ratio)
+    def calculate_mask_radius(self, img_width: int, img_height: int) -> int:
+        min_dim = min(img_height, img_width)
+        radius = int(min_dim * self.mask_radius_ratio)
         return max(1, radius)
 
-    def generate_mask_from_keypoints(
+    def generate_mask_from_label(
         self,
-        keypoint_label: list[tuple[int, int, int]],
-        image_dimensions: tuple[int, int],
+        label: list[tuple[int, int, int]],
+        img_width: int,
+        img_height: int,
     ) -> np.ndarray:
-        height, width = image_dimensions
-        mask = np.zeros((height, width), dtype=np.uint8)
+        mask = np.zeros((img_height, img_width), dtype=np.uint8)
 
-        if not keypoint_label:
+        if not label:
             return mask
 
         # Calculate mask radius for this image size
-        mask_radius = self.calculate_mask_radius(image_dimensions)
+        mask_radius = self.calculate_mask_radius(img_width, img_height)
 
         # Create coordinate grids for efficient mask generation
-        y_coords, x_coords = np.mgrid[0:height, 0:width]
+        y_coords, x_coords = np.mgrid[0:img_height, 0:img_width]
 
-        for keypoint in keypoint_label:
-            if not keypoint or len(keypoint) < 3:
+        for lab in label:
+            if not lab or len(lab) < 3:
                 continue
 
-            x, y, visibility = keypoint
+            x, y, visibility = lab
 
             # Only process visible keypoints
             if visibility != 1:
@@ -131,13 +130,11 @@ class DatasetCreator:
         target_path = os.path.join(split_dir, "images", image_filename)
         shutil.copy2(source_path, target_path)
 
-    def _get_image_dimensions(
-        self, split_dir: str, image_filename: str
-    ) -> tuple[int, int]:
+    def _get_image_dims(self, split_dir: str, image_filename: str) -> tuple[int, int]:
         image_path = os.path.join(split_dir, "images", image_filename)
         with Image.open(image_path) as image:
-            width, height = image.size
-        return height, width
+            image_width, image_height = image.size
+        return image_width, image_height
 
     def _create_and_save_mask(
         self,
@@ -146,11 +143,11 @@ class DatasetCreator:
         image_filename: str,
     ) -> None:
         # Get image dimensions
-        image_dimensions = self._get_image_dimensions(split_dir, image_filename)
+        image_width, image_height = self._get_image_dims(split_dir, image_filename)
 
         # Generate mask using the mask generator
-        mask = self.mask_generator.generate_mask_from_keypoints(
-            keypoint_label, image_dimensions
+        mask = self.mask_generator.generate_mask_from_label(
+            keypoint_label, image_width, image_height
         )
 
         # Always save mask (empty or with keypoints)
