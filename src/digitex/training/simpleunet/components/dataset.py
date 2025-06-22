@@ -51,12 +51,8 @@ class MaskDataset(Dataset):
     def _setup_transforms(self) -> None:
         transforms = []
 
-        # Convert to float and normalize to [0, 1]
+        # Convert to float
         transforms.append(self._normalize_to_float)
-
-        transforms.append(
-            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        )
 
         self.image_transforms = T.Compose(transforms)
 
@@ -88,7 +84,7 @@ class MaskDataset(Dataset):
         if self.image_resize is not None:
             img = self.image_resize(img)
 
-        # Apply other transforms (normalization, etc.)
+        # Apply other transforms
         img = self.image_transforms(img)
 
         return img
