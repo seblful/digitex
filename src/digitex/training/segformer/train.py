@@ -1,5 +1,4 @@
 import os
-import yaml
 
 from torch.utils.data import DataLoader
 from transformers import SegformerForSemanticSegmentation
@@ -8,6 +7,10 @@ from digitex.settings import settings
 
 from digitex.training.segformer.components.dataset import SegFormerDataset
 from digitex.training.segformer.components.trainer import SegFormerTrainer
+from digitex.training.segformer.components.utils import (
+    load_config,
+    convert_model,
+)
 
 HOME = os.getcwd()
 SEGFORMER_DIR = os.path.join(HOME, "src", "digitex", "training", "segformer")
@@ -18,10 +21,7 @@ VAL_DATASET_DIR = os.path.join(DATASET_DIR, "val")
 CONFIG_PATH = os.path.join(SEGFORMER_DIR, "config", "config.yml")
 
 
-def train() -> None:
-    with open(CONFIG_PATH, "r") as f:
-        config = yaml.safe_load(f)
-
+def train(config: dict) -> None:
     device = settings.DEVICE
     print(f"Using device: {device}.")
 
@@ -96,7 +96,9 @@ def train() -> None:
 
 
 def main() -> None:
-    train()
+    config = load_config(CONFIG_PATH)
+    train(config)
+    convert_model(config)
 
 
 if __name__ == "__main__":
