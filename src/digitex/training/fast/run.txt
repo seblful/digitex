@@ -1,1 +1,0 @@
-python references/detection/train_pytorch.py fast_base --train_path references/detection/dataset/train --val_path references/detection/dataset/val --input_size 1024 --batch_size 1 --rotation --epochs 5 --pretrained --device 0 --lr 0.001 --workers 0
