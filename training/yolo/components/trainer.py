@@ -141,9 +141,9 @@ class Trainer:
             self.is_trained = True
             logger.info("Training completed successfully")
 
-        except Exception as e:
+        except (RuntimeError, ValueError, FileNotFoundError) as e:
             logger.error(f"Training failed: {e}")
-            raise RuntimeError(f"Training failed: {e}")
+            raise RuntimeError(f"Training failed: {e}") from e
 
     def validate(self) -> None:
         """Validate the trained model on the test set.
@@ -166,6 +166,6 @@ class Trainer:
 
             logger.info("Validation completed successfully")
 
-        except Exception as e:
+        except (RuntimeError, ValueError) as e:
             logger.error(f"Validation failed: {e}")
-            raise RuntimeError(f"Validation failed: {e}")
+            raise RuntimeError(f"Validation failed: {e}") from e

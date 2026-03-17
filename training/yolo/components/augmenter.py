@@ -1,32 +1,34 @@
-import os
+import logging
+import random
+from pathlib import Path
+
+import cv2
+import numpy as np
 from PIL import Image
 
-import numpy as np
-import cv2
-
-from tqdm import tqdm
-
-import supervision as sv
 import albumentations as A
+import supervision as sv
+from tqdm import tqdm
 
 from modules.handlers import LabelHandler
 from modules.processors import FileProcessor
 
-from .dataset import DatasetCreator
-from .converter import Converter
 from .annotation import Keypoint, KeypointsObject
+from .converter import Converter
+from .dataset import DatasetCreator
 from .utils import get_random_img
+
+logger = logging.getLogger(__name__)
 
 
 class Augmenter:
-    def __init__(self,
-                 raw_dir: str,
-                 dataset_dir: str) -> None:
-        # Paths
-        self.raw_dir = raw_dir
-        self.dataset_dir = dataset_dir
-        self.train_dir = os.path.join(self.dataset_dir, 'train')
-        self.classes_path = os.path.join(raw_dir, 'classes.txt')
+    def __init__(
+        self, raw_dir: str | Path, dataset_dir: str | Path
+    ) -> None:
+        self.raw_dir = Path(raw_dir)
+        self.dataset_dir = Path(dataset_dir)
+        self.train_dir = str(self.dataset_dir / "train")
+        self.classes_path = str(self.raw_dir / "classes.txt")
 
         self.img_ext = ".jpg"
         self.anns_ext = ".txt"
@@ -99,29 +101,28 @@ class Augmenter:
         return self.__label2id
 
     def find_name(self, img_name: str) -> str:
-        name = os.path.splitext(img_name)[0]
+        name = Path(img_name).stem
 
         increment = 1
         while True:
             aug_name = f"{name}_aug_{increment}"
             filename = f"{aug_name}{self.img_ext}"
-            filepath = os.path.join(self.train_dir, filename)
-            if not os.path.exists(filepath):
+            filepath = Path(self.train_dir) / filename
+            if not filepath.exists():
                 return aug_name
             increment += 1
 
     def save_anns(self) -> None:
         pass
 
-    def save_image(self,
-                   name: str,
-                   img: np.ndarray) -> None:
+    def save_image(
+        self, name: str, img: np.ndarray
+    ) -> None:
         filename = f"{name}{self.img_ext}"
-        filepath = os.path.join(self.train_dir, filename)
+        filepath = Path(self.train_dir) / filename
 
-        # Save image
         image = Image.fromarray(img)
-        image.save(filepath)
+        image.save(str(filepath))
 
     def save(self,
              img_name,
@@ -160,14 +161,13 @@ class OBB_PolygonAugmenter(Augmenter):
 
         return augmenter
 
-    def save_anns(self,
-                  name: str,
-                  points_dict: dict[int, list]) -> None:
+    def save_anns(
+        self, name: str, points_dict: dict[int, list]
+    ) -> None:
         filename = f"{name}{self.anns_ext}"
-        filepath = os.path.join(self.train_dir, filename)
+        filepath = Path(self.train_dir) / filename
 
-        # Write each class and anns to txt
-        with open(filepath, 'w') as file:
+        with open(filepath, "w") as file:
             if points_dict is None:
                 return
 
@@ -178,12 +178,11 @@ class OBB_PolygonAugmenter(Augmenter):
                     line = f"{class_idx} {pts}\n"
                     file.write(line)
 
-    def create_masks(self,
-                     img_name: str,
-                     img_width: int,
-                     img_height: int) -> None | dict[int, list]:
-        anns_name = os.path.splitext(img_name)[0] + '.txt'
-        anns_path = os.path.join(self.train_dir, anns_name)
+    def create_masks(
+        self, img_name: str, img_width: int, img_height: int
+    ) -> dict[int, list] | None:
+        anns_name = Path(img_name).stem + ".txt"
+        anns_path = Path(self.train_dir) / anns_name
 
         points_dict = LabelHandler._read_points(anns_path)
 
@@ -301,18 +300,18 @@ class KeypointAugmenter(Augmenter):
 
         return augmenter
 
-    def save_anns(self,
-                  name: str,
-                  kps_objs: list[KeypointsObject]) -> None:
+    def save_anns(
+        self, name: str, kps_objs: list[KeypointsObject]
+    ) -> None:
         filename = f"{name}{self.anns_ext}"
-        filepath = os.path.join(self.train_dir, filename)
+        filepath = Path(self.train_dir) / filename
 
         keypoints_strs = []
 
         for kps_obj in kps_objs:
             keypoints_strs.append(kps_obj.to_string())
 
-        FileProcessor.write_txt(filepath, lines=keypoints_strs)
+        FileProcessor.write_txt(str(filepath), lines=keypoints_strs)
 
     @staticmethod
     def create_kps_from_nums(nums: list[float]) -> list[Keypoint]:
@@ -339,11 +338,13 @@ class KeypointAugmenter(Augmenter):
         return kps
 
     @staticmethod
-    def create_kps_objs_from_file(train_dir: str, img_name: str) -> list[KeypointsObject]:
-        anns_name = os.path.splitext(img_name)[0] + '.txt'
-        anns_path = os.path.join(train_dir, anns_name)
+    def create_kps_objs_from_file(
+        train_dir: str, img_name: str
+    ) -> list[KeypointsObject]:
+        anns_name = Path(img_name).stem + ".txt"
+        anns_path = Path(train_dir) / anns_name
 
-        lines = FileProcessor.read_txt(anns_path)
+        lines = FileProcessor.read_txt(str(anns_path))
 
         if not lines:
             return []

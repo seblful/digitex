@@ -1,4 +1,3 @@
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -7,6 +6,8 @@ from urllib.parse import quote, unquote
 import cv2
 import numpy as np
 from PIL import Image
+
+from modules.processors import FileProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -43,13 +44,12 @@ class AnnsConverter:
             FileNotFoundError: If the file doesn't exist.
             json.JSONDecodeError: If the file contains invalid JSON.
         """
-        with open(json_path, "r", encoding="utf-8") as json_file:
-            json_dict = json.load(json_file)
-
-        return json_dict
+        return FileProcessor.read_json(json_path)
 
     @staticmethod
-    def write_json(json_dicts: dict | list[dict], json_path: str | Path, indent: int = 4) -> None:
+    def write_json(
+        json_dicts: dict | list[dict], json_path: str | Path, indent: int = 4
+    ) -> None:
         """Write data to a JSON file.
 
         Args:
@@ -62,9 +62,7 @@ class AnnsConverter:
         """
         json_path = Path(json_path)
         json_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(json_path, 'w', encoding="utf-8") as json_file:
-            json.dump(json_dicts, json_file, indent=indent, ensure_ascii=False)
+        FileProcessor.write_json(json_dicts, json_path, indent=indent)
 
     @staticmethod
     def add_filename_index(filename: str, index: int) -> str:
@@ -388,7 +386,7 @@ class OCRCaptionConverter(OCRAnnsConverter):
 
             try:
                 image = Image.open(input_image_path)
-            except Exception as e:
+            except (FileNotFoundError, IOError) as e:
                 logger.warning(f"Failed to open image {input_image_path}: {e}")
                 continue
 
@@ -409,7 +407,7 @@ class OCRCaptionConverter(OCRAnnsConverter):
                             image_height=entry.get('original_height', image.height),
                             bbox=bbox,
                         )
-                    except Exception as e:
+                    except (ValueError, IOError) as e:
                         logger.warning(f"Failed to crop image: {e}")
                         continue
 
@@ -426,7 +424,7 @@ class OCRCaptionConverter(OCRAnnsConverter):
 
                     try:
                         cropped_image.save(output_image_path)
-                    except Exception as e:
+                    except (IOError, ValueError) as e:
                         logger.warning(f"Failed to save image {output_image_path}: {e}")
                         continue
 

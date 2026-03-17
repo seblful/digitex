@@ -1,43 +1,46 @@
-import os
+import logging
+import random
+from pathlib import Path
 from urllib.parse import unquote
 
 from tqdm import tqdm
 
 from modules.processors import FileProcessor
 
+logger = logging.getLogger(__name__)
+
 
 class Keypoint:
-    def __init__(self,
-                 x: float | int,
-                 y: float | int,
-                 visible: int) -> None:
-        assert visible in [
-            0, 1], "Keypoint visibility parameter must be one of [0, 1]."
+    def __init__(
+        self, x: float | int, y: float | int, visible: int
+    ) -> None:
+        if visible not in [0, 1]:
+            raise ValueError("Keypoint visibility parameter must be one of [0, 1].")
 
         self.x = x
         self.y = y
         self.visible = visible
 
-    def clip(self,
-             img_width: int,
-             img_height: int) -> None:
+    def clip(self, img_width: int, img_height: int) -> None:
         self.x = max(0, min(self.x, img_width - 1))
         self.y = max(0, min(self.y, img_height - 1))
 
 
 class KeypointsObject:
-    def __init__(self,
-                 class_idx: int,
-                 keypoints: list[Keypoint],
-                 num_keypoints: int,
-                 bbox_center: tuple[float | int] = None,
-                 bbox_width: float | int = None,
-                 bbox_height: float | int = None) -> None:
+    def __init__(
+        self,
+        class_idx: int,
+        keypoints: list[Keypoint],
+        num_keypoints: int,
+        bbox_center: tuple[float | int] | None = None,
+        bbox_width: float | int | None = None,
+        bbox_height: float | int | None = None,
+    ) -> None:
         self.class_idx = class_idx
         self.num_keypoints = num_keypoints
         self.keypoints = self.pad_keypoints(keypoints, num_keypoints)
 
-        self.__bbox = None
+        self.__bbox: list[float | int] | None = None
 
         self.bbox_center = bbox_center
         self.bbox_width = bbox_width
@@ -50,14 +53,14 @@ class KeypointsObject:
 
     @property
     def bbox(self) -> list[float | int]:
-        if self.__bbox is None:
+        if self.__bbox is None and self.bbox_center:
             x0 = self.bbox_center[0] - int(self.bbox_width / 2)
             y0 = self.bbox_center[1] - int(self.bbox_height / 2)
             x1 = self.bbox_center[0] + int(self.bbox_width / 2)
             y1 = self.bbox_center[1] + int(self.bbox_height / 2)
             self.__bbox = [x0, y0, x1, y1]
 
-        return self.__bbox
+        return self.__bbox if self.__bbox is not None else []
 
     def pad_keypoints(self, keypoints: list[Keypoint], num_keypoints: int) -> list[Keypoint]:
         keypoints = keypoints[:num_keypoints]
@@ -183,15 +186,17 @@ class KeypointsObject:
 
 
 class AnnotationCreator:
-    def __init__(self,
-                 raw_dir: str,
-                 id2label: dict[int, str],
-                 label2id: dict[str, int],
-                 num_keypoints: int = 30) -> None:
-        self.raw_dir = raw_dir
-        self.data_json_path = os.path.join(raw_dir, "data.json")
-        self.classes_path = os.path.join(raw_dir, 'classes.txt')
-        self.__labels_dir = None
+    def __init__(
+        self,
+        raw_dir: str | Path,
+        id2label: dict[int, str],
+        label2id: dict[str, int],
+        num_keypoints: int = 30,
+    ) -> None:
+        self.raw_dir = Path(raw_dir)
+        self.data_json_path = self.raw_dir / "data.json"
+        self.classes_path = self.raw_dir / "classes.txt"
+        self.__labels_dir: Path | None = None
 
         self.id2label = id2label
         self.label2id = label2id
@@ -201,10 +206,10 @@ class AnnotationCreator:
     @property
     def labels_dir(self) -> str:
         if self.__labels_dir is None:
-            self.__labels_dir = os.path.join(self.raw_dir, "labels")
-            os.mkdir(self.__labels_dir)
+            self.__labels_dir = self.raw_dir / "labels"
+            self.__labels_dir.mkdir(parents=True, exist_ok=True)
 
-        return self.__labels_dir
+        return str(self.__labels_dir)
 
     def get_keypoints_obj(self, task: dict) -> tuple:
         keypoints = []
@@ -230,17 +235,13 @@ class AnnotationCreator:
                                num_keypoints=self.num_keypoints)
 
     def create_keypoints(self) -> None:
-        # Read json
         json_dict = FileProcessor.read_json(self.data_json_path)
 
-        # Iterate through json dict
         for task in tqdm(json_dict, desc="Creating keypoints annotations"):
-            image_name = unquote(os.path.basename(task["data"]["img"]))
-
+            image_name = unquote(Path(task["data"]["img"]).name)
             keypoints_obj = self.get_keypoints_obj(task)
             keypoints_str = keypoints_obj.to_string()
 
-            # Write txt
-            txt_name = os.path.splitext(image_name)[0] + ".txt"
-            txt_path = os.path.join(self.labels_dir, txt_name)
+            txt_name = Path(image_name).stem + ".txt"
+            txt_path = Path(self.labels_dir) / txt_name
             FileProcessor.write_txt(txt_path, lines=[keypoints_str])

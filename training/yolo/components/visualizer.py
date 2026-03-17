@@ -1,5 +1,7 @@
-import os
+import logging
 import random
+from pathlib import Path
+
 from PIL import Image, ImageDraw
 
 from tqdm import tqdm
@@ -9,6 +11,8 @@ from modules.handlers import LabelHandler
 from .annotation import KeypointsObject
 from .augmenter import KeypointAugmenter
 from .converter import Converter
+
+logger = logging.getLogger(__name__)
 
 
 class Visualizer:
@@ -31,41 +35,44 @@ class Visualizer:
         self.__setup_dataset_dirs()
 
     def __setup_dataset_dirs(self) -> None:
-        self.train_dir = os.path.join(self.dataset_dir, 'train')
-        self.val_dir = os.path.join(self.dataset_dir, 'val')
-        self.test_dir = os.path.join(self.dataset_dir, 'test')
+        self.train_dir = str(Path(self.dataset_dir) / "train")
+        self.val_dir = str(Path(self.dataset_dir) / "val")
+        self.test_dir = str(Path(self.dataset_dir) / "test")
+
         self.dataset_dirs = {
             "train": self.train_dir,
             "val": self.val_dir,
-            "test": self.test_dir
+            "test": self.test_dir,
         }
 
-    def save_image(self,
-                   image: Image.Image,
-                   image_name: str,
-                   set_name: str) -> None:
-        name = os.path.splitext(image_name)[0]
+    def save_image(
+        self, image: Image.Image, image_name: str, set_name: str
+    ) -> None:
+        name = Path(image_name).stem
         filename = f"{name}_{set_name}.jpg"
-        filepath = os.path.join(self.check_images_dir, filename)
-        image.save(filepath)
+        filepath = Path(self.check_images_dir) / filename
+        image.save(str(filepath))
 
-    def visualize(self,
-                  num_images: int = 10) -> None:
+    def visualize(self, num_images: int = 10) -> None:
         for set_name, set_dir in self.dataset_dirs.items():
-            images = [img for img in os.listdir(
-                set_dir) if img.endswith(".jpg")]
+            images = [
+                img
+                for img in Path(set_dir).iterdir()
+                if img.suffix == ".jpg"
+            ]
             random.shuffle(images)
             selected_images = images[:num_images]
 
-            for image_name in tqdm(selected_images, desc=f"Visualizing {set_name}"):
-                image_path = os.path.join(set_dir, image_name)
-                image = Image.open(image_path)
-                img_width, img_height = image.size
+        for image_name in tqdm(selected_images, desc=f"Visualizing {set_name}"):
+            image_path = Path(set_dir) / image_name
+            image = Image.open(str(image_path))
+            img_width, img_height = image.size
 
-                annotations = self.create_annotations(
-                    image_name, set_dir, img_width, img_height)
-                drawn_image = self.draw_annotations(image, annotations)
-                self.save_image(drawn_image, image_name, set_name)
+            annotations = self.create_annotations(
+                image_name, str(set_dir), img_width, img_height
+            )
+            drawn_image = self.draw_annotations(image, annotations)
+            self.save_image(drawn_image, image_name, set_name)
 
     def create_annotations(self,
                            image_name: str,
@@ -100,14 +107,11 @@ class OBB_PolygonVisualizer(Visualizer):
 
         self.preprocess_func = self.preprocess_funcs[anns_type]
 
-    def create_annotations(self,
-                           image_name: str,
-                           set_dir: str,
-                           img_width: int,
-                           img_height: int) -> dict:
-        anns_path = os.path.join(
-            set_dir, os.path.splitext(image_name)[0] + '.txt')
-        points_dict = LabelHandler._read_points(anns_path)
+    def create_annotations(
+        self, image_name: str, set_dir: str, img_width: int, img_height: int
+    ) -> dict:
+        anns_path = Path(set_dir) / f"{Path(image_name).stem}.txt"
+        points_dict = LabelHandler._read_points(str(anns_path))
 
         if not points_dict:
             return None
@@ -116,7 +120,8 @@ class OBB_PolygonVisualizer(Visualizer):
         for cls, points in points_dict.items():
             for pt in points:
                 polygon = self.preprocess_func(
-                    pt, img_width, img_height).tolist()
+                    pt, img_width, img_height
+                ).tolist()
                 polygons[cls].append([tuple(p) for p in polygon])
 
         return polygons

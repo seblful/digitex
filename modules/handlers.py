@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import List, Tuple, Dict
+from typing import Tuple
 
 import cv2
 import numpy as np
@@ -18,7 +18,7 @@ class PDFHandler:
     """Handler for PDF file operations and page rendering."""
 
     @staticmethod
-    def create_pdf(images: List[Image.Image], output_path: str | Path) -> None:
+    def create_pdf(images: list[Image.Image], output_path: str | Path) -> None:
         """Create a PDF document from a list of PIL images.
 
         Args:
@@ -66,13 +66,13 @@ class PDFHandler:
         """
         bitmap = page.render(scale=scale, rotation=0)
         image = bitmap.to_pil()
-        return image if image.mode == 'RGB' else image.convert('RGB')
+        return image if image.mode == "RGB" else image.convert("RGB")
 
     def get_random_image(
         self,
-        pdf_listdir: List[str],
+        pdf_listdir: list[str],
         pdf_dir: str | Path,
-    ) -> Tuple[Image.Image, str, int]:
+    ) -> tuple[Image.Image, str, int]:
         """Get a random page from a random PDF in the directory.
 
         Args:
@@ -115,7 +115,7 @@ class ImageHandler:
     @staticmethod
     def crop_image(
         image: Image.Image,
-        points: List[float],
+        points: list[float],
         offset: float = DEFAULT_CROP_OFFSET,
     ) -> Image.Image:
         """Crop an image using a polygon and add white border.
@@ -142,7 +142,7 @@ class ImageHandler:
 
         rect = cv2.boundingRect(pts)
         x, y, w, h = rect
-        img = img[y:y+h, x:x+w].copy()
+        img = img[y : y + h, x : x + w].copy()
 
         pts = pts - pts.min(axis=0)
         pts_int = pts.astype(np.int32)
@@ -156,22 +156,16 @@ class ImageHandler:
 
         border = int(height * offset)
         result = cv2.copyMakeBorder(
-            result,
-            border,
-            border,
-            border,
-            border,
-            cv2.BORDER_CONSTANT,
-            value=[255, 255, 255],
+            result, border, border, border, border, cv2.BORDER_CONSTANT, value=[255, 255, 255]
         )
 
         return Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
 
     @staticmethod
     def get_random_image(
-        images_listdir: List[str],
+        images_listdir: list[str],
         images_dir: str | Path,
-    ) -> Tuple[Image.Image, str]:
+    ) -> tuple[Image.Image, str]:
         """Get a random image from a directory.
 
         Args:
@@ -204,20 +198,8 @@ class LabelHandler:
     """Handler for reading and processing label annotations."""
 
     @staticmethod
-    def _read_points(label_path: str | Path) -> Dict[int, list[list[float]]]:
-        """Read annotation points from a label file.
-
-        Args:
-            label_path: Path to the label file.
-
-        Returns:
-            Dictionary mapping class indices to lists of point coordinates.
-
-        Raises:
-            FileNotFoundError: If the label file doesn't exist.
-            IOError: If the file cannot be read.
-        """
-        points_dict: Dict[int, list[list[float]]] = dict()
+    def _read_points(label_path: str | Path) -> dict[int, list[list[float]]]:
+        points_dict: dict[int, list[list[float]]] = dict()
 
         with open(label_path, "r") as f:
             for line in f:
@@ -236,10 +218,10 @@ class LabelHandler:
 
     @staticmethod
     def _get_random_points(
-        classes_dict: Dict[int, str],
-        points_dict: Dict[int, list],
-        target_classes: List[str],
-    ) -> Tuple[int, list[float]]:
+        classes_dict: dict[int, str],
+        points_dict: dict[int, list],
+        target_classes: list[str],
+    ) -> tuple[int, list[float]]:
         """Get random points for a target class.
 
         Args:
@@ -326,9 +308,9 @@ class LabelHandler:
         self,
         image_name: str,
         labels_dir: str | Path,
-        classes_dict: Dict[int, str],
-        target_classes: List[str],
-    ) -> Tuple[int, list[float]]:
+        classes_dict: dict[int, str],
+        target_classes: list[str],
+    ) -> tuple[int, list[float]]:
         """Get points for a specific image and target classes.
 
         Args:

@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 from typing import Dict
 
+import pypdfium2
 from PIL import Image
 
 from modules.handlers import ImageHandler, LabelHandler, PDFHandler
@@ -146,7 +147,7 @@ class DataCreator:
                     num_saved=num_saved,
                     num_images=num_images,
                 )
-            except Exception as e:
+            except (FileNotFoundError, IOError, ValueError, pypdfium2.PdfiumError) as e:
                 logger.warning(f"Failed to extract page: {e}")
                 continue
 
@@ -224,7 +225,7 @@ class DataCreator:
                     num_saved=num_saved,
                     num_images=num_images,
                 )
-            except Exception as e:
+            except (FileNotFoundError, IOError, ValueError) as e:
                 logger.warning(f"Failed to extract question: {e}")
                 continue
 
@@ -308,7 +309,7 @@ class DataCreator:
                     num_saved=num_saved,
                     num_images=num_images,
                 )
-            except Exception as e:
+            except (FileNotFoundError, IOError, ValueError) as e:
                 logger.warning(f"Failed to extract part: {e}")
                 continue
 
@@ -386,6 +387,6 @@ class DataCreator:
                     num_saved=num_saved,
                     num_images=num_images,
                 )
-            except Exception as e:
+            except (FileNotFoundError, IOError, ValueError) as e:
                 logger.warning(f"Failed to extract word: {e}")
                 continue

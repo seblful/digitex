@@ -49,7 +49,7 @@ def create_pdf_from_images(
                 image = ImageProcessor().process(image=image, scan_type="color")
 
             images.append(image)
-        except Exception as e:
+        except (FileNotFoundError, IOError) as e:
             logger.warning(f"Failed to process image {image_path}: {e}")
             continue
 
