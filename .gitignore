@@ -1,9 +1,9 @@
 # Data
-raw-data
-data
+raw-data/
+data/
 
 # Models
-models
+models/
 *.pt
 
 # Drafts
@@ -13,8 +13,6 @@ draft*.txt
 
 # Training
 training/yolo/runs
-training/mask2former/runs
-training/oneformer/runs
 
 
 # Byte-compiled / optimized / DLL files

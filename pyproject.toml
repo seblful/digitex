@@ -1,11 +1,31 @@
 [project]
-name = "modules"
+name = "tg-testing"
 version = "0.1.0"
-description = "Helper classes for data processing"
+description = "Testing system of students using telegram-bot"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pillow",
+    "numpy",
+    "opencv-python",
+    "pypdfium2",
+    "torch",
+    "ultralytics",
+    "supervision",
+    "albumentations",
+    "tqdm",
+    "pyyaml",
+    "doxapy",
+]
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
 
 [build-system]
-build-backend = "flit_core.buildapi"
-requires = ["flit_core >=3.2,<4"]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.setuptools]
-py-modules = []
+[tool.hatch.build.targets.wheel]
+packages = ["modules", "training"]
