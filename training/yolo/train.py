@@ -27,7 +27,7 @@ def main(
     model_type: str = typer.Option(
         "seg",
         "--model-type",
-        help="Type of YOLO model ('seg', 'obb', 'pose')",
+        help="Type of YOLO model ('seg')",
     ),
     model_size: str = typer.Option(
         "m",

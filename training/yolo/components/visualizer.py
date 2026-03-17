@@ -8,8 +8,6 @@ from tqdm import tqdm
 
 from modules.handlers import LabelHandler
 
-from .annotation import KeypointsObject
-from .augmenter import KeypointAugmenter
 from .converter import Converter
 
 logger = logging.getLogger(__name__)
@@ -88,28 +86,17 @@ class Visualizer:
         raise NotImplementedError("Subclasses must implement draw_annotations")
 
 
-class OBB_PolygonVisualizer(Visualizer):
+class PolygonVisualizer(Visualizer):
     def __init__(self,
                  dataset_dir: str,
-                 check_images_dir: str,
-                 anns_type: str) -> None:
+                 check_images_dir: str) -> None:
         super().__init__(dataset_dir, check_images_dir)
 
-        self.anns_type = anns_type
-        self.preprocess_funcs = {
-            "polygon": Converter.point_to_polygon,
-            "obb": Converter.xyxyxyxy_to_polygon
-        }
-
-        if anns_type not in self.preprocess_funcs:
-            raise ValueError(
-                f"anns_type must be one of {list(self.preprocess_funcs.keys())}.")
-
-        self.preprocess_func = self.preprocess_funcs[anns_type]
+        self.preprocess_func = Converter.point_to_polygon
 
     def create_annotations(
         self, image_name: str, set_dir: str, img_width: int, img_height: int
-    ) -> dict:
+    ) -> dict | None:
         anns_path = Path(set_dir) / f"{Path(image_name).stem}.txt"
         points_dict = LabelHandler._read_points(str(anns_path))
 
@@ -136,50 +123,4 @@ class OBB_PolygonVisualizer(Visualizer):
         for cls, polygons in annotations.items():
             for polygon in polygons:
                 draw.polygon(polygon, fill=self.colors[cls], outline="black")
-        return image
-
-
-class KeypointVisualizer(Visualizer):
-    def __init__(self,
-                 dataset_dir: str,
-                 check_images_dir: str,
-                 anns_type: str) -> None:
-        super().__init__(dataset_dir, check_images_dir)
-
-        self.anns_type = anns_type
-
-        if anns_type != "keypoint":
-            raise ValueError(
-                f"anns_type must be 'keypoint'.")
-
-    def create_annotations(self,
-                           image_name: str,
-                           set_dir: str,
-                           img_width: int,
-                           img_height: int) -> list[KeypointsObject]:
-        abs_kps_objs = KeypointAugmenter.create_kps_objs_from_file(
-            set_dir, image_name)
-        rel_kps_objs = [kps_obj.to_relative(
-            img_width, img_height, clip=False) for kps_obj in abs_kps_objs]
-
-        return rel_kps_objs
-
-    def draw_annotations(self,
-                         image: Image.Image,
-                         annotations) -> Image.Image:
-        if not annotations:
-            return image
-
-        draw = ImageDraw.Draw(image, 'RGBA')
-        for kps_obj in annotations:
-            draw.rectangle(kps_obj.bbox,
-                           outline=self.colors[kps_obj.class_idx],
-                           width=10)
-
-            for kp in kps_obj.keypoints:
-                if kp.visible == 1:
-                    draw.circle((kp.x, kp.y),
-                                radius=15,
-                                fill=self.colors[kps_obj.class_idx])
-
         return image

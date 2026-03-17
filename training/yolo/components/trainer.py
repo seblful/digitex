@@ -29,7 +29,7 @@ class Trainer:
 
         Args:
             dataset_dir: Directory containing the dataset and data.yaml.
-            model_type: Type of YOLO model ('seg', 'obb', 'pose').
+            model_type: Type of YOLO model ('seg').
             model_size: Size of YOLO model ('n', 's', 'm', 'l', 'x').
             num_epochs: Number of training epochs.
             image_size: Input image size for training.
@@ -97,7 +97,7 @@ class Trainer:
             except Exception as e:
                 raise RuntimeError(f"Failed to load YOLO model: {e}")
 
-        return self.__model
+        return self.__model  # type: ignore[return-value]
 
     @property
     def data(self) -> str:

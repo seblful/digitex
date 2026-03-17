@@ -5,8 +5,6 @@ from pathlib import Path
 
 import yaml
 
-from .annotation import AnnotationCreator
-
 logger = logging.getLogger(__name__)
 
 
@@ -15,7 +13,6 @@ class DatasetCreator:
         self,
         raw_dir: str | Path,
         dataset_dir: str | Path,
-        num_keypoints: int | None = None,
         train_split: float = 0.8,
     ) -> None:
 
@@ -31,22 +28,14 @@ class DatasetCreator:
         self.__classes_path: str | None = None
         self.__data_yaml_path: str | None = None
 
-        self.anns_types = ["polygon", "obb", "keypoint"]
+        self.anns_types = ["polygon"]
 
         self.__id2label: dict[int, str] | None = None
         self.__label2id: dict[str, int] | None = None
 
-        self.num_keypoints = num_keypoints
         self.train_split = train_split
         self.val_split = 0.6 * (1 - self.train_split)
         self.test_split = 1 - self.train_split - self.val_split
-
-        self.anns_creator = AnnotationCreator(
-            raw_dir=str(self.raw_dir),
-            id2label=self.id2label,
-            label2id=self.label2id,
-            num_keypoints=num_keypoints or 0,
-        )
 
     @property
     def images_path(self) -> str:
@@ -164,9 +153,6 @@ class DatasetCreator:
             'names': self.id2label,
         }
 
-        if anns_type == "keypoint":
-            data['kpt_shape'] = [self.num_keypoints, 3]
-
         with open(self.data_yaml_path, 'w', encoding="utf-8") as yaml_file:
             yaml.dump(data, yaml_file, default_flow_style=False)
 
@@ -231,9 +217,6 @@ class DatasetCreator:
     def create(self, anns_type: str) -> None:
         if anns_type not in self.anns_types:
             raise ValueError(f"anns_type must be one of {self.anns_types}")
-
-        if anns_type == "keypoint":
-            self.anns_creator.create_keypoints()
 
         logger.info("Dataset is creating...")
         self.partition_data()
