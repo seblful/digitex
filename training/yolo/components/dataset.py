@@ -2,7 +2,6 @@ import logging
 import random
 import shutil
 from pathlib import Path
-from typing import LiteralString
 
 import yaml
 

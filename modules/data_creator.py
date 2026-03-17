@@ -6,7 +6,6 @@ import pypdfium2
 from PIL import Image
 
 from modules.handlers import ImageHandler, LabelHandler, PDFHandler
-from modules.predictors.segmentation import YOLO_SegmentationPredictor
 from modules.processors import ImageProcessor
 
 logger = logging.getLogger(__name__)

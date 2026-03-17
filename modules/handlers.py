@@ -10,7 +10,6 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 DEFAULT_RENDER_SCALE = 3
-DEFAULT_CROP_KERNEL_SIZE = 5
 DEFAULT_CROP_OFFSET = 0.025
 
 
