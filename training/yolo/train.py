@@ -1,102 +1,108 @@
+import logging
 import os
-import argparse
+from pathlib import Path
 
+import typer
 from components.trainer import Trainer
 
+app = typer.Typer(help="YOLO model training for document segmentation")
 
-# Create a parser
-parser = argparse.ArgumentParser(description="Get some hyperparameters.")
-
-# Get an arg for task type
-parser.add_argument("--data_subdir",
-                    default="page",
-                    type=str,
-                    help="Type of task type.")
-
-# Get an arg for yolo model type
-parser.add_argument("--model_type",
-                    default='seg',
-                    type=str,
-                    help="Type of yolo segmentation model ('seg', 'obb', 'pose').")
-
-# Get an arg for yolo model size
-parser.add_argument("--model_size",
-                    default='m',
-                    type=str,
-                    help="Size of yolo segmentation model (n, s, m, l, x).")
+logger = logging.getLogger(__name__)
 
 
-# Get an arg for pretrained model path
-parser.add_argument("--pretrained_model_path",
-                    type=str,
-                    default=None,
-                    help="Previously trained model for this task type.")
-
-# Get an arg for number of epochs
-parser.add_argument("--num_epochs",
-                    default=100,
-                    type=int,
-                    help="The number of training epochs.")
-
-# Get an arg for image size
-parser.add_argument("--image_size",
-                    default=640,
-                    type=int,
-                    help="The size of image.")
+def setup_logging() -> None:
+    """Configure logging for the application."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
 
 
-# Get an arg for batch size
-parser.add_argument("--batch_size",
-                    default=16,
-                    type=int,
-                    help="The size of batch.")
+@app.command()
+def main(
+    data_subdir: str = typer.Option(
+        "page",
+        "--data-subdir",
+        help="Type of task type (e.g., 'page', 'question', 'part')",
+    ),
+    model_type: str = typer.Option(
+        "seg",
+        "--model-type",
+        help="Type of YOLO model ('seg', 'obb', 'pose')",
+    ),
+    model_size: str = typer.Option(
+        "m",
+        "--model-size",
+        help="Size of YOLO model ('n', 's', 'm', 'l', 'x')",
+    ),
+    pretrained_model_path: str = typer.Option(
+        None,
+        "--pretrained-model-path",
+        help="Path to a previously trained model",
+    ),
+    num_epochs: int = typer.Option(
+        100,
+        "--num-epochs",
+        help="Number of training epochs",
+    ),
+    image_size: int = typer.Option(
+        640,
+        "--image-size",
+        help="Input image size for training",
+    ),
+    batch_size: int = typer.Option(
+        16,
+        "--batch-size",
+        help="Batch size for training",
+    ),
+    overlap_mask: bool = typer.Option(
+        False,
+        "--overlap-mask",
+        help="Whether segmentation masks should overlap",
+    ),
+    patience: int = typer.Option(
+        50,
+        "--patience",
+        help="Early stopping patience in epochs",
+    ),
+    seed: int = typer.Option(
+        42,
+        "--seed",
+        help="Random seed for reproducibility",
+    ),
+) -> None:
+    """Train a YOLO model for document segmentation."""
+    setup_logging()
 
-# Get an arg for overlap mask
-parser.add_argument("--overlap_mask",
-                    action="store_true",
-                    help="Determines whether segmentation masks should overlap during training.")
+    home = Path.cwd()
+    data_dir = home / "data" / data_subdir
+    dataset_dir = data_dir / "dataset"
 
+    logger.info(f"Starting YOLO training")
+    logger.info(f"Data directory: {data_dir}")
+    logger.info(f"Dataset directory: {dataset_dir}")
 
-# Get an arg for patience
-parser.add_argument("--patience",
-                    default=50,
-                    type=int,
-                    help="Number of epochs to wait without improvement in validation metrics before early stopping the training.")
+    trainer = Trainer(
+        dataset_dir=dataset_dir,
+        model_type=model_type,
+        model_size=model_size,
+        pretrained_model_path=pretrained_model_path,
+        num_epochs=num_epochs,
+        image_size=image_size,
+        batch_size=batch_size,
+        overlap_mask=overlap_mask,
+        patience=patience,
+        seed=seed,
+    )
 
-
-# Get an arg for seed
-parser.add_argument("--seed",
-                    default=42,
-                    type=int,
-                    help="Random seed to reproduce training results.")
-
-
-# Get arguments from the parser
-args = parser.parse_args()
-
-HOME = os.getcwd()
-DATA_DIR = os.path.join(HOME, "data", args.data_subdir)
-DATASET_DIR = os.path.join(DATA_DIR, 'dataset')
-
-
-def main() -> None:
-    trainer = Trainer(dataset_dir=DATASET_DIR,
-                      model_type=args.model_type,
-                      model_size=args.model_size,
-                      pretrained_model_path=args.pretrained_model_path,
-                      num_epochs=args.num_epochs,
-                      image_size=args.image_size,
-                      batch_size=args.batch_size,
-                      overlap_mask=args.overlap_mask,
-                      patience=args.patience,
-                      seed=args.seed)
-    # Train
-    trainer.train()
-    # Validate
-    trainer.validate()
-
-    return
+    try:
+        trainer.train()
+        trainer.validate()
+        logger.info("Training and validation completed successfully")
+    except Exception as e:
+        logger.error(f"Training failed: {e}")
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
-    main()
+    app()

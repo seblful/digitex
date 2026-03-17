@@ -1,30 +1,63 @@
-import os
+import logging
+from pathlib import Path
+
 from PIL import Image
 
-from modules.processors import ImageProcessor
 from modules.handlers import PDFHandler
+from modules.processors import ImageProcessor
+
+logger = logging.getLogger(__name__)
 
 
-def create_pdf_from_images(image_dir: str,
-                           raw_dir: str,
-                           process: bool = False) -> None:
-    # Sort image listdir
-    def num_key(x) -> int: return int(x.split("_")[-1].split(".")[0])
-    image_listdir = sorted(os.listdir(image_dir), key=num_key)
+def create_pdf_from_images(
+    image_dir: str | Path,
+    raw_dir: str | Path,
+    process: bool = False,
+) -> None:
+    """Create a PDF from a directory of images.
 
-    # Iterate through images and preprocess
+    Args:
+        image_dir: Directory containing the images.
+        raw_dir: Directory where the PDF will be saved.
+        process: Whether to process images before adding to PDF.
+
+    Raises:
+        FileNotFoundError: If image_dir doesn't exist or contains no images.
+        IOError: If images cannot be read or PDF cannot be created.
+    """
+    image_dir = Path(image_dir)
+    raw_dir = Path(raw_dir)
+
+    if not image_dir.exists():
+        raise FileNotFoundError(f"Image directory not found: {image_dir}")
+
+    def num_key(x: str) -> int:
+        """Extract numeric key from filename for sorting."""
+        return int(x.split("_")[-1].split(".")[0])
+
+    image_list = sorted(image_dir.iterdir(), key=lambda p: num_key(p.name))
+
+    if not image_list:
+        raise FileNotFoundError(f"No images found in {image_dir}")
+
     images = []
-    for image_name in image_listdir:
-        image_path = os.path.join(image_dir, image_name)
-        image = Image.open(image_path)
+    for image_path in image_list:
+        try:
+            image = Image.open(image_path)
 
-        if process:
-            image = ImageProcessor().process(image=image,
-                                             scan_type="color")
+            if process:
+                image = ImageProcessor().process(image=image, scan_type="color")
 
-        images.append(image)
+            images.append(image)
+        except Exception as e:
+            logger.warning(f"Failed to process image {image_path}: {e}")
+            continue
 
-    # Save pdf
-    pdf_name = f"{os.path.basename(image_dir)} {os.path.basename(raw_dir)}.pdf"
-    pdf_path = os.path.join(raw_dir, pdf_name)
+    if not images:
+        raise ValueError("No valid images could be processed")
+
+    pdf_name = f"{image_dir.name} {raw_dir.name}.pdf"
+    pdf_path = raw_dir / pdf_name
+
     PDFHandler().create_pdf(images, pdf_path)
+    logger.info(f"PDF created successfully: {pdf_path}")
