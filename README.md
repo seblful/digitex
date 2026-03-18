@@ -8,6 +8,8 @@ Testing system of students using telegram-bot.
 tg-testing/
 ├── extract/              # Data extraction utilities
 ├── modules/              # Core processing modules
+│   ├── config/           # Application settings and configuration
+│   │   └── settings.py   # Pydantic settings classes
 │   ├── anns_converter.py
 │   ├── data_creator.py
 │   ├── handlers.py
@@ -30,6 +32,52 @@ tg-testing/
 - **Image Processing**: Crop, transform, and prepare images for ML
 - **YOLO Segmentation**: Detect and segment document regions (pages)
 - **Data Creation**: Generate training datasets from raw PDFs
+- **Configuration Management**: Pydantic-based settings with environment variable support
+
+## Configuration
+
+This project uses Pydantic Settings for configuration management. Settings can be customized through:
+
+1. **Environment Variables**: Create a `.env` file (see `.env.example` for reference)
+2. **Direct Modification**: Defaults in `modules/config/settings.py`
+
+### Settings Categories
+
+- **AppSettings**: Application-wide constants (render scales, crop offsets, log level)
+- **DatabaseSettings**: Database connection settings
+- **TrainingSettings**: YOLO training parameters (epochs, batch size, etc.)
+- **PathsSettings**: Directory paths for data, models, and datasets
+
+### Example Usage
+
+```python
+from modules.config import get_settings
+
+settings = get_settings()
+
+# Access application settings
+render_scale = settings.app.render_scale
+
+# Access training settings
+num_epochs = settings.training.num_epochs
+
+# Access database settings
+db_path = settings.database.path
+```
+
+### Environment Variables
+
+Key environment variables include:
+
+- `APP_RENDER_SCALE`: PDF rendering scale factor (default: 3)
+- `APP_CROP_OFFSET`: Image crop border offset (default: 0.025)
+- `APP_LOG_LEVEL`: Logging level (default: INFO)
+- `DB_PATH`: Database file path (default: data/tests.db)
+- `TRAIN_NUM_EPOCHS`: Training epochs (default: 100)
+- `TRAIN_BATCH_SIZE`: Training batch size (default: 16)
+- `TRAIN_IMAGE_SIZE`: Training image size (default: 640)
+
+For a complete list, see `.env.example`.
 
 ## Setup
 

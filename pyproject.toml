@@ -18,6 +18,8 @@ requires-python = ">=3.13"
     "doxapy",
     "typer",
     "pytest",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
 ]
 
 [[tool.uv.index]]
