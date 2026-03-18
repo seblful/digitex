@@ -11,7 +11,7 @@ import albumentations as A
 import supervision as sv
 from tqdm import tqdm
 
-from modules.handlers import LabelHandler
+from digitex.core.handlers import LabelHandler
 
 from .converter import Converter
 from .dataset import DatasetCreator

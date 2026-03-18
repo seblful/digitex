@@ -113,7 +113,7 @@ class PathsSettings(BaseSettings):
     @cached_property
     def raw_data_dir(self) -> Path:
         """Get the raw data directory path."""
-        return self.home_dir / "raw-data"
+        return self.home_dir / "books"
 
 
 class Settings(BaseSettings):

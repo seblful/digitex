@@ -146,7 +146,7 @@ class TestPathsSettings:
     def test_raw_data_dir(self) -> None:
         """Test that raw_data_dir is computed correctly."""
         settings = PathsSettings()
-        assert settings.raw_data_dir == settings.home_dir / "raw-data"
+        assert settings.raw_data_dir == settings.home_dir / "books"
 
 
 class TestSettings:

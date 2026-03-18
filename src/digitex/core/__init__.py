@@ -1,5 +1,5 @@
 """Core functionality."""
 
-from .extractor import DataCreator
+from .page_creator import PageDataCreator
 
-__all__ = ["DataCreator"]
+__all__ = ["PageDataCreator"]

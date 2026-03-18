@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw
 
 from tqdm import tqdm
 
-from modules.handlers import LabelHandler
+from digitex.core.handlers import LabelHandler
 
 from .converter import Converter
 
@@ -54,23 +54,23 @@ class Visualizer:
     def visualize(self, num_images: int = 10) -> None:
         for set_name, set_dir in self.dataset_dirs.items():
             images = [
-                img
+                img.name
                 for img in Path(set_dir).iterdir()
                 if img.suffix == ".jpg"
             ]
             random.shuffle(images)
             selected_images = images[:num_images]
 
-        for image_name in tqdm(selected_images, desc=f"Visualizing {set_name}"):
-            image_path = Path(set_dir) / image_name
-            image = Image.open(str(image_path))
-            img_width, img_height = image.size
+            for image_name in tqdm(selected_images, desc=f"Visualizing {set_name}"):
+                image_path = Path(set_dir) / image_name
+                image = Image.open(str(image_path))
+                img_width, img_height = image.size
 
-            annotations = self.create_annotations(
-                image_name, str(set_dir), img_width, img_height
-            )
-            drawn_image = self.draw_annotations(image, annotations)
-            self.save_image(drawn_image, image_name, set_name)
+                annotations = self.create_annotations(
+                    image_name, set_dir, img_width, img_height
+                )
+                drawn_image = self.draw_annotations(image, annotations)
+                self.save_image(drawn_image, image_name, set_name)
 
     def create_annotations(self,
                            image_name: str,

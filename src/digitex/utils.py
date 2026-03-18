@@ -3,8 +3,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from modules.handlers import PDFHandler
-from modules.processors import ImageProcessor
+from digitex.core.handlers import PDFHandler
+from digitex.core.processors import ImageProcessor
 
 logger = logging.getLogger(__name__)
 
