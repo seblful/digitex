@@ -86,7 +86,7 @@ def main(
     data_subdir = data_subdir or train_defaults.data_subdir
     model_type = model_type or train_defaults.model_type
     model_size = model_size or train_defaults.model_size
-    pretrained_model_path = (
+    pretrained_model_path_val = (
         pretrained_model_path or train_defaults.pretrained_model_path
     )
     num_epochs = num_epochs or train_defaults.num_epochs
@@ -98,24 +98,27 @@ def main(
     patience = patience or train_defaults.patience
     seed = seed or train_defaults.seed
 
-    data_dir = settings.paths.data_dir / data_subdir
+    data_dir = settings.paths.training_dir / "data" / data_subdir
     dataset_dir = data_dir / "dataset"
+    output_dir = settings.paths.training_dir / "output"
 
     logger.info("Starting YOLO training")
     logger.info(f"Data directory: {data_dir}")
     logger.info(f"Dataset directory: {dataset_dir}")
+    logger.info(f"Output directory: {output_dir}")
 
     trainer = Trainer(
         dataset_dir=dataset_dir,
         model_type=model_type,
         model_size=model_size,
-        pretrained_model_path=pretrained_model_path,
+        pretrained_model_path=pretrained_model_path_val,
         num_epochs=num_epochs,
         image_size=image_size,
         batch_size=batch_size,
         overlap_mask=overlap_mask,
         patience=patience,
         seed=seed,
+        output_dir=output_dir,
     )
 
     try:

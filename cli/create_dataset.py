@@ -51,7 +51,8 @@ VISUALIZE = args.visualize
 VIS_IMAGES = args.vis_images
 
 HOME = Path.cwd()
-DATA_DIR = HOME / "data" / DATA_SUBDIR
+TRAINING_DIR = HOME / "training"
+DATA_DIR = TRAINING_DIR / "data" / DATA_SUBDIR
 RAW_DIR = DATA_DIR / "books"
 DATASET_DIR = DATA_DIR / "dataset"
 CHECK_IMAGES_DIR = DATA_DIR / "check-images"

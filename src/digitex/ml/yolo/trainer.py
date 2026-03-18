@@ -24,6 +24,7 @@ class Trainer:
         overlap_mask: bool = False,
         patience: int = 50,
         seed: int = 42,
+        output_dir: str | Path | None = None,
     ) -> None:
         """Initialize the YOLO trainer.
 
@@ -55,6 +56,7 @@ class Trainer:
         self.overlap_mask = overlap_mask
         self.patience = patience
         self.seed = seed
+        self.output_dir = Path(output_dir) if output_dir else self.dataset_dir.parent
 
         if torch.cuda.is_available():
             self.device = 'cuda'
@@ -136,7 +138,7 @@ class Trainer:
                 patience=self.patience,
                 device=self.device_idxs,
                 seed=self.seed,
-                project=self.dataset_dir.parent,
+                project=str(self.output_dir),
             )
 
             self.is_trained = True

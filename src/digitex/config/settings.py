@@ -96,9 +96,14 @@ class PathsSettings(BaseSettings):
         return Path.cwd()
 
     @cached_property
+    def training_dir(self) -> Path:
+        """Get the training directory path."""
+        return self.home_dir / "training"
+
+    @cached_property
     def data_dir(self) -> Path:
         """Get the data directory path."""
-        return self.home_dir / "data"
+        return self.training_dir / "data"
 
     @cached_property
     def dataset_dir(self) -> Path:
@@ -108,7 +113,7 @@ class PathsSettings(BaseSettings):
     @cached_property
     def model_dir(self) -> Path:
         """Get the model directory path."""
-        return self.home_dir / "models"
+        return self.training_dir / "models"
 
     @cached_property
     def raw_data_dir(self) -> Path:
