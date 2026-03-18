@@ -1,10 +1,10 @@
 import logging
 import os
 from pathlib import Path
-from typing import Any
 
 import torch
 from ultralytics import YOLO
+from ultralytics.engine.model import Model
 
 logger = logging.getLogger(__name__)
 
@@ -68,14 +68,14 @@ class Trainer:
         logger.info(f"Device count: {self.device_count}, devices: {self.device_idxs}")
 
         self.pretrained_model_path = str(pretrained_model_path) if pretrained_model_path else None
-        self.model_yaml = f"yolo11{model_size}-{model_type}.yaml"
-        self.model_pt = f"yolo11{model_size}-{model_type}.pt"
+        self.model_yaml = f"yolo26{model_size}-{model_type}.yaml"
+        self.model_pt = f"yolo26{model_size}-{model_type}.pt"
 
-        self.__model: YOLO | None = None
+        self.__model: Model | None = None
         self.is_trained = False
 
     @property
-    def model(self) -> YOLO:
+    def model(self) -> Model:
         """Get or load the YOLO model.
 
         Returns:
@@ -136,6 +136,7 @@ class Trainer:
                 patience=self.patience,
                 device=self.device_idxs,
                 seed=self.seed,
+                project=self.dataset_dir.parent,
             )
 
             self.is_trained = True

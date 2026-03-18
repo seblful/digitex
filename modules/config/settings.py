@@ -17,19 +17,19 @@ class AppSettings(BaseSettings):
         default=3,
         ge=1,
         le=10,
-        description="Rendering scale factor for PDF pages (higher = better quality)"
+        description="Rendering scale factor for PDF pages (higher = better quality)",
     )
 
     crop_offset: float = Field(
         default=0.025,
         ge=0.0,
         le=1.0,
-        description="Border size as fraction of image height for cropping"
+        description="Border size as fraction of image height for cropping",
     )
 
     log_level: str = Field(
         default="INFO",
-        description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
+        description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
 
 
@@ -39,8 +39,7 @@ class DatabaseSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="DB_")
 
     path: str = Field(
-        default="data/tests.db",
-        description="Path to the SQLite database file"
+        default="data/tests.db", description="Path to the SQLite database file"
     )
 
 
@@ -49,60 +48,40 @@ class TrainingSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="TRAIN_")
 
-    num_epochs: int = Field(
-        default=100,
-        ge=1,
-        description="Number of training epochs"
-    )
+    num_epochs: int = Field(default=100, ge=1, description="Number of training epochs")
 
     image_size: int = Field(
         default=640,
         ge=32,
         multiple_of=32,
-        description="Input image size for training (must be multiple of 32)"
+        description="Input image size for training (must be multiple of 32)",
     )
 
-    batch_size: int = Field(
-        default=16,
-        ge=1,
-        description="Batch size for training"
-    )
+    batch_size: int = Field(default=4, ge=1, description="Batch size for training")
 
     overlap_mask: bool = Field(
-        default=False,
-        description="Whether segmentation masks should overlap"
+        default=False, description="Whether segmentation masks should overlap"
     )
 
     patience: int = Field(
-        default=50,
-        ge=1,
-        description="Early stopping patience in epochs"
+        default=50, ge=1, description="Early stopping patience in epochs"
     )
 
-    seed: int = Field(
-        default=42,
-        ge=0,
-        description="Random seed for reproducibility"
-    )
+    seed: int = Field(default=42, ge=0, description="Random seed for reproducibility")
 
     data_subdir: str = Field(
         default="page",
-        description="Type of task type (e.g., 'page', 'question', 'part')"
+        description="Type of task type (e.g., 'page', 'question', 'part')",
     )
 
-    model_type: str = Field(
-        default="seg",
-        description="Type of YOLO model ('seg')"
-    )
+    model_type: str = Field(default="seg", description="Type of YOLO model ('seg')")
 
     model_size: str = Field(
-        default="m",
-        description="Size of YOLO model ('n', 's', 'm', 'l', 'x')"
+        default="m", description="Size of YOLO model ('n', 's', 'm', 'l', 'x')"
     )
 
     pretrained_model_path: str | None = Field(
-        default=None,
-        description="Path to a previously trained model"
+        default=None, description="Path to a previously trained model"
     )
 
 
@@ -144,7 +123,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         env_ignore_empty=True,
-        extra="ignore"
+        extra="ignore",
     )
 
     app: AppSettings = Field(default_factory=AppSettings)
