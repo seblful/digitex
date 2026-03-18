@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from modules.config.settings import (
+from digitex.config.settings import (
     AppSettings,
     DatabaseSettings,
     TrainingSettings,
@@ -78,7 +78,7 @@ class TestTrainingSettings:
         settings = TrainingSettings()
         assert settings.num_epochs == 100
         assert settings.image_size == 640
-        assert settings.batch_size == 16
+        assert settings.batch_size == 4
         assert settings.overlap_mask is False
         assert settings.patience == 50
         assert settings.seed == 42

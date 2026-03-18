@@ -1,8 +1,8 @@
 import sqlite3
 
-from modules.config import get_settings
+from digitex.config import get_settings
 
-SQL_SCRIPT_PATH = "script.sql"
+SQL_SCRIPT_PATH = "scripts/script.sql"
 
 
 def main():

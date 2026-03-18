@@ -1,9 +1,9 @@
 import argparse
 from pathlib import Path
 
-from components.augmenter import PolygonAugmenter
-from components.dataset import DatasetCreator
-from components.visualizer import PolygonVisualizer
+from digitex.ml.yolo.augmenter import PolygonAugmenter
+from digitex.ml.yolo.dataset import DatasetCreator
+from digitex.ml.yolo.visualizer import PolygonVisualizer
 
 
 parser = argparse.ArgumentParser(description="Get some hyperparameters.")

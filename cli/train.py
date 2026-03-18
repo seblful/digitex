@@ -1,8 +1,8 @@
 import logging
 
 import typer
-from components.trainer import Trainer
-from modules.config import get_settings
+from digitex.ml.yolo import Trainer
+from digitex.config import get_settings
 
 app = typer.Typer(help="YOLO model training for document segmentation")
 

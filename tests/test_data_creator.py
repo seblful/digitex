@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 from PIL import Image
 
-from modules.data_creator import DataCreator
+from digitex.core.extractor import DataCreator
 
 
 class TestDataCreator:
@@ -114,7 +114,7 @@ class TestDataCreator:
                 num_images=1,
             )
 
-    @patch('modules.data_creator.DataCreator._save_image')
+    @patch('digitex.core.extractor.DataCreator._save_image')
     def test_extract_pages_max_attempts(
         self,
         mock_save: Mock,

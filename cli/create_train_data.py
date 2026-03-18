@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from modules.data_creator import DataCreator
-from modules.utils import create_pdf_from_images
+from digitex.core.extractor import DataCreator
+from digitex.utils import create_pdf_from_images
 
 HOME = Path.cwd()
 TESTING_DIR = HOME.parent.parent
@@ -16,16 +16,17 @@ def main() -> None:
     # Create DataCreator instance
     data_creator = DataCreator()
 
-    # # Create pdfs from images
-    # for image_dir in IMAGES_DIR.iterdir():
-    #     create_pdf_from_images(image_dir=image_dir,
-    #                            raw_dir=RAW_DATA_DIR)
+    # Create pdfs from images
+    for image_dir in IMAGES_DIR.iterdir():
+        create_pdf_from_images(image_dir=image_dir, raw_dir=RAW_DATA_DIR)
 
     # Create data for page
-    # data_creator.extract_pages(raw_dir=RAW_DATA_DIR,
-    #                            train_dir=PAGE_TRAIN_DIR,
-    #                            scan_type="color",
-    #                            num_images=100)
+    data_creator.extract_pages(
+        raw_dir=RAW_DATA_DIR,
+        train_dir=PAGE_TRAIN_DIR,
+        scan_type="color",
+        num_images=100,
+    )
 
 
 if __name__ == "__main__":

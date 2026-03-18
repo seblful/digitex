@@ -7,7 +7,7 @@ import pytest
 import numpy as np
 from PIL import Image
 
-from modules.handlers import ImageHandler, LabelHandler, PDFHandler
+from digitex.core.handlers import ImageHandler, LabelHandler, PDFHandler
 
 
 class TestImageHandler:

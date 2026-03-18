@@ -1,3 +1,5 @@
+"""Data extraction utilities."""
+
 import logging
 from pathlib import Path
 from typing import Dict
@@ -5,8 +7,8 @@ from typing import Dict
 import pypdfium2
 from PIL import Image
 
-from modules.handlers import ImageHandler, LabelHandler, PDFHandler
-from modules.processors import ImageProcessor
+from .handlers import ImageHandler, LabelHandler, PDFHandler
+from .processors import ImageProcessor
 
 logger = logging.getLogger(__name__)
 

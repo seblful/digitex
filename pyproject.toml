@@ -1,7 +1,7 @@
 [project]
-name = "tg-testing"
+name = "digitex"
 version = "0.1.0"
-description = "Testing system of students using telegram-bot"
+description = "Document digitization toolkit"
 readme = "README.md"
 requires-python = ">=3.13"
  dependencies = [
@@ -34,11 +34,11 @@ torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 
  [build-system]
- requires = ["hatchling"]
- build-backend = "hatchling.build"
+  requires = ["hatchling"]
+  build-backend = "hatchling.build"
 
- [tool.hatch.build.targets.wheel]
- packages = ["modules", "training"]
+  [tool.hatch.build.targets.wheel]
+  packages = ["src/digitex"]
 
  [tool.pytest.ini_options]
  testpaths = ["tests"]
