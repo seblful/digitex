@@ -8,20 +8,12 @@ Document digitization toolkit for processing PDFs, images, and ML-based document
 digitex/
 ├── src/digitex/              # Main package
 │   ├── config/               # Configuration management
-│   │   └── settings.py      # Pydantic settings classes
 │   ├── core/                # Core domain logic
-│   │   ├── handlers/        # Data handlers (PDF, Image, Label)
-│   │   ├── processors/      # Data processors (Image, File)
-│   │   └── extractor.py     # Training data extraction
 │   ├── ml/                  # Machine learning components
-│   │   ├── predictors/      # ML predictors (base, segmentation)
-│   │   └── yolo/           # YOLO training components
 │   └── utils.py            # Common utilities
 ├── cli/                    # Command-line entry points
-│   ├── train.py            # Train YOLO models
-│   ├── create_dataset.py   # Create training datasets
-│   ├── create_train_data.py
 │   └── init_db.py         # Initialize database
+├── training/               # ML training workflow
 ├── scripts/               # SQL scripts
 ├── tests/                 # Test suite
 └── AGENTS.md             # AI agent instructions
@@ -30,9 +22,8 @@ digitex/
 ## Features
 
 - **PDF Processing**: Extract and process PDF documents
-- **Image Processing**: Crop, transform, and prepare images for ML
+- **Image Processing**: Crop, transform, and prepare images
 - **YOLO Segmentation**: Detect and segment document regions
-- **Data Creation**: Generate training datasets from raw PDFs
 - **Configuration Management**: Pydantic-based settings with environment variable support
 
 ## Configuration
@@ -89,8 +80,7 @@ This project uses `uv` for dependency management.
 uv sync
 
 # Run CLI scripts
-uv run python cli/train.py --help
-uv run python cli/create_dataset.py --help
+uv run python -m training.cli --help
 uv run python cli/init_db.py
 ```
 
@@ -101,44 +91,14 @@ uv run python cli/init_db.py
 
 ## Modules
 
-### DataCreator
-
-Core class for creating training data from PDFs and images. Supports:
-
-- Extracting pages from PDFs
-- Extracting questions from annotated pages
-- Extracting parts (text, tables, etc.) from questions
-- Extracting words from parts
-
-### Handlers
-
-- **PDFHandler**: PDF file operations and page rendering
-- **ImageHandler**: Image cropping and processing
-- **LabelHandler**: Reading and processing YOLO labels
-
-### Processors
-
-- **ImageProcessor**: Image enhancement and transformations
-- **FileProcessor**: File I/O operations (JSON, YAML, TXT)
-
-### Predictors
-
-- **YOLO_SegmentationPredictor**: Segmentation using YOLO models
+- **DataCreator**: Create training data from PDFs and images
+- **Handlers**: PDF, image, and label file operations
+- **Processors**: Image enhancement and file I/O
+- **Predictors**: YOLO-based segmentation models
 
 ## Training
 
-YOLO-based training pipeline for document segmentation:
-
-```bash
-# Create training data
-uv run python cli/create_train_data.py
-
-# Create dataset structure
-uv run python cli/create_dataset.py --data_subdir page --train_split 0.8
-
-# Train model
-uv run python cli/train.py --data-subdir page --num-epochs 100
-```
+YOLO-based training pipeline for document segmentation. See [training/README.md](training/README.md) for detailed documentation.
 
 ## Development
 

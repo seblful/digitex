@@ -2,7 +2,9 @@
 books/
 
 # Training outputs
-training/
+training/runs/
+training/output/
+training/data/
 
 # Drafts
 draft*.py

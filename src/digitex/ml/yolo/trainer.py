@@ -24,7 +24,7 @@ class Trainer:
         overlap_mask: bool = False,
         patience: int = 50,
         seed: int = 42,
-        output_dir: str | Path | None = None,
+        project_dir: str | Path | None = None,
     ) -> None:
         """Initialize the YOLO trainer.
 
@@ -39,11 +39,17 @@ class Trainer:
             overlap_mask: Whether to use overlapping masks for segmentation.
             patience: Early stopping patience in epochs.
             seed: Random seed for reproducibility.
+            project_dir: Directory for training outputs (defaults to dataset_dir parent / "runs").
 
         Raises:
             ValueError: If dataset_dir doesn't exist or model parameters are invalid.
         """
         self.dataset_dir = Path(dataset_dir)
+
+        if project_dir is None:
+            self.project_dir = self.dataset_dir.parent.parent / "runs"
+        else:
+            self.project_dir = Path(project_dir)
 
         if not self.dataset_dir.exists():
             raise ValueError(f"Dataset directory not found: {self.dataset_dir}")
@@ -56,7 +62,6 @@ class Trainer:
         self.overlap_mask = overlap_mask
         self.patience = patience
         self.seed = seed
-        self.output_dir = Path(output_dir) if output_dir else self.dataset_dir.parent
 
         if torch.cuda.is_available():
             self.device = 'cuda'
@@ -138,7 +143,7 @@ class Trainer:
                 patience=self.patience,
                 device=self.device_idxs,
                 seed=self.seed,
-                project=str(self.output_dir),
+                project=str(self.project_dir),
             )
 
             self.is_trained = True
@@ -165,6 +170,7 @@ class Trainer:
                 data=self.data,
                 imgsz=self.image_size,
                 split='test',
+                project=str(self.project_dir),
             )
 
             logger.info("Validation completed successfully")

@@ -146,7 +146,7 @@ class DatasetCreator:
         logger.info(f"Available classes: {list(self.id2label.values())}")
 
         data = {
-            'path': str(self.dataset_dir),
+            'path': str(self.dataset_dir.resolve()),
             'train': "train",
             'val': "val",
             'test': "test",
