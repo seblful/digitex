@@ -26,8 +26,8 @@ class Augmenter:
     ) -> None:
         self.raw_dir = Path(raw_dir)
         self.dataset_dir = Path(dataset_dir)
-        self.train_dir = str(self.dataset_dir / "train")
-        self.classes_path = str(self.raw_dir / "classes.txt")
+        self.train_dir = self.dataset_dir / "train"
+        self.classes_path = self.raw_dir / "classes.txt"
 
         self.img_ext = ".jpg"
         self.anns_ext = ".txt"
@@ -120,7 +120,7 @@ class Augmenter:
         self, name: str, img: np.ndarray
     ) -> None:
         filename = f"{name}{self.img_ext}"
-        filepath = Path(self.train_dir) / filename
+        filepath = self.train_dir / filename
 
         image = Image.fromarray(img)
         image.save(str(filepath))
@@ -150,9 +150,9 @@ class PolygonAugmenter(Augmenter):
         points_dict: dict[int, list] | None = None
     ) -> None:
         filename = f"{name}{self.anns_ext}"
-        filepath = Path(self.train_dir) / filename
+        filepath = self.train_dir / filename
 
-        with open(filepath, "w") as file:
+        with open(str(filepath), "w") as file:
             if points_dict is None:
                 return
 
@@ -167,9 +167,9 @@ class PolygonAugmenter(Augmenter):
         self, img_name: str, img_width: int, img_height: int
     ) -> dict[int, list] | None:
         anns_name = Path(img_name).stem + ".txt"
-        anns_path = Path(self.train_dir) / anns_name
+        anns_path = self.train_dir / anns_name
 
-        points_dict = LabelHandler._read_points(anns_path)
+        points_dict = LabelHandler._read_points(str(anns_path))
 
         if not points_dict:
             return None

@@ -19,14 +19,14 @@ class DatasetCreator:
         self.raw_dir = Path(raw_dir)
         self.dataset_dir = Path(dataset_dir)
 
-        self.__images_path: str | None = None
-        self.__labels_path: str | None = None
-        self.__train_dir: str | None = None
-        self.__val_dir: str | None = None
-        self.__test_dir: str | None = None
+        self.__images_path: Path | None = None
+        self.__labels_path: Path | None = None
+        self.__train_dir: Path | None = None
+        self.__val_dir: Path | None = None
+        self.__test_dir: Path | None = None
         self.__images_labels_dict: dict[str, str] | None = None
-        self.__classes_path: str | None = None
-        self.__data_yaml_path: str | None = None
+        self.__classes_path: Path | None = None
+        self.__data_yaml_path: Path | None = None
 
         self.anns_types = ["polygon"]
 
@@ -38,57 +38,57 @@ class DatasetCreator:
         self.test_split = 1 - self.train_split - self.val_split
 
     @property
-    def images_path(self) -> str:
+    def images_path(self) -> Path:
         if self.__images_path is None:
-            self.__images_path = str(self.raw_dir / "images")
+            self.__images_path = self.raw_dir / "images"
 
         return self.__images_path
 
     @property
-    def labels_path(self) -> str:
+    def labels_path(self) -> Path:
         if self.__labels_path is None:
-            self.__labels_path = str(self.raw_dir / "labels")
+            self.__labels_path = self.raw_dir / "labels"
 
         return self.__labels_path
 
     @property
-    def train_dir(self) -> str:
+    def train_dir(self) -> Path:
         if self.__train_dir is None:
-            train_dir = str(self.dataset_dir / "train")
-            Path(train_dir).mkdir(parents=True, exist_ok=True)
+            train_dir = self.dataset_dir / "train"
+            train_dir.mkdir(parents=True, exist_ok=True)
             self.__train_dir = train_dir
 
         return self.__train_dir
 
     @property
-    def val_dir(self) -> str:
+    def val_dir(self) -> Path:
         if self.__val_dir is None:
-            val_dir = str(self.dataset_dir / "val")
-            Path(val_dir).mkdir(parents=True, exist_ok=True)
+            val_dir = self.dataset_dir / "val"
+            val_dir.mkdir(parents=True, exist_ok=True)
             self.__val_dir = val_dir
 
         return self.__val_dir
 
     @property
-    def test_dir(self) -> str:
+    def test_dir(self) -> Path:
         if self.__test_dir is None:
-            test_dir = str(self.dataset_dir / "test")
-            Path(test_dir).mkdir(parents=True, exist_ok=True)
+            test_dir = self.dataset_dir / "test"
+            test_dir.mkdir(parents=True, exist_ok=True)
             self.__test_dir = test_dir
 
         return self.__test_dir
 
     @property
-    def data_yaml_path(self) -> str:
+    def data_yaml_path(self) -> Path:
         if self.__data_yaml_path is None:
-            self.__data_yaml_path = str(self.dataset_dir / "data.yaml")
+            self.__data_yaml_path = self.dataset_dir / "data.yaml"
 
         return self.__data_yaml_path
 
     @property
-    def classes_path(self) -> str:
+    def classes_path(self) -> Path:
         if self.__classes_path is None:
-            self.__classes_path = str(self.raw_dir / "classes.txt")
+            self.__classes_path = self.raw_dir / "classes.txt"
 
         return self.__classes_path
 
@@ -115,8 +115,8 @@ class DatasetCreator:
         return self.__images_labels_dict
 
     def __create_images_labels_dict(self, shuffle: bool = True) -> dict[str, str]:
-        images = Path(self.images_path).iterdir()
-        labels = Path(self.labels_path).iterdir()
+        images = self.images_path.iterdir()
+        labels = self.labels_path.iterdir()
         label_names = [label.name for label in labels]
 
         images_labels = {}
@@ -136,7 +136,7 @@ class DatasetCreator:
         return images_labels
 
     @staticmethod
-    def read_classes_file(classes_path: str) -> list[str]:
+    def read_classes_file(classes_path: str | Path) -> list[str]:
         with open(classes_path, 'r') as classes_file:
             classes = [i.split('\n')[0] for i in classes_file.readlines()]
 
@@ -153,20 +153,20 @@ class DatasetCreator:
             'names': self.id2label,
         }
 
-        with open(self.data_yaml_path, 'w', encoding="utf-8") as yaml_file:
+        with open(str(self.data_yaml_path), 'w', encoding="utf-8") as yaml_file:
             yaml.dump(data, yaml_file, default_flow_style=False)
 
     @staticmethod
     def copy_files_from_dict(
         key: str,
         value: str,
-        images_path: str,
-        labels_path: str,
-        copy_to: str,
+        images_path: Path,
+        labels_path: Path,
+        copy_to: Path,
     ) -> None:
-        shutil.copyfile(Path(images_path) / key, Path(copy_to) / key)
+        shutil.copyfile(images_path / key, copy_to / key)
         if value:
-            shutil.copyfile(Path(labels_path) / value, Path(copy_to) / value)
+            shutil.copyfile(labels_path / value, copy_to / value)
 
     def partition_data(self) -> None:
         data = self.images_labels_dict

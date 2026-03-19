@@ -15,10 +15,10 @@ logger = logging.getLogger(__name__)
 
 class Visualizer:
     def __init__(self,
-                 dataset_dir: str,
-                 check_images_dir: str) -> None:
-        self.dataset_dir = dataset_dir
-        self.check_images_dir = check_images_dir
+                 dataset_dir: str | Path,
+                 check_images_dir: str | Path) -> None:
+        self.dataset_dir = Path(dataset_dir)
+        self.check_images_dir = Path(check_images_dir)
 
         self.colors = {
             0: (255, 0, 0, 128),
@@ -33,9 +33,9 @@ class Visualizer:
         self.__setup_dataset_dirs()
 
     def __setup_dataset_dirs(self) -> None:
-        self.train_dir = str(Path(self.dataset_dir) / "train")
-        self.val_dir = str(Path(self.dataset_dir) / "val")
-        self.test_dir = str(Path(self.dataset_dir) / "test")
+        self.train_dir = self.dataset_dir / "train"
+        self.val_dir = self.dataset_dir / "val"
+        self.test_dir = self.dataset_dir / "test"
 
         self.dataset_dirs = {
             "train": self.train_dir,
@@ -48,7 +48,7 @@ class Visualizer:
     ) -> None:
         name = Path(image_name).stem
         filename = f"{name}_{set_name}.jpg"
-        filepath = Path(self.check_images_dir) / filename
+        filepath = self.check_images_dir / filename
         filepath.parent.mkdir(parents=True, exist_ok=True)
         image.save(str(filepath))
 
@@ -56,14 +56,14 @@ class Visualizer:
         for set_name, set_dir in self.dataset_dirs.items():
             images = [
                 img.name
-                for img in Path(set_dir).iterdir()
+                for img in set_dir.iterdir()
                 if img.suffix == ".jpg"
             ]
             random.shuffle(images)
             selected_images = images[:num_images]
 
             for image_name in tqdm(selected_images, desc=f"Visualizing {set_name}"):
-                image_path = Path(set_dir) / image_name
+                image_path = set_dir / image_name
                 image = Image.open(str(image_path))
                 img_width, img_height = image.size
 
@@ -75,7 +75,7 @@ class Visualizer:
 
     def create_annotations(self,
                            image_name: str,
-                           set_dir: str,
+                           set_dir: Path,
                            img_width: int,
                            img_height: int):
         raise NotImplementedError(
@@ -89,16 +89,16 @@ class Visualizer:
 
 class PolygonVisualizer(Visualizer):
     def __init__(self,
-                 dataset_dir: str,
-                 check_images_dir: str) -> None:
+                 dataset_dir: str | Path,
+                 check_images_dir: str | Path) -> None:
         super().__init__(dataset_dir, check_images_dir)
 
         self.preprocess_func = Converter.point_to_polygon
 
     def create_annotations(
-        self, image_name: str, set_dir: str, img_width: int, img_height: int
+        self, image_name: str, set_dir: Path, img_width: int, img_height: int
     ) -> dict | None:
-        anns_path = Path(set_dir) / f"{Path(image_name).stem}.txt"
+        anns_path = set_dir / f"{Path(image_name).stem}.txt"
         points_dict = LabelHandler._read_points(str(anns_path))
 
         if not points_dict:
