@@ -8,31 +8,6 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class AppSettings(BaseSettings):
-    """Application-wide settings and constants."""
-
-    model_config = SettingsConfigDict(env_prefix="APP_")
-
-    render_scale: int = Field(
-        default=3,
-        ge=1,
-        le=10,
-        description="Rendering scale factor for PDF pages (higher = better quality)",
-    )
-
-    crop_offset: float = Field(
-        default=0.025,
-        ge=0.0,
-        le=1.0,
-        description="Border size as fraction of image height for cropping",
-    )
-
-    log_level: str = Field(
-        default="INFO",
-        description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
-    )
-
-
 class DatabaseSettings(BaseSettings):
     """Database connection settings."""
 
@@ -131,7 +106,6 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app: AppSettings = Field(default_factory=AppSettings)
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     training: TrainingSettings = Field(default_factory=TrainingSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)

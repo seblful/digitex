@@ -15,10 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 def setup_logging() -> None:
-    """Configure logging for the application."""
-    settings = get_settings()
+    """Configure logging for application."""
     logging.basicConfig(
-        level=getattr(logging, settings.app.log_level),
+        level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
@@ -107,16 +106,16 @@ def prepare_train_data(
 
 @app.command()
 def train(
-    data_subdir: str = typer.Option(None, "--data-subdir", help="Task type"),
-    model_type: str = typer.Option(None, "--model-type", help="YOLO model type"),
-    model_size: str = typer.Option(None, "--model-size", help="YOLO model size"),
-    pretrained_model_path: str = typer.Option(None, "--pretrained-model-path", help="Model path"),
-    num_epochs: int = typer.Option(None, "--num-epochs", help="Training epochs"),
-    image_size: int = typer.Option(None, "--image-size", help="Input image size"),
-    batch_size: int = typer.Option(None, "--batch-size", help="Batch size"),
-    overlap_mask: bool = typer.Option(None, "--overlap-mask", help="Mask overlap"),
-    patience: int = typer.Option(None, "--patience", help="Early stopping patience"),
-    seed: int = typer.Option(None, "--seed", help="Random seed"),
+    data_subdir: str | None = typer.Option(None, "--data-subdir", help="Task type"),
+    model_type: str | None = typer.Option(None, "--model-type", help="YOLO model type"),
+    model_size: str | None = typer.Option(None, "--model-size", help="YOLO model size"),
+    pretrained_model_path: str | None = typer.Option(None, "--pretrained-model-path", help="Model path"),
+    num_epochs: int | None = typer.Option(None, "--num-epochs", help="Training epochs"),
+    image_size: int | None = typer.Option(None, "--image-size", help="Input image size"),
+    batch_size: int | None = typer.Option(None, "--batch-size", help="Batch size"),
+    overlap_mask: bool | None = typer.Option(None, "--overlap-mask", help="Mask overlap"),
+    patience: int | None = typer.Option(None, "--patience", help="Early stopping patience"),
+    seed: int | None = typer.Option(None, "--seed", help="Random seed"),
 ) -> None:
     """Train a YOLO model for document segmentation."""
     setup_logging()

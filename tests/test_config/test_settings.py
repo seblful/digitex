@@ -6,54 +6,12 @@ from unittest.mock import patch
 import pytest
 
 from digitex.config.settings import (
-    AppSettings,
     DatabaseSettings,
     TrainingSettings,
     PathsSettings,
     Settings,
     get_settings,
 )
-
-
-class TestAppSettings:
-    """Test AppSettings class."""
-
-    def test_default_values(self) -> None:
-        """Test that AppSettings has correct default values."""
-        settings = AppSettings()
-        assert settings.render_scale == 3
-        assert settings.crop_offset == 0.025
-        assert settings.log_level == "INFO"
-
-    def test_render_scale_validation(self) -> None:
-        """Test that render_scale validation works correctly."""
-        settings = AppSettings(render_scale=5)
-        assert settings.render_scale == 5
-
-    def test_render_scale_below_minimum(self) -> None:
-        """Test that render_scale below minimum raises validation error."""
-        with pytest.raises(Exception):
-            AppSettings(render_scale=0)
-
-    def test_render_scale_above_maximum(self) -> None:
-        """Test that render_scale above maximum raises validation error."""
-        with pytest.raises(Exception):
-            AppSettings(render_scale=11)
-
-    def test_crop_offset_validation(self) -> None:
-        """Test that crop_offset validation works correctly."""
-        settings = AppSettings(crop_offset=0.5)
-        assert settings.crop_offset == 0.5
-
-    def test_crop_offset_negative(self) -> None:
-        """Test that negative crop_offset raises validation error."""
-        with pytest.raises(Exception):
-            AppSettings(crop_offset=-0.1)
-
-    def test_crop_offset_above_one(self) -> None:
-        """Test that crop_offset above 1.0 raises validation error."""
-        with pytest.raises(Exception):
-            AppSettings(crop_offset=1.1)
 
 
 class TestDatabaseSettings:
@@ -155,7 +113,6 @@ class TestSettings:
     def test_settings_composition(self) -> None:
         """Test that Settings composes all sub-settings correctly."""
         settings = Settings()
-        assert isinstance(settings.app, AppSettings)
         assert isinstance(settings.database, DatabaseSettings)
         assert isinstance(settings.training, TrainingSettings)
         assert isinstance(settings.paths, PathsSettings)
@@ -165,11 +122,11 @@ class TestSettings:
         settings = Settings.load()
         assert isinstance(settings, Settings)
 
-    @patch.dict("os.environ", {"APP_LOG_LEVEL": "DEBUG"})
+    @patch.dict("os.environ", {"DB_PATH": "custom/db.sqlite"})
     def test_environment_variable_loading(self) -> None:
         """Test that settings can be loaded from environment variables."""
         settings = Settings.load()
-        assert settings.app.log_level == "DEBUG"
+        assert settings.database.path == "custom/db.sqlite"
 
 
 class TestGetSettings:
@@ -189,7 +146,6 @@ class TestGetSettings:
     def test_get_settings_has_all_categories(self) -> None:
         """Test that get_settings returns settings with all categories."""
         settings = get_settings()
-        assert hasattr(settings, "app")
         assert hasattr(settings, "database")
         assert hasattr(settings, "training")
         assert hasattr(settings, "paths")
