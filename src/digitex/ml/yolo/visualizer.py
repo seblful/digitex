@@ -49,6 +49,7 @@ class Visualizer:
         name = Path(image_name).stem
         filename = f"{name}_{set_name}.jpg"
         filepath = Path(self.check_images_dir) / filename
+        filepath.parent.mkdir(parents=True, exist_ok=True)
         image.save(str(filepath))
 
     def visualize(self, num_images: int = 10) -> None:

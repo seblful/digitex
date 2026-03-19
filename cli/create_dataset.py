@@ -15,7 +15,9 @@ parser.add_argument(
     help="Type of task type.",
 )
 
-parser.add_argument("--train_split", default=0.8, type=float, help="Split of train set.")
+parser.add_argument(
+    "--train_split", default=0.8, type=float, help="Split of train set."
+)
 
 parser.add_argument(
     "--anns_type",
@@ -53,7 +55,7 @@ VIS_IMAGES = args.vis_images
 HOME = Path.cwd()
 TRAINING_DIR = HOME / "training"
 DATA_DIR = TRAINING_DIR / "data" / DATA_SUBDIR
-RAW_DIR = DATA_DIR / "books"
+RAW_DIR = DATA_DIR / "raw-data"
 DATASET_DIR = DATA_DIR / "dataset"
 CHECK_IMAGES_DIR = DATA_DIR / "check-images"
 
@@ -67,9 +69,7 @@ def main() -> None:
     dataset_creator.create(anns_type=ANNS_TYPE)
 
     if AUGMENT:
-        augmenter = PolygonAugmenter(
-            raw_dir=str(RAW_DIR), dataset_dir=str(DATASET_DIR)
-        )
+        augmenter = PolygonAugmenter(raw_dir=str(RAW_DIR), dataset_dir=str(DATASET_DIR))
         augmenter.augment(num_images=AUG_IMAGES)
 
     if VISUALIZE:

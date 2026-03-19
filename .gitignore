@@ -11,6 +11,7 @@ draft*.txt
 
 # Training
 training/yolo/runs
+yolo*.pt
 
 
 # Byte-compiled / optimized / DLL files

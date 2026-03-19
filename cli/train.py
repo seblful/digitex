@@ -100,7 +100,7 @@ def main(
 
     data_dir = settings.paths.training_dir / "data" / data_subdir
     dataset_dir = data_dir / "dataset"
-    output_dir = settings.paths.training_dir / "output"
+    output_dir = settings.paths.training_dir
 
     logger.info("Starting YOLO training")
     logger.info(f"Data directory: {data_dir}")

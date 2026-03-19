@@ -255,4 +255,4 @@ class PolygonAugmenter(Augmenter):
 
             transf_points_dict = self.create_anns(
                 transf_masks_dict, transf_width, transf_height)
-            self.save(img_name, img, transf_points_dict)
+            self.save(img_name, transf_img, transf_points_dict)
