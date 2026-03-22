@@ -1,14 +1,7 @@
-"""Core functionality."""
+"""Schemas package."""
 
-from .page_creator import PageDataCreator
-from .schemas import (
+from .progress import (
     AnswerRecord,
-    Book,
-    Option,
-    PartA,
-    PartB,
-    QuestionA,
-    QuestionB,
     QuestionPart,
     QuestionRef,
     Student,
@@ -16,9 +9,9 @@ from .schemas import (
     SubjectProgress,
     TestResult,
 )
+from .tests import Book, Option, PartA, PartB, QuestionA, QuestionB
 
 __all__ = [
-    "PageDataCreator",
     "Book",
     "Option",
     "PartA",
