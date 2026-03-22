@@ -1,5 +1,6 @@
 """Core functionality."""
 
+from .ocr import TextExtractor
 from .schemas import (
     AnswerRecord,
     Book,
@@ -18,6 +19,7 @@ from .schemas import (
 
 __all__ = [
     "AnswerRecord",
+    "TextExtractor",
     "Book",
     "Option",
     "PartA",

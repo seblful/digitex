@@ -1,14 +1,13 @@
 """Book extractor for extracting question images from PDF books."""
 
 import logging
-import re
 from pathlib import Path
 
-import pytesseract
 import pypdfium2 as pdfium
 from PIL import Image
 from tqdm import tqdm
 
+from digitex.core import TextExtractor
 from digitex.core.handlers import PDFHandler
 from digitex.core.processors import ImageCropper
 from digitex.ml.predictors import (
@@ -17,6 +16,8 @@ from digitex.ml.predictors import (
 )
 
 logger = logging.getLogger(__name__)
+
+Detection = tuple[str, list[tuple[int, int]]]
 
 
 class BookExtractor:
@@ -42,6 +43,7 @@ class BookExtractor:
         self._predictor: YOLO_SegmentationPredictor | None = None
         self._pdf_handler = PDFHandler()
         self._image_cropper = ImageCropper()
+        self._text_extractor = TextExtractor()
 
     @property
     def predictor(self) -> YOLO_SegmentationPredictor:
@@ -86,54 +88,18 @@ class BookExtractor:
     def _extract_option_number(
         self, image: Image.Image, polygon: list[tuple[int, int]]
     ) -> int | None:
-        """Extract option number from image using OCR.
-
-        Args:
-            image: Source PIL Image.
-            polygon: Polygon coordinates for the option region.
-
-        Returns:
-            Extracted option number or None if not found.
-        """
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
-
-        text = pytesseract.image_to_string(
-            cropped,
-            lang="rus",
-            config="--psm 7 --oem 1 -c tessedit_char_whitelist=0123456789",
-        )
-        logger.debug(f"OCR text for option: '{text.strip()}'")
-
-        numbers = re.findall(r"\d+", text)
-        logger.debug(f"Extracted numbers from OCR: {numbers}")
-        if numbers:
-            return int(numbers[0]) % 10
-
+        digits = self._text_extractor.extract_digits(cropped)
+        if digits:
+            return digits[0] % 10
         return None
 
     def _extract_part_letter(
         self, image: Image.Image, polygon: list[tuple[int, int]]
     ) -> str | None:
-        """Extract part letter (A or B) from image using OCR.
-
-        Args:
-            image: Source PIL Image.
-            polygon: Polygon coordinates for the part region.
-
-        Returns:
-            Extracted part letter ("A" or "B") or None if not found.
-        """
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
-
-        text = pytesseract.image_to_string(
-            cropped,
-            lang="rus",
-            config="--psm 7 --oem 1",
-        )
-        logger.debug(f"OCR text for part: '{text.strip()}'")
-
+        text = self._text_extractor.extract_text(cropped)
         text = text.replace("Часть", "").replace("часть", "").strip()
-
         cyrillic_to_latin = str.maketrans("АБВ", "ABB")
         text_normalized = text.upper().translate(cyrillic_to_latin)
 
@@ -141,7 +107,6 @@ class BookExtractor:
             return "A"
         if "B" in text_normalized:
             return "B"
-
         return None
 
     def _crop_and_save(
@@ -161,6 +126,38 @@ class BookExtractor:
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         cropped.save(output_path)
+
+    def _detect(self, image: Image.Image) -> list[Detection]:
+        """Run YOLO prediction and return sorted detections.
+
+        Args:
+            image: PIL Image to run detection on.
+
+        Returns:
+            List of detections sorted by position (top to bottom, left to right).
+
+        Raises:
+            ValueError: If no detections are found on the page.
+        """
+        result = self.predictor.predict(image)
+
+        if not result.ids:
+            raise ValueError("No detections found on page")
+
+        class_counts: dict[str, int] = {}
+        for class_id in result.ids:
+            label = self._get_label_name(result, class_id)
+            class_counts[label] = class_counts.get(label, 0) + 1
+        logger.debug(f"Predictions: {class_counts}")
+
+        detections: list[tuple[tuple[int, int], Detection]] = []
+        for class_id, polygon in zip(result.ids, result.polygons):
+            label = self._get_label_name(result, class_id)
+            position = self._get_polygon_bounding_box(polygon)
+            detections.append((position, (label, polygon)))
+
+        detections.sort(key=lambda x: x[0])
+        return [det for _, det in detections]
 
     def _process_page(
         self,
@@ -185,26 +182,9 @@ class BookExtractor:
         Raises:
             ValueError: If no detections are found on the page.
         """
-        result = self.predictor.predict(image)
+        detections = self._detect(image)
 
-        if not result.ids:
-            raise ValueError("No detections found on page")
-
-        class_counts: dict[str, int] = {}
-        for class_id in result.ids:
-            label = self._get_label_name(result, class_id)
-            class_counts[label] = class_counts.get(label, 0) + 1
-        logger.debug(f"Predictions: {class_counts}")
-
-        detections = []
-        for class_id, polygon in zip(result.ids, result.polygons):
-            label = self._get_label_name(result, class_id)
-            position = self._get_polygon_bounding_box(polygon)
-            detections.append((position, label, polygon))
-
-        detections.sort(key=lambda x: x[0])
-
-        for position, label, polygon in detections:
+        for label, polygon in detections:
             if label == "option":
                 new_option = self._extract_option_number(image, polygon)
                 if new_option is not None and new_option == option_counter + 1:
