@@ -157,7 +157,7 @@ class PageExtractor:
                 new_option = self._extract_option_number(image, polygon)
                 if new_option is not None and new_option == option_counter + 1:
                     option_counter = new_option
-                    part_letter = ""
+                    part_letter = "A"
                     question_counter = 0
                     logger.debug(f"Option changed to: {option_counter}")
             elif label == "part":
