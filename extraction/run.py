@@ -4,6 +4,7 @@ import logging
 
 import typer
 from digitex import Extractor
+from digitex.config import get_settings
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -16,7 +17,14 @@ app = typer.Typer()
 @app.command()
 def extract() -> None:
     """Extract question images from all PDF books."""
-    extractor = Extractor()
+    settings = get_settings()
+    extractor = Extractor(
+        model_path=settings.extraction.model_path,
+        render_scale=settings.extraction.render_scale,
+        image_format=settings.extraction.image_format,
+        books_dir=settings.extraction.books_dir,
+        extraction_dir=settings.extraction.extraction_dir,
+    )
     extractor.extract_all()
 
 

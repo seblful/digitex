@@ -9,7 +9,6 @@ import pypdfium2 as pdfium
 from PIL import Image
 from tqdm import tqdm
 
-from digitex.config import get_settings
 from digitex.core.handlers import PDFHandler
 from digitex.core.processors import ImageCropper
 from digitex.ml.predictors import (
@@ -25,22 +24,20 @@ class BookExtractor:
 
     def __init__(
         self,
-        model_path: Path | None = None,
-        render_scale: int | None = None,
-        image_format: str | None = None,
+        model_path: Path,
+        render_scale: int,
+        image_format: str,
     ) -> None:
         """Initialize the book extractor.
 
         Args:
-            model_path: Path to YOLO model. Defaults to settings.extraction.model_path.
-            render_scale: PDF render scale factor. Defaults to settings.extraction.render_scale.
-            image_format: Output image format. Defaults to settings.extraction.image_format.
+            model_path: Path to YOLO model.
+            render_scale: PDF render scale factor.
+            image_format: Output image format.
         """
-        settings = get_settings()
-
-        self.model_path = model_path or settings.extraction.model_path
-        self.render_scale = render_scale or settings.extraction.render_scale
-        self.image_format = image_format or settings.extraction.image_format
+        self.model_path = model_path
+        self.render_scale = render_scale
+        self.image_format = image_format
 
         self._predictor: YOLO_SegmentationPredictor | None = None
         self._pdf_handler = PDFHandler()

@@ -5,7 +5,6 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from digitex.config import get_settings
 from digitex.extractors.book_extractor import BookExtractor
 
 logger = logging.getLogger(__name__)
@@ -16,25 +15,23 @@ class Extractor:
 
     def __init__(
         self,
-        model_path: Path | None = None,
-        render_scale: int | None = None,
-        image_format: str | None = None,
-        books_dir: Path | None = None,
-        extraction_dir: Path | None = None,
+        model_path: Path,
+        render_scale: int,
+        image_format: str,
+        books_dir: Path,
+        extraction_dir: Path,
     ) -> None:
         """Initialize the extractor.
 
         Args:
-            model_path: Path to YOLO model. Defaults to settings.extraction.model_path.
-            render_scale: PDF render scale factor. Defaults to settings.extraction.render_scale.
-            image_format: Output image format. Defaults to settings.extraction.image_format.
-            books_dir: Directory containing subject folders. Defaults to settings.extraction.books_dir.
-            extraction_dir: Output directory. Defaults to settings.extraction.extraction_dir.
+            model_path: Path to YOLO model.
+            render_scale: PDF render scale factor.
+            image_format: Output image format.
+            books_dir: Directory containing subject folders.
+            extraction_dir: Output directory.
         """
-        settings = get_settings()
-
-        self.books_dir = books_dir or settings.extraction.books_dir
-        self.extraction_dir = extraction_dir or settings.extraction.extraction_dir
+        self.books_dir = books_dir
+        self.extraction_dir = extraction_dir
 
         self.book_extractor = BookExtractor(
             model_path=model_path,
