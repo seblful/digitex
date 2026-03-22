@@ -1,4 +1,4 @@
-"""Main extractor that orchestrates book extraction."""
+"""Tests extractor that orchestrates extraction of all PDF books."""
 
 import logging
 from pathlib import Path
@@ -10,7 +10,7 @@ from digitex.extractors.book_extractor import BookExtractor
 logger = logging.getLogger(__name__)
 
 
-class Extractor:
+class TestsExtractor:
     """Orchestrates extraction of question images from all PDF books."""
 
     def __init__(
@@ -21,7 +21,7 @@ class Extractor:
         books_dir: Path,
         extraction_dir: Path,
     ) -> None:
-        """Initialize the extractor.
+        """Initialize the tests extractor.
 
         Args:
             model_path: Path to YOLO model.
@@ -33,7 +33,7 @@ class Extractor:
         self.books_dir = books_dir
         self.extraction_dir = extraction_dir
 
-        self.book_extractor = BookExtractor(
+        self._book_extractor = BookExtractor(
             model_path=model_path,
             render_scale=render_scale,
             image_format=image_format,
@@ -44,7 +44,6 @@ class Extractor:
 
         Raises:
             FileNotFoundError: If books directory doesn't exist.
-            ValueError: If no detections found on any page.
         """
         if not self.books_dir.exists():
             raise FileNotFoundError(f"Books directory not found: {self.books_dir}")
@@ -73,4 +72,4 @@ class Extractor:
                 year = pdf_path.stem
                 output_dir = self.extraction_dir / subject / year
 
-                self.book_extractor.extract(pdf_path, output_dir)
+                self._book_extractor.extract(pdf_path, output_dir)
