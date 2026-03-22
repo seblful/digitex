@@ -3,7 +3,7 @@ from pathlib import Path
 
 import typer
 from digitex.config import get_settings
-from digitex.core.page_creator import PageDataCreator
+from digitex.creators import PageDataCreator
 from digitex.ml.yolo import Trainer
 from digitex.ml.yolo.augmenter import PolygonAugmenter
 from digitex.ml.yolo.dataset import DatasetCreator

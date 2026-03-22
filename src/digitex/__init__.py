@@ -1,7 +1,7 @@
 """Digitex - Document digitization toolkit."""
 
 from .config import get_settings
-from .core import PageDataCreator
+from .creators import PageDataCreator
 from .core.handlers import ImageHandler, LabelHandler, PDFHandler
 from .core.processors import FileProcessor, ImageProcessor
 from .ml import Predictor, Trainer
