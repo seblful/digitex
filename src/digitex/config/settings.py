@@ -8,6 +8,38 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+class ExtractionSettings(BaseSettings):
+    """Image extraction settings."""
+
+    model_config = SettingsConfigDict(env_prefix="EXTRACTION_")
+
+    model_path: Path = Field(
+        default=Path("extraction/models/page.pt"),
+        description="Path to the YOLO segmentation model",
+    )
+
+    books_dir: Path = Field(
+        default=Path("books"),
+        description="Directory containing subject folders with PDFs",
+    )
+
+    extraction_dir: Path = Field(
+        default=Path("extraction/output"),
+        description="Output directory for extracted images",
+    )
+
+    render_scale: int = Field(
+        default=3,
+        ge=1,
+        description="PDF render scale factor (higher = better quality)",
+    )
+
+    image_format: str = Field(
+        default="jpg",
+        description="Output image format (jpg, png, etc.)",
+    )
+
+
 class DatabaseSettings(BaseSettings):
     """Database connection settings."""
 
@@ -109,6 +141,7 @@ class Settings(BaseSettings):
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     training: TrainingSettings = Field(default_factory=TrainingSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)
+    extraction: ExtractionSettings = Field(default_factory=ExtractionSettings)
 
     @classmethod
     def load(cls) -> Self:

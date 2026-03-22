@@ -4,6 +4,7 @@ from .config import get_settings
 from .creators import PageDataCreator
 from .core.handlers import ImageHandler, LabelHandler, PDFHandler
 from .core.processors import FileProcessor, ImageProcessor
+from .extractors import BookExtractor, Extractor
 from .ml import Predictor, Trainer
 
 __all__ = [
@@ -14,6 +15,8 @@ __all__ = [
     "PDFHandler",
     "FileProcessor",
     "ImageProcessor",
+    "BookExtractor",
+    "Extractor",
     "Predictor",
     "Trainer",
 ]

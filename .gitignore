@@ -6,6 +6,10 @@ training/runs/
 training/output/
 training/data/
 
+# Extraction outputs
+extraction/models/
+extraction/output/
+
 # Drafts
 draft*.py
 draft*.ipynb
