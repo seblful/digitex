@@ -4,7 +4,8 @@ from typing import Any
 import numpy as np
 import torch
 from PIL import Image
-from ultralytics import YOLO
+from ultralytics import YOLO  # type: ignore[import-untyped]
+from ultralytics.engine.results import Results
 
 from .abstract_predictor import Predictor
 from .prediction_result import SegmentationPredictionResult
@@ -63,7 +64,7 @@ class YOLO_SegmentationPredictor(Predictor):
 
     def create_result(
         self,
-        preds: list[dict[str, Any]],
+        preds: list[Results],
         img_width: int,
         img_height: int,
     ) -> SegmentationPredictionResult:
@@ -93,13 +94,13 @@ class YOLO_SegmentationPredictor(Predictor):
         boxes = pred.boxes
         masks = pred.masks
 
-        if masks is None:
-            logger.warning("No masks found in predictions")
+        if boxes is None or masks is None:
+            logger.warning("No boxes or masks found in predictions")
             return SegmentationPredictionResult(ids=[], polygons=[], id2label=self.model.names)
 
         mask_data = masks.xyn
 
-        for box, polygon in zip(boxes, mask_data):
+        for box, polygon in zip(boxes, mask_data):  # ty: ignore[invalid-argument-type]
             try:
                 polygon = polygon * np.array([img_width, img_height])
                 polygon = polygon.astype(np.int32)

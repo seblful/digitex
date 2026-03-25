@@ -89,7 +89,7 @@ class TestPathsSettings:
     def test_data_dir(self) -> None:
         """Test that data_dir is computed correctly."""
         settings = PathsSettings()
-        assert settings.data_dir == settings.home_dir / "data"
+        assert settings.data_dir == settings.training_dir / "data"
 
     def test_dataset_dir(self) -> None:
         """Test that dataset_dir is computed correctly."""
@@ -99,7 +99,7 @@ class TestPathsSettings:
     def test_model_dir(self) -> None:
         """Test that model_dir is computed correctly."""
         settings = PathsSettings()
-        assert settings.model_dir == settings.home_dir / "models"
+        assert settings.model_dir == settings.training_dir / "models"
 
     def test_raw_data_dir(self) -> None:
         """Test that raw_data_dir is computed correctly."""

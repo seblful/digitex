@@ -137,7 +137,8 @@ class DatasetCreator:
 
     @staticmethod
     def read_classes_file(classes_path: str | Path) -> list[str]:
-        with open(classes_path, 'r') as classes_file:
+        classes_path = Path(classes_path)
+        with classes_path.open('r') as classes_file:
             classes = [i.split('\n')[0] for i in classes_file.readlines()]
 
         return classes
@@ -153,7 +154,7 @@ class DatasetCreator:
             'names': self.id2label,
         }
 
-        with open(str(self.data_yaml_path), 'w', encoding="utf-8") as yaml_file:
+        with self.data_yaml_path.open('w', encoding="utf-8") as yaml_file:
             yaml.dump(data, yaml_file, default_flow_style=False)
 
     @staticmethod

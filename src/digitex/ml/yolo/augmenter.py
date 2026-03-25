@@ -198,7 +198,7 @@ class PolygonAugmenter(Augmenter):
         for class_idx, masks in masks_dict.items():
             for mask in masks:
                 polygons = sv.mask_to_polygons(mask)
-                polygon = max(polygons, key=cv2.contourArea)  # type: ignore[arg-type]
+                polygon = max(polygons, key=cv2.contourArea)  # ty: ignore[no-matching-overload]
                 anns = self.postprocess_func(
                     polygon, img_width, img_height)
                 points_dict[class_idx].append(anns)
