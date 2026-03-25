@@ -20,7 +20,7 @@ class TestsExtractor:
         image_format: str,
         books_dir: Path,
         extraction_dir: Path,
-        preprocess: bool = True,
+        preprocess: str | None = None,
     ) -> None:
         """Initialize the tests extractor.
 
@@ -30,7 +30,7 @@ class TestsExtractor:
             image_format: Output image format.
             books_dir: Directory containing subject folders.
             extraction_dir: Output directory.
-            preprocess: Whether to preprocess extracted images.
+            preprocess: Preprocessing mode: None, "enhance", or "binarize".
         """
         self.books_dir = books_dir
         self.extraction_dir = extraction_dir

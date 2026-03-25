@@ -15,11 +15,11 @@ app = typer.Typer()
 
 
 @app.command()
-def extract(preprocess: bool = True) -> None:
+def extract(preprocess: str | None = "enhance") -> None:
     """Extract question images from all PDF books.
 
     Args:
-        preprocess: Preprocess extracted images for better OCR.
+        preprocess: Preprocessing mode: None, "enhance", or "binarize".
     """
     settings = get_settings()
     extractor = TestsExtractor(

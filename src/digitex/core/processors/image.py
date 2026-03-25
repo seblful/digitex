@@ -17,7 +17,30 @@ DEFAULT_MAX_HEIGHT = 2000
 DEFAULT_BORDER_MULTIPLIER = 5
 
 
-def preprocess_segment(
+def enhance_segment(
+    segment_bgr: np.ndarray,
+    image_processor: "ImageProcessor | None" = None,
+) -> np.ndarray:
+    processor = image_processor or ImageProcessor()
+    no_blue = processor.remove_color(segment_bgr)
+
+    gray = cv2.cvtColor(no_blue, cv2.COLOR_BGR2GRAY)
+
+    denoised = cv2.bilateralFilter(gray, d=5, sigmaColor=75, sigmaSpace=75)
+
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    contrasted = clahe.apply(denoised)
+
+    result = cv2.convertScaleAbs(contrasted, alpha=1.3, beta=-15)
+
+    brightness_threshold = 200
+    mask = result > brightness_threshold
+    result[mask] = 255
+
+    return result
+
+
+def binarize_segment(
     segment_bgr: np.ndarray,
     image_processor: "ImageProcessor | None" = None,
     use_morphology: bool = False,
