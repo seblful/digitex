@@ -15,8 +15,12 @@ app = typer.Typer()
 
 
 @app.command()
-def extract() -> None:
-    """Extract question images from all PDF books."""
+def extract(preprocess: bool = True) -> None:
+    """Extract question images from all PDF books.
+
+    Args:
+        preprocess: Preprocess extracted images for better OCR.
+    """
     settings = get_settings()
     extractor = TestsExtractor(
         model_path=settings.extraction.model_path,
@@ -24,6 +28,7 @@ def extract() -> None:
         image_format=settings.extraction.image_format,
         books_dir=settings.extraction.books_dir,
         extraction_dir=settings.extraction.extraction_dir,
+        preprocess=preprocess,
     )
     extractor.extract_all()
 

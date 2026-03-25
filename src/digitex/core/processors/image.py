@@ -3,7 +3,7 @@
 import logging
 
 import cv2
-import doxapy
+import doxapy  # type: ignore[import-untyped]
 import numpy as np
 from PIL import Image
 
@@ -15,6 +15,41 @@ DEFAULT_BIN_WINDOW = 30
 DEFAULT_BIN_K = 0.16
 DEFAULT_MAX_HEIGHT = 2000
 DEFAULT_BORDER_MULTIPLIER = 5
+
+
+def preprocess_segment(
+    segment_bgr: np.ndarray,
+    image_processor: "ImageProcessor | None" = None,
+    use_morphology: bool = False,
+) -> np.ndarray:
+    processor = image_processor or ImageProcessor()
+    no_blue = processor.remove_color(segment_bgr)
+
+    gray = cv2.cvtColor(no_blue, cv2.COLOR_BGR2GRAY)
+
+    denoised = cv2.bilateralFilter(gray, d=5, sigmaColor=50, sigmaSpace=50)
+
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    contrasted = clahe.apply(denoised)
+
+    bin_img = np.empty(contrasted.shape, contrasted.dtype)
+    wan = doxapy.Binarization(doxapy.Binarization.Algorithms.WAN)  # ty: ignore[unresolved-attribute]
+    wan.initialize(contrasted)
+
+    min_dim = min(contrasted.shape)
+    window_size = max(15, min_dim // 20)
+    if window_size % 2 == 0:
+        window_size += 1
+
+    wan.to_binary(bin_img, {"window": window_size, "k": 0.2})
+
+    if use_morphology:
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+        opened = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, kernel)
+        closed = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel)
+        return closed
+
+    return bin_img
 
 
 class ImageProcessor:
@@ -44,7 +79,9 @@ class ImageProcessor:
 
         mask = cv2.inRange(hsv, self.lower_blue, self.upper_blue)
 
-        kernel = np.ones((DEFAULT_BORDER_MULTIPLIER, DEFAULT_BORDER_MULTIPLIER), np.uint8)
+        kernel = np.ones(
+            (DEFAULT_BORDER_MULTIPLIER, DEFAULT_BORDER_MULTIPLIER), np.uint8
+        )
         mask = cv2.dilate(mask, kernel, iterations=1)
 
         img = cv2.inpaint(img, mask, 3, cv2.INPAINT_TELEA)
@@ -87,7 +124,7 @@ class ImageProcessor:
 
         bin_img = np.empty(gray.shape, gray.dtype)
 
-        wan = doxapy.Binarization(doxapy.Binarization.Algorithms.WAN)
+        wan = doxapy.Binarization(doxapy.Binarization.Algorithms.WAN)  # ty: ignore[unresolved-attribute]
         wan.initialize(gray)
         wan.to_binary(bin_img, self.bin_params)
 

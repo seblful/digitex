@@ -20,6 +20,7 @@ class TestsExtractor:
         image_format: str,
         books_dir: Path,
         extraction_dir: Path,
+        preprocess: bool = True,
     ) -> None:
         """Initialize the tests extractor.
 
@@ -29,6 +30,7 @@ class TestsExtractor:
             image_format: Output image format.
             books_dir: Directory containing subject folders.
             extraction_dir: Output directory.
+            preprocess: Whether to preprocess extracted images.
         """
         self.books_dir = books_dir
         self.extraction_dir = extraction_dir
@@ -37,6 +39,7 @@ class TestsExtractor:
             model_path=model_path,
             render_scale=render_scale,
             image_format=image_format,
+            preprocess=preprocess,
         )
 
     def extract_all(self) -> None:

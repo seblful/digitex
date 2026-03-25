@@ -20,6 +20,7 @@ class BookExtractor:
         model_path: Path,
         render_scale: int,
         image_format: str,
+        preprocess: bool = False,
     ) -> None:
         """Initialize the book extractor.
 
@@ -27,11 +28,13 @@ class BookExtractor:
             model_path: Path to YOLO model.
             render_scale: PDF render scale factor.
             image_format: Output image format.
+            preprocess: Whether to preprocess extracted images.
         """
         self._page_extractor = PageExtractor(
             model_path=model_path,
             render_scale=render_scale,
             image_format=image_format,
+            preprocess=preprocess,
         )
         self._pdf_handler = PDFHandler()
         self.render_scale = render_scale

@@ -3,10 +3,12 @@
 import logging
 from pathlib import Path
 
+import cv2
+import numpy as np
 from PIL import Image
 
 from digitex.core import TextExtractor
-from digitex.core.processors import ImageCropper
+from digitex.core.processors import ImageCropper, ImageProcessor, preprocess_segment
 from digitex.ml.predictors import (
     SegmentationPredictionResult,
     YOLO_SegmentationPredictor,
@@ -25,6 +27,7 @@ class PageExtractor:
         model_path: Path,
         render_scale: int,
         image_format: str,
+        preprocess: bool = True,
     ) -> None:
         """Initialize the page extractor.
 
@@ -32,13 +35,16 @@ class PageExtractor:
             model_path: Path to YOLO model.
             render_scale: PDF render scale factor.
             image_format: Output image format.
+            preprocess: Whether to preprocess extracted images.
         """
         self.model_path = model_path
         self.render_scale = render_scale
         self.image_format = image_format
+        self.preprocess = preprocess
 
         self._predictor: YOLO_SegmentationPredictor | None = None
         self._image_cropper = ImageCropper()
+        self._image_processor = ImageProcessor()
         self._text_extractor = TextExtractor()
 
     @property
@@ -71,6 +77,12 @@ class PageExtractor:
         output_path: Path,
     ) -> None:
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
+        if self.preprocess:
+            cropped_arr = cv2.cvtColor(np.array(cropped), cv2.COLOR_RGB2BGR)
+            preprocessed = preprocess_segment(
+                cropped_arr, image_processor=self._image_processor
+            )
+            cropped = Image.fromarray(cv2.cvtColor(preprocessed, cv2.COLOR_GRAY2RGB))
         output_path.parent.mkdir(parents=True, exist_ok=True)
         cropped.save(output_path)
 
