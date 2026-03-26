@@ -17,62 +17,90 @@ DEFAULT_MAX_HEIGHT = 2000
 DEFAULT_BORDER_MULTIPLIER = 5
 
 
-def enhance_segment(
-    segment_bgr: np.ndarray,
-    image_processor: "ImageProcessor | None" = None,
-) -> np.ndarray:
-    processor = image_processor or ImageProcessor()
-    no_blue = processor.remove_color(segment_bgr)
+class SegmentProcessor:
+    """Processor for image segment enhancement and binarization.
 
-    gray = cv2.cvtColor(no_blue, cv2.COLOR_BGR2GRAY)
+    This class provides methods for processing image segments with shared
+    preprocessing pipeline: color removal → grayscale → denoise → CLAHE.
+    """
 
-    denoised = cv2.bilateralFilter(gray, d=5, sigmaColor=75, sigmaSpace=75)
+    def __init__(self, image_processor: "ImageProcessor | None" = None) -> None:
+        """Initialize SegmentProcessor.
 
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    contrasted = clahe.apply(denoised)
+        Args:
+            image_processor: Optional ImageProcessor instance for color removal.
+        """
+        self._image_processor = image_processor
 
-    result = cv2.convertScaleAbs(contrasted, alpha=1.3, beta=-15)
+    @property
+    def image_processor(self) -> "ImageProcessor":
+        """Get or create the ImageProcessor instance."""
+        if self._image_processor is None:
+            self._image_processor = ImageProcessor()
+        return self._image_processor
 
-    brightness_threshold = 200
-    mask = result > brightness_threshold
-    result[mask] = 255
+    def _preprocess(self, segment_bgr: np.ndarray) -> np.ndarray:
+        """Apply shared preprocessing pipeline.
 
-    return result
+        Args:
+            segment_bgr: Input segment in BGR format.
 
+        Returns:
+            Preprocessed grayscale image with enhanced contrast.
+        """
+        no_blue = self.image_processor.remove_color(segment_bgr)
+        gray = cv2.cvtColor(no_blue, cv2.COLOR_BGR2GRAY)
+        denoised = cv2.bilateralFilter(gray, d=5, sigmaColor=75, sigmaSpace=75)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        return clahe.apply(denoised)
 
-def binarize_segment(
-    segment_bgr: np.ndarray,
-    image_processor: "ImageProcessor | None" = None,
-    use_morphology: bool = False,
-) -> np.ndarray:
-    processor = image_processor or ImageProcessor()
-    no_blue = processor.remove_color(segment_bgr)
+    def enhance(self, segment_bgr: np.ndarray) -> np.ndarray:
+        """Enhance segment for better readability.
 
-    gray = cv2.cvtColor(no_blue, cv2.COLOR_BGR2GRAY)
+        Args:
+            segment_bgr: Input segment in BGR format.
 
-    denoised = cv2.bilateralFilter(gray, d=5, sigmaColor=50, sigmaSpace=50)
+        Returns:
+            Enhanced grayscale image with brightened background.
+        """
+        result = self._preprocess(segment_bgr)
+        result = cv2.convertScaleAbs(result, alpha=1.3, beta=-15)
+        result[result > 200] = 255
+        return result
 
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    contrasted = clahe.apply(denoised)
+    def binarize(
+        self,
+        segment_bgr: np.ndarray,
+        use_morphology: bool = False,
+    ) -> np.ndarray:
+        """Binarize segment using Wan algorithm.
 
-    bin_img = np.empty(contrasted.shape, contrasted.dtype)
-    wan = doxapy.Binarization(doxapy.Binarization.Algorithms.WAN)  # ty: ignore[unresolved-attribute]
-    wan.initialize(contrasted)
+        Args:
+            segment_bgr: Input segment in BGR format.
+            use_morphology: Whether to apply morphological operations.
 
-    min_dim = min(contrasted.shape)
-    window_size = max(15, min_dim // 20)
-    if window_size % 2 == 0:
-        window_size += 1
+        Returns:
+            Binary image.
+        """
+        contrasted = self._preprocess(segment_bgr)
 
-    wan.to_binary(bin_img, {"window": window_size, "k": 0.2})
+        bin_img = np.empty(contrasted.shape, contrasted.dtype)
+        wan = doxapy.Binarization(doxapy.Binarization.Algorithms.WAN)  # ty: ignore[unresolved-attribute]
+        wan.initialize(contrasted)
 
-    if use_morphology:
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-        opened = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, kernel)
-        closed = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel)
-        return closed
+        min_dim = min(contrasted.shape)
+        window_size = max(15, min_dim // 20)
+        if window_size % 2 == 0:
+            window_size += 1
 
-    return bin_img
+        wan.to_binary(bin_img, {"window": window_size, "k": 0.2})
+
+        if use_morphology:
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+            opened = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, kernel)
+            return cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel)
+
+        return bin_img
 
 
 class ImageProcessor:

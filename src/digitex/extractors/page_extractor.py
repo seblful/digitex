@@ -10,9 +10,7 @@ from PIL import Image
 from digitex.core import TextExtractor
 from digitex.core.processors import (
     ImageCropper,
-    ImageProcessor,
-    binarize_segment,
-    enhance_segment,
+    SegmentProcessor,
 )
 from digitex.ml.predictors import (
     SegmentationPredictionResult,
@@ -49,7 +47,7 @@ class PageExtractor:
 
         self._predictor: YOLO_SegmentationPredictor | None = None
         self._image_cropper = ImageCropper()
-        self._image_processor = ImageProcessor()
+        self._segment_processor = SegmentProcessor()
         self._text_extractor = TextExtractor()
 
     @property
@@ -85,13 +83,9 @@ class PageExtractor:
         if self.preprocess:
             cropped_arr = cv2.cvtColor(np.array(cropped), cv2.COLOR_RGB2BGR)
             if self.preprocess == "enhance":
-                processed = enhance_segment(
-                    cropped_arr, image_processor=self._image_processor
-                )
+                processed = self._segment_processor.enhance(cropped_arr)
             else:
-                processed = binarize_segment(
-                    cropped_arr, image_processor=self._image_processor
-                )
+                processed = self._segment_processor.binarize(cropped_arr)
             cropped = Image.fromarray(cv2.cvtColor(processed, cv2.COLOR_GRAY2RGB))
         output_path.parent.mkdir(parents=True, exist_ok=True)
         cropped.save(output_path)
