@@ -1,11 +1,19 @@
 """Core data processors."""
 
 from .file import FileProcessor
-from .image import ImageCropper, ImageProcessor, SegmentProcessor
+from .image import (
+    ImageCropper,
+    ImageProcessor,
+    binarize_segment,
+    enhance_segment,
+    prepare_image,
+)
 
 __all__ = [
     "ImageProcessor",
     "ImageCropper",
     "FileProcessor",
-    "SegmentProcessor",
+    "binarize_segment",
+    "enhance_segment",
+    "prepare_image",
 ]

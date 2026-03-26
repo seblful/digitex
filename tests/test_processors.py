@@ -6,7 +6,7 @@ import pytest
 import numpy as np
 from PIL import Image
 
-from digitex.core.processors import FileProcessor, ImageProcessor
+from digitex.core.processors import FileProcessor, ImageProcessor, prepare_image
 
 
 class TestImageProcessor:
@@ -15,7 +15,6 @@ class TestImageProcessor:
     def test_init(self) -> None:
         """Test ImageProcessor initialization."""
         processor = ImageProcessor()
-        assert processor.scan_types == ["bw", "gray", "color"]
         assert processor.lower_blue is not None
         assert processor.upper_blue is not None
 
@@ -45,23 +44,23 @@ class TestImageProcessor:
         assert result.shape == img.shape
         assert result.dtype == img.dtype
 
-    def test_process_invalid_scan_type(self) -> None:
-        """Test process with invalid scan type."""
-        processor = ImageProcessor()
+    def test_prepare_image_no_resize(self) -> None:
+        """Test prepare_image without resizing."""
         img = Image.new('RGB', (100, 100))
+        result = prepare_image(img, max_height=0)
 
-        with pytest.raises(ValueError, match="Scan type must be one of"):
-            processor.process(img, scan_type="invalid")
+        assert isinstance(result, Image.Image)
+        assert result.mode == 'RGB'
+        assert result.size == (100, 100)
 
-    def test_process_valid_scan_type(self) -> None:
-        """Test process with valid scan types."""
-        processor = ImageProcessor()
-        img = Image.new('RGB', (100, 100))
+    def test_prepare_image_with_resize(self) -> None:
+        """Test prepare_image with resizing."""
+        img = Image.new('RGB', (2000, 2000))
+        result = prepare_image(img, max_height=1000)
 
-        for scan_type in processor.scan_types:
-            result = processor.process(img, scan_type=scan_type)
-            assert isinstance(result, Image.Image)
-            assert result.mode == 'RGB'
+        assert isinstance(result, Image.Image)
+        assert result.mode == 'RGB'
+        assert result.size == (1000, 1000)
 
 
 class TestFileProcessor:

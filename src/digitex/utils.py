@@ -4,7 +4,7 @@ from pathlib import Path
 from PIL import Image
 
 from digitex.core.handlers import PDFHandler
-from digitex.core.processors import ImageProcessor
+from digitex.core.processors import prepare_image
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def create_pdf_from_images(
             image = Image.open(image_path)
 
             if process:
-                image = ImageProcessor().process(image=image, scan_type="color")
+                image = prepare_image(image)
 
             images.append(image)
         except (FileNotFoundError, IOError) as e:

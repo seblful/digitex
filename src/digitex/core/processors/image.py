@@ -17,92 +17,6 @@ DEFAULT_MAX_HEIGHT = 2000
 DEFAULT_BORDER_MULTIPLIER = 5
 
 
-class SegmentProcessor:
-    """Processor for image segment enhancement and binarization.
-
-    This class provides methods for processing image segments with shared
-    preprocessing pipeline: color removal → grayscale → denoise → CLAHE.
-    """
-
-    def __init__(self, image_processor: "ImageProcessor | None" = None) -> None:
-        """Initialize SegmentProcessor.
-
-        Args:
-            image_processor: Optional ImageProcessor instance for color removal.
-        """
-        self._image_processor = image_processor
-
-    @property
-    def image_processor(self) -> "ImageProcessor":
-        """Get or create the ImageProcessor instance."""
-        if self._image_processor is None:
-            self._image_processor = ImageProcessor()
-        return self._image_processor
-
-    def _preprocess(self, segment_bgr: np.ndarray) -> np.ndarray:
-        """Apply shared preprocessing pipeline.
-
-        Args:
-            segment_bgr: Input segment in BGR format.
-
-        Returns:
-            Preprocessed grayscale image with enhanced contrast.
-        """
-        no_blue = self.image_processor.remove_color(segment_bgr)
-        gray = cv2.cvtColor(no_blue, cv2.COLOR_BGR2GRAY)
-        denoised = cv2.bilateralFilter(gray, d=5, sigmaColor=75, sigmaSpace=75)
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        return clahe.apply(denoised)
-
-    def enhance(self, segment_bgr: np.ndarray) -> np.ndarray:
-        """Enhance segment for better readability.
-
-        Args:
-            segment_bgr: Input segment in BGR format.
-
-        Returns:
-            Enhanced grayscale image with brightened background.
-        """
-        result = self._preprocess(segment_bgr)
-        result = cv2.convertScaleAbs(result, alpha=1.3, beta=-15)
-        result[result > 200] = 255
-        return result
-
-    def binarize(
-        self,
-        segment_bgr: np.ndarray,
-        use_morphology: bool = False,
-    ) -> np.ndarray:
-        """Binarize segment using Wan algorithm.
-
-        Args:
-            segment_bgr: Input segment in BGR format.
-            use_morphology: Whether to apply morphological operations.
-
-        Returns:
-            Binary image.
-        """
-        contrasted = self._preprocess(segment_bgr)
-
-        bin_img = np.empty(contrasted.shape, contrasted.dtype)
-        wan = doxapy.Binarization(doxapy.Binarization.Algorithms.WAN)  # ty: ignore[unresolved-attribute]
-        wan.initialize(contrasted)
-
-        min_dim = min(contrasted.shape)
-        window_size = max(15, min_dim // 20)
-        if window_size % 2 == 0:
-            window_size += 1
-
-        wan.to_binary(bin_img, {"window": window_size, "k": 0.2})
-
-        if use_morphology:
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-            opened = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, kernel)
-            return cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel)
-
-        return bin_img
-
-
 class ImageProcessor:
     """Processor for image enhancement and transformation operations.
 
@@ -112,7 +26,6 @@ class ImageProcessor:
 
     def __init__(self) -> None:
         """Initialize the ImageProcessor with default parameters."""
-        self.scan_types = ["bw", "gray", "color"]
         self.lower_blue = DEFAULT_LOWER_BLUE
         self.upper_blue = DEFAULT_UPPER_BLUE
         self.bin_params = {"window": DEFAULT_BIN_WINDOW, "k": DEFAULT_BIN_K}
@@ -208,49 +121,132 @@ class ImageProcessor:
 
         return img
 
-    def process(
-        self,
-        image: Image.Image,
-        scan_type: str,
-        resize: bool = False,
-        remove_ink: bool = False,
-        illuminate: bool = False,
-        binarize: bool = False,
-    ) -> Image.Image:
-        """Apply a series of image processing operations.
+    @staticmethod
+    def to_grayscale(img: np.ndarray) -> np.ndarray:
+        """Convert BGR image to grayscale.
 
         Args:
-            image: Input PIL Image.
-            scan_type: Type of scan ('bw', 'gray', or 'color').
-            resize: Whether to resize the image.
-            remove_ink: Whether to remove blue ink marks.
-            illuminate: Whether to adjust image luminance.
-            binarize: Whether to binarize the image.
+            img: Input image in BGR format.
 
         Returns:
-            Processed PIL Image.
-
-        Raises:
-            ValueError: If scan_type is invalid.
+            Grayscale image.
         """
-        if scan_type not in self.scan_types:
-            raise ValueError(f"Scan type must be one of {self.scan_types}")
+        return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    @staticmethod
+    def denoise(
+        img: np.ndarray,
+        d: int = 5,
+        sigma_color: float = 75,
+        sigma_space: float = 75,
+    ) -> np.ndarray:
+        """Apply bilateral filter for edge-preserving denoising.
 
-        if resize:
-            img = self.resize_image(img)
+        Args:
+            img: Input grayscale image.
+            d: Diameter of pixel neighborhood.
+            sigma_color: Filter sigma in color space.
+            sigma_space: Filter sigma in coordinate space.
 
-        if remove_ink:
-            img = self.remove_color(img)
+        Returns:
+            Denoised image.
+        """
+        return cv2.bilateralFilter(img, d=d, sigmaColor=sigma_color, sigmaSpace=sigma_space)
 
-        if illuminate:
-            img = self.illuminate_image(img)
+    @staticmethod
+    def apply_clahe(
+        img: np.ndarray,
+        clip_limit: float = 2.0,
+        tile_size: tuple[int, int] = (8, 8),
+    ) -> np.ndarray:
+        """Apply CLAHE (Contrast Limited Adaptive Histogram Equalization).
 
-        if binarize and scan_type != "bw":
-            img = self.binarize_image(img)
+        Args:
+            img: Input grayscale image.
+            clip_limit: Threshold for contrast limiting.
+            tile_size: Size of grid for histogram equalization.
 
-        return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        Returns:
+            Contrast-enhanced image.
+        """
+        clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_size)
+        return clahe.apply(img)
+
+    @staticmethod
+    def adjust_contrast(
+        img: np.ndarray,
+        alpha: float = 1.3,
+        beta: float = -15,
+    ) -> np.ndarray:
+        """Adjust image contrast and brightness.
+
+        Args:
+            img: Input image.
+            alpha: Contrast control (1.0 means no change).
+            beta: Brightness control (0 means no change).
+
+        Returns:
+            Adjusted image.
+        """
+        return cv2.convertScaleAbs(img, alpha=alpha, beta=beta)
+
+    @staticmethod
+    def whiten_background(img: np.ndarray, threshold: int = 200) -> np.ndarray:
+        """Set bright pixels to white for clean background.
+
+        Args:
+            img: Input image (modified in place).
+            threshold: Brightness threshold.
+
+        Returns:
+            Image with whitened background.
+        """
+        result = img.copy()
+        result[result > threshold] = 255
+        return result
+
+    @staticmethod
+    def apply_wan_binarization(
+        img: np.ndarray,
+        window: int | None = None,
+        k: float = 0.2,
+    ) -> np.ndarray:
+        """Apply Wan adaptive binarization algorithm.
+
+        Args:
+            img: Input grayscale image.
+            window: Window size for local thresholding. If None, auto-calculated.
+            k: Sensitivity parameter.
+
+        Returns:
+            Binary image.
+        """
+        if window is None:
+            min_dim = min(img.shape)
+            window = max(15, min_dim // 20)
+            if window % 2 == 0:
+                window += 1
+
+        bin_img = np.empty(img.shape, img.dtype)
+        wan = doxapy.Binarization(doxapy.Binarization.Algorithms.WAN)  # ty: ignore[unresolved-attribute]
+        wan.initialize(img)
+        wan.to_binary(bin_img, {"window": window, "k": k})
+        return bin_img
+
+    @staticmethod
+    def apply_morphology(img: np.ndarray, kernel_size: int = 2) -> np.ndarray:
+        """Apply morphological open then close operations.
+
+        Args:
+            img: Input binary image.
+            kernel_size: Size of structuring element.
+
+        Returns:
+            Morphologically processed image.
+        """
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
+        opened = cv2.morphologyEx(img, cv2.MORPH_OPEN, kernel)
+        return cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel)
 
 
 class ImageCropper:
@@ -388,3 +384,79 @@ class ImageCropper:
         bg_img = self._paste_on_white_background(warped_img, tr_pts, width, height)
 
         return Image.fromarray(cv2.cvtColor(bg_img, cv2.COLOR_BGR2RGB))
+
+
+def _preprocess_segment(segment_bgr: np.ndarray) -> np.ndarray:
+    """Apply standard preprocessing pipeline for segments.
+
+    Pipeline: remove_color → to_grayscale → denoise → apply_clahe
+
+    Args:
+        segment_bgr: Input segment in BGR format.
+
+    Returns:
+        Preprocessed grayscale image.
+    """
+    processor = ImageProcessor()
+    no_blue = processor.remove_color(segment_bgr)
+    gray = processor.to_grayscale(no_blue)
+    denoised = processor.denoise(gray)
+    return processor.apply_clahe(denoised)
+
+
+def enhance_segment(segment_bgr: np.ndarray) -> np.ndarray:
+    """Enhance segment for better readability.
+
+    Args:
+        segment_bgr: Input segment in BGR format.
+
+    Returns:
+        Enhanced grayscale image.
+    """
+    processor = ImageProcessor()
+    result = _preprocess_segment(segment_bgr)
+    result = processor.adjust_contrast(result)
+    return processor.whiten_background(result)
+
+
+def binarize_segment(
+    segment_bgr: np.ndarray,
+    use_morphology: bool = False,
+) -> np.ndarray:
+    """Binarize segment using Wan algorithm.
+
+    Args:
+        segment_bgr: Input segment in BGR format.
+        use_morphology: Whether to apply morphological operations.
+
+    Returns:
+        Binary image.
+    """
+    processor = ImageProcessor()
+    result = _preprocess_segment(segment_bgr)
+    result = processor.apply_wan_binarization(result)
+    if use_morphology:
+        result = processor.apply_morphology(result)
+    return result
+
+
+def prepare_image(
+    image: Image.Image,
+    max_height: int = DEFAULT_MAX_HEIGHT,
+) -> Image.Image:
+    """Convert PIL image to BGR, optionally resize, and return as PIL RGB.
+
+    Args:
+        image: Input PIL Image.
+        max_height: Maximum allowed height. If 0, no resizing.
+
+    Returns:
+        Prepared PIL Image in RGB format.
+    """
+    img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+
+    if max_height > 0:
+        processor = ImageProcessor()
+        img = processor.resize_image(img, max_height)
+
+    return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
