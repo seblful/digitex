@@ -31,15 +31,8 @@ class PageExtractor:
         render_scale: int,
         image_format: str,
         preprocess: str | None = None,
+        ocr_language: str = "rus",
     ) -> None:
-        """Initialize the page extractor.
-
-        Args:
-            model_path: Path to YOLO model.
-            render_scale: PDF render scale factor.
-            image_format: Output image format.
-            preprocess: Preprocessing mode: None, "enhance", or "binarize".
-        """
         self.model_path = model_path
         self.render_scale = render_scale
         self.image_format = image_format
@@ -48,7 +41,7 @@ class PageExtractor:
         self._predictor: YOLO_SegmentationPredictor | None = None
         self._image_cropper = ImageCropper()
         self._segment_handler = SegmentHandler()
-        self._text_extractor = TextExtractor()
+        self._text_extractor = TextExtractor(language=ocr_language)
 
     @property
     def predictor(self) -> YOLO_SegmentationPredictor:

@@ -7,8 +7,6 @@ from typing import Final
 import pytesseract
 from PIL import Image
 
-from digitex.config import get_settings
-
 logger = logging.getLogger(__name__)
 
 _TESSERACT_CONFIG_DEFAULT: Final = "--psm 7 --oem 1"
@@ -18,19 +16,11 @@ _TESSERACT_CONFIG_DIGITS: Final = f"{_TESSERACT_CONFIG_DEFAULT} -c tessedit_char
 class TextExtractor:
     """Extract text from images using OCR."""
 
-    def __init__(self, language: str | None = None) -> None:
-        """Initialize the text extractor.
-
-        Args:
-            language: Tesseract language code. If None, uses settings default.
-        """
+    def __init__(self, language: str = "rus") -> None:
         self._language = language
 
     @property
     def language(self) -> str:
-        """Get the OCR language code."""
-        if self._language is None:
-            return get_settings().ocr.language
         return self._language
 
     def extract_text(

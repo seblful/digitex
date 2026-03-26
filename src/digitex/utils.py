@@ -11,8 +11,6 @@ from digitex.core.processors import ImageProcessor
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_HEIGHT = 2000
-
 
 def get_device() -> torch.device:
     """Get the best available device for PyTorch operations.
@@ -48,7 +46,7 @@ def get_device_indices() -> list[int]:
 
 def prepare_image(
     image: Image.Image,
-    max_height: int = DEFAULT_MAX_HEIGHT,
+    max_height: int = 2000,
 ) -> Image.Image:
     """Convert PIL image to BGR, optionally resize, and return as PIL RGB.
 

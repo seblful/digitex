@@ -21,17 +21,8 @@ class TestsExtractor:
         books_dir: Path,
         extraction_dir: Path,
         preprocess: str | None = None,
+        ocr_language: str = "rus",
     ) -> None:
-        """Initialize the tests extractor.
-
-        Args:
-            model_path: Path to YOLO model.
-            render_scale: PDF render scale factor.
-            image_format: Output image format.
-            books_dir: Directory containing subject folders.
-            extraction_dir: Output directory.
-            preprocess: Preprocessing mode: None, "enhance", or "binarize".
-        """
         self.books_dir = books_dir
         self.extraction_dir = extraction_dir
 
@@ -40,6 +31,7 @@ class TestsExtractor:
             render_scale=render_scale,
             image_format=image_format,
             preprocess=preprocess,
+            ocr_language=ocr_language,
         )
 
     def extract_all(self) -> None:

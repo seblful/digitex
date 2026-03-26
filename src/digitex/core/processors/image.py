@@ -9,13 +9,6 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LOWER_BLUE = np.array([70, 30, 30])
-DEFAULT_UPPER_BLUE = np.array([130, 255, 255])
-DEFAULT_BIN_WINDOW = 30
-DEFAULT_BIN_K = 0.16
-DEFAULT_MAX_HEIGHT = 2000
-DEFAULT_BORDER_MULTIPLIER = 5
-
 
 class ImageProcessor:
     """Processor for image enhancement and transformation operations.
@@ -24,11 +17,18 @@ class ImageProcessor:
     color removal, binarization, resizing, and illumination adjustments.
     """
 
-    def __init__(self) -> None:
-        """Initialize the ImageProcessor with default parameters."""
-        self.lower_blue = DEFAULT_LOWER_BLUE
-        self.upper_blue = DEFAULT_UPPER_BLUE
-        self.bin_params = {"window": DEFAULT_BIN_WINDOW, "k": DEFAULT_BIN_K}
+    def __init__(
+        self,
+        lower_blue: np.ndarray | None = None,
+        upper_blue: np.ndarray | None = None,
+        bin_window: int = 30,
+        bin_k: float = 0.16,
+        border_multiplier: int = 5,
+    ) -> None:
+        self.lower_blue = lower_blue if lower_blue is not None else np.array([70, 30, 30])
+        self.upper_blue = upper_blue if upper_blue is not None else np.array([130, 255, 255])
+        self.bin_params = {"window": bin_window, "k": bin_k}
+        self.border_multiplier = border_multiplier
 
     def remove_color(self, img: np.ndarray) -> np.ndarray:
         """Remove blue color regions from an image using inpainting.
@@ -44,7 +44,7 @@ class ImageProcessor:
         mask = cv2.inRange(hsv, self.lower_blue, self.upper_blue)
 
         kernel = np.ones(
-            (DEFAULT_BORDER_MULTIPLIER, DEFAULT_BORDER_MULTIPLIER), np.uint8
+            (self.border_multiplier, self.border_multiplier), np.uint8
         )
         mask = cv2.dilate(mask, kernel, iterations=1)
 
@@ -99,7 +99,7 @@ class ImageProcessor:
     def resize_image(
         self,
         img: np.ndarray,
-        max_height: int = DEFAULT_MAX_HEIGHT,
+        max_height: int = 2000,
     ) -> np.ndarray:
         """Resize image to fit within maximum height while maintaining aspect ratio.
 

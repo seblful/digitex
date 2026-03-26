@@ -21,20 +21,14 @@ class BookExtractor:
         render_scale: int,
         image_format: str,
         preprocess: str | None = None,
+        ocr_language: str = "rus",
     ) -> None:
-        """Initialize the book extractor.
-
-        Args:
-            model_path: Path to YOLO model.
-            render_scale: PDF render scale factor.
-            image_format: Output image format.
-            preprocess: Preprocessing mode: None, "enhance", or "binarize".
-        """
         self._page_extractor = PageExtractor(
             model_path=model_path,
             render_scale=render_scale,
             image_format=image_format,
             preprocess=preprocess,
+            ocr_language=ocr_language,
         )
         self._pdf_handler = PDFHandler()
         self.render_scale = render_scale

@@ -1,5 +1,4 @@
 import logging
-from pathlib import Path
 
 import typer
 from digitex.config import get_settings
@@ -24,24 +23,7 @@ def setup_logging() -> None:
 
 def get_training_defaults():
     """Get default training parameters from settings."""
-    settings = get_settings()
-    return settings.training
-
-
-def get_paths(data_subdir: str = "page"):
-    """Get common paths for training commands."""
-    settings = get_settings()
-    home = Path.cwd()
-    training_dir = settings.paths.training_dir or home / "training"
-    data_dir = training_dir / "data" / data_subdir
-    return {
-        "home": home,
-        "training_dir": training_dir,
-        "data_dir": data_dir,
-        "raw_dir": data_dir / "raw-data",
-        "dataset_dir": data_dir / "dataset",
-        "check_images_dir": data_dir / "check-images",
-    }
+    return get_settings().training
 
 
 @app.command()
@@ -61,25 +43,29 @@ def create_data(
     vis_images: int = typer.Option(50, "--vis-images", help="Images to visualize"),
 ) -> None:
     """Create training dataset from raw data."""
-    paths = get_paths(data_subdir)
+    paths = get_settings().paths
+    data_dir = paths.data_dir / data_subdir
+    raw_dir = data_dir / "raw-data"
+    dataset_dir = data_dir / "dataset"
+    check_images_dir = data_dir / "check-images"
 
     dataset_creator = DatasetCreator(
-        raw_dir=paths["raw_dir"],
-        dataset_dir=paths["dataset_dir"],
+        raw_dir=raw_dir,
+        dataset_dir=dataset_dir,
         train_split=train_split,
     )
     dataset_creator.create(anns_type=anns_type)
 
     if augment:
         augmenter = PolygonAugmenter(
-            raw_dir=str(paths["raw_dir"]), dataset_dir=str(paths["dataset_dir"])
+            raw_dir=str(raw_dir), dataset_dir=str(dataset_dir)
         )
         augmenter.augment(num_images=aug_images)
 
     if visualize:
         visualizer = PolygonVisualizer(
-            dataset_dir=str(paths["dataset_dir"]),
-            check_images_dir=str(paths["check_images_dir"]),
+            dataset_dir=str(dataset_dir),
+            check_images_dir=str(check_images_dir),
         )
         visualizer.visualize(num_images=vis_images)
 
@@ -92,15 +78,17 @@ def prepare_train_data(
     ),
 ) -> None:
     """Prepare training data by creating PDFs and extracting pages."""
-    settings = get_settings()
-    home = Path.cwd()
-    training_dir = settings.paths.training_dir or home / "training"
+    s = get_settings()
+    paths = s.paths
+    home = paths.home_dir
+    training_dir = paths.training_dir
+    data_dir = training_dir / "data" / data_subdir
+
+    images_dir = data_dir / "books"
+    page_train_dir = data_dir / "images"
     books_dir = home / "books"
 
-    images_dir = training_dir / "data" / data_subdir / "books"
-    page_train_dir = training_dir / "data" / data_subdir / "images"
-
-    page_creator = PageDataCreator(scale=settings.extraction.render_scale)
+    page_creator = PageDataCreator(scale=s.extraction.render_scale)
 
     for image_dir in images_dir.iterdir():
         create_pdf_from_images(image_dir=image_dir, raw_dir=books_dir)
@@ -152,10 +140,10 @@ def train(
     patience = patience or train_defaults.patience
     seed = seed or train_defaults.seed
 
-    settings = get_settings()
-    data_dir = settings.paths.training_dir / "data" / data_subdir
+    paths = get_settings().paths
+    data_dir = paths.data_dir / data_subdir
     dataset_dir = data_dir / "dataset"
-    project_dir = settings.paths.training_dir / "runs"
+    project_dir = paths.training_dir / "runs"
 
     logger.info("Starting YOLO training")
     logger.info(f"Data directory: {data_dir}")
