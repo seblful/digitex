@@ -1,12 +1,38 @@
 import logging
 from pathlib import Path
 
+import cv2
+import numpy as np
 from PIL import Image
 
 from digitex.core.handlers import PDFHandler
-from digitex.core.processors import prepare_image
+from digitex.core.processors import ImageProcessor
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_MAX_HEIGHT = 2000
+
+
+def prepare_image(
+    image: Image.Image,
+    max_height: int = DEFAULT_MAX_HEIGHT,
+) -> Image.Image:
+    """Convert PIL image to BGR, optionally resize, and return as PIL RGB.
+
+    Args:
+        image: Input PIL Image.
+        max_height: Maximum allowed height. If 0, no resizing.
+
+    Returns:
+        Prepared PIL Image in RGB format.
+    """
+    img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+
+    if max_height > 0:
+        processor = ImageProcessor()
+        img = processor.resize_image(img, max_height)
+
+    return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
 
 
 def create_pdf_from_images(

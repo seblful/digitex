@@ -6,7 +6,8 @@ import pytest
 import numpy as np
 from PIL import Image
 
-from digitex.core.processors import FileProcessor, ImageProcessor, prepare_image
+from digitex.core.processors import FileProcessor, ImageProcessor
+from digitex.utils import prepare_image
 
 
 class TestImageProcessor:

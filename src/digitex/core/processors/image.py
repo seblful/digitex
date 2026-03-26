@@ -386,77 +386,66 @@ class ImageCropper:
         return Image.fromarray(cv2.cvtColor(bg_img, cv2.COLOR_BGR2RGB))
 
 
-def _preprocess_segment(segment_bgr: np.ndarray) -> np.ndarray:
-    """Apply standard preprocessing pipeline for segments.
+class SegmentHandler:
+    """Handler for image segment enhancement and binarization.
 
-    Pipeline: remove_color → to_grayscale → denoise → apply_clahe
-
-    Args:
-        segment_bgr: Input segment in BGR format.
-
-    Returns:
-        Preprocessed grayscale image.
+    Uses ImageProcessor methods to process image segments with a shared
+    preprocessing pipeline: remove_color → to_grayscale → denoise → apply_clahe.
     """
-    processor = ImageProcessor()
-    no_blue = processor.remove_color(segment_bgr)
-    gray = processor.to_grayscale(no_blue)
-    denoised = processor.denoise(gray)
-    return processor.apply_clahe(denoised)
 
+    def __init__(self, image_processor: ImageProcessor | None = None) -> None:
+        """Initialize SegmentHandler.
 
-def enhance_segment(segment_bgr: np.ndarray) -> np.ndarray:
-    """Enhance segment for better readability.
+        Args:
+            image_processor: Optional ImageProcessor instance. If None, creates one.
+        """
+        self._processor = image_processor or ImageProcessor()
 
-    Args:
-        segment_bgr: Input segment in BGR format.
+    def preprocess(self, segment_bgr: np.ndarray) -> np.ndarray:
+        """Apply standard preprocessing pipeline for segments.
 
-    Returns:
-        Enhanced grayscale image.
-    """
-    processor = ImageProcessor()
-    result = _preprocess_segment(segment_bgr)
-    result = processor.adjust_contrast(result)
-    return processor.whiten_background(result)
+        Pipeline: remove_color → to_grayscale → denoise → apply_clahe
 
+        Args:
+            segment_bgr: Input segment in BGR format.
 
-def binarize_segment(
-    segment_bgr: np.ndarray,
-    use_morphology: bool = False,
-) -> np.ndarray:
-    """Binarize segment using Wan algorithm.
+        Returns:
+            Preprocessed grayscale image.
+        """
+        no_blue = self._processor.remove_color(segment_bgr)
+        gray = self._processor.to_grayscale(no_blue)
+        denoised = self._processor.denoise(gray)
+        return self._processor.apply_clahe(denoised)
 
-    Args:
-        segment_bgr: Input segment in BGR format.
-        use_morphology: Whether to apply morphological operations.
+    def enhance(self, segment_bgr: np.ndarray) -> np.ndarray:
+        """Enhance segment for better readability.
 
-    Returns:
-        Binary image.
-    """
-    processor = ImageProcessor()
-    result = _preprocess_segment(segment_bgr)
-    result = processor.apply_wan_binarization(result)
-    if use_morphology:
-        result = processor.apply_morphology(result)
-    return result
+        Args:
+            segment_bgr: Input segment in BGR format.
 
+        Returns:
+            Enhanced grayscale image with brightened background.
+        """
+        result = self.preprocess(segment_bgr)
+        result = self._processor.adjust_contrast(result)
+        return self._processor.whiten_background(result)
 
-def prepare_image(
-    image: Image.Image,
-    max_height: int = DEFAULT_MAX_HEIGHT,
-) -> Image.Image:
-    """Convert PIL image to BGR, optionally resize, and return as PIL RGB.
+    def binarize(
+        self,
+        segment_bgr: np.ndarray,
+        use_morphology: bool = False,
+    ) -> np.ndarray:
+        """Binarize segment using Wan algorithm.
 
-    Args:
-        image: Input PIL Image.
-        max_height: Maximum allowed height. If 0, no resizing.
+        Args:
+            segment_bgr: Input segment in BGR format.
+            use_morphology: Whether to apply morphological operations.
 
-    Returns:
-        Prepared PIL Image in RGB format.
-    """
-    img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-
-    if max_height > 0:
-        processor = ImageProcessor()
-        img = processor.resize_image(img, max_height)
-
-    return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        Returns:
+            Binary image.
+        """
+        result = self.preprocess(segment_bgr)
+        result = self._processor.apply_wan_binarization(result)
+        if use_morphology:
+            result = self._processor.apply_morphology(result)
+        return result
