@@ -7,41 +7,7 @@ import pytest
 import numpy as np
 from PIL import Image
 
-from digitex.core.handlers import ImageHandler, LabelHandler, PDFHandler
-
-
-class TestImageHandler:
-    """Test suite for ImageHandler class."""
-
-    def test_crop_image(self) -> None:
-        """Test cropping an image with polygon."""
-        import numpy as np
-
-        handler = ImageHandler()
-        img = Image.new('RGB', (100, 100), color='red')
-
-        points = [0.2, 0.2, 0.8, 0.2, 0.8, 0.8, 0.2, 0.8]
-        cropped = handler.crop_image(img, points, offset=0.0)
-
-        assert isinstance(cropped, Image.Image)
-        assert cropped.mode == 'RGB'
-        assert cropped.size[0] < 100
-        assert cropped.size[1] < 100
-
-    def test_crop_image_invalid_points(self) -> None:
-        """Test crop_image with invalid points."""
-        handler = ImageHandler()
-        img = Image.new('RGB', (100, 100), color='red')
-
-        with pytest.raises(ValueError, match="Points list must contain an even number"):
-            handler.crop_image(img, [0.1, 0.2, 0.3])
-
-    def test_get_random_image_file_not_found(self, tmp_path: Path) -> None:
-        """Test get_random_image with non-existent file."""
-        handler = ImageHandler()
-
-        with pytest.raises(FileNotFoundError):
-            handler.get_random_image(["nonexistent.jpg"], str(tmp_path))
+from digitex.core.handlers import LabelHandler, PDFHandler
 
 
 class TestLabelHandler:
@@ -124,4 +90,4 @@ class TestPDFHandler:
         handler = PDFHandler()
 
         with pytest.raises(FileNotFoundError):
-            handler.get_random_image(["nonexistent.pdf"], tmp_path)
+            handler.get_random_image(["nonexistent.pdf"], tmp_path, scale=3)

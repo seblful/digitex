@@ -6,6 +6,8 @@ import torch
 from ultralytics import YOLO
 from ultralytics.engine.model import Model
 
+from digitex.utils import get_device_indices
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,22 +65,17 @@ class Trainer:
         self.patience = patience
         self.seed = seed
 
-        if torch.cuda.is_available():
-            self.device = 'cuda'
-            logger.info("CUDA device detected")
-        else:
-            self.device = 'cpu'
-            logger.info("Using CPU device")
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        logger.info(f"Using {self.device} device")
 
-        self.device_count = torch.cuda.device_count()
-        self.device_idxs = [i for i in range(self.device_count)]
-        logger.info(f"Device count: {self.device_count}, devices: {self.device_idxs}")
+        self.device_idxs = get_device_indices()
+        logger.info(f"Device count: {len(self.device_idxs)}, devices: {self.device_idxs}")
 
         self.pretrained_model_path = str(pretrained_model_path) if pretrained_model_path else None
         self.model_yaml = f"yolo26{model_size}-{model_type}.yaml"
         self.model_pt = f"yolo26{model_size}-{model_type}.pt"
 
-        self.__model: Model | None = None
+        self._model: Model | None = None
         self.is_trained = False
 
     @property
@@ -91,7 +88,7 @@ class Trainer:
         Raises:
             RuntimeError: If the model cannot be loaded.
         """
-        if self.__model is None:
+        if self._model is None:
             try:
                 if self.pretrained_model_path is None:
                     model = YOLO(self.model_yaml).load(self.model_pt)
@@ -100,11 +97,11 @@ class Trainer:
                     model = YOLO(self.pretrained_model_path)
                     logger.info(f"Loaded custom pretrained model: {self.pretrained_model_path}")
 
-                self.__model = model
+                self._model = model
             except Exception as e:
                 raise RuntimeError(f"Failed to load YOLO model: {e}")
 
-        return self.__model  # type: ignore[return-value]
+        return self._model  # type: ignore[return-value]
 
     @property
     def data(self) -> str:

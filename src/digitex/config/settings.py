@@ -40,6 +40,17 @@ class ExtractionSettings(BaseSettings):
     )
 
 
+class OCRSettings(BaseSettings):
+    """OCR settings."""
+
+    model_config = SettingsConfigDict(env_prefix="OCR_")
+
+    language: str = Field(
+        default="rus",
+        description="Tesseract OCR language code (e.g., 'rus', 'eng', 'eng+rus')",
+    )
+
+
 class DatabaseSettings(BaseSettings):
     """Database connection settings."""
 
@@ -142,6 +153,7 @@ class Settings(BaseSettings):
     training: TrainingSettings = Field(default_factory=TrainingSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)
     extraction: ExtractionSettings = Field(default_factory=ExtractionSettings)
+    ocr: OCRSettings = Field(default_factory=OCRSettings)
 
     @classmethod
     def load(cls) -> Self:

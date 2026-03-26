@@ -3,6 +3,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import torch
 from PIL import Image
 
 from digitex.core.handlers import PDFHandler
@@ -11,6 +12,38 @@ from digitex.core.processors import ImageProcessor
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_HEIGHT = 2000
+
+
+def get_device() -> torch.device:
+    """Get the best available device for PyTorch operations.
+
+    Returns:
+        torch.device: CUDA device if available, otherwise CPU.
+    """
+    if torch.cuda.is_available():
+        logger.debug("CUDA device available")
+        return torch.device("cuda")
+    logger.debug("Using CPU device")
+    return torch.device("cpu")
+
+
+def get_device_count() -> int:
+    """Get the number of available CUDA devices.
+
+    Returns:
+        int: Number of CUDA devices (0 if none available).
+    """
+    return torch.cuda.device_count()
+
+
+def get_device_indices() -> list[int]:
+    """Get list of available device indices.
+
+    Returns:
+        list[int]: List of device indices (empty list if no CUDA devices).
+    """
+    count = get_device_count()
+    return list(range(count))
 
 
 def prepare_image(

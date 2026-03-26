@@ -1,14 +1,13 @@
 """PDF handling utilities."""
 
 import logging
+import random
 from pathlib import Path
 
 import pypdfium2 as pdfium
 from PIL import Image
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_RENDER_SCALE = 3
 
 
 class PDFHandler:
@@ -50,7 +49,7 @@ class PDFHandler:
     def get_page_image(
         self,
         page: pdfium.PdfPage,
-        scale: int = DEFAULT_RENDER_SCALE,
+        scale: int,
     ) -> Image.Image:
         """Render a PDF page to a PIL Image.
 
@@ -69,12 +68,14 @@ class PDFHandler:
         self,
         pdf_listdir: list[str],
         pdf_dir: str | Path,
+        scale: int,
     ) -> tuple[Image.Image, str, int]:
         """Get a random page from a random PDF in the directory.
 
         Args:
             pdf_listdir: List of PDF filenames.
             pdf_dir: Directory containing the PDF files.
+            scale: Rendering scale factor (higher = better quality).
 
         Returns:
             Tuple of (image, image_name, page_index).
@@ -83,8 +84,6 @@ class PDFHandler:
             FileNotFoundError: If the PDF file doesn't exist.
             IOError: If the PDF cannot be read.
         """
-        import random
-
         pdf_dir = Path(pdf_dir)
 
         rand_pdf_name = random.choice(pdf_listdir)
@@ -98,7 +97,7 @@ class PDFHandler:
         rand_page_idx = random.randint(0, len(rand_pdf_obj) - 1)
         rand_page = rand_pdf_obj[rand_page_idx]
 
-        rand_image = self.get_page_image(page=rand_page)
+        rand_image = self.get_page_image(page=rand_page, scale=scale)
         rand_image_name = rand_pdf_path.stem + ".jpg"
 
         rand_pdf_obj.close()

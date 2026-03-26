@@ -7,6 +7,8 @@ from PIL import Image
 from ultralytics import YOLO  # type: ignore[import-untyped]
 from ultralytics.engine.results import Results
 
+from digitex.utils import get_device
+
 from .abstract_predictor import Predictor
 from .prediction_result import SegmentationPredictionResult
 
@@ -26,10 +28,10 @@ class YOLO_SegmentationPredictor(Predictor):
             FileNotFoundError: If model_path doesn't exist.
         """
         self.model_path = model_path
+        self.device = get_device()
         if not torch.cuda.is_available():
             logger.info("CUDA not available, using CPU")
-        self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-        self.__model: YOLO | None = None
+        self._model: YOLO | None = None
 
     @property
     def model(self) -> YOLO:
@@ -41,14 +43,14 @@ class YOLO_SegmentationPredictor(Predictor):
         Raises:
             RuntimeError: If the model cannot be loaded.
         """
-        if self.__model is None:
+        if self._model is None:
             try:
-                self.__model = YOLO(self.model_path, verbose=False)
+                self._model = YOLO(self.model_path, verbose=False)
                 logger.info(f"Model loaded successfully from {self.model_path}")
             except Exception as e:
                 raise RuntimeError(f"Failed to load model from {self.model_path}: {e}")
 
-        return self.__model
+        return self._model
 
     def preprocess_image(self, image: Image.Image) -> np.ndarray:
         """Preprocess a PIL Image for YOLO prediction.

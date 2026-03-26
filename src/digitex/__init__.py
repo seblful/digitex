@@ -2,7 +2,7 @@
 
 from .config import get_settings
 from .creators import PageDataCreator
-from .core.handlers import ImageHandler, LabelHandler, PDFHandler
+from .core.handlers import LabelHandler, PDFHandler
 from .core.processors import FileProcessor, ImageProcessor
 from .extractors import BookExtractor, PageExtractor, TestsExtractor
 from .ml import Predictor, Trainer
@@ -10,7 +10,6 @@ from .ml import Predictor, Trainer
 __all__ = [
     "get_settings",
     "PageDataCreator",
-    "ImageHandler",
     "LabelHandler",
     "PDFHandler",
     "FileProcessor",

@@ -17,8 +17,13 @@ logger = logging.getLogger(__name__)
 class PageDataCreator:
     """Creator for extracting and processing random pages from PDFs."""
 
-    def __init__(self) -> None:
-        """Initialize the PageDataCreator with required handlers."""
+    def __init__(self, scale: int = 3) -> None:
+        """Initialize the PageDataCreator with required handlers.
+
+        Args:
+            scale: PDF rendering scale factor (higher = better quality).
+        """
+        self.scale = scale
         self.image_processor = ImageProcessor()
         self.pdf_handler = PDFHandler()
 
@@ -98,6 +103,7 @@ class PageDataCreator:
                 self.pdf_handler.get_random_image(
                     pdf_listdir=pdf_listdir,
                     pdf_dir=pdf_dir,
+                    scale=self.scale,
                 )
             )
             rand_image = self._process_image(rand_image)
