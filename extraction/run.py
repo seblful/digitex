@@ -15,11 +15,15 @@ app = typer.Typer()
 
 
 @app.command()
-def extract(preprocess: str | None = "enhance") -> None:
+def extract(
+    preprocess: str | None = "threshold",
+    bg_threshold: int = 200,
+) -> None:
     """Extract question images from all PDF books.
 
     Args:
         preprocess: Preprocessing mode: None, "enhance", "binarize", "grabcut", or "threshold".
+        bg_threshold: Threshold for background removal (0-255, lower = more transparent).
     """
     settings = get_settings()
     extractor = TestsExtractor(
@@ -29,6 +33,7 @@ def extract(preprocess: str | None = "enhance") -> None:
         books_dir=settings.extraction.books_dir,
         extraction_dir=settings.extraction.extraction_dir,
         preprocess=preprocess,
+        bg_threshold=bg_threshold,
     )
     extractor.extract_all()
 

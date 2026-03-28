@@ -241,8 +241,8 @@ class TestSegmentHandler:
         img = np.ones((50, 50, 3), dtype=np.uint8) * 100
 
         with patch.object(handler._processor, "remove_bg_threshold", wraps=handler._processor.remove_bg_threshold) as mock:
-            result = handler.remove_bg_threshold(img)
-            mock.assert_called_once_with(img)
+            result = handler.remove_bg_threshold(img, threshold=200)
+            mock.assert_called_once_with(img, 200)
             assert result.shape == (50, 50, 4)
 
 

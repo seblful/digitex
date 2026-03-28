@@ -32,11 +32,13 @@ class PageExtractor:
         image_format: str,
         preprocess: str | None = None,
         ocr_language: str = "rus",
+        bg_threshold: int = 200,
     ) -> None:
         self.model_path = model_path
         self.render_scale = render_scale
         self.image_format = image_format
         self.preprocess = preprocess
+        self.bg_threshold = bg_threshold
 
         self._predictor: YOLO_SegmentationPredictor | None = None
         self._image_cropper = ImageCropper()
@@ -83,7 +85,7 @@ class PageExtractor:
                 cropped = Image.fromarray(cv2.cvtColor(processed, cv2.COLOR_BGRA2RGBA))
                 output_path = output_path.with_suffix(".png")
             elif self.preprocess == "threshold":
-                processed = self._segment_handler.remove_bg_threshold(cropped_arr)
+                processed = self._segment_handler.remove_bg_threshold(cropped_arr, self.bg_threshold)
                 cropped = Image.fromarray(cv2.cvtColor(processed, cv2.COLOR_BGRA2RGBA))
                 output_path = output_path.with_suffix(".png")
             else:

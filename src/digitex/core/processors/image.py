@@ -534,13 +534,14 @@ class SegmentHandler:
         """
         return self._processor.remove_bg_grabcut(segment_bgr)
 
-    def remove_bg_threshold(self, segment_bgr: np.ndarray) -> np.ndarray:
+    def remove_bg_threshold(self, segment_bgr: np.ndarray, threshold: int = 200) -> np.ndarray:
         """Remove background using white-pixel threshold.
 
         Args:
             segment_bgr: Input segment in BGR format.
+            threshold: Brightness threshold (0-255). Pixels brighter than threshold become transparent.
 
         Returns:
             4-channel BGRA image with transparent background.
         """
-        return self._processor.remove_bg_threshold(segment_bgr)
+        return self._processor.remove_bg_threshold(segment_bgr, threshold)
