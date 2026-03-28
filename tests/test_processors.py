@@ -63,6 +63,19 @@ class TestImageProcessor:
         assert result.mode == 'RGB'
         assert result.size == (1000, 1000)
 
+    def test_remove_bg_grabcut_returns_bgra(self) -> None:
+        """Test remove_bg_grabcut returns 4-channel BGRA image with non-trivial alpha."""
+        processor = ImageProcessor()
+        img = np.ones((100, 100, 3), dtype=np.uint8) * 255
+        img[20:80, 20:80] = [50, 50, 50]
+        result = processor.remove_bg_grabcut(img)
+
+        assert result.shape == (100, 100, 4)
+        assert result.dtype == np.uint8
+        alpha = result[:, :, 3]
+        assert not np.all(alpha == 0)
+        assert not np.all(alpha == 255)
+
 
 class TestFileProcessor:
     """Test suite for FileProcessor class."""

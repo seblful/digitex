@@ -248,6 +248,31 @@ class ImageProcessor:
         opened = cv2.morphologyEx(img, cv2.MORPH_OPEN, kernel)
         return cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel)
 
+    @staticmethod
+    def remove_bg_grabcut(
+        image_bgr: np.ndarray,
+        iter_count: int = 5,
+    ) -> np.ndarray:
+        """Remove background using GrabCut algorithm.
+
+        Args:
+            image_bgr: Input image in BGR format.
+            iter_count: Number of GrabCut iterations.
+
+        Returns:
+            4-channel BGRA image with transparent background.
+        """
+        mask = np.zeros(image_bgr.shape[:2], np.uint8)
+        bgd_model = np.zeros((1, 65), np.float64)
+        fgd_model = np.zeros((1, 65), np.float64)
+        rect = (1, 1, image_bgr.shape[1] - 2, image_bgr.shape[0] - 2)
+
+        cv2.grabCut(image_bgr, mask, rect, bgd_model, fgd_model, iter_count, cv2.GC_INIT_WITH_RECT)
+
+        binary_mask = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
+        b, g, r = cv2.split(image_bgr)
+        return cv2.merge([b, g, r, binary_mask])
+
 
 class ImageCropper:
     """Processor for image cropping operations using perspective transformations."""
