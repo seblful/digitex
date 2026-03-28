@@ -224,17 +224,21 @@ class SegmentProcessor:
         image: Image.Image,
         saturation_threshold: int = DEFAULT_SATURATION_THRESHOLD,
         bg_threshold: int = DEFAULT_BG_THRESHOLD,
+        gamma: float = DEFAULT_GAMMA,
     ) -> Image.Image:
-        """Apply color removal and background removal in sequence.
+        """Apply color removal, background removal, and darkness increase.
 
         Args:
             image: Input PIL Image.
             saturation_threshold: Max saturation to keep (higher = removes more colors).
             bg_threshold: Brightness threshold for background removal (higher = keeps more).
+            gamma: Gamma for darkness adjustment. < 1.0 darkens, 1.0 = no change.
 
         Returns:
-            Processed image with colored pixels and light background made transparent.
+            Processed image with colored pixels and light background made transparent,
+            then darkened for improved contrast.
         """
         result = SegmentProcessor.remove_color(image, saturation_threshold)
         result = SegmentProcessor.remove_bg_threshold(result, bg_threshold)
+        result = SegmentProcessor.increase_darkness(result, gamma)
         return result
