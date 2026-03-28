@@ -4,8 +4,8 @@ from .settings import (
     DatabaseSettings,
     ExtractionSettings,
     OCRSettings,
+    PDFSettings,
     PathsSettings,
-    ProcessingSettings,
     Settings,
     TrainingSettings,
     get_settings,
@@ -17,7 +17,7 @@ __all__ = [
     "DatabaseSettings",
     "ExtractionSettings",
     "OCRSettings",
+    "PDFSettings",
     "PathsSettings",
-    "ProcessingSettings",
     "TrainingSettings",
 ]

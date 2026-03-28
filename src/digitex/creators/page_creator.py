@@ -4,12 +4,9 @@ import logging
 import os
 from pathlib import Path
 
-import cv2
-import numpy as np
 from PIL import Image
 
 from digitex.core.handlers.pdf import PDFHandler
-from digitex.core.processors.image import ImageProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -24,21 +21,7 @@ class PageDataCreator:
             scale: PDF rendering scale factor (higher = better quality).
         """
         self.scale = scale
-        self.image_processor = ImageProcessor()
         self.pdf_handler = PDFHandler()
-
-    def _process_image(self, image: Image.Image) -> Image.Image:
-        """Remove blue color from an image.
-
-        Args:
-            image: Input PIL Image.
-
-        Returns:
-            Image with blue color removed.
-        """
-        img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        img = self.image_processor.remove_color(img)
-        return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
 
     def _save_image(
         self,
@@ -106,7 +89,6 @@ class PageDataCreator:
                     scale=self.scale,
                 )
             )
-            rand_image = self._process_image(rand_image)
             num_saved = self._save_image(
                 page_index=rand_page_idx,
                 output_dir=output_dir,

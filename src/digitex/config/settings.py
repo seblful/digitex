@@ -8,46 +8,6 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class ProcessingSettings(BaseSettings):
-    """Image processing parameters."""
-
-    model_config = SettingsConfigDict(env_prefix="PROCESSING_")
-
-    lower_blue: list[int] = Field(
-        default=[70, 30, 30],
-        description="Lower HSV bound for blue color removal",
-    )
-
-    upper_blue: list[int] = Field(
-        default=[130, 255, 255],
-        description="Upper HSV bound for blue color removal",
-    )
-
-    bin_window: int = Field(
-        default=30,
-        ge=1,
-        description="Window size for Wan binarization",
-    )
-
-    bin_k: float = Field(
-        default=0.16,
-        gt=0,
-        description="Sensitivity parameter for Wan binarization",
-    )
-
-    max_height: int = Field(
-        default=2000,
-        ge=0,
-        description="Maximum image height for resizing (0 = no resize)",
-    )
-
-    border_multiplier: int = Field(
-        default=5,
-        ge=1,
-        description="Kernel size multiplier for mask dilation",
-    )
-
-
 class ExtractionSettings(BaseSettings):
     """Image extraction settings."""
 
@@ -77,6 +37,18 @@ class ExtractionSettings(BaseSettings):
     image_format: str = Field(
         default="jpg",
         description="Output image format (jpg, png, etc.)",
+    )
+
+
+class PDFSettings(BaseSettings):
+    """PDF processing settings."""
+
+    model_config = SettingsConfigDict(env_prefix="PDF_")
+
+    max_height: int = Field(
+        default=2000,
+        ge=0,
+        description="Maximum image height for resizing (0 = no resize)",
     )
 
 
@@ -193,8 +165,8 @@ class Settings(BaseSettings):
     training: TrainingSettings = Field(default_factory=TrainingSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)
     extraction: ExtractionSettings = Field(default_factory=ExtractionSettings)
+    pdf: PDFSettings = Field(default_factory=PDFSettings)
     ocr: OCRSettings = Field(default_factory=OCRSettings)
-    processing: ProcessingSettings = Field(default_factory=ProcessingSettings)
 
     @classmethod
     def load(cls) -> Self:

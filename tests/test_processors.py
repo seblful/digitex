@@ -6,67 +6,49 @@ import pytest
 import numpy as np
 from PIL import Image
 
-from digitex.core.processors import FileProcessor, ImageProcessor, SegmentHandler
+from digitex.core.processors import FileProcessor, SegmentProcessor, resize_img, resize_image
 from digitex.extractors.page_extractor import PageExtractor
-from digitex.utils import prepare_image
 
 
-class TestImageProcessor:
-    """Test suite for ImageProcessor class."""
+class TestResizeImage:
+    """Test suite for resize_img function (numpy arrays)."""
 
-    def test_init(self) -> None:
-        """Test ImageProcessor initialization."""
-        processor = ImageProcessor()
-        assert processor.lower_blue is not None
-        assert processor.upper_blue is not None
-
-    def test_resize_image_smaller_than_max(self) -> None:
-        """Test resize_image when image is already smaller than max_height."""
-        processor = ImageProcessor()
+    def test_resize_img_smaller_than_max(self) -> None:
+        """Test resize_img when image is already smaller than max_height."""
         img = np.zeros((500, 500, 3), dtype=np.uint8)
-        result = processor.resize_image(img, max_height=1000)
+        result = resize_img(img, 1000)
 
         assert result.shape == (500, 500, 3)
 
-    def test_resize_image_larger_than_max(self) -> None:
-        """Test resize_image when image is larger than max_height."""
-        processor = ImageProcessor()
+    def test_resize_img_larger_than_max(self) -> None:
+        """Test resize_img when image is larger than max_height."""
         img = np.zeros((2000, 2000, 3), dtype=np.uint8)
-        result = processor.resize_image(img, max_height=1000)
+        result = resize_img(img, 1000)
 
         assert result.shape[0] == 1000
         assert result.shape[1] == 1000
 
-    def test_illuminate_image(self) -> None:
-        """Test illuminate_image."""
-        processor = ImageProcessor()
-        img = np.zeros((100, 100, 3), dtype=np.uint8)
-        result = processor.illuminate_image(img, alpha=2.0, beta=10)
-
-        assert result.shape == img.shape
-        assert result.dtype == img.dtype
-
-    def test_prepare_image_no_resize(self) -> None:
-        """Test prepare_image without resizing."""
-        img = Image.new('RGB', (100, 100))
-        result = prepare_image(img, max_height=0)
+    def test_resize_image_pil_no_resize(self) -> None:
+        """Test resize_image PIL without resizing."""
+        img = Image.new("RGB", (100, 100))
+        result = resize_image(img, 0)
 
         assert isinstance(result, Image.Image)
-        assert result.mode == 'RGB'
+        assert result.mode == "RGB"
         assert result.size == (100, 100)
 
-    def test_prepare_image_with_resize(self) -> None:
-        """Test prepare_image with resizing."""
-        img = Image.new('RGB', (2000, 2000))
-        result = prepare_image(img, max_height=1000)
+    def test_resize_image_pil_with_resize(self) -> None:
+        """Test resize_image PIL with resizing."""
+        img = Image.new("RGB", (2000, 2000))
+        result = resize_image(img, 1000)
 
         assert isinstance(result, Image.Image)
-        assert result.mode == 'RGB'
+        assert result.mode == "RGB"
         assert result.size == (1000, 1000)
 
     def test_remove_bg_threshold_returns_bgra(self) -> None:
         """Test remove_bg_threshold returns 4-channel BGRA with transparent bright pixels."""
-        processor = ImageProcessor()
+        processor = SegmentProcessor()
         img = np.ones((100, 100, 3), dtype=np.uint8) * 255
         img[20:80, 20:80] = [50, 50, 50]
         result = processor.remove_bg_threshold(img)
@@ -79,32 +61,36 @@ class TestImageProcessor:
 
     def test_remove_bg_threshold_empty_image(self) -> None:
         """Test remove_bg_threshold raises ValueError on empty image."""
-        processor = ImageProcessor()
+        processor = SegmentProcessor()
         img = np.array([], dtype=np.uint8).reshape(0, 0, 3)
         with pytest.raises(ValueError, match="Image is empty"):
             processor.remove_bg_threshold(img)
 
     def test_remove_bg_threshold_float32_image(self) -> None:
         """Test remove_bg_threshold raises ValueError on float32 image."""
-        processor = ImageProcessor()
+        processor = SegmentProcessor()
         img = np.ones((100, 100, 3), dtype=np.float32) * 255
         with pytest.raises(ValueError, match="Image must have dtype uint8"):
             processor.remove_bg_threshold(img)
 
     def test_remove_bg_threshold_wrong_channels(self) -> None:
         """Test remove_bg_threshold raises ValueError on wrong number of channels."""
-        processor = ImageProcessor()
+        processor = SegmentProcessor()
         img = np.ones((100, 100, 4), dtype=np.uint8)
         with pytest.raises(ValueError, match="Image must have 3 channels"):
             processor.remove_bg_threshold(img)
 
     def test_remove_bg_threshold_invalid_threshold(self) -> None:
         """Test remove_bg_threshold raises ValueError on invalid threshold."""
-        processor = ImageProcessor()
+        processor = SegmentProcessor()
         img = np.ones((100, 100, 3), dtype=np.uint8) * 255
-        with pytest.raises(ValueError, match="Threshold must be an integer in range 0-255"):
+        with pytest.raises(
+            ValueError, match="Threshold must be an integer in range 0-255"
+        ):
             processor.remove_bg_threshold(img, threshold=300)
-        with pytest.raises(ValueError, match="Threshold must be an integer in range 0-255"):
+        with pytest.raises(
+            ValueError, match="Threshold must be an integer in range 0-255"
+        ):
             processor.remove_bg_threshold(img, threshold=-1)
 
 
@@ -158,19 +144,16 @@ class TestFileProcessor:
 
 
 class TestSegmentHandler:
-    """Test suite for SegmentHandler class."""
+    """Test suite for SegmentHandler (alias for SegmentProcessor)."""
 
-    def test_remove_bg_threshold_delegates(self) -> None:
-        """Test remove_bg_threshold delegates to ImageProcessor."""
-        from unittest.mock import patch
-
-        handler = SegmentHandler()
+    def test_remove_bg_threshold(self) -> None:
+        """Test remove_bg_threshold processes segment correctly."""
+        processor = SegmentProcessor()
         img = np.ones((50, 50, 3), dtype=np.uint8) * 100
 
-        with patch.object(handler._processor, "remove_bg_threshold", wraps=handler._processor.remove_bg_threshold) as mock:
-            result = handler.remove_bg_threshold(img, threshold=200)
-            mock.assert_called_once_with(img, 200)
-            assert result.shape == (50, 50, 4)
+        result = processor.remove_bg_threshold(img, threshold=150)
+        assert result.shape == (50, 50, 4)
+        assert result.dtype == np.uint8
 
 
 def test_crop_and_save_threshold_forces_png(tmp_path: Path) -> None:

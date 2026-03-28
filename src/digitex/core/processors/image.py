@@ -8,117 +8,52 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_BG_THRESHOLD = 200
+DEFAULT_LOWER_BLUE = np.array([70, 30, 30])
+DEFAULT_UPPER_BLUE = np.array([130, 255, 255])
+DEFAULT_BORDER_MULTIPLIER = 5
 
-class ImageProcessor:
-    """Processor for image transformation operations."""
 
-    def __init__(
-        self,
-        lower_blue: np.ndarray | None = None,
-        upper_blue: np.ndarray | None = None,
-        border_multiplier: int = 5,
-    ) -> None:
-        self.lower_blue = lower_blue if lower_blue is not None else np.array([70, 30, 30])
-        self.upper_blue = upper_blue if upper_blue is not None else np.array([130, 255, 255])
-        self.border_multiplier = border_multiplier
+def resize_img(
+    img: np.ndarray,
+    max_height: int,
+) -> np.ndarray:
+    """Resize numpy image to fit within maximum height while maintaining aspect ratio.
 
-    def remove_color(self, img: np.ndarray) -> np.ndarray:
-        """Remove blue color regions from an image using inpainting.
+    Args:
+        img: Input numpy image.
+        max_height: Maximum allowed height in pixels.
 
-        Args:
-            img: Input image in BGR format.
+    Returns:
+        Resized image if height exceeds max_height, otherwise original image.
+    """
+    height, width = img.shape[:2]
 
-        Returns:
-            Image with blue color regions removed.
-        """
-        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    if height > max_height:
+        aspect_ratio = width / height
+        new_height = max_height
+        new_width = int(new_height * aspect_ratio)
 
-        mask = cv2.inRange(hsv, self.lower_blue, self.upper_blue)
+        img = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_AREA)
 
-        kernel = np.ones(
-            (self.border_multiplier, self.border_multiplier), np.uint8
-        )
-        mask = cv2.dilate(mask, kernel, iterations=1)
+    return img
 
-        img = cv2.inpaint(img, mask, 3, cv2.INPAINT_TELEA)
 
-        return img
+def resize_image(image: Image.Image, max_height: int) -> Image.Image:
+    """Resize PIL image to fit within maximum height.
 
-    def illuminate_image(
-        self,
-        img: np.ndarray,
-        alpha: float = 1.1,
-        beta: float = 1,
-    ) -> np.ndarray:
-        """Adjust image luminance using linear transformation.
+    Args:
+        image: Input PIL Image.
+        max_height: Maximum allowed height. If 0, no resizing.
 
-        Args:
-            img: Input image in BGR format.
-            alpha: Contrast control (1.0 means no change).
-            beta: Brightness control (0 means no change).
-
-        Returns:
-            Illuminated image.
-        """
-        img = cv2.convertScaleAbs(img, alpha=alpha, beta=beta)
-
-        return img
-
-    def resize_image(
-        self,
-        img: np.ndarray,
-        max_height: int = 2000,
-    ) -> np.ndarray:
-        """Resize image to fit within maximum height while maintaining aspect ratio.
-
-        Args:
-            img: Input image.
-            max_height: Maximum allowed height in pixels.
-
-        Returns:
-            Resized image if height exceeds max_height, otherwise original image.
-        """
-        height, width = img.shape[:2]
-
-        if height > max_height:
-            aspect_ratio = width / height
-            new_height = max_height
-            new_width = int(new_height * aspect_ratio)
-
-            img = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_AREA)
-
-        return img
-
-    @staticmethod
-    def remove_bg_threshold(
-        image_bgr: np.ndarray,
-        threshold: int = 240,
-    ) -> np.ndarray:
-        """Remove background using white-pixel threshold.
-
-        Pixels brighter than the threshold become transparent.
-        Pixels at or below the threshold become opaque.
-
-        Args:
-            image_bgr: Input image in BGR format.
-            threshold: Brightness threshold (0-255).
-
-        Returns:
-            4-channel BGRA image with transparent background.
-        """
-        if image_bgr.size == 0:
-            raise ValueError("Image is empty")
-        if image_bgr.dtype != np.uint8:
-            raise ValueError(f"Image must have dtype uint8, got {image_bgr.dtype}")
-        if len(image_bgr.shape) != 3 or image_bgr.shape[2] != 3:
-            raise ValueError(f"Image must have 3 channels, got shape {image_bgr.shape}")
-        if not isinstance(threshold, int) or not (0 <= threshold <= 255):
-            raise ValueError(f"Threshold must be an integer in range 0-255, got {threshold}")
-
-        gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
-        _, binary_mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY_INV)
-        b, g, r = cv2.split(image_bgr)
-        return cv2.merge([b, g, r, binary_mask])
+    Returns:
+        Resized PIL Image.
+    """
+    if max_height <= 0:
+        return image
+    img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    img = resize_img(img, max_height)
+    return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
 
 
 class ImageCropper:
@@ -258,18 +193,25 @@ class ImageCropper:
         return Image.fromarray(cv2.cvtColor(bg_img, cv2.COLOR_BGR2RGB))
 
 
-class SegmentHandler:
-    """Handler for image segment background removal."""
+class SegmentProcessor:
+    """Processor for image segment background removal."""
 
-    def __init__(self, image_processor: ImageProcessor | None = None) -> None:
-        """Initialize SegmentHandler.
+    def remove_color(self, img: np.ndarray) -> np.ndarray:
+        """Remove blue color regions from an image using inpainting.
 
         Args:
-            image_processor: Optional ImageProcessor instance. If None, creates one.
-        """
-        self._processor = image_processor or ImageProcessor()
+            img: Input image in BGR format.
 
-    def remove_bg_threshold(self, segment_bgr: np.ndarray, threshold: int = 200) -> np.ndarray:
+        Returns:
+            Image with blue color regions removed.
+        """
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, DEFAULT_LOWER_BLUE, DEFAULT_UPPER_BLUE)
+        kernel = np.ones((DEFAULT_BORDER_MULTIPLIER, DEFAULT_BORDER_MULTIPLIER), np.uint8)
+        mask = cv2.dilate(mask, kernel, iterations=1)
+        return cv2.inpaint(img, mask, 3, cv2.INPAINT_TELEA)
+
+    def remove_bg_threshold(self, segment_bgr: np.ndarray, threshold: int = DEFAULT_BG_THRESHOLD) -> np.ndarray:
         """Remove background using white-pixel threshold.
 
         Args:
@@ -279,4 +221,19 @@ class SegmentHandler:
         Returns:
             4-channel BGRA image with transparent background.
         """
-        return self._processor.remove_bg_threshold(segment_bgr, threshold)
+        if segment_bgr.size == 0:
+            raise ValueError("Image is empty")
+        if segment_bgr.dtype != np.uint8:
+            raise ValueError(f"Image must have dtype uint8, got {segment_bgr.dtype}")
+        if len(segment_bgr.shape) != 3 or segment_bgr.shape[2] != 3:
+            raise ValueError(f"Image must have 3 channels, got shape {segment_bgr.shape}")
+        if not isinstance(threshold, int) or not (0 <= threshold <= 255):
+            raise ValueError(f"Threshold must be an integer in range 0-255, got {threshold}")
+
+        gray = cv2.cvtColor(segment_bgr, cv2.COLOR_BGR2GRAY)
+        _, binary_mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY_INV)
+        b, g, r = cv2.split(segment_bgr)
+        return cv2.merge([b, g, r, binary_mask])
+
+
+SegmentHandler = SegmentProcessor

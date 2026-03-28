@@ -2,7 +2,7 @@
 
 from .creators import PageDataCreator
 from .core.handlers import LabelHandler, PDFHandler
-from .core.processors import FileProcessor, ImageProcessor
+from .core.processors import FileProcessor
 from .extractors import BookExtractor, PageExtractor, TestsExtractor
 from .ml import Predictor, Trainer
 
@@ -11,7 +11,6 @@ __all__ = [
     "LabelHandler",
     "PDFHandler",
     "FileProcessor",
-    "ImageProcessor",
     "BookExtractor",
     "PageExtractor",
     "TestsExtractor",
