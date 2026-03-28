@@ -310,9 +310,11 @@ class ImageProcessor:
         if image_bgr.size == 0:
             raise ValueError("Image is empty")
         if image_bgr.dtype != np.uint8:
-            raise ValueError("Image must have dtype uint8")
+            raise ValueError(f"Image must have dtype uint8, got {image_bgr.dtype}")
         if len(image_bgr.shape) != 3 or image_bgr.shape[2] != 3:
-            raise ValueError("Image must have 3 channels (BGR)")
+            raise ValueError(f"Image must have 3 channels, got shape {image_bgr.shape}")
+        if not isinstance(threshold, int) or not (0 <= threshold <= 255):
+            raise ValueError(f"Threshold must be an integer in range 0-255, got {threshold}")
 
         gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
         _, binary_mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY_INV)

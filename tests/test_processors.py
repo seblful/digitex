@@ -137,6 +137,36 @@ class TestImageProcessor:
         assert alpha[0, 0] == 0
         assert alpha[50, 50] == 255
 
+    def test_remove_bg_threshold_empty_image(self) -> None:
+        """Test remove_bg_threshold raises ValueError on empty image."""
+        processor = ImageProcessor()
+        img = np.array([], dtype=np.uint8).reshape(0, 0, 3)
+        with pytest.raises(ValueError, match="Image is empty"):
+            processor.remove_bg_threshold(img)
+
+    def test_remove_bg_threshold_float32_image(self) -> None:
+        """Test remove_bg_threshold raises ValueError on float32 image."""
+        processor = ImageProcessor()
+        img = np.ones((100, 100, 3), dtype=np.float32) * 255
+        with pytest.raises(ValueError, match="Image must have dtype uint8"):
+            processor.remove_bg_threshold(img)
+
+    def test_remove_bg_threshold_wrong_channels(self) -> None:
+        """Test remove_bg_threshold raises ValueError on wrong number of channels."""
+        processor = ImageProcessor()
+        img = np.ones((100, 100, 4), dtype=np.uint8)
+        with pytest.raises(ValueError, match="Image must have 3 channels"):
+            processor.remove_bg_threshold(img)
+
+    def test_remove_bg_threshold_invalid_threshold(self) -> None:
+        """Test remove_bg_threshold raises ValueError on invalid threshold."""
+        processor = ImageProcessor()
+        img = np.ones((100, 100, 3), dtype=np.uint8) * 255
+        with pytest.raises(ValueError, match="Threshold must be an integer in range 0-255"):
+            processor.remove_bg_threshold(img, threshold=300)
+        with pytest.raises(ValueError, match="Threshold must be an integer in range 0-255"):
+            processor.remove_bg_threshold(img, threshold=-1)
+
 
 class TestFileProcessor:
     """Test suite for FileProcessor class."""
