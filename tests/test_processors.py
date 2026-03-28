@@ -155,6 +155,48 @@ class TestSegmentProcessor:
         assert result.shape == (50, 50, 4)
         assert result.dtype == np.uint8
 
+    def test_increase_darkness_darkens_midtones(self) -> None:
+        """Test that increase_darkness darkens mid-tone pixels."""
+        processor = SegmentProcessor()
+        img = Image.new("RGBA", (10, 10), color=(128, 128, 128, 255))
+
+        result = processor.increase_darkness(img, gamma=0.8)
+
+        result_np = np.array(result)
+        assert result_np[0, 0, 0] < 128
+        assert result_np[0, 0, 3] == 255
+
+    def test_increase_darkness_gamma_one_unchanged(self) -> None:
+        """Test that gamma=1.0 leaves image unchanged."""
+        processor = SegmentProcessor()
+        img = Image.new("RGBA", (10, 10), color=(100, 100, 100, 255))
+
+        result = processor.increase_darkness(img, gamma=1.0)
+
+        result_np = np.array(result)
+        np.testing.assert_array_equal(result_np, np.array(img))
+
+    def test_increase_darkness_preserves_alpha(self) -> None:
+        """Test that alpha channel is preserved."""
+        processor = SegmentProcessor()
+        img = Image.new("RGBA", (10, 10), color=(100, 100, 100, 128))
+
+        result = processor.increase_darkness(img, gamma=0.8)
+
+        result_np = np.array(result)
+        assert result_np[0, 0, 3] == 128
+
+    def test_increase_darkness_invalid_gamma(self) -> None:
+        """Test that invalid gamma raises ValueError."""
+        processor = SegmentProcessor()
+        img = Image.new("RGBA", (10, 10), color=(100, 100, 100, 255))
+
+        with pytest.raises(ValueError, match="gamma must be positive"):
+            processor.increase_darkness(img, gamma=0)
+
+        with pytest.raises(ValueError, match="gamma must be positive"):
+            processor.increase_darkness(img, gamma=-1)
+
 
 def test_crop_and_save_threshold_forces_png(tmp_path: Path) -> None:
     """Test that threshold preprocess mode saves as PNG regardless of image_format."""
