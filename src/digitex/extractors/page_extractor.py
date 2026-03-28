@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 Detection = tuple[str, list[tuple[int, int]]]
 
 OCR_LANGUAGE = "rus"
-BG_THRESHOLD = 200
 
 
 class PageExtractor:
@@ -38,7 +37,6 @@ class PageExtractor:
 
         self._predictor: YOLO_SegmentationPredictor | None = None
         self._image_cropper = ImageCropper()
-        self._segment_processor = SegmentProcessor()
         self._text_extractor = TextExtractor(language=OCR_LANGUAGE)
 
     @property
@@ -71,7 +69,7 @@ class PageExtractor:
         output_path: Path,
     ) -> None:
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
-        processed = self._segment_processor.remove_bg_threshold(cropped, BG_THRESHOLD)
+        processed = SegmentProcessor.process(cropped)
         output_path = output_path.with_suffix(".png")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         processed.save(output_path)

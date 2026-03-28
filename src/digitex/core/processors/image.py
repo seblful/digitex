@@ -9,9 +9,7 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 DEFAULT_BG_THRESHOLD = 200
-DEFAULT_LOWER_BLUE = np.array([70, 30, 30])
-DEFAULT_UPPER_BLUE = np.array([130, 255, 255])
-DEFAULT_BORDER_MULTIPLIER = 5
+DEFAULT_SATURATION_THRESHOLD = 40
 
 
 def resize_img(
@@ -54,17 +52,6 @@ def resize_image(image: Image.Image, max_height: int) -> Image.Image:
     img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
     img = resize_img(img, max_height)
     return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-
-
-import cv2
-import numpy as np
-from PIL import Image
-
-# Dummy constants (Replace with your actual defaults)
-DEFAULT_LOWER_BLUE = np.array([100, 150, 0])
-DEFAULT_UPPER_BLUE = np.array([140, 255, 255])
-DEFAULT_BORDER_MULTIPLIER = 5
-DEFAULT_BG_THRESHOLD = 240
 
 
 class ImageCropper:
@@ -154,37 +141,32 @@ class ImageCropper:
 class SegmentProcessor:
     """Processor for image segment background removal."""
 
-    @classmethod
-    def remove_color(cls, image: Image.Image) -> Image.Image:
-        """Remove blue color regions from an image using inpainting."""
-        img_np = np.array(image)
-        has_alpha = img_np.shape[-1] == 4
+    @staticmethod
+    def remove_color(
+        image: Image.Image,
+        saturation_threshold: int = DEFAULT_SATURATION_THRESHOLD,
+    ) -> Image.Image:
+        """Remove all colored pixels, keeping only grayscale (gray/black/white).
 
-        # cv2.inpaint requires a 3-channel image, so we separate RGB from Alpha
-        rgb_img = img_np[:, :, :3] if has_alpha else img_np
+        Args:
+            image: Input PIL Image.
+            saturation_threshold: Maximum saturation value to consider grayscale (0-255).
+                Lower values are stricter (only pure grays). Default 30 works well.
 
-        # Convert RGB to HSV (bounds are the same as BGR, just mapping differently)
-        hsv = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2HSV)
-        mask = cv2.inRange(hsv, DEFAULT_LOWER_BLUE, DEFAULT_UPPER_BLUE)
+        Returns:
+            Image with colored pixels made transparent.
+        """
+        img_np = np.array(image.convert("RGBA"))
+        hsv = cv2.cvtColor(img_np[:, :, :3], cv2.COLOR_RGB2HSV)
 
-        kernel = np.ones(
-            (DEFAULT_BORDER_MULTIPLIER, DEFAULT_BORDER_MULTIPLIER), np.uint8
-        )
-        mask = cv2.dilate(mask, kernel, iterations=1)
+        color_mask = hsv[:, :, 1] > saturation_threshold
+        img_np[color_mask, 3] = 0
 
-        # Inpaint the RGB channels
-        inpainted_rgb = cv2.inpaint(rgb_img, mask, 3, cv2.INPAINT_TELEA)
+        return Image.fromarray(img_np, mode="RGBA")
 
-        # Recombine with alpha if it existed
-        if has_alpha:
-            img_np[:, :, :3] = inpainted_rgb
-            return Image.fromarray(img_np, mode="RGBA")
-
-        return Image.fromarray(inpainted_rgb, mode="RGB")
-
-    @classmethod
+    @staticmethod
     def remove_bg_threshold(
-        cls, image: Image.Image, threshold: int = DEFAULT_BG_THRESHOLD
+        image: Image.Image, threshold: int = DEFAULT_BG_THRESHOLD
     ) -> Image.Image:
         """Remove background using white-pixel threshold."""
         if not (0 <= threshold <= 255):
@@ -192,14 +174,29 @@ class SegmentProcessor:
                 f"Threshold must be an integer in range 0-255, got {threshold}"
             )
 
-        # Forcing RGBA handles shape, dtype, and guarantees an alpha channel exists
         img_np = np.array(image.convert("RGBA"))
-
-        # Calculate brightness mask based on the RGB channels
         gray = cv2.cvtColor(img_np[:, :, :3], cv2.COLOR_RGB2GRAY)
         _, new_mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY_INV)
-
-        # Combine new mask with existing alpha channel (so we don't overwrite previous cropping)
         img_np[:, :, 3] = cv2.bitwise_and(img_np[:, :, 3], new_mask)
 
         return Image.fromarray(img_np, mode="RGBA")
+
+    @staticmethod
+    def process(
+        image: Image.Image,
+        saturation_threshold: int = DEFAULT_SATURATION_THRESHOLD,
+        bg_threshold: int = DEFAULT_BG_THRESHOLD,
+    ) -> Image.Image:
+        """Apply color removal and background removal in sequence.
+
+        Args:
+            image: Input PIL Image.
+            saturation_threshold: Max saturation to keep (higher = removes more colors).
+            bg_threshold: Brightness threshold for background removal (higher = keeps more).
+
+        Returns:
+            Processed image with colored pixels and light background made transparent.
+        """
+        result = SegmentProcessor.remove_color(image, saturation_threshold)
+        result = SegmentProcessor.remove_bg_threshold(result, bg_threshold)
+        return result
