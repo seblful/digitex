@@ -77,9 +77,18 @@ class PageExtractor:
             cropped_arr = cv2.cvtColor(np.array(cropped), cv2.COLOR_RGB2BGR)
             if self.preprocess == "enhance":
                 processed = self._segment_handler.enhance(cropped_arr)
+                cropped = Image.fromarray(cv2.cvtColor(processed, cv2.COLOR_GRAY2RGB))
+            elif self.preprocess == "grabcut":
+                processed = self._segment_handler.remove_bg_grabcut(cropped_arr)
+                cropped = Image.fromarray(cv2.cvtColor(processed, cv2.COLOR_BGRA2RGBA))
+                output_path = output_path.with_suffix(".png")
+            elif self.preprocess == "threshold":
+                processed = self._segment_handler.remove_bg_threshold(cropped_arr)
+                cropped = Image.fromarray(cv2.cvtColor(processed, cv2.COLOR_BGRA2RGBA))
+                output_path = output_path.with_suffix(".png")
             else:
                 processed = self._segment_handler.binarize(cropped_arr)
-            cropped = Image.fromarray(cv2.cvtColor(processed, cv2.COLOR_GRAY2RGB))
+                cropped = Image.fromarray(cv2.cvtColor(processed, cv2.COLOR_GRAY2RGB))
         output_path.parent.mkdir(parents=True, exist_ok=True)
         cropped.save(output_path)
 

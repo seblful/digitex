@@ -7,6 +7,7 @@ import numpy as np
 from PIL import Image
 
 from digitex.core.processors import FileProcessor, ImageProcessor, SegmentHandler
+from digitex.extractors.page_extractor import PageExtractor
 from digitex.utils import prepare_image
 
 
@@ -243,3 +244,63 @@ class TestSegmentHandler:
             result = handler.remove_bg_threshold(img)
             mock.assert_called_once_with(img)
             assert result.shape == (50, 50, 4)
+
+
+def test_crop_and_save_grabcut_forces_png(tmp_path: Path) -> None:
+    """Test that grabcut preprocess mode saves as PNG regardless of image_format."""
+    from unittest.mock import patch
+
+    import cv2
+    from PIL import Image as PILImage
+
+    extractor = PageExtractor(
+        model_path=Path("dummy.pt"),
+        render_scale=2,
+        image_format="jpg",
+        preprocess="grabcut",
+    )
+
+    image = PILImage.new("RGB", (200, 200), color="white")
+    polygon = [(10, 10), (190, 10), (190, 190), (10, 190)]
+    output_path = tmp_path / "output.png"
+
+    with patch.object(extractor._segment_handler, "remove_bg_grabcut") as mock_bg:
+        mock_bg.return_value = np.ones((200, 200, 4), dtype=np.uint8) * 255
+        extractor._crop_and_save(image, polygon, output_path)
+        mock_bg.assert_called_once()
+
+    assert output_path.exists()
+    assert output_path.suffix == ".png"
+
+    saved = PILImage.open(output_path)
+    assert saved.mode == "RGBA"
+
+
+def test_crop_and_save_threshold_forces_png(tmp_path: Path) -> None:
+    """Test that threshold preprocess mode saves as PNG regardless of image_format."""
+    from unittest.mock import patch
+
+    import cv2
+    from PIL import Image as PILImage
+
+    extractor = PageExtractor(
+        model_path=Path("dummy.pt"),
+        render_scale=2,
+        image_format="jpg",
+        preprocess="threshold",
+    )
+
+    image = PILImage.new("RGB", (200, 200), color="white")
+    polygon = [(10, 10), (190, 10), (190, 190), (10, 190)]
+    output_path = tmp_path / "output.png"
+
+    with patch.object(extractor._segment_handler, "remove_bg_threshold") as mock_bg:
+        mock_bg.return_value = np.ones((200, 200, 4), dtype=np.uint8) * 255
+        extractor._crop_and_save(image, polygon, output_path)
+        mock_bg.assert_called_once()
+
+    assert output_path.exists()
+    assert output_path.suffix == ".png"
+
+    saved = PILImage.open(output_path)
+    assert saved.mode == "RGBA"
