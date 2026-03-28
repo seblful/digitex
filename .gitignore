@@ -19,6 +19,9 @@ draft*.txt
 training/yolo/runs
 yolo*.pt
 
+# Code Assistance
+.superpowers/
+opencode.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -47,7 +50,8 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-.superpowers/
+
+
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
