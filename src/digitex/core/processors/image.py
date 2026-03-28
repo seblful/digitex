@@ -290,6 +290,35 @@ class ImageProcessor:
         b, g, r = cv2.split(image_bgr)
         return cv2.merge([b, g, r, binary_mask])
 
+    @staticmethod
+    def remove_bg_threshold(
+        image_bgr: np.ndarray,
+        threshold: int = 240,
+    ) -> np.ndarray:
+        """Remove background using white-pixel threshold.
+
+        Pixels brighter than the threshold become transparent.
+        Pixels at or below the threshold become opaque.
+
+        Args:
+            image_bgr: Input image in BGR format.
+            threshold: Brightness threshold (0-255).
+
+        Returns:
+            4-channel BGRA image with transparent background.
+        """
+        if image_bgr.size == 0:
+            raise ValueError("Image is empty")
+        if image_bgr.dtype != np.uint8:
+            raise ValueError("Image must have dtype uint8")
+        if len(image_bgr.shape) != 3 or image_bgr.shape[2] != 3:
+            raise ValueError("Image must have 3 channels (BGR)")
+
+        gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+        _, binary_mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY_INV)
+        b, g, r = cv2.split(image_bgr)
+        return cv2.merge([b, g, r, binary_mask])
+
 
 class ImageCropper:
     """Processor for image cropping operations using perspective transformations."""

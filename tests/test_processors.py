@@ -124,6 +124,19 @@ class TestImageProcessor:
         with pytest.raises(ValueError, match="Image must have 3 channels"):
             processor.remove_bg_grabcut(img)
 
+    def test_remove_bg_threshold_returns_bgra(self) -> None:
+        """Test remove_bg_threshold returns 4-channel BGRA with transparent bright pixels."""
+        processor = ImageProcessor()
+        img = np.ones((100, 100, 3), dtype=np.uint8) * 255
+        img[20:80, 20:80] = [50, 50, 50]
+        result = processor.remove_bg_threshold(img)
+
+        assert result.shape == (100, 100, 4)
+        assert result.dtype == np.uint8
+        alpha = result[:, :, 3]
+        assert alpha[0, 0] == 0
+        assert alpha[50, 50] == 255
+
 
 class TestFileProcessor:
     """Test suite for FileProcessor class."""
