@@ -9,7 +9,8 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 DEFAULT_BG_THRESHOLD = 200
-DEFAULT_SATURATION_THRESHOLD = 40
+DEFAULT_SATURATION_THRESHOLD = 80
+DEFAULT_DILATE_ITERATIONS = 2
 
 
 def resize_img(
@@ -145,6 +146,7 @@ class SegmentProcessor:
     def remove_color(
         image: Image.Image,
         saturation_threshold: int = DEFAULT_SATURATION_THRESHOLD,
+        dilate_iterations: int = DEFAULT_DILATE_ITERATIONS,
     ) -> Image.Image:
         """Remove all colored pixels, keeping only grayscale (gray/black/white).
 
@@ -160,6 +162,13 @@ class SegmentProcessor:
         hsv = cv2.cvtColor(img_np[:, :, :3], cv2.COLOR_RGB2HSV)
 
         color_mask = hsv[:, :, 1] > saturation_threshold
+
+        if dilate_iterations > 0:
+            kernel = np.ones((3, 3), np.uint8)
+            color_mask = cv2.dilate(
+                color_mask.astype(np.uint8), kernel, iterations=dilate_iterations
+            ).astype(bool)
+
         img_np[color_mask, 3] = 0
 
         return Image.fromarray(img_np, mode="RGBA")
