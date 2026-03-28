@@ -197,6 +197,40 @@ class TestSegmentProcessor:
         with pytest.raises(ValueError, match="gamma must be positive"):
             processor.increase_darkness(img, gamma=-1)
 
+    def test_add_white_background_transparent_becomes_white(self) -> None:
+        """Test that transparent areas become white."""
+        processor = SegmentProcessor()
+        img = Image.new("RGBA", (10, 10), color=(100, 100, 100, 0))
+
+        result = processor.add_white_background(img)
+
+        assert result.mode == "RGB"
+        result_np = np.array(result)
+        assert result_np[0, 0, 0] == 255
+        assert result_np[0, 0, 1] == 255
+        assert result_np[0, 0, 2] == 255
+
+    def test_add_white_background_opaque_unchanged(self) -> None:
+        """Test that opaque pixels remain unchanged."""
+        processor = SegmentProcessor()
+        img = Image.new("RGBA", (10, 10), color=(50, 100, 150, 255))
+
+        result = processor.add_white_background(img)
+
+        result_np = np.array(result)
+        assert result_np[0, 0, 0] == 50
+        assert result_np[0, 0, 1] == 100
+        assert result_np[0, 0, 2] == 150
+
+    def test_add_white_background_returns_rgb(self) -> None:
+        """Test that result is RGB mode."""
+        processor = SegmentProcessor()
+        img = Image.new("RGBA", (10, 10), color=(100, 100, 100, 128))
+
+        result = processor.add_white_background(img)
+
+        assert result.mode == "RGB"
+
 
 def test_crop_and_save_threshold_forces_png(tmp_path: Path) -> None:
     """Test that threshold preprocess mode saves as PNG regardless of image_format."""
