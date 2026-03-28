@@ -19,7 +19,7 @@ def extract(preprocess: str | None = "enhance") -> None:
     """Extract question images from all PDF books.
 
     Args:
-        preprocess: Preprocessing mode: None, "enhance", or "binarize".
+        preprocess: Preprocessing mode: None, "enhance", "binarize", "grabcut", or "threshold".
     """
     settings = get_settings()
     extractor = TestsExtractor(
