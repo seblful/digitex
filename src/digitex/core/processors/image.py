@@ -220,13 +220,28 @@ class SegmentProcessor:
         return Image.fromarray(img_np, mode="RGBA")
 
     @staticmethod
+    def add_white_background(image: Image.Image) -> Image.Image:
+        """Composite RGBA image onto white background.
+
+        Args:
+            image: Input PIL Image (RGBA recommended).
+
+        Returns:
+            RGB image with white background replacing transparency.
+        """
+        rgba = image.convert("RGBA")
+        background = Image.new("RGB", rgba.size, (255, 255, 255))
+        background.paste(rgba, mask=rgba.split()[3])
+        return background
+
+    @staticmethod
     def process(
         image: Image.Image,
         saturation_threshold: int = DEFAULT_SATURATION_THRESHOLD,
         bg_threshold: int = DEFAULT_BG_THRESHOLD,
         gamma: float = DEFAULT_GAMMA,
     ) -> Image.Image:
-        """Apply color removal, background removal, and darkness increase.
+        """Apply color removal, background removal, darkness increase, and white background.
 
         Args:
             image: Input PIL Image.
@@ -235,10 +250,10 @@ class SegmentProcessor:
             gamma: Gamma for darkness adjustment. < 1.0 darkens, 1.0 = no change.
 
         Returns:
-            Processed image with colored pixels and light background made transparent,
-            then darkened for improved contrast.
+            RGB image suitable for JPG format.
         """
         result = SegmentProcessor.remove_color(image, saturation_threshold)
         result = SegmentProcessor.remove_bg_threshold(result, bg_threshold)
         result = SegmentProcessor.increase_darkness(result, gamma)
+        result = SegmentProcessor.add_white_background(result)
         return result
