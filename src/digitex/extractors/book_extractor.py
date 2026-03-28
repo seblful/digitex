@@ -20,17 +20,11 @@ class BookExtractor:
         model_path: Path,
         render_scale: int,
         image_format: str,
-        preprocess: str | None = None,
-        ocr_language: str = "rus",
-        bg_threshold: int = 200,
     ) -> None:
         self._page_extractor = PageExtractor(
             model_path=model_path,
             render_scale=render_scale,
             image_format=image_format,
-            preprocess=preprocess,
-            ocr_language=ocr_language,
-            bg_threshold=bg_threshold,
         )
         self._pdf_handler = PDFHandler()
         self.render_scale = render_scale

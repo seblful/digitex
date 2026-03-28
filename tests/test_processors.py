@@ -143,8 +143,8 @@ class TestFileProcessor:
         FileProcessor.write_yaml(file_path, data)
 
 
-class TestSegmentHandler:
-    """Test suite for SegmentHandler (alias for SegmentProcessor)."""
+class TestSegmentProcessor:
+    """Test suite for SegmentProcessor."""
 
     def test_remove_bg_threshold(self) -> None:
         """Test remove_bg_threshold processes segment correctly."""
@@ -167,14 +167,13 @@ def test_crop_and_save_threshold_forces_png(tmp_path: Path) -> None:
         model_path=Path("dummy.pt"),
         render_scale=2,
         image_format="jpg",
-        preprocess="threshold",
     )
 
     image = PILImage.new("RGB", (200, 200), color="white")
     polygon = [(10, 10), (190, 10), (190, 190), (10, 190)]
     output_path = tmp_path / "output.png"
 
-    with patch.object(extractor._segment_handler, "remove_bg_threshold") as mock_bg:
+    with patch.object(extractor._segment_processor, "remove_bg_threshold") as mock_bg:
         mock_bg.return_value = np.ones((200, 200, 4), dtype=np.uint8) * 255
         extractor._crop_and_save(image, polygon, output_path)
         mock_bg.assert_called_once()

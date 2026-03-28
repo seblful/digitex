@@ -20,9 +20,6 @@ class TestsExtractor:
         image_format: str,
         books_dir: Path,
         extraction_dir: Path,
-        preprocess: str | None = None,
-        ocr_language: str = "rus",
-        bg_threshold: int = 200,
     ) -> None:
         self.books_dir = books_dir
         self.extraction_dir = extraction_dir
@@ -31,9 +28,6 @@ class TestsExtractor:
             model_path=model_path,
             render_scale=render_scale,
             image_format=image_format,
-            preprocess=preprocess,
-            ocr_language=ocr_language,
-            bg_threshold=bg_threshold,
         )
 
     def extract_all(self) -> None:

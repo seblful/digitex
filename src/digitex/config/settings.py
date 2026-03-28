@@ -52,17 +52,6 @@ class PDFSettings(BaseSettings):
     )
 
 
-class OCRSettings(BaseSettings):
-    """OCR settings."""
-
-    model_config = SettingsConfigDict(env_prefix="OCR_")
-
-    language: str = Field(
-        default="rus",
-        description="Tesseract OCR language code (e.g., 'rus', 'eng', 'eng+rus')",
-    )
-
-
 class DatabaseSettings(BaseSettings):
     """Database connection settings."""
 
@@ -166,7 +155,6 @@ class Settings(BaseSettings):
     paths: PathsSettings = Field(default_factory=PathsSettings)
     extraction: ExtractionSettings = Field(default_factory=ExtractionSettings)
     pdf: PDFSettings = Field(default_factory=PDFSettings)
-    ocr: OCRSettings = Field(default_factory=OCRSettings)
 
     @classmethod
     def load(cls) -> Self:

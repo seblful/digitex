@@ -3,14 +3,12 @@
 import logging
 from pathlib import Path
 
-import cv2
-import numpy as np
 from PIL import Image
 
 from digitex.core import TextExtractor
 from digitex.core.processors import (
     ImageCropper,
-    SegmentHandler,
+    SegmentProcessor,
 )
 from digitex.ml.predictors import (
     SegmentationPredictionResult,
@@ -21,6 +19,9 @@ logger = logging.getLogger(__name__)
 
 Detection = tuple[str, list[tuple[int, int]]]
 
+OCR_LANGUAGE = "rus"
+BG_THRESHOLD = 200
+
 
 class PageExtractor:
     """Extract question images from a single page using YOLO segmentation."""
@@ -30,20 +31,15 @@ class PageExtractor:
         model_path: Path,
         render_scale: int,
         image_format: str,
-        preprocess: str | None = None,
-        ocr_language: str = "rus",
-        bg_threshold: int = 200,
     ) -> None:
         self.model_path = model_path
         self.render_scale = render_scale
         self.image_format = image_format
-        self.preprocess = preprocess
-        self.bg_threshold = bg_threshold
 
         self._predictor: YOLO_SegmentationPredictor | None = None
         self._image_cropper = ImageCropper()
-        self._segment_handler = SegmentHandler()
-        self._text_extractor = TextExtractor(language=ocr_language)
+        self._segment_processor = SegmentProcessor()
+        self._text_extractor = TextExtractor(language=OCR_LANGUAGE)
 
     @property
     def predictor(self) -> YOLO_SegmentationPredictor:
@@ -75,13 +71,10 @@ class PageExtractor:
         output_path: Path,
     ) -> None:
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
-        if self.preprocess == "threshold":
-            cropped_arr = cv2.cvtColor(np.array(cropped), cv2.COLOR_RGB2BGR)
-            processed = self._segment_handler.remove_bg_threshold(cropped_arr, self.bg_threshold)
-            cropped = Image.fromarray(cv2.cvtColor(processed, cv2.COLOR_BGRA2RGBA))
-            output_path = output_path.with_suffix(".png")
+        processed = self._segment_processor.remove_bg_threshold(cropped, BG_THRESHOLD)
+        output_path = output_path.with_suffix(".png")
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        cropped.save(output_path)
+        processed.save(output_path)
 
     def _extract_option_number(
         self, image: Image.Image, polygon: list[tuple[int, int]]
