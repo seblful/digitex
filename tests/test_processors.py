@@ -76,6 +76,54 @@ class TestImageProcessor:
         assert not np.all(alpha == 0)
         assert not np.all(alpha == 255)
 
+    def test_remove_bg_grabcut_empty_image(self) -> None:
+        """Test remove_bg_grabcut raises ValueError on empty image."""
+        processor = ImageProcessor()
+        img = np.array([], dtype=np.uint8).reshape(0, 0, 3)
+
+        with pytest.raises(ValueError, match="Image is empty"):
+            processor.remove_bg_grabcut(img)
+
+    def test_remove_bg_grabcut_1x1_image(self) -> None:
+        """Test remove_bg_grabcut raises ValueError on 1x1 image."""
+        processor = ImageProcessor()
+        img = np.ones((1, 1, 3), dtype=np.uint8) * 255
+
+        with pytest.raises(ValueError, match="Image must be larger than 2x2"):
+            processor.remove_bg_grabcut(img)
+
+    def test_remove_bg_grabcut_2x2_image(self) -> None:
+        """Test remove_bg_grabcut raises ValueError on 2x2 image."""
+        processor = ImageProcessor()
+        img = np.ones((2, 2, 3), dtype=np.uint8) * 255
+
+        with pytest.raises(ValueError, match="Image must be larger than 2x2"):
+            processor.remove_bg_grabcut(img)
+
+    def test_remove_bg_grabcut_float32_image(self) -> None:
+        """Test remove_bg_grabcut raises ValueError on float32 image."""
+        processor = ImageProcessor()
+        img = np.ones((100, 100, 3), dtype=np.float32) * 255
+
+        with pytest.raises(ValueError, match="Image must have dtype uint8"):
+            processor.remove_bg_grabcut(img)
+
+    def test_remove_bg_grabcut_wrong_channels(self) -> None:
+        """Test remove_bg_grabcut raises ValueError on wrong number of channels."""
+        processor = ImageProcessor()
+        img = np.ones((100, 100, 4), dtype=np.uint8)
+
+        with pytest.raises(ValueError, match="Image must have 3 channels"):
+            processor.remove_bg_grabcut(img)
+
+    def test_remove_bg_grabcut_grayscale(self) -> None:
+        """Test remove_bg_grabcut raises ValueError on grayscale image."""
+        processor = ImageProcessor()
+        img = np.ones((100, 100), dtype=np.uint8) * 255
+
+        with pytest.raises(ValueError, match="Image must have 3 channels"):
+            processor.remove_bg_grabcut(img)
+
 
 class TestFileProcessor:
     """Test suite for FileProcessor class."""

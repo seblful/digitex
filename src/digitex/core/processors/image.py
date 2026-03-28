@@ -261,13 +261,30 @@ class ImageProcessor:
 
         Returns:
             4-channel BGRA image with transparent background.
+
+        Raises:
+            ValueError: If image is empty, has wrong dtype, wrong number of channels,
+                        or if GrabCut algorithm fails.
         """
+        if image_bgr.size == 0:
+            raise ValueError("Image is empty")
+        if image_bgr.dtype != np.uint8:
+            raise ValueError(f"Image must have dtype uint8, got {image_bgr.dtype}")
+        if len(image_bgr.shape) != 3 or image_bgr.shape[2] != 3:
+            raise ValueError(f"Image must have 3 channels, got shape {image_bgr.shape}")
+        height, width = image_bgr.shape[:2]
+        if height <= 2 or width <= 2:
+            raise ValueError(f"Image must be larger than 2x2, got {width}x{height}")
+
         mask = np.zeros(image_bgr.shape[:2], np.uint8)
         bgd_model = np.zeros((1, 65), np.float64)
         fgd_model = np.zeros((1, 65), np.float64)
-        rect = (1, 1, image_bgr.shape[1] - 2, image_bgr.shape[0] - 2)
+        rect = (1, 1, width - 2, height - 2)
 
-        cv2.grabCut(image_bgr, mask, rect, bgd_model, fgd_model, iter_count, cv2.GC_INIT_WITH_RECT)
+        try:
+            cv2.grabCut(image_bgr, mask, rect, bgd_model, fgd_model, iter_count, cv2.GC_INIT_WITH_RECT)
+        except Exception as e:
+            raise ValueError(f"GrabCut algorithm failed: {e}") from e
 
         binary_mask = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
         b, g, r = cv2.split(image_bgr)
