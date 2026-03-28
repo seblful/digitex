@@ -3,7 +3,6 @@
 import logging
 
 import cv2
-import doxapy  # type: ignore[import-untyped]
 import numpy as np
 from PIL import Image
 
@@ -11,23 +10,16 @@ logger = logging.getLogger(__name__)
 
 
 class ImageProcessor:
-    """Processor for image enhancement and transformation operations.
-
-    This class provides methods for various image processing tasks including
-    color removal, binarization, resizing, and illumination adjustments.
-    """
+    """Processor for image transformation operations."""
 
     def __init__(
         self,
         lower_blue: np.ndarray | None = None,
         upper_blue: np.ndarray | None = None,
-        bin_window: int = 30,
-        bin_k: float = 0.16,
         border_multiplier: int = 5,
     ) -> None:
         self.lower_blue = lower_blue if lower_blue is not None else np.array([70, 30, 30])
         self.upper_blue = upper_blue if upper_blue is not None else np.array([130, 255, 255])
-        self.bin_params = {"window": bin_window, "k": bin_k}
         self.border_multiplier = border_multiplier
 
     def remove_color(self, img: np.ndarray) -> np.ndarray:
@@ -72,30 +64,6 @@ class ImageProcessor:
 
         return img
 
-    def binarize_image(self, img: np.ndarray) -> np.ndarray:
-        """Convert image to binary using the Wan binarization algorithm.
-
-        Args:
-            img: Input image in BGR or grayscale format.
-
-        Returns:
-            Binary image in BGR format.
-        """
-        if len(img.shape) != 2:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = img.copy()
-
-        bin_img = np.empty(gray.shape, gray.dtype)
-
-        wan = doxapy.Binarization(doxapy.Binarization.Algorithms.WAN)  # ty: ignore[unresolved-attribute]
-        wan.initialize(gray)
-        wan.to_binary(bin_img, self.bin_params)
-
-        img = cv2.cvtColor(bin_img, cv2.COLOR_GRAY2BGR)
-
-        return img
-
     def resize_image(
         self,
         img: np.ndarray,
@@ -120,133 +88,6 @@ class ImageProcessor:
             img = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_AREA)
 
         return img
-
-    @staticmethod
-    def to_grayscale(img: np.ndarray) -> np.ndarray:
-        """Convert BGR image to grayscale.
-
-        Args:
-            img: Input image in BGR format.
-
-        Returns:
-            Grayscale image.
-        """
-        return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    @staticmethod
-    def denoise(
-        img: np.ndarray,
-        d: int = 5,
-        sigma_color: float = 75,
-        sigma_space: float = 75,
-    ) -> np.ndarray:
-        """Apply bilateral filter for edge-preserving denoising.
-
-        Args:
-            img: Input grayscale image.
-            d: Diameter of pixel neighborhood.
-            sigma_color: Filter sigma in color space.
-            sigma_space: Filter sigma in coordinate space.
-
-        Returns:
-            Denoised image.
-        """
-        return cv2.bilateralFilter(img, d=d, sigmaColor=sigma_color, sigmaSpace=sigma_space)
-
-    @staticmethod
-    def apply_clahe(
-        img: np.ndarray,
-        clip_limit: float = 2.0,
-        tile_size: tuple[int, int] = (8, 8),
-    ) -> np.ndarray:
-        """Apply CLAHE (Contrast Limited Adaptive Histogram Equalization).
-
-        Args:
-            img: Input grayscale image.
-            clip_limit: Threshold for contrast limiting.
-            tile_size: Size of grid for histogram equalization.
-
-        Returns:
-            Contrast-enhanced image.
-        """
-        clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_size)
-        return clahe.apply(img)
-
-    @staticmethod
-    def adjust_contrast(
-        img: np.ndarray,
-        alpha: float = 1.3,
-        beta: float = -15,
-    ) -> np.ndarray:
-        """Adjust image contrast and brightness.
-
-        Args:
-            img: Input image.
-            alpha: Contrast control (1.0 means no change).
-            beta: Brightness control (0 means no change).
-
-        Returns:
-            Adjusted image.
-        """
-        return cv2.convertScaleAbs(img, alpha=alpha, beta=beta)
-
-    @staticmethod
-    def whiten_background(img: np.ndarray, threshold: int = 200) -> np.ndarray:
-        """Set bright pixels to white for clean background.
-
-        Args:
-            img: Input image (modified in place).
-            threshold: Brightness threshold.
-
-        Returns:
-            Image with whitened background.
-        """
-        result = img.copy()
-        result[result > threshold] = 255
-        return result
-
-    @staticmethod
-    def apply_wan_binarization(
-        img: np.ndarray,
-        window: int | None = None,
-        k: float = 0.2,
-    ) -> np.ndarray:
-        """Apply Wan adaptive binarization algorithm.
-
-        Args:
-            img: Input grayscale image.
-            window: Window size for local thresholding. If None, auto-calculated.
-            k: Sensitivity parameter.
-
-        Returns:
-            Binary image.
-        """
-        if window is None:
-            min_dim = min(img.shape)
-            window = max(15, min_dim // 20)
-            if window % 2 == 0:
-                window += 1
-
-        bin_img = np.empty(img.shape, img.dtype)
-        wan = doxapy.Binarization(doxapy.Binarization.Algorithms.WAN)  # ty: ignore[unresolved-attribute]
-        wan.initialize(img)
-        wan.to_binary(bin_img, {"window": window, "k": k})
-        return bin_img
-
-    @staticmethod
-    def apply_morphology(img: np.ndarray, kernel_size: int = 2) -> np.ndarray:
-        """Apply morphological open then close operations.
-
-        Args:
-            img: Input binary image.
-            kernel_size: Size of structuring element.
-
-        Returns:
-            Morphologically processed image.
-        """
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
-        opened = cv2.morphologyEx(img, cv2.MORPH_OPEN, kernel)
-        return cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel)
 
     @staticmethod
     def remove_bg_threshold(
@@ -418,11 +259,7 @@ class ImageCropper:
 
 
 class SegmentHandler:
-    """Handler for image segment enhancement and binarization.
-
-    Uses ImageProcessor methods to process image segments with a shared
-    preprocessing pipeline: remove_color → to_grayscale → denoise → apply_clahe.
-    """
+    """Handler for image segment background removal."""
 
     def __init__(self, image_processor: ImageProcessor | None = None) -> None:
         """Initialize SegmentHandler.
@@ -431,55 +268,6 @@ class SegmentHandler:
             image_processor: Optional ImageProcessor instance. If None, creates one.
         """
         self._processor = image_processor or ImageProcessor()
-
-    def preprocess(self, segment_bgr: np.ndarray) -> np.ndarray:
-        """Apply standard preprocessing pipeline for segments.
-
-        Pipeline: remove_color → to_grayscale → denoise → apply_clahe
-
-        Args:
-            segment_bgr: Input segment in BGR format.
-
-        Returns:
-            Preprocessed grayscale image.
-        """
-        no_blue = self._processor.remove_color(segment_bgr)
-        gray = self._processor.to_grayscale(no_blue)
-        denoised = self._processor.denoise(gray)
-        return self._processor.apply_clahe(denoised)
-
-    def enhance(self, segment_bgr: np.ndarray) -> np.ndarray:
-        """Enhance segment for better readability.
-
-        Args:
-            segment_bgr: Input segment in BGR format.
-
-        Returns:
-            Enhanced grayscale image with brightened background.
-        """
-        result = self.preprocess(segment_bgr)
-        result = self._processor.adjust_contrast(result)
-        return self._processor.whiten_background(result)
-
-    def binarize(
-        self,
-        segment_bgr: np.ndarray,
-        use_morphology: bool = False,
-    ) -> np.ndarray:
-        """Binarize segment using Wan algorithm.
-
-        Args:
-            segment_bgr: Input segment in BGR format.
-            use_morphology: Whether to apply morphological operations.
-
-        Returns:
-            Binary image.
-        """
-        result = self.preprocess(segment_bgr)
-        result = self._processor.apply_wan_binarization(result)
-        if use_morphology:
-            result = self._processor.apply_morphology(result)
-        return result
 
     def remove_bg_threshold(self, segment_bgr: np.ndarray, threshold: int = 200) -> np.ndarray:
         """Remove background using white-pixel threshold.

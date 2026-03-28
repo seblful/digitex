@@ -22,7 +22,7 @@ def extract(
     """Extract question images from all PDF books.
 
     Args:
-        preprocess: Preprocessing mode: None, "enhance", "binarize", or "threshold".
+        preprocess: Preprocessing mode: None or "threshold" (removes white background).
         bg_threshold: Threshold for background removal (0-255, lower = more transparent).
     """
     settings = get_settings()
