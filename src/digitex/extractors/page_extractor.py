@@ -80,10 +80,6 @@ class PageExtractor:
             if self.preprocess == "enhance":
                 processed = self._segment_handler.enhance(cropped_arr)
                 cropped = Image.fromarray(cv2.cvtColor(processed, cv2.COLOR_GRAY2RGB))
-            elif self.preprocess == "grabcut":
-                processed = self._segment_handler.remove_bg_grabcut(cropped_arr)
-                cropped = Image.fromarray(cv2.cvtColor(processed, cv2.COLOR_BGRA2RGBA))
-                output_path = output_path.with_suffix(".png")
             elif self.preprocess == "threshold":
                 processed = self._segment_handler.remove_bg_threshold(cropped_arr, self.bg_threshold)
                 cropped = Image.fromarray(cv2.cvtColor(processed, cv2.COLOR_BGRA2RGBA))

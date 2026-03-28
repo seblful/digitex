@@ -64,67 +64,6 @@ class TestImageProcessor:
         assert result.mode == 'RGB'
         assert result.size == (1000, 1000)
 
-    def test_remove_bg_grabcut_returns_bgra(self) -> None:
-        """Test remove_bg_grabcut returns 4-channel BGRA image with non-trivial alpha."""
-        processor = ImageProcessor()
-        img = np.ones((100, 100, 3), dtype=np.uint8) * 255
-        img[20:80, 20:80] = [50, 50, 50]
-        result = processor.remove_bg_grabcut(img)
-
-        assert result.shape == (100, 100, 4)
-        assert result.dtype == np.uint8
-        alpha = result[:, :, 3]
-        assert not np.all(alpha == 0)
-        assert not np.all(alpha == 255)
-
-    def test_remove_bg_grabcut_empty_image(self) -> None:
-        """Test remove_bg_grabcut raises ValueError on empty image."""
-        processor = ImageProcessor()
-        img = np.array([], dtype=np.uint8).reshape(0, 0, 3)
-
-        with pytest.raises(ValueError, match="Image is empty"):
-            processor.remove_bg_grabcut(img)
-
-    def test_remove_bg_grabcut_1x1_image(self) -> None:
-        """Test remove_bg_grabcut raises ValueError on 1x1 image."""
-        processor = ImageProcessor()
-        img = np.ones((1, 1, 3), dtype=np.uint8) * 255
-
-        with pytest.raises(ValueError, match="Image must be larger than 2x2"):
-            processor.remove_bg_grabcut(img)
-
-    def test_remove_bg_grabcut_2x2_image(self) -> None:
-        """Test remove_bg_grabcut raises ValueError on 2x2 image."""
-        processor = ImageProcessor()
-        img = np.ones((2, 2, 3), dtype=np.uint8) * 255
-
-        with pytest.raises(ValueError, match="Image must be larger than 2x2"):
-            processor.remove_bg_grabcut(img)
-
-    def test_remove_bg_grabcut_float32_image(self) -> None:
-        """Test remove_bg_grabcut raises ValueError on float32 image."""
-        processor = ImageProcessor()
-        img = np.ones((100, 100, 3), dtype=np.float32) * 255
-
-        with pytest.raises(ValueError, match="Image must have dtype uint8"):
-            processor.remove_bg_grabcut(img)
-
-    def test_remove_bg_grabcut_wrong_channels(self) -> None:
-        """Test remove_bg_grabcut raises ValueError on wrong number of channels."""
-        processor = ImageProcessor()
-        img = np.ones((100, 100, 4), dtype=np.uint8)
-
-        with pytest.raises(ValueError, match="Image must have 3 channels"):
-            processor.remove_bg_grabcut(img)
-
-    def test_remove_bg_grabcut_grayscale(self) -> None:
-        """Test remove_bg_grabcut raises ValueError on grayscale image."""
-        processor = ImageProcessor()
-        img = np.ones((100, 100), dtype=np.uint8) * 255
-
-        with pytest.raises(ValueError, match="Image must have 3 channels"):
-            processor.remove_bg_grabcut(img)
-
     def test_remove_bg_threshold_returns_bgra(self) -> None:
         """Test remove_bg_threshold returns 4-channel BGRA with transparent bright pixels."""
         processor = ImageProcessor()
@@ -221,18 +160,6 @@ class TestFileProcessor:
 class TestSegmentHandler:
     """Test suite for SegmentHandler class."""
 
-    def test_remove_bg_grabcut_delegates(self) -> None:
-        """Test remove_bg_grabcut delegates to ImageProcessor."""
-        from unittest.mock import patch
-
-        handler = SegmentHandler()
-        img = np.ones((50, 50, 3), dtype=np.uint8) * 100
-
-        with patch.object(handler._processor, "remove_bg_grabcut", wraps=handler._processor.remove_bg_grabcut) as mock:
-            result = handler.remove_bg_grabcut(img)
-            mock.assert_called_once_with(img)
-            assert result.shape == (50, 50, 4)
-
     def test_remove_bg_threshold_delegates(self) -> None:
         """Test remove_bg_threshold delegates to ImageProcessor."""
         from unittest.mock import patch
@@ -244,36 +171,6 @@ class TestSegmentHandler:
             result = handler.remove_bg_threshold(img, threshold=200)
             mock.assert_called_once_with(img, 200)
             assert result.shape == (50, 50, 4)
-
-
-def test_crop_and_save_grabcut_forces_png(tmp_path: Path) -> None:
-    """Test that grabcut preprocess mode saves as PNG regardless of image_format."""
-    from unittest.mock import patch
-
-    import cv2
-    from PIL import Image as PILImage
-
-    extractor = PageExtractor(
-        model_path=Path("dummy.pt"),
-        render_scale=2,
-        image_format="jpg",
-        preprocess="grabcut",
-    )
-
-    image = PILImage.new("RGB", (200, 200), color="white")
-    polygon = [(10, 10), (190, 10), (190, 190), (10, 190)]
-    output_path = tmp_path / "output.png"
-
-    with patch.object(extractor._segment_handler, "remove_bg_grabcut") as mock_bg:
-        mock_bg.return_value = np.ones((200, 200, 4), dtype=np.uint8) * 255
-        extractor._crop_and_save(image, polygon, output_path)
-        mock_bg.assert_called_once()
-
-    assert output_path.exists()
-    assert output_path.suffix == ".png"
-
-    saved = PILImage.open(output_path)
-    assert saved.mode == "RGBA"
 
 
 def test_crop_and_save_threshold_forces_png(tmp_path: Path) -> None:
