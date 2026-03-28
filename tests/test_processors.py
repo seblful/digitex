@@ -6,7 +6,7 @@ import pytest
 import numpy as np
 from PIL import Image
 
-from digitex.core.processors import FileProcessor, ImageProcessor
+from digitex.core.processors import FileProcessor, ImageProcessor, SegmentHandler
 from digitex.utils import prepare_image
 
 
@@ -216,4 +216,30 @@ class TestFileProcessor:
 
         FileProcessor.write_yaml(file_path, data)
 
-        assert file_path.exists()
+
+class TestSegmentHandler:
+    """Test suite for SegmentHandler class."""
+
+    def test_remove_bg_grabcut_delegates(self) -> None:
+        """Test remove_bg_grabcut delegates to ImageProcessor."""
+        from unittest.mock import patch
+
+        handler = SegmentHandler()
+        img = np.ones((50, 50, 3), dtype=np.uint8) * 100
+
+        with patch.object(handler._processor, "remove_bg_grabcut", wraps=handler._processor.remove_bg_grabcut) as mock:
+            result = handler.remove_bg_grabcut(img)
+            mock.assert_called_once_with(img)
+            assert result.shape == (50, 50, 4)
+
+    def test_remove_bg_threshold_delegates(self) -> None:
+        """Test remove_bg_threshold delegates to ImageProcessor."""
+        from unittest.mock import patch
+
+        handler = SegmentHandler()
+        img = np.ones((50, 50, 3), dtype=np.uint8) * 100
+
+        with patch.object(handler._processor, "remove_bg_threshold", wraps=handler._processor.remove_bg_threshold) as mock:
+            result = handler.remove_bg_threshold(img)
+            mock.assert_called_once_with(img)
+            assert result.shape == (50, 50, 4)

@@ -522,3 +522,25 @@ class SegmentHandler:
         if use_morphology:
             result = self._processor.apply_morphology(result)
         return result
+
+    def remove_bg_grabcut(self, segment_bgr: np.ndarray) -> np.ndarray:
+        """Remove background using GrabCut algorithm.
+
+        Args:
+            segment_bgr: Input segment in BGR format.
+
+        Returns:
+            4-channel BGRA image with transparent background.
+        """
+        return self._processor.remove_bg_grabcut(segment_bgr)
+
+    def remove_bg_threshold(self, segment_bgr: np.ndarray) -> np.ndarray:
+        """Remove background using white-pixel threshold.
+
+        Args:
+            segment_bgr: Input segment in BGR format.
+
+        Returns:
+            4-channel BGRA image with transparent background.
+        """
+        return self._processor.remove_bg_threshold(segment_bgr)
