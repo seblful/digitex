@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_BG_THRESHOLD = 200
 DEFAULT_SATURATION_THRESHOLD = 80
 DEFAULT_DILATE_ITERATIONS = 2
+DEFAULT_GAMMA = 0.8
 
 
 def resize_img(
