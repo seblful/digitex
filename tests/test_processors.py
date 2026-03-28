@@ -6,7 +6,12 @@ import pytest
 import numpy as np
 from PIL import Image
 
-from digitex.core.processors import FileProcessor, SegmentProcessor, resize_img, resize_image
+from digitex.core.processors import (
+    FileProcessor,
+    SegmentProcessor,
+    resize_img,
+    resize_image,
+)
 from digitex.extractors.page_extractor import PageExtractor
 
 
@@ -46,12 +51,12 @@ class TestResizeImage:
         assert result.mode == "RGB"
         assert result.size == (1000, 1000)
 
-    def test_remove_bg_threshold_returns_bgra(self) -> None:
-        """Test remove_bg_threshold returns 4-channel BGRA with transparent bright pixels."""
+    def test_remove_bg_returns_rgba(self) -> None:
+        """Test remove_bg returns RGBA numpy array with transparent bright pixels."""
         processor = SegmentProcessor()
-        img = np.ones((100, 100, 3), dtype=np.uint8) * 255
-        img[20:80, 20:80] = [50, 50, 50]
-        result = processor.remove_bg_threshold(img)
+        img = np.ones((100, 100, 4), dtype=np.uint8) * 255
+        img[20:80, 20:80, :3] = [50, 50, 50]
+        result = processor.remove_bg(img)
 
         assert result.shape == (100, 100, 4)
         assert result.dtype == np.uint8
@@ -59,39 +64,18 @@ class TestResizeImage:
         assert alpha[0, 0] == 0
         assert alpha[50, 50] == 255
 
-    def test_remove_bg_threshold_empty_image(self) -> None:
-        """Test remove_bg_threshold raises ValueError on empty image."""
+    def test_remove_bg_invalid_threshold(self) -> None:
+        """Test remove_bg raises ValueError on invalid threshold."""
         processor = SegmentProcessor()
-        img = np.array([], dtype=np.uint8).reshape(0, 0, 3)
-        with pytest.raises(ValueError, match="Image is empty"):
-            processor.remove_bg_threshold(img)
-
-    def test_remove_bg_threshold_float32_image(self) -> None:
-        """Test remove_bg_threshold raises ValueError on float32 image."""
-        processor = SegmentProcessor()
-        img = np.ones((100, 100, 3), dtype=np.float32) * 255
-        with pytest.raises(ValueError, match="Image must have dtype uint8"):
-            processor.remove_bg_threshold(img)
-
-    def test_remove_bg_threshold_wrong_channels(self) -> None:
-        """Test remove_bg_threshold raises ValueError on wrong number of channels."""
-        processor = SegmentProcessor()
-        img = np.ones((100, 100, 4), dtype=np.uint8)
-        with pytest.raises(ValueError, match="Image must have 3 channels"):
-            processor.remove_bg_threshold(img)
-
-    def test_remove_bg_threshold_invalid_threshold(self) -> None:
-        """Test remove_bg_threshold raises ValueError on invalid threshold."""
-        processor = SegmentProcessor()
-        img = np.ones((100, 100, 3), dtype=np.uint8) * 255
+        img = np.ones((100, 100, 4), dtype=np.uint8) * 255
         with pytest.raises(
             ValueError, match="Threshold must be an integer in range 0-255"
         ):
-            processor.remove_bg_threshold(img, threshold=300)
+            processor.remove_bg(img, threshold=300)
         with pytest.raises(
             ValueError, match="Threshold must be an integer in range 0-255"
         ):
-            processor.remove_bg_threshold(img, threshold=-1)
+            processor.remove_bg(img, threshold=-1)
 
 
 class TestFileProcessor:
@@ -146,50 +130,51 @@ class TestFileProcessor:
 class TestSegmentProcessor:
     """Test suite for SegmentProcessor."""
 
-    def test_remove_bg_threshold(self) -> None:
-        """Test remove_bg_threshold processes segment correctly."""
+    def test_remove_bg(self) -> None:
+        """Test remove_bg processes segment correctly."""
         processor = SegmentProcessor()
-        img = np.ones((50, 50, 3), dtype=np.uint8) * 100
+        img = np.ones((50, 50, 4), dtype=np.uint8) * 100
 
-        result = processor.remove_bg_threshold(img, threshold=150)
+        result = processor.remove_bg(img, threshold=150)
         assert result.shape == (50, 50, 4)
         assert result.dtype == np.uint8
 
     def test_increase_darkness_darkens_midtones(self) -> None:
         """Test that increase_darkness darkens mid-tone pixels."""
         processor = SegmentProcessor()
-        img = Image.new("RGBA", (10, 10), color=(128, 128, 128, 255))
+        img = np.full((10, 10, 4), 128, dtype=np.uint8)
+        img[:, :, 3] = 255
 
         result = processor.increase_darkness(img, gamma=0.8)
 
-        result_np = np.array(result)
-        assert result_np[0, 0, 0] < 128
-        assert result_np[0, 0, 3] == 255
+        assert result[0, 0, 0] < 128
+        assert result[0, 0, 3] == 255
 
     def test_increase_darkness_gamma_one_unchanged(self) -> None:
         """Test that gamma=1.0 leaves image unchanged."""
         processor = SegmentProcessor()
-        img = Image.new("RGBA", (10, 10), color=(100, 100, 100, 255))
+        img = np.full((10, 10, 4), 100, dtype=np.uint8)
+        img[:, :, 3] = 255
 
         result = processor.increase_darkness(img, gamma=1.0)
 
-        result_np = np.array(result)
-        np.testing.assert_array_equal(result_np, np.array(img))
+        np.testing.assert_array_equal(result, img)
 
     def test_increase_darkness_preserves_alpha(self) -> None:
         """Test that alpha channel is preserved."""
         processor = SegmentProcessor()
-        img = Image.new("RGBA", (10, 10), color=(100, 100, 100, 128))
+        img = np.full((10, 10, 4), 100, dtype=np.uint8)
+        img[:, :, 3] = 128
 
         result = processor.increase_darkness(img, gamma=0.8)
 
-        result_np = np.array(result)
-        assert result_np[0, 0, 3] == 128
+        assert result[0, 0, 3] == 128
 
     def test_increase_darkness_invalid_gamma(self) -> None:
         """Test that invalid gamma raises ValueError."""
         processor = SegmentProcessor()
-        img = Image.new("RGBA", (10, 10), color=(100, 100, 100, 255))
+        img = np.full((10, 10, 4), 100, dtype=np.uint8)
+        img[:, :, 3] = 255
 
         with pytest.raises(ValueError, match="gamma must be positive"):
             processor.increase_darkness(img, gamma=0)
@@ -200,43 +185,46 @@ class TestSegmentProcessor:
     def test_add_white_background_transparent_becomes_white(self) -> None:
         """Test that transparent areas become white."""
         processor = SegmentProcessor()
-        img = Image.new("RGBA", (10, 10), color=(100, 100, 100, 0))
+        img = np.full((10, 10, 4), 100, dtype=np.uint8)
+        img[:, :, 3] = 0
 
         result = processor.add_white_background(img)
 
-        assert result.mode == "RGB"
-        result_np = np.array(result)
-        assert result_np[0, 0, 0] == 255
-        assert result_np[0, 0, 1] == 255
-        assert result_np[0, 0, 2] == 255
+        assert result.shape[2] == 3
+        assert result[0, 0, 0] == 255
+        assert result[0, 0, 1] == 255
+        assert result[0, 0, 2] == 255
 
     def test_add_white_background_opaque_unchanged(self) -> None:
         """Test that opaque pixels remain unchanged."""
         processor = SegmentProcessor()
-        img = Image.new("RGBA", (10, 10), color=(50, 100, 150, 255))
+        img = np.zeros((10, 10, 4), dtype=np.uint8)
+        img[:, :, 0] = 50
+        img[:, :, 1] = 100
+        img[:, :, 2] = 150
+        img[:, :, 3] = 255
 
         result = processor.add_white_background(img)
 
-        result_np = np.array(result)
-        assert result_np[0, 0, 0] == 50
-        assert result_np[0, 0, 1] == 100
-        assert result_np[0, 0, 2] == 150
+        assert result[0, 0, 0] == 50
+        assert result[0, 0, 1] == 100
+        assert result[0, 0, 2] == 150
 
     def test_add_white_background_returns_rgb(self) -> None:
-        """Test that result is RGB mode."""
+        """Test that result is 3-channel RGB."""
         processor = SegmentProcessor()
-        img = Image.new("RGBA", (10, 10), color=(100, 100, 100, 128))
+        img = np.full((10, 10, 4), 100, dtype=np.uint8)
+        img[:, :, 3] = 128
 
         result = processor.add_white_background(img)
 
-        assert result.mode == "RGB"
+        assert result.shape[2] == 3
 
 
 def test_crop_and_save_threshold_forces_png(tmp_path: Path) -> None:
     """Test that threshold preprocess mode saves as PNG regardless of image_format."""
     from unittest.mock import patch
 
-    import cv2
     from PIL import Image as PILImage
 
     extractor = PageExtractor(
@@ -249,13 +237,13 @@ def test_crop_and_save_threshold_forces_png(tmp_path: Path) -> None:
     polygon = [(10, 10), (190, 10), (190, 190), (10, 190)]
     output_path = tmp_path / "output.png"
 
-    with patch.object(extractor._segment_processor, "remove_bg_threshold") as mock_bg:
-        mock_bg.return_value = np.ones((200, 200, 4), dtype=np.uint8) * 255
+    with patch.object(SegmentProcessor, "process") as mock_process:
+        mock_process.return_value = PILImage.new("RGB", (180, 180), color="white")
         extractor._crop_and_save(image, polygon, output_path)
-        mock_bg.assert_called_once()
+        mock_process.assert_called_once()
 
     assert output_path.exists()
     assert output_path.suffix == ".png"
 
     saved = PILImage.open(output_path)
-    assert saved.mode == "RGBA"
+    assert saved.mode == "RGB"

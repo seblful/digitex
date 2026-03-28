@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_BG_THRESHOLD = 200
 DEFAULT_SATURATION_THRESHOLD = 80
 DEFAULT_DILATE_ITERATIONS = 2
-DEFAULT_GAMMA = 0.8
+DEFAULT_GAMMA = 0.6
 
 
 def resize_img(
@@ -145,23 +145,21 @@ class SegmentProcessor:
 
     @staticmethod
     def remove_color(
-        image: Image.Image,
+        img_np: np.ndarray,
         saturation_threshold: int = DEFAULT_SATURATION_THRESHOLD,
         dilate_iterations: int = DEFAULT_DILATE_ITERATIONS,
-    ) -> Image.Image:
+    ) -> np.ndarray:
         """Remove all colored pixels, keeping only grayscale (gray/black/white).
 
         Args:
-            image: Input PIL Image.
+            img_np: Input RGBA numpy array.
             saturation_threshold: Maximum saturation value to consider grayscale (0-255).
-                Lower values are stricter (only pure grays). Default 30 works well.
+            dilate_iterations: Number of dilation iterations for color mask.
 
         Returns:
-            Image with colored pixels made transparent.
+            RGBA numpy array with colored pixels made transparent.
         """
-        img_np = np.array(image.convert("RGBA"))
         hsv = cv2.cvtColor(img_np[:, :, :3], cv2.COLOR_RGB2HSV)
-
         color_mask = hsv[:, :, 1] > saturation_threshold
 
         if dilate_iterations > 0:
@@ -170,40 +168,46 @@ class SegmentProcessor:
                 color_mask.astype(np.uint8), kernel, iterations=dilate_iterations
             ).astype(bool)
 
+        img_np = img_np.copy()
         img_np[color_mask, 3] = 0
-
-        return Image.fromarray(img_np, mode="RGBA")
+        return img_np
 
     @staticmethod
-    def remove_bg_threshold(
-        image: Image.Image, threshold: int = DEFAULT_BG_THRESHOLD
-    ) -> Image.Image:
-        """Remove background using white-pixel threshold."""
+    def remove_bg(
+        img_np: np.ndarray, threshold: int = DEFAULT_BG_THRESHOLD
+    ) -> np.ndarray:
+        """Remove background using white-pixel threshold.
+
+        Args:
+            img_np: Input RGBA numpy array.
+            threshold: Brightness threshold (0-255).
+
+        Returns:
+            RGBA numpy array with bright pixels made transparent.
+        """
         if not (0 <= threshold <= 255):
             raise ValueError(
                 f"Threshold must be an integer in range 0-255, got {threshold}"
             )
 
-        img_np = np.array(image.convert("RGBA"))
+        img_np = img_np.copy()
         gray = cv2.cvtColor(img_np[:, :, :3], cv2.COLOR_RGB2GRAY)
         _, new_mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY_INV)
         img_np[:, :, 3] = cv2.bitwise_and(img_np[:, :, 3], new_mask)
-
-        return Image.fromarray(img_np, mode="RGBA")
+        return img_np
 
     @staticmethod
     def increase_darkness(
-        image: Image.Image, gamma: float = DEFAULT_GAMMA
-    ) -> Image.Image:
+        img_np: np.ndarray, gamma: float = DEFAULT_GAMMA
+    ) -> np.ndarray:
         """Apply gamma correction to darken mid-tones and increase contrast.
 
         Args:
-            image: Input PIL Image (RGBA recommended).
-            gamma: Gamma value. Values < 1.0 darken the image, > 1.0 lighten.
-                Default 0.8 provides subtle darkening.
+            img_np: Input RGBA numpy array.
+            gamma: Gamma value. Values < 1.0 darken, > 1.0 lighten.
 
         Returns:
-            Image with gamma correction applied.
+            RGBA numpy array with gamma correction applied.
 
         Raises:
             ValueError: If gamma is not positive.
@@ -211,28 +215,27 @@ class SegmentProcessor:
         if gamma <= 0:
             raise ValueError(f"gamma must be positive, got {gamma}")
 
-        img_np = np.array(image.convert("RGBA"))
+        img_np = img_np.copy()
         rgb = img_np[:, :, :3].astype(np.float32) / 255.0
         corrected = np.power(rgb, 1.0 / gamma) * 255.0
         corrected = np.clip(corrected, 0, 255).astype(np.uint8)
         img_np[:, :, :3] = corrected
-
-        return Image.fromarray(img_np, mode="RGBA")
+        return img_np
 
     @staticmethod
-    def add_white_background(image: Image.Image) -> Image.Image:
+    def add_white_background(img_np: np.ndarray) -> np.ndarray:
         """Composite RGBA image onto white background.
 
         Args:
-            image: Input PIL Image (RGBA recommended).
+            img_np: Input RGBA numpy array.
 
         Returns:
-            RGB image with white background replacing transparency.
+            RGB numpy array with white background replacing transparency.
         """
-        rgba = image.convert("RGBA")
-        background = Image.new("RGB", rgba.size, (255, 255, 255))
-        background.paste(rgba, mask=rgba.split()[3])
-        return background
+        alpha = img_np[:, :, 3:4] / 255.0
+        white_bg = np.ones_like(img_np[:, :, :3]) * 255
+        rgb = img_np[:, :, :3] * alpha + white_bg * (1 - alpha)
+        return rgb.astype(np.uint8)
 
     @staticmethod
     def process(
@@ -252,8 +255,9 @@ class SegmentProcessor:
         Returns:
             RGB image suitable for JPG format.
         """
-        result = SegmentProcessor.remove_color(image, saturation_threshold)
-        result = SegmentProcessor.remove_bg_threshold(result, bg_threshold)
-        result = SegmentProcessor.increase_darkness(result, gamma)
-        result = SegmentProcessor.add_white_background(result)
-        return result
+        img = np.array(image.convert("RGBA"))
+        img = SegmentProcessor.remove_color(img, saturation_threshold)
+        img = SegmentProcessor.remove_bg(img, bg_threshold)
+        img = SegmentProcessor.increase_darkness(img, gamma)
+        rgb = SegmentProcessor.add_white_background(img)
+        return Image.fromarray(rgb, mode="RGB")
