@@ -192,6 +192,34 @@ class SegmentProcessor:
         return Image.fromarray(img_np, mode="RGBA")
 
     @staticmethod
+    def increase_darkness(
+        image: Image.Image, gamma: float = DEFAULT_GAMMA
+    ) -> Image.Image:
+        """Apply gamma correction to darken mid-tones and increase contrast.
+
+        Args:
+            image: Input PIL Image (RGBA recommended).
+            gamma: Gamma value. Values < 1.0 darken the image, > 1.0 lighten.
+                Default 0.8 provides subtle darkening.
+
+        Returns:
+            Image with gamma correction applied.
+
+        Raises:
+            ValueError: If gamma is not positive.
+        """
+        if gamma <= 0:
+            raise ValueError(f"gamma must be positive, got {gamma}")
+
+        img_np = np.array(image.convert("RGBA"))
+        rgb = img_np[:, :, :3].astype(np.float32) / 255.0
+        corrected = np.power(rgb, 1.0 / gamma) * 255.0
+        corrected = np.clip(corrected, 0, 255).astype(np.uint8)
+        img_np[:, :, :3] = corrected
+
+        return Image.fromarray(img_np, mode="RGBA")
+
+    @staticmethod
     def process(
         image: Image.Image,
         saturation_threshold: int = DEFAULT_SATURATION_THRESHOLD,
