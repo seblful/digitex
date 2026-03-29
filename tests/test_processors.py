@@ -9,47 +9,12 @@ from PIL import Image
 from digitex.core.processors import (
     FileProcessor,
     SegmentProcessor,
-    resize_img,
-    resize_image,
 )
 from digitex.extractors.page_extractor import PageExtractor
 
 
-class TestResizeImage:
-    """Test suite for resize_img function (numpy arrays)."""
-
-    def test_resize_img_smaller_than_max(self) -> None:
-        """Test resize_img when image is already smaller than max_height."""
-        img = np.zeros((500, 500, 3), dtype=np.uint8)
-        result = resize_img(img, 1000)
-
-        assert result.shape == (500, 500, 3)
-
-    def test_resize_img_larger_than_max(self) -> None:
-        """Test resize_img when image is larger than max_height."""
-        img = np.zeros((2000, 2000, 3), dtype=np.uint8)
-        result = resize_img(img, 1000)
-
-        assert result.shape[0] == 1000
-        assert result.shape[1] == 1000
-
-    def test_resize_image_pil_no_resize(self) -> None:
-        """Test resize_image PIL without resizing."""
-        img = Image.new("RGB", (100, 100))
-        result = resize_image(img, 0)
-
-        assert isinstance(result, Image.Image)
-        assert result.mode == "RGB"
-        assert result.size == (100, 100)
-
-    def test_resize_image_pil_with_resize(self) -> None:
-        """Test resize_image PIL with resizing."""
-        img = Image.new("RGB", (2000, 2000))
-        result = resize_image(img, 1000)
-
-        assert isinstance(result, Image.Image)
-        assert result.mode == "RGB"
-        assert result.size == (1000, 1000)
+class TestSegmentProcessor:
+    """Test suite for SegmentProcessor."""
 
     def test_remove_bg_returns_rgba(self) -> None:
         """Test remove_bg returns RGBA numpy array with transparent bright pixels."""
@@ -229,8 +194,9 @@ def test_crop_and_save_uses_image_format(tmp_path: Path) -> None:
 
     extractor = PageExtractor(
         model_path=Path("dummy.pt"),
-        render_scale=2,
         image_format="jpg",
+        question_max_width=2000,
+        question_max_height=2000,
     )
 
     image = PILImage.new("RGB", (200, 200), color="white")

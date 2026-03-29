@@ -3,7 +3,6 @@
 from .settings import (
     DatabaseSettings,
     ExtractionSettings,
-    PDFSettings,
     PathsSettings,
     Settings,
     TrainingSettings,
@@ -15,7 +14,6 @@ __all__ = [
     "Settings",
     "DatabaseSettings",
     "ExtractionSettings",
-    "PDFSettings",
     "PathsSettings",
     "TrainingSettings",
 ]

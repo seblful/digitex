@@ -2,7 +2,6 @@
 
 import logging
 from pathlib import Path
-from unittest.mock import Mock
 
 import pytest
 from PIL import Image
@@ -24,25 +23,6 @@ def sample_image(tmp_path: Path) -> Image.Image:
     img_path = tmp_path / "test_image.jpg"
     img.save(img_path)
     return img
-
-
-@pytest.fixture
-def sample_pdf_dir(tmp_path: Path) -> Path:
-    """Create a directory with a sample PDF file.
-
-    Args:
-        tmp_path: Temporary directory fixture.
-
-    Returns:
-        Path to the temporary directory.
-    """
-    pdf_dir = tmp_path / "pdfs"
-    pdf_dir.mkdir()
-
-    pdf_path = pdf_dir / "sample.pdf"
-    pdf_path.write_bytes(b"%PDF-1.4\n%test pdf\n%%EOF\n")
-
-    return pdf_dir
 
 
 @pytest.fixture
@@ -84,16 +64,6 @@ answer
     classes_path.write_text(classes_content)
 
     return classes_path
-
-
-@pytest.fixture
-def mock_pdf_handler() -> Mock:
-    """Create a mock PDFHandler for testing.
-
-    Returns:
-        Mocked PDFHandler instance.
-    """
-    return Mock()
 
 
 @pytest.fixture

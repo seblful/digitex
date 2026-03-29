@@ -5,7 +5,6 @@ from .image import (
     ImageCropper,
     SegmentProcessor,
     resize_image,
-    resize_img,
 )
 
 __all__ = [
@@ -13,5 +12,4 @@ __all__ = [
     "FileProcessor",
     "SegmentProcessor",
     "resize_image",
-    "resize_img",
 ]

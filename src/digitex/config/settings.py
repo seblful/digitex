@@ -20,7 +20,7 @@ class ExtractionSettings(BaseSettings):
 
     books_dir: Path = Field(
         default=Path("books"),
-        description="Directory containing subject folders with PDFs",
+        description="Directory containing subject folders with images",
     )
 
     extraction_dir: Path = Field(
@@ -28,27 +28,21 @@ class ExtractionSettings(BaseSettings):
         description="Output directory for extracted images",
     )
 
-    render_scale: int = Field(
-        default=3,
+    question_max_width: int = Field(
+        default=2000,
         ge=1,
-        description="PDF render scale factor (higher = better quality)",
+        description="Maximum width for extracted question images",
+    )
+
+    question_max_height: int = Field(
+        default=2000,
+        ge=1,
+        description="Maximum height for extracted question images",
     )
 
     image_format: str = Field(
         default="jpg",
         description="Output image format (jpg, png, etc.)",
-    )
-
-
-class PDFSettings(BaseSettings):
-    """PDF processing settings."""
-
-    model_config = SettingsConfigDict(env_prefix="PDF_")
-
-    max_height: int = Field(
-        default=2000,
-        ge=0,
-        description="Maximum image height for resizing (0 = no resize)",
     )
 
 
@@ -154,7 +148,6 @@ class Settings(BaseSettings):
     training: TrainingSettings = Field(default_factory=TrainingSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)
     extraction: ExtractionSettings = Field(default_factory=ExtractionSettings)
-    pdf: PDFSettings = Field(default_factory=PDFSettings)
 
     @classmethod
     def load(cls) -> Self:

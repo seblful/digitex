@@ -7,7 +7,7 @@ from digitex.ml.yolo import Trainer
 from digitex.ml.yolo.augmenter import PolygonAugmenter
 from digitex.ml.yolo.dataset import DatasetCreator
 from digitex.ml.yolo.visualizer import PolygonVisualizer
-from digitex.utils import create_pdf_from_images
+
 
 app = typer.Typer(help="YOLO model training for document segmentation")
 logger = logging.getLogger(__name__)
@@ -77,24 +77,18 @@ def prepare_train_data(
         100, "--num-images", help="Number of images to create"
     ),
 ) -> None:
-    """Prepare training data by creating PDFs and extracting pages."""
+    """Prepare training data by selecting random images from books."""
     s = get_settings()
     paths = s.paths
-    home = paths.home_dir
     training_dir = paths.training_dir
     data_dir = training_dir / "data" / data_subdir
 
-    images_dir = data_dir / "books"
     page_train_dir = data_dir / "images"
-    books_dir = home / "books"
+    books_dir = paths.raw_data_dir
 
-    page_creator = PageDataCreator(scale=s.extraction.render_scale)
-
-    for image_dir in images_dir.iterdir():
-        create_pdf_from_images(image_dir=image_dir, raw_dir=books_dir)
-
+    page_creator = PageDataCreator(train_image_size=s.training.image_size)
     page_creator.create(
-        pdf_dir=books_dir,
+        books_dir=books_dir,
         output_dir=page_train_dir,
         num_images=num_images,
     )

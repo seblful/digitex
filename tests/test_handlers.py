@@ -1,13 +1,10 @@
 """Tests for the Handlers module."""
 
 from pathlib import Path
-from unittest.mock import Mock, patch
 
 import pytest
-import numpy as np
-from PIL import Image
 
-from digitex.core.handlers import LabelHandler, PDFHandler
+from digitex.core.handlers import LabelHandler
 
 
 class TestLabelHandler:
@@ -66,28 +63,3 @@ class TestLabelHandler:
         )
 
         assert result == (-1, [])
-
-
-class TestPDFHandler:
-    """Test suite for PDFHandler class."""
-
-    def test_get_page_image(self) -> None:
-        """Test rendering a PDF page."""
-        handler = PDFHandler()
-        mock_page = Mock()
-        mock_bitmap = Mock()
-        mock_pil_image = Image.new('RGB', (100, 100))
-        mock_bitmap.to_pil.return_value = mock_pil_image
-        mock_page.render.return_value = mock_bitmap
-
-        result = handler.get_page_image(mock_page, scale=3)
-
-        assert isinstance(result, Image.Image)
-        assert result.mode == 'RGB'
-
-    def test_get_random_image_file_not_found(self, tmp_path: Path) -> None:
-        """Test get_random_image with non-existent PDF."""
-        handler = PDFHandler()
-
-        with pytest.raises(FileNotFoundError):
-            handler.get_random_image(["nonexistent.pdf"], tmp_path, scale=3)

@@ -6,7 +6,7 @@ import math
 import cv2
 import numpy as np
 from deskew import determine_skew
-from PIL import Image
+from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
 
@@ -17,46 +17,8 @@ DEFAULT_GAMMA = 0.6
 DEFAULT_SKEW_MAX_DIM = 400
 
 
-def resize_img(
-    img: np.ndarray,
-    max_height: int,
-) -> np.ndarray:
-    """Resize numpy image to fit within maximum height while maintaining aspect ratio.
-
-    Args:
-        img: Input numpy image.
-        max_height: Maximum allowed height in pixels.
-
-    Returns:
-        Resized image if height exceeds max_height, otherwise original image.
-    """
-    height, width = img.shape[:2]
-
-    if height > max_height:
-        aspect_ratio = width / height
-        new_height = max_height
-        new_width = int(new_height * aspect_ratio)
-
-        img = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_AREA)
-
-    return img
-
-
-def resize_image(image: Image.Image, max_height: int) -> Image.Image:
-    """Resize PIL image to fit within maximum height.
-
-    Args:
-        image: Input PIL Image.
-        max_height: Maximum allowed height. If 0, no resizing.
-
-    Returns:
-        Resized PIL Image.
-    """
-    if max_height <= 0:
-        return image
-    img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-    img = resize_img(img, max_height)
-    return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+def resize_image(image: Image.Image, max_width: int, max_height: int) -> Image.Image:
+    return ImageOps.contain(image, (max_width, max_height))
 
 
 class ImageCropper:

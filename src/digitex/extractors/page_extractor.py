@@ -9,6 +9,7 @@ from digitex.core import TextExtractor
 from digitex.core.processors import (
     ImageCropper,
     SegmentProcessor,
+    resize_image,
 )
 from digitex.ml.predictors import (
     SegmentationPredictionResult,
@@ -28,12 +29,14 @@ class PageExtractor:
     def __init__(
         self,
         model_path: Path,
-        render_scale: int,
         image_format: str,
+        question_max_width: int,
+        question_max_height: int,
     ) -> None:
         self.model_path = model_path
-        self.render_scale = render_scale
         self.image_format = image_format
+        self.question_max_width = question_max_width
+        self.question_max_height = question_max_height
 
         self._predictor: YOLO_SegmentationPredictor | None = None
         self._segment_processor = SegmentProcessor()
@@ -70,6 +73,7 @@ class PageExtractor:
         output_path: Path,
     ) -> None:
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
+        cropped = resize_image(cropped, self.question_max_width, self.question_max_height)
         processed = self._segment_processor.process(cropped)
         output_path = output_path.with_suffix(f".{self.image_format}")
         output_path.parent.mkdir(parents=True, exist_ok=True)

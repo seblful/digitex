@@ -2,12 +2,9 @@ import logging
 import re
 from pathlib import Path
 
+import pypdfium2 as pdfium
 import torch
 from PIL import Image
-
-from digitex.config import get_settings
-from digitex.core.handlers import PDFHandler
-from digitex.core.processors.image import resize_image
 
 logger = logging.getLogger(__name__)
 
@@ -15,17 +12,6 @@ IMAGE_EXTENSIONS: set[str] = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
 
 def _natural_sort_key(path: Path) -> list[int | str]:
-    """Generate a sort key that orders filenames with embedded numbers correctly.
-
-    Splits the stem into alternating text and numeric chunks so that
-    ``Document_9.jpg`` sorts before ``Document_10.jpg``.
-
-    Args:
-        path: File path to generate the key for.
-
-    Returns:
-        List of string and integer chunks for comparison.
-    """
     parts: list[int | str] = []
     for chunk in re.split(r"(\d+)", path.stem):
         if chunk.isdigit():
@@ -36,19 +22,6 @@ def _natural_sort_key(path: Path) -> list[int | str]:
 
 
 def rename_images_to_sequential(base_dir: str | Path) -> None:
-    """Rename all images in each subfolder of base_dir to sequential numbers.
-
-    Iterates over all immediate subdirectories of base_dir. Within each
-    subdirectory, image files are sorted by name and renamed to
-    ``1.<ext>``, ``2.<ext>``, …, ``n.<ext>``.  The numeration restarts
-    at 1 for every folder.
-
-    Args:
-        base_dir: Root directory whose subdirectories contain images.
-
-    Raises:
-        FileNotFoundError: If base_dir does not exist.
-    """
     base_dir = Path(base_dir)
 
     if not base_dir.exists():
@@ -81,12 +54,55 @@ def rename_images_to_sequential(base_dir: str | Path) -> None:
         logger.info(f"Renamed {len(images)} images in {folder}")
 
 
-def get_device() -> torch.device:
-    """Get the best available device for PyTorch operations.
+def create_pdf_from_images(
+    image_dir: str | Path,
+    output_path: str | Path,
+) -> None:
+    image_dir = Path(image_dir)
+    output_path = Path(output_path)
 
-    Returns:
-        torch.device: CUDA device if available, otherwise CPU.
-    """
+    if not image_dir.exists():
+        raise FileNotFoundError(f"Image directory not found: {image_dir}")
+
+    images = sorted(
+        (p for p in image_dir.iterdir()
+         if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS),
+        key=_natural_sort_key,
+    )
+
+    if not images:
+        raise FileNotFoundError(f"No images found in {image_dir}")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    pdf = pdfium.PdfDocument.new()
+
+    for image_path in images:
+        try:
+            image = Image.open(image_path)
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+
+            bitmap = pdfium.PdfBitmap.from_pil(image)
+            pdf_image = pdfium.PdfImage.new(pdf)
+            pdf_image.set_bitmap(bitmap)
+
+            width, height = pdf_image.get_size()
+            matrix = pdfium.PdfMatrix().scale(width, height)
+            pdf_image.set_matrix(matrix)
+
+            page = pdf.new_page(width, height)
+            page.insert_obj(pdf_image)
+            page.gen_content()
+            bitmap.close()
+        except (FileNotFoundError, IOError) as e:
+            logger.warning(f"Failed to process image {image_path}: {e}")
+            continue
+
+    pdf.save(str(output_path), version=17)
+    logger.info(f"PDF created successfully: {output_path}")
+
+
+def get_device() -> torch.device:
     if torch.cuda.is_available():
         logger.debug("CUDA device available")
         return torch.device("cuda")
@@ -95,74 +111,8 @@ def get_device() -> torch.device:
 
 
 def get_device_count() -> int:
-    """Get the number of available CUDA devices.
-
-    Returns:
-        int: Number of CUDA devices (0 if none available).
-    """
     return torch.cuda.device_count()
 
 
 def get_device_indices() -> list[int]:
-    """Get list of available device indices.
-
-    Returns:
-        list[int]: List of device indices (empty list if no CUDA devices).
-    """
-    count = get_device_count()
-    return list(range(count))
-
-
-def create_pdf_from_images(
-    image_dir: str | Path,
-    raw_dir: str | Path,
-    process: bool = False,
-) -> None:
-    """Create a PDF from a directory of images.
-
-    Args:
-        image_dir: Directory containing the images.
-        raw_dir: Directory where the PDF will be saved.
-        process: Whether to process images before adding to PDF.
-
-    Raises:
-        FileNotFoundError: If image_dir doesn't exist or contains no images.
-        IOError: If images cannot be read or PDF cannot be created.
-    """
-    image_dir = Path(image_dir)
-    raw_dir = Path(raw_dir)
-
-    if not image_dir.exists():
-        raise FileNotFoundError(f"Image directory not found: {image_dir}")
-
-    def num_key(x: str) -> int:
-        """Extract numeric key from filename for sorting."""
-        return int(x.split("_")[-1].split(".")[0])
-
-    image_list = sorted(image_dir.iterdir(), key=lambda p: num_key(p.name))
-
-    if not image_list:
-        raise FileNotFoundError(f"No images found in {image_dir}")
-
-    images = []
-    for image_path in image_list:
-        try:
-            image = Image.open(image_path)
-
-            if process:
-                max_height = get_settings().pdf.max_height
-                image = resize_image(image, max_height)
-
-            images.append(image)
-        except (FileNotFoundError, IOError) as e:
-            logger.warning(f"Failed to process image {image_path}: {e}")
-            continue
-
-    if not images:
-        raise ValueError("No valid images could be processed")
-
-    pdf_name = f"{image_dir.name} {raw_dir.name}.pdf"
-    pdf_path = raw_dir / pdf_name
-
-    PDFHandler().create_pdf(images, pdf_path)
-    logger.info(f"PDF created successfully: {pdf_path}")
+    return list(range(get_device_count()))

@@ -1,4 +1,4 @@
-"""Tests extractor that orchestrates extraction of all PDF books."""
+"""Tests extractor that orchestrates extraction of all image books."""
 
 import logging
 from pathlib import Path
@@ -11,13 +11,14 @@ logger = logging.getLogger(__name__)
 
 
 class TestsExtractor:
-    """Orchestrates extraction of question images from all PDF books."""
+    """Orchestrates extraction of question images from all image books."""
 
     def __init__(
         self,
         model_path: Path,
-        render_scale: int,
         image_format: str,
+        question_max_width: int,
+        question_max_height: int,
         books_dir: Path,
         extraction_dir: Path,
     ) -> None:
@@ -26,12 +27,13 @@ class TestsExtractor:
 
         self._book_extractor = BookExtractor(
             model_path=model_path,
-            render_scale=render_scale,
             image_format=image_format,
+            question_max_width=question_max_width,
+            question_max_height=question_max_height,
         )
 
     def extract_all(self) -> None:
-        """Extract question images from all PDFs in the books directory.
+        """Extract question images from all subjects in the books directory.
 
         Raises:
             FileNotFoundError: If books directory doesn't exist.
@@ -47,20 +49,19 @@ class TestsExtractor:
 
         for subject_dir in tqdm(subject_dirs, desc="Processing subjects"):
             subject = subject_dir.name
-            pdf_dir = subject_dir / "pdf"
+            images_dir = subject_dir / "images"
 
-            if not pdf_dir.exists():
-                logger.warning(f"No pdf folder found in {subject_dir}")
+            if not images_dir.exists():
+                logger.warning(f"No images folder found in {subject_dir}")
                 continue
 
-            pdf_files = list(pdf_dir.glob("*.pdf"))
+            year_dirs = [d for d in images_dir.iterdir() if d.is_dir()]
 
-            if not pdf_files:
-                logger.warning(f"No PDF files found in {pdf_dir}")
+            if not year_dirs:
+                logger.warning(f"No year folders found in {images_dir}")
                 continue
 
-            for pdf_path in tqdm(pdf_files, desc=f"Extracting {subject}", leave=False):
-                year = pdf_path.stem
+            for year_dir in tqdm(year_dirs, desc=f"Extracting {subject}", leave=False):
+                year = year_dir.name
                 output_dir = self.extraction_dir / subject / year
-
-                self._book_extractor.extract(pdf_path, output_dir)
+                self._book_extractor.extract(year_dir, output_dir)

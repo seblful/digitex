@@ -1,4 +1,4 @@
-"""Run extraction of question images from PDF books."""
+"""Run extraction of question images from image books."""
 
 import logging
 
@@ -16,12 +16,13 @@ app = typer.Typer()
 
 @app.command()
 def extract() -> None:
-    """Extract question images from all PDF books."""
+    """Extract question images from all image books."""
     settings = get_settings()
     extractor = TestsExtractor(
         model_path=settings.extraction.model_path,
-        render_scale=settings.extraction.render_scale,
         image_format=settings.extraction.image_format,
+        question_max_width=settings.extraction.question_max_width,
+        question_max_height=settings.extraction.question_max_height,
         books_dir=settings.extraction.books_dir,
         extraction_dir=settings.extraction.extraction_dir,
     )

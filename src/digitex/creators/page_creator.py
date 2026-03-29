@@ -1,101 +1,65 @@
-"""Page data creator for extracting random pages from PDFs."""
+"""Page data creator for extracting random images for training."""
 
 import logging
-import os
+import random
 from pathlib import Path
 
 from PIL import Image
+from tqdm import tqdm
 
-from digitex.core.handlers.pdf import PDFHandler
+from digitex.core.processors import resize_image
 
 logger = logging.getLogger(__name__)
 
 
 class PageDataCreator:
-    """Creator for extracting and processing random pages from PDFs."""
+    """Creator for selecting and saving random images for training data."""
 
-    def __init__(self, scale: int = 3) -> None:
-        """Initialize the PageDataCreator with required handlers.
+    def __init__(self, train_image_size: int) -> None:
+        self.train_image_size = train_image_size
 
-        Args:
-            scale: PDF rendering scale factor (higher = better quality).
-        """
-        self.scale = scale
-        self.pdf_handler = PDFHandler()
+    def _collect_images(self, books_dir: Path) -> list[Path]:
+        from digitex.utils import IMAGE_EXTENSIONS
 
-    def _save_image(
-        self,
-        page_index: int,
-        output_dir: Path,
-        image: Image.Image,
-        image_name: str,
-        num_saved: int,
-        total_images: int,
-    ) -> int:
-        """Save an image to the output directory.
-
-        Args:
-            page_index: Index of the page in the PDF.
-            output_dir: Directory where the image will be saved.
-            image: PIL Image to save.
-            image_name: Original name of the image.
-            num_saved: Current count of saved images.
-            total_images: Total number of images to save.
-
-        Returns:
-            Updated count of saved images.
-        """
-        image_stem = Path(image_name).stem
-        image_path = output_dir / f"{image_stem}_{page_index}.jpg"
-
-        if not image_path.exists():
-            image.save(image_path, "JPEG")
-            num_saved += 1
-            logger.info(f"{num_saved}/{total_images} images saved.")
-
-        return num_saved
+        images: list[Path] = []
+        for subject_dir in books_dir.iterdir():
+            if not subject_dir.is_dir():
+                continue
+            images_dir = subject_dir / "images"
+            if not images_dir.exists():
+                continue
+            for year_dir in images_dir.iterdir():
+                if not year_dir.is_dir():
+                    continue
+                for img_path in year_dir.iterdir():
+                    if img_path.is_file() and img_path.suffix.lower() in IMAGE_EXTENSIONS:
+                        images.append(img_path)
+        return images
 
     def create(
         self,
-        pdf_dir: str | Path,
+        books_dir: str | Path,
         output_dir: str | Path,
         num_images: int,
     ) -> None:
-        """Extract and save random pages from PDFs.
-
-        Args:
-            pdf_dir: Directory containing PDF files.
-            output_dir: Directory where images will be saved.
-            num_images: Number of images to extract.
-
-        Raises:
-            FileNotFoundError: If pdf_dir does not exist.
-            IOError: If images cannot be saved.
-        """
-        pdf_dir = Path(pdf_dir)
+        books_dir = Path(books_dir)
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        pdf_listdir = [pdf for pdf in os.listdir(pdf_dir) if pdf.endswith(".pdf")]
-        num_saved = 0
+        images = self._collect_images(books_dir)
+        if not images:
+            raise FileNotFoundError(f"No images found in {books_dir}")
 
-        logger.info(f"Extracting {num_images} images from PDFs in {pdf_dir}")
+        selected = random.sample(images, min(num_images, len(images)))
+        logger.info(f"Selected {len(selected)} images from {books_dir}")
 
-        while num_images > num_saved:
-            rand_image, rand_image_name, rand_page_idx = (
-                self.pdf_handler.get_random_image(
-                    pdf_listdir=pdf_listdir,
-                    pdf_dir=pdf_dir,
-                    scale=self.scale,
-                )
-            )
-            num_saved = self._save_image(
-                page_index=rand_page_idx,
-                output_dir=output_dir,
-                image=rand_image,
-                image_name=rand_image_name,
-                num_saved=num_saved,
-                total_images=num_images,
-            )
+        for i, img_path in enumerate(tqdm(selected, desc="Saving images"), start=1):
+            image = Image.open(img_path)
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+            image = resize_image(image, self.train_image_size, self.train_image_size)
+            output_path = output_dir / f"{i}.jpg"
+            image.save(output_path, "JPEG")
+            logger.info(f"{i}/{len(selected)} images saved.")
 
-        logger.info(f"Successfully extracted {num_images} images to {output_dir}")
+        logger.info(f"Successfully saved {len(selected)} images to {output_dir}")
