@@ -6,6 +6,8 @@ import pypdfium2 as pdfium
 import torch
 from PIL import Image
 
+from digitex.core.processors import resize_image
+
 logger = logging.getLogger(__name__)
 
 IMAGE_EXTENSIONS: set[str] = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
@@ -57,6 +59,8 @@ def rename_images_to_sequential(base_dir: str | Path) -> None:
 def create_pdf_from_images(
     image_dir: str | Path,
     output_path: str | Path,
+    max_width: int = 2000,
+    max_height: int = 2000,
 ) -> None:
     image_dir = Path(image_dir)
     output_path = Path(output_path)
@@ -81,6 +85,7 @@ def create_pdf_from_images(
             image = Image.open(image_path)
             if image.mode != "RGB":
                 image = image.convert("RGB")
+            image = resize_image(image, max_width, max_height)
 
             bitmap = pdfium.PdfBitmap.from_pil(image)
             pdf_image = pdfium.PdfImage.new(pdf)
