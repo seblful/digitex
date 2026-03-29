@@ -23,6 +23,7 @@ requires-python = ">=3.13"
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "pytesseract",
+    "deskew",
 ]
 
 [[tool.uv.index]]

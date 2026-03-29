@@ -1,12 +1,11 @@
 """Image processing utilities."""
 
-import logging
+import math
 
 import cv2
 import numpy as np
+from deskew import determine_skew
 from PIL import Image
-
-logger = logging.getLogger(__name__)
 
 DEFAULT_BG_THRESHOLD = 200
 DEFAULT_SATURATION_THRESHOLD = 80
@@ -58,6 +57,30 @@ def resize_image(image: Image.Image, max_height: int) -> Image.Image:
 
 class ImageCropper:
     """Processor for image cropping operations using perspective transformations."""
+
+    @staticmethod
+    def _rotate(
+        image: np.ndarray, angle: float, background: tuple[int, ...]
+    ) -> np.ndarray:
+        old_height, old_width = image.shape[:2]
+        angle_radian = math.radians(angle)
+        width = abs(np.sin(angle_radian) * old_height) + abs(
+            np.cos(angle_radian) * old_width
+        )
+        height = abs(np.sin(angle_radian) * old_width) + abs(
+            np.cos(angle_radian) * old_height
+        )
+
+        image_center = tuple(np.array(image.shape[1::-1]) / 2)
+        rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
+        rot_mat[0, 2] += (width - old_width) / 2
+        rot_mat[1, 2] += (height - old_height) / 2
+        return cv2.warpAffine(
+            image,
+            rot_mat,
+            (int(round(width)), int(round(height))),
+            borderValue=background,
+        )
 
     @staticmethod
     def _order_points(pts: np.ndarray) -> np.ndarray:
@@ -116,6 +139,28 @@ class ImageCropper:
         w, h, persp_M = cls._get_transform_params(pts)
         return Image.fromarray(cv2.warpPerspective(img_np, persp_M, (w, h)))
 
+    @staticmethod
+    def _detect_skew_angle(img_np: np.ndarray) -> float | None:
+        grayscale = cv2.cvtColor(img_np[:, :, :3], cv2.COLOR_RGB2GRAY)
+        alpha = img_np[:, :, 3:4] / 255.0
+        white_bg = np.ones_like(grayscale, dtype=np.float32) * 255
+        grayscale = (
+            grayscale * alpha[:, :, 0] + white_bg * (1 - alpha[:, :, 0])
+        ).astype(np.uint8)
+        _, thresh = cv2.threshold(grayscale, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+        return determine_skew(thresh, sigma=0.0, num_peaks=20, min_deviation=0.01)
+
+    @classmethod
+    def _deskew(
+        cls, img_np: np.ndarray, background: tuple[int, ...] = (0, 0, 0, 0)
+    ) -> np.ndarray:
+        angle = cls._detect_skew_angle(img_np)
+        if angle is not None and angle != 0.0:
+            print(f"Detected skew angle: {angle:.2f} degrees")
+            return cls._rotate(img_np, angle, background)
+        print("No skew detected or unable to determine skew.")
+        return img_np
+
     @classmethod
     def cut_out_image_by_polygon(
         cls, image: Image.Image, polygon: list[tuple[int, int]]
@@ -134,9 +179,10 @@ class ImageCropper:
 
         mask = np.zeros((h, w), dtype=np.uint8)
         cv2.fillPoly(mask, [tr_pts], 255)
-
-        # Apply mask directly to Alpha channel
         warped_img[:, :, 3] = cv2.bitwise_and(warped_img[:, :, 3], mask)
+
+        warped_img = cls._deskew(warped_img, (0, 0, 0, 0))
+
         return Image.fromarray(warped_img, mode="RGBA")
 
 
