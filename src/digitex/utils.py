@@ -91,7 +91,7 @@ def create_pdf_from_images(
             pdf_image = pdfium.PdfImage.new(pdf)
             pdf_image.set_bitmap(bitmap)
 
-            width, height = pdf_image.get_size()
+            width, height = pdf_image.get_px_size()
             matrix = pdfium.PdfMatrix().scale(width, height)
             pdf_image.set_matrix(matrix)
 
