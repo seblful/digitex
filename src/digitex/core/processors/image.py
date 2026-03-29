@@ -14,7 +14,7 @@ DEFAULT_BG_THRESHOLD = 200
 DEFAULT_SATURATION_THRESHOLD = 80
 DEFAULT_DILATE_ITERATIONS = 2
 DEFAULT_GAMMA = 0.6
-DEFAULT_SKEW_MAX_DIM = 200
+DEFAULT_SKEW_MAX_DIM = 400
 
 
 def resize_img(
@@ -63,40 +63,38 @@ class ImageCropper:
     """Processor for image cropping operations using perspective transformations."""
 
     @staticmethod
-    def _rotate(image: np.ndarray, angle: float) -> np.ndarray:
-        old_height, old_width = image.shape[:2]
-        angle_radian = math.radians(angle)
-        width = abs(np.sin(angle_radian) * old_height) + abs(
-            np.cos(angle_radian) * old_width
-        )
-        height = abs(np.sin(angle_radian) * old_width) + abs(
-            np.cos(angle_radian) * old_height
-        )
+    def _rotate(img: np.ndarray, angle: float) -> np.ndarray:
+        h, w = img.shape[:2]
+        rad = math.radians(angle)
+        sin_a, cos_a = math.sin(rad), math.cos(rad)
+        new_w = int(round(abs(sin_a) * h + abs(cos_a) * w))
+        new_h = int(round(abs(sin_a) * w + abs(cos_a) * h))
 
-        image_center = tuple(np.array(image.shape[1::-1]) / 2)
-        rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
-        rot_mat[0, 2] += (width - old_width) / 2
-        rot_mat[1, 2] += (height - old_height) / 2
+        mat = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
+        mat[0, 2] += (new_w - w) / 2
+        mat[1, 2] += (new_h - h) / 2
         return cv2.warpAffine(
-            image,
-            rot_mat,
-            (int(round(width)), int(round(height))),
+            img,
+            mat,
+            (new_w, new_h),
             flags=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_REPLICATE,
         )
 
     @staticmethod
-    def _order_points(pts: np.ndarray) -> np.ndarray:
-        rect = np.zeros((4, 2), dtype=np.float32)
+    def _order_quad_points(pts: np.ndarray) -> np.ndarray:
+        rect = np.empty((4, 2), dtype=np.float32)
         s = pts.sum(axis=1)
-        rect[0], rect[2] = pts[np.argmin(s)], pts[np.argmax(s)]
-        diff = np.diff(pts, axis=1)
-        rect[1], rect[3] = pts[np.argmin(diff)], pts[np.argmax(diff)]
+        diff = np.diff(pts, axis=1).flatten()
+        rect[0] = pts[np.argmin(s)]
+        rect[2] = pts[np.argmax(s)]
+        rect[1] = pts[np.argmin(diff)]
+        rect[3] = pts[np.argmax(diff)]
         return rect
 
-    @classmethod
-    def _polygon_to_quadrilateral(
-        cls, polygon: list[tuple[int, int]], max_angle: float = 4.0
+    @staticmethod
+    def _polygon_to_quad(
+        polygon: list[tuple[int, int]], max_angle: float = 4.0
     ) -> np.ndarray:
         pts = np.array(polygon, dtype=np.int32)
         rect = cv2.minAreaRect(pts)
@@ -109,95 +107,69 @@ class ImageCropper:
         else:
             bbox = cv2.boxPoints(rect)
 
-        return cls._order_points(bbox)
+        return ImageCropper._order_quad_points(bbox)
 
     @staticmethod
-    def _get_transform_params(pts: np.ndarray) -> tuple[int, int, np.ndarray]:
+    def _perspective_transform(
+        pts: np.ndarray,
+    ) -> tuple[int, int, np.ndarray]:
         w = max(
-            int(np.linalg.norm(pts[0] - pts[1])), int(np.linalg.norm(pts[2] - pts[3]))
+            int(np.linalg.norm(pts[0] - pts[1])),
+            int(np.linalg.norm(pts[2] - pts[3])),
         )
         h = max(
-            int(np.linalg.norm(pts[1] - pts[2])), int(np.linalg.norm(pts[3] - pts[0]))
+            int(np.linalg.norm(pts[1] - pts[2])),
+            int(np.linalg.norm(pts[3] - pts[0])),
         )
-
-        dst_points = np.array(
+        dst = np.array(
             [[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]], dtype=np.float32
         )
-        return w, h, cv2.getPerspectiveTransform(pts, dst_points)
-
-    @classmethod
-    def crop_image_by_polygon(
-        cls, image: Image.Image, polygon: list[tuple[int, int]]
-    ) -> Image.Image:
-        if len(polygon) < 4:
-            raise ValueError("Polygon must have 4 or more points")
-
-        img = np.array(image.convert("RGB"))
-        pts = (
-            np.array(polygon, dtype=np.float32)
-            if len(polygon) == 4
-            else cls._polygon_to_quadrilateral(polygon)
-        )
-
-        w, h, persp_M = cls._get_transform_params(pts)
-        return Image.fromarray(cv2.warpPerspective(img, persp_M, (w, h)))
+        return w, h, cv2.getPerspectiveTransform(pts, dst)
 
     @staticmethod
-    def _detect_skew_angle(img: np.ndarray) -> float | None:
-        grayscale = cv2.cvtColor(img[:, :, :3], cv2.COLOR_RGB2GRAY)
+    def _prepare_for_skew_detection(img: np.ndarray) -> np.ndarray:
+        gray = cv2.cvtColor(img[:, :, :3], cv2.COLOR_RGB2GRAY)
         alpha = img[:, :, 3]
         if not np.all(alpha == 255):
-            mask = alpha.astype(np.float32) / 255.0
-            white_bg = np.full_like(grayscale, 255, dtype=np.float32)
-            grayscale = (
-                grayscale.astype(np.float32) * mask + white_bg * (1.0 - mask)
-            ).astype(np.uint8)
+            a = alpha.astype(np.float32) / 255.0
+            gray = (gray.astype(np.float32) * a + 255.0 * (1.0 - a)).astype(np.uint8)
 
-        h, w = grayscale.shape
+        h, w = gray.shape
         if max(h, w) > DEFAULT_SKEW_MAX_DIM:
             scale = DEFAULT_SKEW_MAX_DIM / max(h, w)
-            grayscale = cv2.resize(
-                grayscale,
-                (int(w * scale), int(h * scale)),
-                interpolation=cv2.INTER_AREA,
+            gray = cv2.resize(
+                gray, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA
             )
 
-        _, thresh = cv2.threshold(
-            grayscale, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU
-        )
-        return determine_skew(thresh, sigma=0.0, num_peaks=20, min_deviation=0.01)
+        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+        return thresh
 
-    @classmethod
-    def _deskew(cls, img: np.ndarray) -> np.ndarray:
-        angle = cls._detect_skew_angle(img)
-        if angle is not None and angle != 0.0:
-            logger.debug(f"Detected skew angle: {angle:.2f} degrees, applying rotation")
-            return cls._rotate(img, angle)
-        return img
-
-    @classmethod
+    @staticmethod
     def cut_out_image_by_polygon(
-        cls, image: Image.Image, polygon: list[tuple[int, int]]
+        image: Image.Image, polygon: list[tuple[int, int]]
     ) -> Image.Image:
         if len(polygon) < 4:
             raise ValueError("Polygon must have 4 or more points")
 
         img = np.array(image.convert("RGBA"))
-        pts = cls._polygon_to_quadrilateral(polygon)
-        w, h, persp_M = cls._get_transform_params(pts)
+        pts = ImageCropper._polygon_to_quad(polygon)
+        w, h, M = ImageCropper._perspective_transform(pts)
 
-        warped_img = cv2.warpPerspective(img, persp_M, (w, h))
+        warped = cv2.warpPerspective(img, M, (w, h))
 
         poly_np = np.array(polygon, dtype=np.float32).reshape(-1, 1, 2)
-        tr_pts = cv2.perspectiveTransform(poly_np, persp_M).astype(np.int32)
-
+        tr_pts = cv2.perspectiveTransform(poly_np, M).astype(np.int32)
         mask = np.zeros((h, w), dtype=np.uint8)
         cv2.fillPoly(mask, [tr_pts], 255)
-        warped_img[:, :, 3] = cv2.bitwise_and(warped_img[:, :, 3], mask)
+        warped[:, :, 3] = cv2.bitwise_and(warped[:, :, 3], mask)
 
-        warped_img = cls._deskew(warped_img)
+        thresh = ImageCropper._prepare_for_skew_detection(warped)
+        angle = determine_skew(thresh, sigma=0.0, num_peaks=20, min_deviation=0.01)
+        if angle is not None and angle != 0.0:
+            logger.debug(f"Detected skew angle: {angle:.2f} degrees, applying rotation")
+            warped = ImageCropper._rotate(warped, angle)
 
-        return Image.fromarray(warped_img, mode="RGBA")
+        return Image.fromarray(warped, mode="RGBA")
 
 
 class SegmentProcessor:
@@ -293,8 +265,8 @@ class SegmentProcessor:
         rgb = img[:, :, :3] * alpha + white_bg * (1 - alpha)
         return rgb.astype(np.uint8)
 
-    @staticmethod
     def process(
+        self,
         image: Image.Image,
         saturation_threshold: int = DEFAULT_SATURATION_THRESHOLD,
         bg_threshold: int = DEFAULT_BG_THRESHOLD,

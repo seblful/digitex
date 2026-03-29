@@ -221,8 +221,8 @@ class TestSegmentProcessor:
         assert result.shape[2] == 3
 
 
-def test_crop_and_save_threshold_forces_png(tmp_path: Path) -> None:
-    """Test that threshold preprocess mode saves as PNG regardless of image_format."""
+def test_crop_and_save_uses_image_format(tmp_path: Path) -> None:
+    """Test that crop and save uses the configured image_format."""
     from unittest.mock import patch
 
     from PIL import Image as PILImage
@@ -242,8 +242,9 @@ def test_crop_and_save_threshold_forces_png(tmp_path: Path) -> None:
         extractor._crop_and_save(image, polygon, output_path)
         mock_process.assert_called_once()
 
-    assert output_path.exists()
-    assert output_path.suffix == ".png"
+    saved_path = tmp_path / "output.jpg"
+    assert saved_path.exists()
+    assert saved_path.suffix == ".jpg"
 
-    saved = PILImage.open(output_path)
+    saved = PILImage.open(saved_path)
     assert saved.mode == "RGB"

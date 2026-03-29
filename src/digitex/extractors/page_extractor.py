@@ -36,6 +36,7 @@ class PageExtractor:
         self.image_format = image_format
 
         self._predictor: YOLO_SegmentationPredictor | None = None
+        self._segment_processor = SegmentProcessor()
         self._image_cropper = ImageCropper()
         self._text_extractor = TextExtractor(language=OCR_LANGUAGE)
 
@@ -69,8 +70,8 @@ class PageExtractor:
         output_path: Path,
     ) -> None:
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
-        processed = SegmentProcessor.process(cropped)
-        output_path = output_path.with_suffix(".png")
+        processed = self._segment_processor.process(cropped)
+        output_path = output_path.with_suffix(f".{self.image_format}")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         processed.save(output_path)
 
@@ -169,7 +170,7 @@ class PageExtractor:
             elif label == "question":
                 question_counter += 1
                 logger.debug(
-                    f"Extracting question {question_counter} for option {option_counter} part {part_letter}"
+                    f"Extracting Option {option_counter}: {part_letter}{question_counter}"
                 )
 
                 output_subdir = output_dir / str(option_counter) / part_letter
