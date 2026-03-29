@@ -1,4 +1,5 @@
 import logging
+import re
 from pathlib import Path
 
 import torch
@@ -9,6 +10,75 @@ from digitex.core.handlers import PDFHandler
 from digitex.core.processors.image import resize_image
 
 logger = logging.getLogger(__name__)
+
+IMAGE_EXTENSIONS: set[str] = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
+
+
+def _natural_sort_key(path: Path) -> list[int | str]:
+    """Generate a sort key that orders filenames with embedded numbers correctly.
+
+    Splits the stem into alternating text and numeric chunks so that
+    ``Document_9.jpg`` sorts before ``Document_10.jpg``.
+
+    Args:
+        path: File path to generate the key for.
+
+    Returns:
+        List of string and integer chunks for comparison.
+    """
+    parts: list[int | str] = []
+    for chunk in re.split(r"(\d+)", path.stem):
+        if chunk.isdigit():
+            parts.append(int(chunk))
+        else:
+            parts.append(chunk.lower())
+    return parts
+
+
+def rename_images_to_sequential(base_dir: str | Path) -> None:
+    """Rename all images in each subfolder of base_dir to sequential numbers.
+
+    Iterates over all immediate subdirectories of base_dir. Within each
+    subdirectory, image files are sorted by name and renamed to
+    ``1.<ext>``, ``2.<ext>``, …, ``n.<ext>``.  The numeration restarts
+    at 1 for every folder.
+
+    Args:
+        base_dir: Root directory whose subdirectories contain images.
+
+    Raises:
+        FileNotFoundError: If base_dir does not exist.
+    """
+    base_dir = Path(base_dir)
+
+    if not base_dir.exists():
+        raise FileNotFoundError(f"Directory not found: {base_dir}")
+
+    for folder in sorted(base_dir.iterdir()):
+        if not folder.is_dir():
+            continue
+
+        images = sorted(
+            (p for p in folder.iterdir()
+             if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS),
+            key=_natural_sort_key,
+        )
+
+        if not images:
+            logger.debug(f"No images found in {folder}, skipping")
+            continue
+
+        temp_names: list[Path] = []
+        for i, img_path in enumerate(images, start=1):
+            temp_path = img_path.with_name(f"_temp_{i}{img_path.suffix.lower()}")
+            img_path.rename(temp_path)
+            temp_names.append(temp_path)
+
+        for i, temp_path in enumerate(temp_names, start=1):
+            final_path = temp_path.with_name(f"{i}{temp_path.suffix.lower()}")
+            temp_path.rename(final_path)
+
+        logger.info(f"Renamed {len(images)} images in {folder}")
 
 
 def get_device() -> torch.device:
