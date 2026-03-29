@@ -13,8 +13,6 @@ training/
 │   └── <task>/         # Task-specific data (page, question, part)
 │       ├── raw-data/   # Raw annotations and images
 │       ├── dataset/    # Processed YOLO dataset
-│       ├── check-images/  # Visualization outputs
-│       ├── books/      # Source PDF books
 │       └── images/     # Extracted page images
 ├── output/             # Training outputs (gitignored)
 └── runs/               # Ultralytics runs (gitignored)
@@ -24,7 +22,7 @@ training/
 
 ### 1. Prepare Training Data
 
-Create PDFs from book images and extract page images:
+Select random images from book folders and save them for annotation:
 
 ```bash
 uv run python -m training.cli prepare-train-data --data-subdir page --num-images 100
@@ -32,10 +30,10 @@ uv run python -m training.cli prepare-train-data --data-subdir page --num-images
 
 **Options:**
 - `--data-subdir`: Task type (default: `page`)
-- `--num-images`: Number of page images to extract (default: 100)
+- `--num-images`: Number of images to select (default: 100)
 
 **Requirements:**
-- Place book images in `training/data/<task>/books/` (one folder per book)
+- Book images in `books/<subject>/images/<year>/` directory
 
 ### 2. Create Dataset
 
@@ -68,12 +66,12 @@ uv run python -m training.cli train --num-epochs 50
 **Options:**
 - `--data-subdir`: Task type (default from settings)
 - `--model-type`: YOLO model type (default: `seg`)
-- `--model-size`: Model size: n, s, m, l, x (default: `n`)
+- `--model-size`: Model size: n, s, m, l, x (default: `m`)
 - `--num-epochs`: Training epochs (default: 100)
 - `--image-size`: Input image size (default: 640)
 - `--batch-size`: Batch size (default: 4)
 - `--overlap-mask`: Mask overlap for segmentation (default: False)
-- `--patience`: Early stopping patience (default: 10)
+- `--patience`: Early stopping patience (default: 50)
 - `--seed`: Random seed for reproducibility (default: 42)
 - `--pretrained-model-path`: Path to existing model weights
 
@@ -82,13 +80,15 @@ uv run python -m training.cli train --num-epochs 50
 Run from the project root directory:
 
 ```bash
-# Step 1: Prepare training data (extract pages from PDFs)
+# Step 1: Prepare training data (select random images from books)
 uv run python -m training.cli prepare-train-data --num-images 100
 
-# Step 2: Create dataset from raw annotations
+# Step 2: Annotate images and place labels in training/data/<task>/raw-data/
+
+# Step 3: Create dataset from raw annotations
 uv run python -m training.cli create-data --augment --visualize
 
-# Step 3: Train model
+# Step 4: Train model
 uv run python -m training.cli train --model-size m --num-epochs 100
 ```
 
@@ -100,13 +100,13 @@ Default training parameters are configured in `src/digitex/config/settings.py`:
 class TrainingSettings(BaseSettings):
     data_subdir: str = "page"
     model_type: str = "seg"
-    model_size: str = "n"
+    model_size: str = "m"
     pretrained_model_path: Optional[str] = None
     num_epochs: int = 100
     image_size: int = 640
     batch_size: int = 4
     overlap_mask: bool = False
-    patience: int = 10
+    patience: int = 50
     seed: int = 42
 ```
 

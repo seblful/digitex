@@ -1,6 +1,6 @@
 # Digitex
 
-Document digitization toolkit for processing PDFs, images, and ML-based document segmentation.
+Document digitization toolkit for processing images and ML-based document segmentation.
 
 ## Project Structure
 
@@ -11,8 +11,7 @@ digitex/
 │   ├── core/                # Core domain logic
 │   ├── ml/                  # Machine learning components
 │   └── utils.py            # Common utilities
-├── cli/                    # Command-line entry points
-│   └── init_db.py         # Initialize database
+├── extraction/              # Image extraction pipeline
 ├── training/               # ML training workflow
 ├── scripts/               # SQL scripts
 ├── tests/                 # Test suite
@@ -21,8 +20,8 @@ digitex/
 
 ## Features
 
-- **PDF Processing**: Extract and process PDF documents
-- **Image Processing**: Crop, transform, and prepare images
+- **Image Extraction**: Extract and process question images from book images
+- **Image Processing**: Crop, transform, resize with aspect ratio preservation
 - **YOLO Segmentation**: Detect and segment document regions
 - **Configuration Management**: Pydantic-based settings with environment variable support
 
@@ -35,9 +34,9 @@ This project uses Pydantic Settings for configuration management. Settings can b
 
 ### Settings Categories
 
-- **AppSettings**: Application-wide constants (render scales, crop offsets, log level)
+- **ExtractionSettings**: Image extraction parameters (model path, output format, image dimensions)
 - **DatabaseSettings**: Database connection settings
-- **TrainingSettings**: YOLO training parameters (epochs, batch size, etc.)
+- **TrainingSettings**: YOLO training parameters (epochs, batch size, image size, etc.)
 - **PathsSettings**: Directory paths for data, models, and datasets
 
 ### Example Usage
@@ -47,10 +46,12 @@ from digitex.config import get_settings
 
 settings = get_settings()
 
-# Access application settings
-render_scale = settings.app.render_scale
+# Access extraction settings
+image_format = settings.extraction.image_format
+question_size = (settings.extraction.question_max_width, settings.extraction.question_max_height)
 
 # Access training settings
+image_size = settings.training.image_size
 num_epochs = settings.training.num_epochs
 
 # Access database settings
@@ -61,15 +62,16 @@ db_path = settings.database.path
 
 Key environment variables include:
 
-- `APP_RENDER_SCALE`: PDF rendering scale factor (default: 3)
-- `APP_CROP_OFFSET`: Image crop border offset (default: 0.025)
-- `APP_LOG_LEVEL`: Logging level (default: INFO)
-- `DB_PATH`: Database file path (default: data/tests.db)
+- `EXTRACTION_MODEL_PATH`: Path to the YOLO segmentation model (default: extraction/models/page.pt)
+- `EXTRACTION_BOOKS_DIR`: Source books directory (default: books)
+- `EXTRACTION_EXTRACTION_DIR`: Output directory (default: extraction/output)
+- `EXTRACTION_QUESTION_MAX_WIDTH`: Maximum width for extracted questions (default: 2000)
+- `EXTRACTION_QUESTION_MAX_HEIGHT`: Maximum height for extracted questions (default: 2000)
+- `EXTRACTION_IMAGE_FORMAT`: Output image format (default: jpg)
 - `TRAIN_NUM_EPOCHS`: Training epochs (default: 100)
 - `TRAIN_BATCH_SIZE`: Training batch size (default: 4)
 - `TRAIN_IMAGE_SIZE`: Training image size (default: 640)
-
-For a complete list, see `.env.example`.
+- `DB_PATH`: Database file path (default: data/tests.db)
 
 ## Setup
 
@@ -79,9 +81,11 @@ This project uses `uv` for dependency management.
 # Install dependencies
 uv sync
 
-# Run CLI scripts
+# Run extraction
+uv run python -m extraction.run --help
+
+# Run training
 uv run python -m training.cli --help
-uv run python cli/init_db.py
 ```
 
 ### Requirements
@@ -91,14 +95,10 @@ uv run python cli/init_db.py
 
 ## Modules
 
-- **DataCreator**: Create training data from PDFs and images
-- **Handlers**: PDF, image, and label file operations
-- **Processors**: Image enhancement and file I/O
-- **Predictors**: YOLO-based segmentation models
-
-## Training
-
-YOLO-based training pipeline for document segmentation. See [training/README.md](training/README.md) for detailed documentation.
+- **extractors**: Extract question images from book images using YOLO segmentation
+- **creators**: Create training data from raw images
+- **core**: Handlers, processors, and core utilities
+- **ml**: YOLO-based segmentation models and training
 
 ## Development
 
