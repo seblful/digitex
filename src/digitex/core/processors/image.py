@@ -1,5 +1,6 @@
 """Image processing utilities."""
 
+import logging
 import math
 
 import cv2
@@ -7,10 +8,13 @@ import numpy as np
 from deskew import determine_skew
 from PIL import Image
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_BG_THRESHOLD = 200
 DEFAULT_SATURATION_THRESHOLD = 80
 DEFAULT_DILATE_ITERATIONS = 2
 DEFAULT_GAMMA = 0.6
+DEFAULT_SKEW_MAX_DIM = 200
 
 
 def resize_img(
@@ -141,11 +145,23 @@ class ImageCropper:
     @staticmethod
     def _detect_skew_angle(img: np.ndarray) -> float | None:
         grayscale = cv2.cvtColor(img[:, :, :3], cv2.COLOR_RGB2GRAY)
-        alpha = img[:, :, 3:4] / 255.0
-        white_bg = np.ones_like(grayscale, dtype=np.float32) * 255
-        grayscale = (
-            grayscale * alpha[:, :, 0] + white_bg * (1 - alpha[:, :, 0])
-        ).astype(np.uint8)
+        alpha = img[:, :, 3]
+        if not np.all(alpha == 255):
+            mask = alpha.astype(np.float32) / 255.0
+            white_bg = np.full_like(grayscale, 255, dtype=np.float32)
+            grayscale = (
+                grayscale.astype(np.float32) * mask + white_bg * (1.0 - mask)
+            ).astype(np.uint8)
+
+        h, w = grayscale.shape
+        if max(h, w) > DEFAULT_SKEW_MAX_DIM:
+            scale = DEFAULT_SKEW_MAX_DIM / max(h, w)
+            grayscale = cv2.resize(
+                grayscale,
+                (int(w * scale), int(h * scale)),
+                interpolation=cv2.INTER_AREA,
+            )
+
         _, thresh = cv2.threshold(
             grayscale, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU
         )
@@ -155,9 +171,8 @@ class ImageCropper:
     def _deskew(cls, img: np.ndarray) -> np.ndarray:
         angle = cls._detect_skew_angle(img)
         if angle is not None and angle != 0.0:
-            print(f"Detected skew angle: {angle:.2f} degrees")
+            logger.debug(f"Detected skew angle: {angle:.2f} degrees, applying rotation")
             return cls._rotate(img, angle)
-        print("No skew detected or unable to determine skew.")
         return img
 
     @classmethod
