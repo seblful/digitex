@@ -59,9 +59,7 @@ class ImageCropper:
     """Processor for image cropping operations using perspective transformations."""
 
     @staticmethod
-    def _rotate(
-        image: np.ndarray, angle: float, background: tuple[int, ...]
-    ) -> np.ndarray:
+    def _rotate(image: np.ndarray, angle: float) -> np.ndarray:
         old_height, old_width = image.shape[:2]
         angle_radian = math.radians(angle)
         width = abs(np.sin(angle_radian) * old_height) + abs(
@@ -79,7 +77,8 @@ class ImageCropper:
             image,
             rot_mat,
             (int(round(width)), int(round(height))),
-            borderValue=background,
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
         )
 
     @staticmethod
@@ -129,7 +128,7 @@ class ImageCropper:
         if len(polygon) < 4:
             raise ValueError("Polygon must have 4 or more points")
 
-        img_np = np.array(image.convert("RGB"))
+        img = np.array(image.convert("RGB"))
         pts = (
             np.array(polygon, dtype=np.float32)
             if len(polygon) == 4
@@ -137,29 +136,29 @@ class ImageCropper:
         )
 
         w, h, persp_M = cls._get_transform_params(pts)
-        return Image.fromarray(cv2.warpPerspective(img_np, persp_M, (w, h)))
+        return Image.fromarray(cv2.warpPerspective(img, persp_M, (w, h)))
 
     @staticmethod
-    def _detect_skew_angle(img_np: np.ndarray) -> float | None:
-        grayscale = cv2.cvtColor(img_np[:, :, :3], cv2.COLOR_RGB2GRAY)
-        alpha = img_np[:, :, 3:4] / 255.0
+    def _detect_skew_angle(img: np.ndarray) -> float | None:
+        grayscale = cv2.cvtColor(img[:, :, :3], cv2.COLOR_RGB2GRAY)
+        alpha = img[:, :, 3:4] / 255.0
         white_bg = np.ones_like(grayscale, dtype=np.float32) * 255
         grayscale = (
             grayscale * alpha[:, :, 0] + white_bg * (1 - alpha[:, :, 0])
         ).astype(np.uint8)
-        _, thresh = cv2.threshold(grayscale, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+        _, thresh = cv2.threshold(
+            grayscale, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU
+        )
         return determine_skew(thresh, sigma=0.0, num_peaks=20, min_deviation=0.01)
 
     @classmethod
-    def _deskew(
-        cls, img_np: np.ndarray, background: tuple[int, ...] = (0, 0, 0, 0)
-    ) -> np.ndarray:
-        angle = cls._detect_skew_angle(img_np)
+    def _deskew(cls, img: np.ndarray) -> np.ndarray:
+        angle = cls._detect_skew_angle(img)
         if angle is not None and angle != 0.0:
             print(f"Detected skew angle: {angle:.2f} degrees")
-            return cls._rotate(img_np, angle, background)
+            return cls._rotate(img, angle)
         print("No skew detected or unable to determine skew.")
-        return img_np
+        return img
 
     @classmethod
     def cut_out_image_by_polygon(
@@ -168,11 +167,11 @@ class ImageCropper:
         if len(polygon) < 4:
             raise ValueError("Polygon must have 4 or more points")
 
-        img_np = np.array(image.convert("RGBA"))
+        img = np.array(image.convert("RGBA"))
         pts = cls._polygon_to_quadrilateral(polygon)
         w, h, persp_M = cls._get_transform_params(pts)
 
-        warped_img = cv2.warpPerspective(img_np, persp_M, (w, h))
+        warped_img = cv2.warpPerspective(img, persp_M, (w, h))
 
         poly_np = np.array(polygon, dtype=np.float32).reshape(-1, 1, 2)
         tr_pts = cv2.perspectiveTransform(poly_np, persp_M).astype(np.int32)
@@ -181,7 +180,7 @@ class ImageCropper:
         cv2.fillPoly(mask, [tr_pts], 255)
         warped_img[:, :, 3] = cv2.bitwise_and(warped_img[:, :, 3], mask)
 
-        warped_img = cls._deskew(warped_img, (0, 0, 0, 0))
+        warped_img = cls._deskew(warped_img)
 
         return Image.fromarray(warped_img, mode="RGBA")
 
@@ -191,21 +190,21 @@ class SegmentProcessor:
 
     @staticmethod
     def remove_color(
-        img_np: np.ndarray,
+        img: np.ndarray,
         saturation_threshold: int = DEFAULT_SATURATION_THRESHOLD,
         dilate_iterations: int = DEFAULT_DILATE_ITERATIONS,
     ) -> np.ndarray:
         """Remove all colored pixels, keeping only grayscale (gray/black/white).
 
         Args:
-            img_np: Input RGBA numpy array.
+            img: Input RGBA numpy array.
             saturation_threshold: Maximum saturation value to consider grayscale (0-255).
             dilate_iterations: Number of dilation iterations for color mask.
 
         Returns:
             RGBA numpy array with colored pixels made transparent.
         """
-        hsv = cv2.cvtColor(img_np[:, :, :3], cv2.COLOR_RGB2HSV)
+        hsv = cv2.cvtColor(img[:, :, :3], cv2.COLOR_RGB2HSV)
         color_mask = hsv[:, :, 1] > saturation_threshold
 
         if dilate_iterations > 0:
@@ -214,18 +213,16 @@ class SegmentProcessor:
                 color_mask.astype(np.uint8), kernel, iterations=dilate_iterations
             ).astype(bool)
 
-        img_np = img_np.copy()
-        img_np[color_mask, 3] = 0
-        return img_np
+        img = img.copy()
+        img[color_mask, 3] = 0
+        return img
 
     @staticmethod
-    def remove_bg(
-        img_np: np.ndarray, threshold: int = DEFAULT_BG_THRESHOLD
-    ) -> np.ndarray:
+    def remove_bg(img: np.ndarray, threshold: int = DEFAULT_BG_THRESHOLD) -> np.ndarray:
         """Remove background using white-pixel threshold.
 
         Args:
-            img_np: Input RGBA numpy array.
+            img: Input RGBA numpy array.
             threshold: Brightness threshold (0-255).
 
         Returns:
@@ -236,20 +233,18 @@ class SegmentProcessor:
                 f"Threshold must be an integer in range 0-255, got {threshold}"
             )
 
-        img_np = img_np.copy()
-        gray = cv2.cvtColor(img_np[:, :, :3], cv2.COLOR_RGB2GRAY)
+        img = img.copy()
+        gray = cv2.cvtColor(img[:, :, :3], cv2.COLOR_RGB2GRAY)
         _, new_mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY_INV)
-        img_np[:, :, 3] = cv2.bitwise_and(img_np[:, :, 3], new_mask)
-        return img_np
+        img[:, :, 3] = cv2.bitwise_and(img[:, :, 3], new_mask)
+        return img
 
     @staticmethod
-    def increase_darkness(
-        img_np: np.ndarray, gamma: float = DEFAULT_GAMMA
-    ) -> np.ndarray:
+    def increase_darkness(img: np.ndarray, gamma: float = DEFAULT_GAMMA) -> np.ndarray:
         """Apply gamma correction to darken mid-tones and increase contrast.
 
         Args:
-            img_np: Input RGBA numpy array.
+            img: Input RGBA numpy array.
             gamma: Gamma value. Values < 1.0 darken, > 1.0 lighten.
 
         Returns:
@@ -261,26 +256,26 @@ class SegmentProcessor:
         if gamma <= 0:
             raise ValueError(f"gamma must be positive, got {gamma}")
 
-        img_np = img_np.copy()
-        rgb = img_np[:, :, :3].astype(np.float32) / 255.0
+        img = img.copy()
+        rgb = img[:, :, :3].astype(np.float32) / 255.0
         corrected = np.power(rgb, 1.0 / gamma) * 255.0
         corrected = np.clip(corrected, 0, 255).astype(np.uint8)
-        img_np[:, :, :3] = corrected
-        return img_np
+        img[:, :, :3] = corrected
+        return img
 
     @staticmethod
-    def add_white_background(img_np: np.ndarray) -> np.ndarray:
+    def add_white_background(img: np.ndarray) -> np.ndarray:
         """Composite RGBA image onto white background.
 
         Args:
-            img_np: Input RGBA numpy array.
+            img: Input RGBA numpy array.
 
         Returns:
             RGB numpy array with white background replacing transparency.
         """
-        alpha = img_np[:, :, 3:4] / 255.0
-        white_bg = np.ones_like(img_np[:, :, :3]) * 255
-        rgb = img_np[:, :, :3] * alpha + white_bg * (1 - alpha)
+        alpha = img[:, :, 3:4] / 255.0
+        white_bg = np.ones_like(img[:, :, :3]) * 255
+        rgb = img[:, :, :3] * alpha + white_bg * (1 - alpha)
         return rgb.astype(np.uint8)
 
     @staticmethod
