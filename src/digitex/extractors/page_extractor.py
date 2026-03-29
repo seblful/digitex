@@ -168,6 +168,9 @@ class PageExtractor:
                     logger.debug(f"Part changed to: {part_letter}")
             elif label == "question":
                 question_counter += 1
+                logger.debug(
+                    f"Extracting question {question_counter} for option {option_counter} part {part_letter}"
+                )
 
                 output_subdir = output_dir / str(option_counter) / part_letter
                 output_path = output_subdir / f"{question_counter}.{self.image_format}"
