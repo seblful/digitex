@@ -124,7 +124,7 @@ def _process_page(
 @app.callback(invoke_without_command=True)
 def tune(
     output_dir: Path = typer.Option(
-        Path("scripts/output/segment_tuning"), help="Output directory for grids"
+        Path("extraction/output/tuning"), help="Output directory for grids"
     ),
 ) -> None:
     settings = get_settings()
