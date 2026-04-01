@@ -28,7 +28,7 @@ class TestPageDataCreator:
         creator = PageDataCreator(train_image_size=100)
         creator.create(books_dir, output_dir, num_images=1)
 
-        output_file = output_dir / "1.jpg"
+        output_file = output_dir / "math_2024_page1.jpg"
         assert output_file.exists()
         result_img = Image.open(output_file)
         assert result_img.size == (100, 100)
@@ -72,7 +72,7 @@ class TestPageDataCreator:
         creator = PageDataCreator(train_image_size=100)
         creator.create(books_dir, output_dir, num_images=1)
 
-        output_file = output_dir / "1.jpg"
+        output_file = output_dir / "math_2024_page1.jpg"
         result_img = Image.open(output_file)
         assert result_img.mode == "RGB"
 
@@ -88,7 +88,7 @@ class TestPageDataCreator:
         creator = PageDataCreator(train_image_size=100)
         creator.create(books_dir, output_dir, num_images=1)
 
-        output_file = output_dir / "1.jpg"
+        output_file = output_dir / "math_2024_page1.jpg"
         result_img = Image.open(output_file)
         assert result_img.size == (100, 50)
 

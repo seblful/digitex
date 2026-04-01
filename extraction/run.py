@@ -23,8 +23,8 @@ def extract() -> None:
         image_format=settings.extraction.image_format,
         question_max_width=settings.extraction.question_max_width,
         question_max_height=settings.extraction.question_max_height,
-        books_dir=settings.extraction.books_dir,
-        extraction_dir=settings.extraction.extraction_dir,
+        books_dir=settings.paths.books_dir,
+        extraction_dir=settings.paths.extraction_dir / settings.extraction.output_dir_name,
     )
     extractor.extract_all()
 

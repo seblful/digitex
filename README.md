@@ -50,8 +50,10 @@ settings = get_settings()
 image_format = settings.extraction.image_format
 question_size = (settings.extraction.question_max_width, settings.extraction.question_max_height)
 
+# Access data settings
+image_size = settings.data.image_size
+
 # Access training settings
-image_size = settings.training.image_size
 num_epochs = settings.training.num_epochs
 
 # Access database settings

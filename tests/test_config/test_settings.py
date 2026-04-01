@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from digitex.config.settings import (
+    DataSettings,
     DatabaseSettings,
     TrainingSettings,
     PathsSettings,
@@ -35,35 +36,23 @@ class TestTrainingSettings:
         """Test that TrainingSettings has correct default values."""
         settings = TrainingSettings()
         assert settings.num_epochs == 100
-        assert settings.image_size == 640
         assert settings.batch_size == 4
         assert settings.overlap_mask is False
         assert settings.patience == 50
         assert settings.seed == 42
-        assert settings.data_subdir == "page"
         assert settings.model_type == "seg"
         assert settings.model_size == "m"
+        assert settings.model_subdir == "models"
+        assert settings.runs_dir_name == "runs"
 
     def test_custom_training_values(self) -> None:
         """Test custom training values."""
         settings = TrainingSettings(
             num_epochs=50,
             batch_size=32,
-            image_size=512,
         )
         assert settings.num_epochs == 50
         assert settings.batch_size == 32
-        assert settings.image_size == 512
-
-    def test_image_size_multiple_of_32(self) -> None:
-        """Test that image_size must be a multiple of 32."""
-        settings = TrainingSettings(image_size=640)
-        assert settings.image_size == 640
-
-    def test_image_size_not_multiple_of_32(self) -> None:
-        """Test that image_size not multiple of 32 raises validation error."""
-        with pytest.raises(Exception):
-            TrainingSettings(image_size=500)
 
     def test_positive_validation(self) -> None:
         """Test that positive validation works for various fields."""
@@ -77,6 +66,33 @@ class TestTrainingSettings:
             TrainingSettings(patience=0)
 
 
+class TestDataSettings:
+    """Test DataSettings class."""
+
+    def test_default_data_values(self) -> None:
+        """Test that DataSettings has correct default values."""
+        settings = DataSettings()
+        assert settings.data_type_dir_name == "page"
+        assert settings.image_size == 640
+        assert settings.data_dir_name == "data"
+        assert settings.dataset_dir_name == "dataset"
+
+    def test_custom_data_values(self) -> None:
+        """Test custom data values."""
+        settings = DataSettings(image_size=512)
+        assert settings.image_size == 512
+
+    def test_image_size_multiple_of_32(self) -> None:
+        """Test that image_size must be a multiple of 32."""
+        settings = DataSettings(image_size=640)
+        assert settings.image_size == 640
+
+    def test_image_size_not_multiple_of_32(self) -> None:
+        """Test that image_size not multiple of 32 raises validation error."""
+        with pytest.raises(Exception):
+            DataSettings(image_size=500)
+
+
 class TestPathsSettings:
     """Test PathsSettings class."""
 
@@ -86,25 +102,15 @@ class TestPathsSettings:
         assert isinstance(settings.home_dir, Path)
         assert settings.home_dir.exists()
 
-    def test_data_dir(self) -> None:
-        """Test that data_dir is computed correctly."""
+    def test_training_dir(self) -> None:
+        """Test that training_dir is computed correctly."""
         settings = PathsSettings()
-        assert settings.data_dir == settings.training_dir / "data"
+        assert settings.training_dir == settings.home_dir / "training"
 
-    def test_dataset_dir(self) -> None:
-        """Test that dataset_dir is computed correctly."""
+    def test_books_dir(self) -> None:
+        """Test that books_dir is computed correctly."""
         settings = PathsSettings()
-        assert settings.dataset_dir == settings.data_dir / "dataset"
-
-    def test_model_dir(self) -> None:
-        """Test that model_dir is computed correctly."""
-        settings = PathsSettings()
-        assert settings.model_dir == settings.training_dir / "models"
-
-    def test_raw_data_dir(self) -> None:
-        """Test that raw_data_dir is computed correctly."""
-        settings = PathsSettings()
-        assert settings.raw_data_dir == settings.home_dir / "books"
+        assert settings.books_dir == settings.home_dir / "books"
 
 
 class TestSettings:
@@ -115,6 +121,7 @@ class TestSettings:
         settings = Settings()
         assert isinstance(settings.database, DatabaseSettings)
         assert isinstance(settings.training, TrainingSettings)
+        assert isinstance(settings.data, DataSettings)
         assert isinstance(settings.paths, PathsSettings)
 
     def test_settings_load_method(self) -> None:
@@ -148,4 +155,5 @@ class TestGetSettings:
         settings = get_settings()
         assert hasattr(settings, "database")
         assert hasattr(settings, "training")
+        assert hasattr(settings, "data")
         assert hasattr(settings, "paths")

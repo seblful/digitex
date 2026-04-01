@@ -18,14 +18,9 @@ class ExtractionSettings(BaseSettings):
         description="Path to the YOLO segmentation model",
     )
 
-    books_dir: Path = Field(
-        default=Path("books"),
-        description="Directory containing subject folders with images",
-    )
-
-    extraction_dir: Path = Field(
-        default=Path("extraction/output"),
-        description="Output directory for extracted images",
+    output_dir_name: str = Field(
+        default="output",
+        description="Subdirectory name for extracted images",
     )
 
     question_max_width: int = Field(
@@ -63,13 +58,6 @@ class TrainingSettings(BaseSettings):
 
     num_epochs: int = Field(default=100, ge=1, description="Number of training epochs")
 
-    image_size: int = Field(
-        default=640,
-        ge=32,
-        multiple_of=32,
-        description="Input image size for training (must be multiple of 32)",
-    )
-
     batch_size: int = Field(default=4, ge=1, description="Batch size for training")
 
     overlap_mask: bool = Field(
@@ -82,11 +70,6 @@ class TrainingSettings(BaseSettings):
 
     seed: int = Field(default=42, ge=0, description="Random seed for reproducibility")
 
-    data_subdir: str = Field(
-        default="page",
-        description="Type of task type (e.g., 'page', 'question', 'part')",
-    )
-
     model_type: str = Field(default="seg", description="Type of YOLO model ('seg')")
 
     model_size: str = Field(
@@ -95,6 +78,46 @@ class TrainingSettings(BaseSettings):
 
     pretrained_model_path: str | None = Field(
         default=None, description="Path to a previously trained model"
+    )
+
+    model_subdir: str = Field(
+        default="models", description="Subdirectory name for trained models"
+    )
+
+    runs_dir_name: str = Field(
+        default="runs", description="Subdirectory name for training runs"
+    )
+
+
+class DataSettings(BaseSettings):
+    """Data configuration for training."""
+
+    model_config = SettingsConfigDict(env_prefix="DATA_")
+
+    data_dir_name: str = Field(default="data", description="Subdirectory name for data")
+
+    data_type_dir_name: str = Field(
+        default="page",
+        description="Type of task type (e.g., 'page', 'question', 'part')",
+    )
+
+    dataset_dir_name: str = Field(
+        default="dataset", description="Subdirectory name for datasets"
+    )
+
+    raw_data_dir_name: str = Field(
+        default="raw-data", description="Subdirectory name for raw data"
+    )
+
+    images_dir_name: str = Field(
+        default="images", description="Subdirectory name for images"
+    )
+
+    image_size: int = Field(
+        default=640,
+        ge=32,
+        multiple_of=32,
+        description="Input image size for training (must be multiple of 32)",
     )
 
 
@@ -114,24 +137,14 @@ class PathsSettings(BaseSettings):
         return self.home_dir / "training"
 
     @cached_property
-    def data_dir(self) -> Path:
-        """Get the data directory path."""
-        return self.training_dir / "data"
-
-    @cached_property
-    def dataset_dir(self) -> Path:
-        """Get the dataset directory path."""
-        return self.data_dir / "dataset"
-
-    @cached_property
-    def model_dir(self) -> Path:
-        """Get the model directory path."""
-        return self.training_dir / "models"
-
-    @cached_property
-    def raw_data_dir(self) -> Path:
-        """Get the raw data directory path."""
+    def books_dir(self) -> Path:
+        """Get the books directory path."""
         return self.home_dir / "books"
+
+    @cached_property
+    def extraction_dir(self) -> Path:
+        """Get the extraction directory path."""
+        return self.home_dir / "extraction"
 
 
 class Settings(BaseSettings):
@@ -146,6 +159,7 @@ class Settings(BaseSettings):
 
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     training: TrainingSettings = Field(default_factory=TrainingSettings)
+    data: DataSettings = Field(default_factory=DataSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)
     extraction: ExtractionSettings = Field(default_factory=ExtractionSettings)
 
