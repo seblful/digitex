@@ -58,7 +58,9 @@ class PageDataCreator:
             if image.mode != "RGB":
                 image = image.convert("RGB")
             image = resize_image(image, self.train_image_size, self.train_image_size)
-            output_path = output_dir / f"{i}.jpg"
+            book_name = img_path.parent.parent.parent.name
+            year = img_path.parent.name
+            output_path = output_dir / f"{book_name}_{year}_{img_path.stem}.jpg"
             image.save(output_path, "JPEG")
             logger.info(f"{i}/{len(selected)} images saved.")
 
