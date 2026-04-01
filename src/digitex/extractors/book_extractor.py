@@ -6,6 +6,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 from digitex.extractors.page_extractor import PageExtractor
+from digitex.utils import _natural_sort_key
 
 logger = logging.getLogger(__name__)
 
@@ -38,27 +39,37 @@ class BookExtractor:
         from digitex.utils import IMAGE_EXTENSIONS
 
         images = sorted(
-            (p for p in image_dir.iterdir()
-             if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS),
+            (
+                p
+                for p in image_dir.iterdir()
+                if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+            ),
+            key=_natural_sort_key,
         )
 
         if not images:
             logger.warning(f"No images found in {image_dir}")
             return
 
+        output_dir.mkdir(parents=True, exist_ok=True)
+
         option_counter = 0
         part_letter = ""
         question_counter = 0
 
-        for image_path in tqdm(images, desc=f"Processing {image_dir.name}", leave=False):
+        for image_path in tqdm(
+            images, desc=f"Processing {image_dir.name}", leave=False
+        ):
             from PIL import Image
 
             image = Image.open(image_path)
             if image.mode != "RGB":
                 image = image.convert("RGB")
 
-            option_counter, part_letter, question_counter = self._page_extractor.extract(
-                image, output_dir, option_counter, part_letter, question_counter
+            option_counter, part_letter, question_counter = (
+                self._page_extractor.extract(
+                    image, output_dir, option_counter, part_letter, question_counter
+                )
             )
 
         logger.info(f"Extracted images to {output_dir}")

@@ -1,5 +1,6 @@
 """Tests extractor that orchestrates extraction of all image books."""
 
+import json
 import logging
 from pathlib import Path
 
@@ -8,6 +9,8 @@ from tqdm import tqdm
 from digitex.extractors.book_extractor import BookExtractor
 
 logger = logging.getLogger(__name__)
+
+PROGRESS_FILE = "progress.json"
 
 
 class TestsExtractor:
@@ -24,6 +27,7 @@ class TestsExtractor:
     ) -> None:
         self.books_dir = books_dir
         self.extraction_dir = extraction_dir
+        self._progress_path = extraction_dir / PROGRESS_FILE
 
         self._book_extractor = BookExtractor(
             model_path=model_path,
@@ -31,6 +35,24 @@ class TestsExtractor:
             question_max_width=question_max_width,
             question_max_height=question_max_height,
         )
+
+    def _load_completed(self) -> dict[str, set[str]]:
+        if not self._progress_path.exists():
+            return {}
+        data = json.loads(self._progress_path.read_text(encoding="utf-8"))
+        return {k: set(v) for k, v in data.items()}
+
+    def _save_completed(self, completed: dict[str, set[str]]) -> None:
+        self.extraction_dir.mkdir(parents=True, exist_ok=True)
+        self._progress_path.write_text(
+            json.dumps({k: sorted(v) for k, v in completed.items()}, indent=2),
+            encoding="utf-8",
+        )
+
+    def _is_completed(
+        self, completed: dict[str, set[str]], subject: str, year: str
+    ) -> bool:
+        return year in completed.get(subject, set())
 
     def extract_all(self) -> None:
         """Extract question images from all subjects in the books directory.
@@ -46,6 +68,8 @@ class TestsExtractor:
         if not subject_dirs:
             logger.warning(f"No subject folders found in {self.books_dir}")
             return
+
+        completed = self._load_completed()
 
         for subject_dir in tqdm(subject_dirs, desc="Processing subjects"):
             subject = subject_dir.name
@@ -63,5 +87,13 @@ class TestsExtractor:
 
             for year_dir in tqdm(year_dirs, desc=f"Extracting {subject}", leave=False):
                 year = year_dir.name
+
+                if self._is_completed(completed, subject, year):
+                    logger.info(f"Skipping {subject}/{year}, already extracted")
+                    continue
+
                 output_dir = self.extraction_dir / subject / year
                 self._book_extractor.extract(year_dir, output_dir)
+
+                completed.setdefault(subject, set()).add(year)
+                self._save_completed(completed)
