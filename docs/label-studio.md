@@ -41,3 +41,23 @@ Export annotations from Label Studio as JSON. The dataset creator reads `annotat
 ## Notes
 
 Images are referenced in Label Studio as `data/page/images/<filename>.jpg` via local file storage.
+
+## Auto-Prediction
+
+Run a trained model on unannotated tasks and upload predictions back to Label Studio:
+
+```bash
+uv run python -m training.cli ls-predict --project-id 1 --model-path training/data/page/models/best.pt
+```
+
+**How it works:**
+1. Fetches all tasks where `is_labeled=False`
+2. Reads the image from local disk (via task URI)
+3. Runs YOLO segmentation model
+4. Uploads polygon predictions immediately per task
+5. Skips tasks with missing files or failed predictions
+
+**Requirements:**
+- Label Studio running at `localhost:8080`
+- `LABEL_STUDIO_API_KEY` set in `.env`
+- Trained model `.pt` file

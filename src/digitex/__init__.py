@@ -4,7 +4,7 @@ from .creators import PageDataCreator
 from .core.handlers import LabelHandler
 from .core.processors import FileProcessor
 from .extractors import BookExtractor, PageExtractor, TestsExtractor
-from .label_studio import LabelStudioUploader
+from .label_studio import LabelStudioClient, TaskPredictor
 from .ml import Predictor, Trainer
 
 __all__ = [
@@ -14,7 +14,8 @@ __all__ = [
     "BookExtractor",
     "PageExtractor",
     "TestsExtractor",
-    "LabelStudioUploader",
+    "LabelStudioClient",
+    "TaskPredictor",
     "Predictor",
     "Trainer",
 ]

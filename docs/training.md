@@ -74,6 +74,24 @@ uv run python -m training.cli train --num-epochs 50
 - `--seed`: Random seed for reproducibility (default: 42)
 - `--pretrained-model-path`: Path to existing model weights
 
+### 4. Predict Label Studio Tasks
+
+Run trained model on unannotated Label Studio tasks and upload predictions:
+
+```bash
+uv run python -m training.cli ls-predict --project-id 1 --model-path training/data/page/models/best.pt
+```
+
+**Options:**
+- `--project-id`: Label Studio project ID (required)
+- `--model-path`: Path to trained model (default from `TRAIN_PRETRAINED_MODEL_PATH`)
+
+**Behavior:**
+- Iterates tasks where `is_labeled=False`
+- Skips tasks with missing images (logs warning)
+- Uploads prediction immediately after each task
+- Safely re-runnable — completed tasks are skipped
+
 ## Complete Workflow
 
 Run from the project root directory:
@@ -89,6 +107,9 @@ uv run python -m training.cli create-dataset --augment
 
 # Step 4: Train model
 uv run python -m training.cli train --model-size m --num-epochs 100
+
+# Step 5: Predict unannotated tasks in Label Studio
+uv run python -m training.cli ls-predict --project-id 1 --model-path training/data/page/models/best.pt
 ```
 
 ## Configuration

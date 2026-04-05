@@ -3,6 +3,7 @@ from pathlib import Path
 
 import typer
 from digitex.creators import PageDataCreator
+from digitex.label_studio import TaskPredictor
 from digitex.ml.yolo import Trainer
 from digitex.ml.yolo.augmenter import PolygonAugmenter
 from digitex.ml.yolo.dataset import DatasetCreator
@@ -148,6 +149,35 @@ def train(
     except Exception as e:
         logger.error(f"Training failed: {e}")
         raise typer.Exit(code=1)
+
+
+@app.command()
+def ls_predict(
+    project_id: int = typer.Option(..., help="Label Studio project ID"),
+    model_path: str | None = typer.Option(
+        None,
+        help="Path to trained model (.pt file)",
+    ),
+) -> None:
+    from digitex.config import get_settings
+
+    s = get_settings()
+
+    model = model_path or s.training.pretrained_model_path
+    if not model:
+        typer.echo(
+            "Error: No model path. Use --model-path or set TRAIN_PRETRAINED_MODEL_PATH."
+        )
+        raise typer.Exit(1)
+
+    predictor = TaskPredictor(
+        model_path=model,
+        url=s.label_studio.url,
+        api_key=s.label_studio.api_key,
+    )
+
+    count = predictor.predict_tasks(project_id)
+    typer.echo(f"Predicted {count} tasks.")
 
 
 if __name__ == "__main__":
