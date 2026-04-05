@@ -8,6 +8,8 @@ import pytest
 from digitex.config.settings import (
     DataSettings,
     DatabaseSettings,
+    ExtractionSettings,
+    LabelStudioSettings,
     TrainingSettings,
     PathsSettings,
     Settings,
@@ -93,6 +95,60 @@ class TestDataSettings:
             DataSettings(image_size=500)
 
 
+class TestExtractionSettings:
+    """Test ExtractionSettings class."""
+
+    def test_default_extraction_values(self) -> None:
+        """Test that ExtractionSettings has correct default values."""
+        settings = ExtractionSettings()
+        assert settings.model_path == Path("extraction/models/page.pt")
+        assert settings.output_dir_name == "output"
+        assert settings.question_max_width == 2000
+        assert settings.question_max_height == 2000
+        assert settings.image_format == "jpg"
+
+    def test_custom_extraction_values(self) -> None:
+        """Test custom extraction values."""
+        settings = ExtractionSettings(
+            model_path=Path("custom/model.pt"),
+            output_dir_name="results",
+            question_max_width=1000,
+            question_max_height=1500,
+            image_format="png",
+        )
+        assert settings.model_path == Path("custom/model.pt")
+        assert settings.output_dir_name == "results"
+        assert settings.question_max_width == 1000
+        assert settings.question_max_height == 1500
+        assert settings.image_format == "png"
+
+    def test_positive_validation(self) -> None:
+        """Test that positive validation works for dimensions."""
+        with pytest.raises(Exception):
+            ExtractionSettings(question_max_width=0)
+
+        with pytest.raises(Exception):
+            ExtractionSettings(question_max_height=0)
+
+
+class TestLabelStudioSettings:
+    """Test LabelStudioSettings class."""
+
+    def test_default_label_studio_values(self) -> None:
+        """Test that LabelStudioSettings has correct default URL."""
+        settings = LabelStudioSettings()
+        assert settings.url == "http://localhost:8080"
+
+    def test_custom_label_studio_values(self) -> None:
+        """Test custom Label Studio values."""
+        settings = LabelStudioSettings(
+            url="http://custom:9000",
+            api_key="test-key",
+        )
+        assert settings.url == "http://custom:9000"
+        assert settings.api_key == "test-key"
+
+
 class TestPathsSettings:
     """Test PathsSettings class."""
 
@@ -112,6 +168,11 @@ class TestPathsSettings:
         settings = PathsSettings()
         assert settings.books_dir == settings.home_dir / "books"
 
+    def test_extraction_dir(self) -> None:
+        """Test that extraction_dir is computed correctly."""
+        settings = PathsSettings()
+        assert settings.extraction_dir == settings.home_dir / "extraction"
+
 
 class TestSettings:
     """Test main Settings class."""
@@ -123,6 +184,8 @@ class TestSettings:
         assert isinstance(settings.training, TrainingSettings)
         assert isinstance(settings.data, DataSettings)
         assert isinstance(settings.paths, PathsSettings)
+        assert isinstance(settings.extraction, ExtractionSettings)
+        assert isinstance(settings.label_studio, LabelStudioSettings)
 
     def test_settings_load_method(self) -> None:
         """Test Settings.load() class method."""
@@ -157,3 +220,5 @@ class TestGetSettings:
         assert hasattr(settings, "training")
         assert hasattr(settings, "data")
         assert hasattr(settings, "paths")
+        assert hasattr(settings, "extraction")
+        assert hasattr(settings, "label_studio")

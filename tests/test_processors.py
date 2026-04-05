@@ -17,6 +17,37 @@ from digitex.extractors.page_extractor import PageExtractor
 class TestSegmentProcessor:
     """Test suite for SegmentProcessor."""
 
+    def test_remove_color_removes_saturated_pixels(self) -> None:
+        """Test that remove_color removes colored (saturated) pixels."""
+        img = np.zeros((100, 100, 4), dtype=np.uint8)
+        img[:, :, :3] = [0, 0, 0]
+        img[:, :, 3] = 255
+        img[10:20, 10:20] = [255, 0, 0, 255]
+
+        result = SegmentProcessor.remove_color(img, saturation_threshold=100)
+        assert result[15, 15, 3] == 0
+        assert result[5, 5, 3] == 255
+
+    def test_remove_color_preserves_grayscale(self) -> None:
+        """Test that remove_color preserves gray pixels."""
+        img = np.zeros((100, 100, 4), dtype=np.uint8)
+        img[:, :, :3] = [128, 128, 128]
+        img[:, :, 3] = 255
+
+        result = SegmentProcessor.remove_color(img, saturation_threshold=100)
+        assert result[50, 50, 3] == 255
+
+    def test_remove_color_no_dilation(self) -> None:
+        """Test remove_color with no dilation."""
+        img = np.zeros((100, 100, 4), dtype=np.uint8)
+        img[:, :, 3] = 255
+        img[10:20, 10:20] = [255, 0, 0, 255]
+
+        result = SegmentProcessor.remove_color(
+            img, saturation_threshold=100, dilate_iterations=0
+        )
+        assert result[15, 15, 3] == 0
+
     def test_remove_bg_returns_rgba(self) -> None:
         """Test remove_bg returns RGBA numpy array with transparent bright pixels."""
         processor = SegmentProcessor()
@@ -245,3 +276,51 @@ def test_crop_and_save_uses_image_format(tmp_path: Path) -> None:
 
     saved = PILImage.open(saved_path)
     assert saved.mode == "RGB"
+
+
+class TestImageCropper:
+    """Test suite for ImageCropper."""
+
+    def test_order_quad_points(self) -> None:
+        """Test ordering of quad points."""
+        from digitex.core.processors.image import ImageCropper
+
+        pts = np.array([[10, 10], [50, 10], [50, 50], [10, 50]], dtype=np.float32)
+        ordered = ImageCropper._order_quad_points(pts)
+        assert ordered.shape == (4, 2)
+        assert ordered[0, 0] < ordered[2, 0]
+
+    def test_polygon_to_quad_with_rectangle(self) -> None:
+        """Test polygon to quad conversion with rectangle."""
+        from digitex.core.processors.image import ImageCropper
+
+        polygon = [(10, 10), (50, 10), (50, 50), (10, 50)]
+        quad = ImageCropper._polygon_to_quad(polygon)
+        assert quad.shape == (4, 2)
+
+    def test_polygon_to_quad_with_skewed(self) -> None:
+        """Test polygon to quad conversion with skewed polygon."""
+        from digitex.core.processors.image import ImageCropper
+
+        polygon = [(10, 10), (50, 15), (48, 50), (12, 48)]
+        quad = ImageCropper._polygon_to_quad(polygon)
+        assert quad.shape == (4, 2)
+
+    def test_cut_out_image_by_polygon_min_points(self) -> None:
+        """Test that cut_out_image_by_polygon requires 4+ points."""
+        from digitex.core.processors.image import ImageCropper
+
+        img = Image.new("RGB", (100, 100), color="white")
+        with pytest.raises(ValueError, match="Polygon must have 4 or more points"):
+            ImageCropper.cut_out_image_by_polygon(img, [(10, 10), (20, 20)])
+
+    def test_cut_out_image_by_polygon(self) -> None:
+        """Test cutting out image by polygon."""
+        from digitex.core.processors.image import ImageCropper
+
+        img = Image.new("RGB", (200, 200), color="white")
+        polygon = [(10, 10), (190, 10), (190, 190), (10, 190)]
+        result = ImageCropper.cut_out_image_by_polygon(img, polygon)
+        assert result.mode == "RGBA"
+        assert result.size[0] > 0
+        assert result.size[1] > 0
