@@ -1,11 +1,11 @@
 """Upload YOLO polygon labels to Label Studio as pre-annotations."""
 
-from pathlib import Path
-
 import typer
 
 from digitex.config.settings import get_settings
 from digitex.label_studio.uploader import LabelStudioUploader
+
+CLASSES = {0: "option", 1: "part", 2: "question"}
 
 
 def main(
@@ -27,7 +27,11 @@ def main(
         / "labels"
     )
 
-    uploader = LabelStudioUploader(ls)
+    uploader = LabelStudioUploader(
+        classes=CLASSES,
+        url=ls.url,
+        api_key=ls.api_key,
+    )
     uploader.upload(
         project_id=project_id,
         labels_dir=labels_dir,

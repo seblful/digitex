@@ -8,33 +8,26 @@ import structlog
 from label_studio_sdk import LabelStudio
 from tqdm import tqdm
 
-from digitex.config.settings import LabelStudioSettings, get_settings
-
 logger = structlog.get_logger()
-
-CLASSES = {0: "option", 1: "part", 2: "question"}
 
 
 class LabelStudioUploader:
     """Uploads YOLO polygon labels to Label Studio as pre-annotations.
 
     Args:
-        settings: Label Studio connection settings.
+        classes: Mapping from class ID to label name.
+        url: Label Studio server URL.
+        api_key: Label Studio API key.
     """
 
-    def __init__(self, settings: LabelStudioSettings | None = None) -> None:
-        self._settings = settings or get_settings().label_studio
-        self._client: LabelStudio | None = None
-
-    @property
-    def client(self) -> LabelStudio:
-        """Get or create Label Studio client."""
-        if self._client is None:
-            self._client = LabelStudio(
-                base_url=self._settings.url,
-                api_key=self._settings.api_key,
-            )
-        return self._client
+    def __init__(
+        self,
+        classes: dict[int, str],
+        url: str,
+        api_key: str,
+    ) -> None:
+        self._classes = classes
+        self._client = LabelStudio(base_url=url, api_key=api_key)
 
     @staticmethod
     def _extract_filename(image_uri: str) -> str:
@@ -70,7 +63,7 @@ class LabelStudioUploader:
             Dict mapping image filename to task ID.
         """
         task_map = {}
-        tasks = self.client.tasks.list(project=project_id, fields="all")
+        tasks = self._client.tasks.list(project=project_id, fields="all")
 
         for task in tasks:
             image_uri = task.data.get("image", "")
@@ -80,8 +73,7 @@ class LabelStudioUploader:
         logger.info("loaded_tasks", count=len(task_map))
         return task_map
 
-    @staticmethod
-    def parse_label(label_path: Path) -> list[dict]:
+    def parse_label(self, label_path: Path) -> list[dict]:
         """Parse YOLO polygon label file into Label Studio result dicts.
 
         Args:
@@ -109,7 +101,7 @@ class LabelStudioUploader:
                         "type": "polygonlabels",
                         "value": {
                             "points": points,
-                            "polygonlabels": [CLASSES[class_id]],
+                            "polygonlabels": [self._classes[class_id]],
                         },
                     }
                 )
@@ -165,7 +157,7 @@ class LabelStudioUploader:
 
         for i in tqdm(range(0, len(predictions), batch_size), desc="Uploading"):
             batch = predictions[i : i + batch_size]
-            self.client.projects.import_predictions(
+            self._client.projects.import_predictions(
                 id=project_id,
                 request=batch,
             )
