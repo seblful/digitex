@@ -149,7 +149,7 @@ def add_images() -> None:
         image.save(output_path, "JPEG")
         processed += 1
 
-    typer.echo(
+    logger.info(
         f"Done. Processed: {processed}, Skipped (exist): {skipped_exist}, Skipped (missing): {skipped_missing}"
     )
 
