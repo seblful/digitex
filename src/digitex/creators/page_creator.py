@@ -32,7 +32,10 @@ class PageDataCreator:
                 if not year_dir.is_dir():
                     continue
                 for img_path in year_dir.iterdir():
-                    if img_path.is_file() and img_path.suffix.lower() in IMAGE_EXTENSIONS:
+                    if (
+                        img_path.is_file()
+                        and img_path.suffix.lower() in IMAGE_EXTENSIONS
+                    ):
                         images.append(img_path)
         return images
 
@@ -53,15 +56,22 @@ class PageDataCreator:
         selected = random.sample(images, min(num_images, len(images)))
         logger.info(f"Selected {len(selected)} images from {books_dir}")
 
-        for i, img_path in enumerate(tqdm(selected, desc="Saving images"), start=1):
+        skipped = 0
+        saved = 0
+        for img_path in tqdm(selected, desc="Saving images"):
+            book_name = img_path.parent.parent.parent.name
+            year = img_path.parent.name
+            output_path = output_dir / f"{book_name}_{year}_{img_path.stem}.jpg"
+            if output_path.exists():
+                skipped += 1
+                continue
             image = Image.open(img_path)
             if image.mode != "RGB":
                 image = image.convert("RGB")
             image = resize_image(image, self.train_image_size, self.train_image_size)
-            book_name = img_path.parent.parent.parent.name
-            year = img_path.parent.name
-            output_path = output_dir / f"{book_name}_{year}_{img_path.stem}.jpg"
             image.save(output_path, "JPEG")
-            logger.info(f"{i}/{len(selected)} images saved.")
+            saved += 1
 
-        logger.info(f"Successfully saved {len(selected)} images to {output_dir}")
+        logger.info(
+            f"Saved {saved} images, skipped {skipped} (already exist) to {output_dir}"
+        )
