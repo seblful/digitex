@@ -7,9 +7,16 @@ import pytest
 from PIL import Image
 from typer.testing import CliRunner
 
+from digitex.config import settings as settings_module
 from training.cli import app
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def _reset_settings() -> None:
+    """Reset the cached settings singleton between tests."""
+    settings_module._settings = None
 
 
 @pytest.fixture()
@@ -34,6 +41,11 @@ def test_add_images_copies_and_renames(
     result = runner.invoke(app, ["add-images"])
     assert result.exit_code == 0
 
+    images_dir = tmp_path / "training" / "data" / "page" / "images"
+    assert (images_dir / "biology_2024_1.jpg").exists()
+    assert (images_dir / "biology_2024_2.jpg").exists()
+    assert not (images_dir / "biology_2024_3.jpg").exists()
+
 
 def test_add_images_resizes_to_640(
     tmp_path: Path, books_dir: Path, monkeypatch: pytest.MonkeyPatch
@@ -44,6 +56,10 @@ def test_add_images_resizes_to_640(
     result = runner.invoke(app, ["add-images"])
     assert result.exit_code == 0
 
+    output = tmp_path / "training" / "data" / "page" / "images" / "biology_2024_1.jpg"
+    img = Image.open(output)
+    assert max(img.size) <= 640
+
 
 def test_add_images_skips_existing(
     tmp_path: Path, books_dir: Path, monkeypatch: pytest.MonkeyPatch
@@ -51,8 +67,18 @@ def test_add_images_skips_existing(
     paths_file = tmp_path / "paths.txt"
     paths_file.write_text("books/biology/images/2024/1.jpg")
     monkeypatch.chdir(tmp_path)
+
     result = runner.invoke(app, ["add-images"])
     assert result.exit_code == 0
+
+    images_dir = tmp_path / "training" / "data" / "page" / "images"
+    output = images_dir / "biology_2024_1.jpg"
+    original_size = output.stat().st_size
+
+    result = runner.invoke(app, ["add-images"])
+    assert result.exit_code == 0
+    assert output.stat().st_size == original_size
+    assert len(list(images_dir.iterdir())) == 1
 
 
 def test_add_images_handles_missing_source(
@@ -63,10 +89,11 @@ def test_add_images_handles_missing_source(
         "books/biology/images/2024/1.jpg\nbooks/biology/images/2024/2.jpg"
     )
     monkeypatch.chdir(tmp_path)
-    with caplog.at_level(logging.DEBUG):
+    with caplog.at_level(logging.WARNING):
         result = runner.invoke(app, ["add-images"])
     assert result.exit_code == 0
-    assert "Skipped (missing): 2" in caplog.text
+    assert "Source not found: books\\biology\\images\\2024\\1.jpg" in caplog.text
+    assert "Source not found: books\\biology\\images\\2024\\2.jpg" in caplog.text
 
 
 def test_add_images_empty_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
