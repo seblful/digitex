@@ -35,16 +35,23 @@ class LabelStudioClient:
         return tasks
 
     def get_unlabeled_tasks(self, project_id: int) -> list:
-        """Return tasks where is_labeled is False.
+        """Return tasks where is_labeled is False and have no predictions.
 
         Args:
             project_id: Label Studio project ID.
 
         Returns:
-            List of unlabeled task objects.
+            List of unlabeled task objects without predictions.
         """
         tasks = self.get_tasks(project_id)
-        unlabeled = [t for t in tasks if not t.is_labeled]
+        unlabeled = []
+        for t in tasks:
+            if t.is_labeled:
+                continue
+            predictions = list(self._client.predictions.list(task=t.id))
+            if predictions:
+                continue
+            unlabeled.append(t)
         logger.info(
             "filtered_unlabeled",
             project_id=project_id,
