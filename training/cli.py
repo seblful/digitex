@@ -87,6 +87,74 @@ def select_random_pages(
 
 
 @app.command()
+def add_images() -> None:
+    """Add specific images from paths.txt to training data."""
+    from digitex.config import get_settings
+    from PIL import Image
+    from digitex.core.processors import resize_image
+    from tqdm import tqdm
+
+    s = get_settings()
+    paths_file = Path("paths.txt")
+
+    if not paths_file.exists():
+        typer.echo("Error: paths.txt not found in current directory.")
+        raise typer.Exit(code=1)
+
+    lines = paths_file.read_text().strip().splitlines()
+    if not lines:
+        typer.echo("paths.txt is empty.")
+        raise typer.Exit(code=0)
+
+    output_dir = (
+        s.paths.training_dir / s.data.data_dir_name / "page" / s.data.images_dir_name
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    processed = 0
+    skipped_exist = 0
+    skipped_missing = 0
+
+    for line in tqdm(lines, desc="Adding images"):
+        line = line.strip()
+        if not line:
+            continue
+
+        src = Path(line)
+        if not src.exists():
+            logger.warning(f"Source not found: {src}")
+            skipped_missing += 1
+            continue
+
+        parts = Path(line).parts
+        if len(parts) < 5 or parts[0] != "books":
+            logger.warning(f"Invalid path format: {line}")
+            skipped_missing += 1
+            continue
+
+        subject = parts[1]
+        year = parts[3]
+        page = src.stem
+        output_name = f"{subject}_{year}_{page}.jpg"
+        output_path = output_dir / output_name
+
+        if output_path.exists():
+            skipped_exist += 1
+            continue
+
+        image = Image.open(src)
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        image = resize_image(image, s.data.image_size, s.data.image_size)
+        image.save(output_path, "JPEG")
+        processed += 1
+
+    typer.echo(
+        f"Done. Processed: {processed}, Skipped (exist): {skipped_exist}, Skipped (missing): {skipped_missing}"
+    )
+
+
+@app.command()
 def train(
     data_type_dir_name: str | None = typer.Option(
         None, "--data-subdir", help="Task type"
