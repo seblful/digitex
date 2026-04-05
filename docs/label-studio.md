@@ -2,6 +2,8 @@
 
 Annotation platform for polygon segmentation labels.
 
+For the full training pipeline and dataset workflow, see [Training](training.md).
+
 **Note:** Run all commands from the project root directory.
 
 ## Start Server
@@ -25,18 +27,9 @@ Get your API key from **Label Studio > Account & Settings > Access Token**.
 
 ## Data Flow
 
-```
-training/data/<task>/
-├── annotations.json    # Label Studio export (polygon annotations)
-├── images/             # Source page images
-└── dataset/            # Created by dataset creator
-    ├── train/
-    ├── val/
-    ├── test/
-    └── data.yaml
-```
+Annotations are stored in `training/data/<task>/` (see [Training](training.md) for full directory structure).
 
-Export annotations from Label Studio as JSON. The dataset creator reads `annotations.json` and `images/` to produce YOLO-format labels.
+Export annotations from Label Studio as JSON to `annotations.json` in the task directory.
 
 ## Notes
 
@@ -62,4 +55,4 @@ uv run python -m training.cli ls-predict --project-id 1 --model-path extraction/
 
 - Label Studio running at `localhost:8080`
 - `LABEL_STUDIO_API_KEY` set in `.env`
-- Trained model `.pt` file
+- Trained model `.pt` file (see [Training](training.md) for training workflow)

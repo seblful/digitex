@@ -2,6 +2,8 @@
 
 YOLO-based training pipeline for document segmentation.
 
+For Label Studio setup, configuration, and server management, see [Label Studio](label-studio.md).
+
 **Note:** Run all commands from the project root directory.
 
 ## Directory Structure
@@ -76,7 +78,7 @@ uv run python -m training.cli train --num-epochs 50
 
 ### 4. Predict Label Studio Tasks
 
-Run trained model on unannotated Label Studio tasks and upload predictions:
+Run trained model on unannotated Label Studio tasks and upload predictions (see [Label Studio](label-studio.md) for setup):
 
 ```bash
 uv run python -m training.cli ls-predict --project-id 1 --model-path training/data/page/models/best.pt
@@ -100,7 +102,7 @@ Run from the project root directory:
 # Step 1: Select random pages from books
 uv run python -m training.cli select-random-pages --num-images 100
 
-# Step 2: Annotate images in Label Studio, then export annotations.json
+# Step 2: Annotate images in Label Studio (see [Label Studio](label-studio.md)), then export annotations.json
 
 # Step 3: Create dataset from annotations (visualizes automatically)
 uv run python -m training.cli create-dataset --augment
