@@ -30,18 +30,29 @@ def books_dir(tmp_path: Path) -> Path:
     return tmp_path / "books"
 
 
+def _data_dir(tmp_path: Path) -> Path:
+    return tmp_path / "training" / "data" / "page"
+
+
+def _write_paths_file(tmp_path: Path, content: str) -> Path:
+    data_dir = _data_dir(tmp_path)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    paths_file = data_dir / "paths.txt"
+    paths_file.write_text(content)
+    return paths_file
+
+
 def test_add_images_copies_and_renames(
     tmp_path: Path, books_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    paths_file = tmp_path / "paths.txt"
-    paths_file.write_text(
-        "books/biology/images/2024/1.jpg\nbooks/biology/images/2024/2.jpg"
+    _write_paths_file(
+        tmp_path, "books/biology/images/2024/1.jpg\nbooks/biology/images/2024/2.jpg"
     )
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["add-images"])
     assert result.exit_code == 0
 
-    images_dir = tmp_path / "training" / "data" / "page" / "images"
+    images_dir = _data_dir(tmp_path) / "images"
     assert (images_dir / "biology_2024_1.jpg").exists()
     assert (images_dir / "biology_2024_2.jpg").exists()
     assert not (images_dir / "biology_2024_3.jpg").exists()
@@ -50,13 +61,12 @@ def test_add_images_copies_and_renames(
 def test_add_images_resizes_to_640(
     tmp_path: Path, books_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    paths_file = tmp_path / "paths.txt"
-    paths_file.write_text("books/biology/images/2024/1.jpg")
+    _write_paths_file(tmp_path, "books/biology/images/2024/1.jpg")
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["add-images"])
     assert result.exit_code == 0
 
-    output = tmp_path / "training" / "data" / "page" / "images" / "biology_2024_1.jpg"
+    output = _data_dir(tmp_path) / "images" / "biology_2024_1.jpg"
     img = Image.open(output)
     assert max(img.size) <= 640
 
@@ -64,14 +74,13 @@ def test_add_images_resizes_to_640(
 def test_add_images_skips_existing(
     tmp_path: Path, books_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    paths_file = tmp_path / "paths.txt"
-    paths_file.write_text("books/biology/images/2024/1.jpg")
+    _write_paths_file(tmp_path, "books/biology/images/2024/1.jpg")
     monkeypatch.chdir(tmp_path)
 
     result = runner.invoke(app, ["add-images"])
     assert result.exit_code == 0
 
-    images_dir = tmp_path / "training" / "data" / "page" / "images"
+    images_dir = _data_dir(tmp_path) / "images"
     output = images_dir / "biology_2024_1.jpg"
     original_size = output.stat().st_size
 
@@ -84,9 +93,9 @@ def test_add_images_skips_existing(
 def test_add_images_handles_missing_source(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    paths_file = tmp_path / "paths.txt"
-    paths_file.write_text(
-        "books/biology/images/2024/1.jpg\nbooks/biology/images/2024/2.jpg"
+    _write_paths_file(
+        tmp_path,
+        "books/biology/images/2024/1.jpg\nbooks/biology/images/2024/2.jpg",
     )
     monkeypatch.chdir(tmp_path)
     with caplog.at_level(logging.WARNING):
@@ -97,8 +106,7 @@ def test_add_images_handles_missing_source(
 
 
 def test_add_images_empty_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    paths_file = tmp_path / "paths.txt"
-    paths_file.write_text("")
+    _write_paths_file(tmp_path, "")
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["add-images"])
     assert result.exit_code == 0

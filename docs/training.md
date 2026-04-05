@@ -14,6 +14,7 @@ training/
 ├── data/               # Training data (gitignored)
 │   └── <task>/         # Task-specific data (page, question, part)
 │       ├── annotations.json  # Label Studio export
+│       ├── paths.txt         # Image paths for add-images command
 │       ├── images/           # Source page images
 │       ├── dataset/          # Processed YOLO dataset
 │       └── check-images/     # Visual verification images
@@ -37,7 +38,33 @@ uv run python -m training.cli select-random-pages --data-subdir page --num-image
 **Requirements:**
 - Book images in `books/<subject>/images/<year>/` directory
 
-### 2. Create Dataset
+### 2. Add Images from File
+
+Add specific images listed in a text file to the training data:
+
+```bash
+uv run python -m training.cli add-images --data-subdir page
+```
+
+**Options:**
+- `--data-subdir`: Task type (default: `page`)
+
+**Requirements:**
+- `paths.txt` in `training/data/<task>/` with one relative path per line:
+
+```
+books/biology/images/2024/10.jpg
+books/biology/images/2024/15.jpg
+books/biology/images/2023/5.jpg
+```
+
+**Behavior:**
+- Copies and resizes images to 640x640
+- Renames to `{subject}_{year}_{page}.jpg`
+- Skips images that already exist in the output directory
+- Logs summary of processed/skipped/missing
+
+### 3. Create Dataset
 
 Convert annotations from Label Studio to YOLO dataset format:
 
@@ -56,7 +83,7 @@ uv run python -m training.cli create-dataset --data-subdir page --train-split 0.
 - `annotations.json` in `training/data/<task>/`
 - Images in `training/data/<task>/images/`
 
-### 3. Train Model
+### 4. Train Model
 
 Train YOLO segmentation model:
 
@@ -76,7 +103,7 @@ uv run python -m training.cli train --num-epochs 50
 - `--seed`: Random seed for reproducibility (default: 42)
 - `--pretrained-model-path`: Path to existing model weights
 
-### 4. Predict Label Studio Tasks
+### 5. Predict Label Studio Tasks
 
 Run trained model on unannotated Label Studio tasks and upload predictions (see [Label Studio](label-studio.md) for setup):
 
@@ -99,8 +126,11 @@ uv run python -m training.cli ls-predict --project-id 1 --model-path training/da
 Run from the project root directory:
 
 ```bash
-# Step 1: Select random pages from books
+# Step 1: Add images for annotation
+# Option A: Select random pages from books
 uv run python -m training.cli select-random-pages --num-images 100
+# Option B: Add specific images from paths.txt
+uv run python -m training.cli add-images --data-subdir page
 
 # Step 2: Annotate images in Label Studio (see [Label Studio](label-studio.md)), then export annotations.json
 
