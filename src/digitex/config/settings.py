@@ -121,6 +121,23 @@ class DataSettings(BaseSettings):
     )
 
 
+class LabelStudioSettings(BaseSettings):
+    """Label Studio connection settings."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="LABEL_STUDIO_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    url: str = Field(
+        default="http://localhost:8080", description="Label Studio server URL"
+    )
+
+    api_key: str = Field(default="", description="Label Studio API key")
+
+
 class PathsSettings(BaseSettings):
     """Directory path settings."""
 
@@ -162,6 +179,7 @@ class Settings(BaseSettings):
     data: DataSettings = Field(default_factory=DataSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)
     extraction: ExtractionSettings = Field(default_factory=ExtractionSettings)
+    label_studio: LabelStudioSettings = Field(default_factory=LabelStudioSettings)
 
     @classmethod
     def load(cls) -> Self:
