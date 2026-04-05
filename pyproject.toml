@@ -26,6 +26,7 @@ requires-python = ">=3.13"
     "deskew",
     "label-studio-sdk>=2.0.19",
     "structlog>=25.5.0",
+    "shapely>=2.1.2",
 ]
 
 [[tool.uv.index]]
@@ -40,6 +41,12 @@ torchvision = { index = "pytorch-cu130" }
  [build-system]
   requires = ["hatchling"]
   build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.15.9",
+]
 
   [tool.hatch.build.targets.wheel]
   packages = ["src/digitex"]

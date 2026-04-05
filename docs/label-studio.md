@@ -47,10 +47,11 @@ Images are referenced in Label Studio as `data/page/images/<filename>.jpg` via l
 Run a trained model on unannotated tasks and upload predictions back to Label Studio:
 
 ```bash
-uv run python -m training.cli ls-predict --project-id 1 --model-path training/data/page/models/best.pt
+uv run python -m training.cli ls-predict --project-id 1 --model-path extraction/models/page.pt
 ```
 
 **How it works:**
+
 1. Fetches all tasks where `is_labeled=False`
 2. Reads the image from local disk (via task URI)
 3. Runs YOLO segmentation model
@@ -58,6 +59,7 @@ uv run python -m training.cli ls-predict --project-id 1 --model-path training/da
 5. Skips tasks with missing files or failed predictions
 
 **Requirements:**
+
 - Label Studio running at `localhost:8080`
 - `LABEL_STUDIO_API_KEY` set in `.env`
 - Trained model `.pt` file

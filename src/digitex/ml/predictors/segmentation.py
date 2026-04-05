@@ -1,9 +1,9 @@
 import logging
-from typing import Any
 
 import numpy as np
 import torch
 from PIL import Image
+from shapely.geometry import Polygon
 from ultralytics import YOLO  # type: ignore[import-untyped]
 from ultralytics.engine.results import Results
 
@@ -18,16 +18,25 @@ logger = logging.getLogger(__name__)
 class YOLO_SegmentationPredictor(Predictor):
     """YOLO-based segmentation predictor for document analysis."""
 
-    def __init__(self, model_path: str) -> None:
+    def __init__(
+        self,
+        model_path: str,
+        simplify: bool = False,
+        epsilon: float = 2.0,
+    ) -> None:
         """Initialize the YOLO segmentation predictor.
 
         Args:
             model_path: Path to the trained YOLO model file.
+            simplify: Whether to apply Douglas-Peucker polygon simplification.
+            epsilon: Distance tolerance for Douglas-Peucker algorithm (pixels).
 
         Raises:
             FileNotFoundError: If model_path doesn't exist.
         """
         self.model_path = model_path
+        self.simplify = simplify
+        self.epsilon = epsilon
         self.device = get_device()
         if not torch.cuda.is_available():
             logger.info("CUDA not available, using CPU")
@@ -90,7 +99,7 @@ class YOLO_SegmentationPredictor(Predictor):
         polygons = []
 
         pred = preds[0]
-        if not hasattr(pred, 'boxes') or not hasattr(pred, 'masks'):
+        if not hasattr(pred, "boxes") or not hasattr(pred, "masks"):
             raise ValueError("Invalid prediction format")
 
         boxes = pred.boxes
@@ -98,7 +107,9 @@ class YOLO_SegmentationPredictor(Predictor):
 
         if boxes is None or masks is None:
             logger.warning("No boxes or masks found in predictions")
-            return SegmentationPredictionResult(ids=[], polygons=[], id2label=self.model.names)
+            return SegmentationPredictionResult(
+                ids=[], polygons=[], id2label=self.model.names
+            )
 
         mask_data = masks.xyn
 
@@ -109,6 +120,11 @@ class YOLO_SegmentationPredictor(Predictor):
                 polygon = polygon.tolist()
                 polygon = [tuple(points) for points in polygon]
 
+                if self.simplify:
+                    poly = Polygon(polygon)
+                    simplified = poly.simplify(self.epsilon, preserve_topology=True)
+                    polygon = [(int(x), int(y)) for x, y in simplified.exterior.coords]
+
                 idx = int(box.cls.item())
 
                 ids.append(idx)
@@ -117,7 +133,9 @@ class YOLO_SegmentationPredictor(Predictor):
                 logger.warning(f"Failed to process prediction: {e}")
                 continue
 
-        result = SegmentationPredictionResult(ids=ids, polygons=polygons, id2label=self.model.names)
+        result = SegmentationPredictionResult(
+            ids=ids, polygons=polygons, id2label=self.model.names
+        )
 
         return result
 

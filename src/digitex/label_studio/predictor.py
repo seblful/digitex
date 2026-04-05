@@ -23,6 +23,7 @@ class TaskPredictor:
         url: Label Studio server URL.
         api_key: Label Studio API key.
         model_version: Model version tag. Defaults to model file stem.
+        epsilon: Douglas-Peucker distance tolerance in pixels. Defaults to 2.0.
     """
 
     def __init__(
@@ -31,8 +32,11 @@ class TaskPredictor:
         url: str,
         api_key: str,
         model_version: str = "",
+        epsilon: float = 10.0,
     ) -> None:
-        self._predictor = YOLO_SegmentationPredictor(model_path)
+        self._predictor = YOLO_SegmentationPredictor(
+            model_path, simplify=True, epsilon=epsilon
+        )
         self._client = LabelStudioClient(url, api_key)
         self._model_version = model_version or Path(model_path).stem
         self._classes: dict[int, str] = {}
