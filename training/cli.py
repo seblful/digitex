@@ -18,7 +18,8 @@ TRAINING_ROOT = Path(__file__).parent.parent
 def _data_dir(data_type_dir_name: str) -> Path:
     from digitex.config import get_settings
 
-    return TRAINING_ROOT / get_settings().data.data_dir_name / data_type_dir_name
+    s = get_settings()
+    return s.paths.training_dir / s.data.data_dir_name / data_type_dir_name
 
 
 @app.command()
@@ -78,7 +79,7 @@ def select_random_pages(
     page_train_dir = _data_dir(data_type_dir_name) / s.data.images_dir_name
 
     PageDataCreator(train_image_size=s.data.image_size).create(
-        books_dir=TRAINING_ROOT.parent / "books",
+        books_dir=s.paths.books_dir,
         output_dir=page_train_dir,
         num_images=num_images,
     )
