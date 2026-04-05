@@ -105,10 +105,6 @@ class DataSettings(BaseSettings):
         default="dataset", description="Subdirectory name for datasets"
     )
 
-    raw_data_dir_name: str = Field(
-        default="raw-data", description="Subdirectory name for raw data"
-    )
-
     images_dir_name: str = Field(
         default="images", description="Subdirectory name for images"
     )

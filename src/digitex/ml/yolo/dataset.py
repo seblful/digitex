@@ -1,226 +1,218 @@
-import logging
+"""YOLO dataset creation from Label Studio annotations."""
+
+import json
 import random
 import shutil
+import urllib.parse
 from pathlib import Path
 
+import structlog
 import yaml
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class DatasetCreator:
+    """Creates a YOLO dataset from Label Studio annotations.
+
+    Args:
+        annotations_file: Path to Label Studio export JSON.
+        images_dir: Directory containing source images.
+        dataset_dir: Output directory for train/val/test splits.
+        train_split: Fraction of data for training (default 0.8).
+    """
+
     def __init__(
         self,
-        raw_dir: str | Path,
-        dataset_dir: str | Path,
+        annotations_file: Path,
+        images_dir: Path,
+        dataset_dir: Path,
         train_split: float = 0.8,
     ) -> None:
-
-        self.raw_dir = Path(raw_dir)
-        self.dataset_dir = Path(dataset_dir)
-
-        self.__images_path: Path | None = None
-        self.__labels_path: Path | None = None
-        self.__train_dir: Path | None = None
-        self.__val_dir: Path | None = None
-        self.__test_dir: Path | None = None
-        self.__images_labels_dict: dict[str, str] | None = None
-        self.__classes_path: Path | None = None
-        self.__data_yaml_path: Path | None = None
-
-        self.anns_types = ["polygon"]
-
-        self.__id2label: dict[int, str] | None = None
-        self.__label2id: dict[str, int] | None = None
+        self.annotations_file = annotations_file
+        self.images_dir = images_dir
+        self.dataset_dir = dataset_dir
+        self.classes: dict[int, str] = {}
+        self.label2id: dict[str, int] = {}
 
         self.train_split = train_split
         self.val_split = 0.6 * (1 - self.train_split)
         self.test_split = 1 - self.train_split - self.val_split
 
-    @property
-    def images_path(self) -> Path:
-        if self.__images_path is None:
-            self.__images_path = self.raw_dir / "images"
-
-        return self.__images_path
-
-    @property
-    def labels_path(self) -> Path:
-        if self.__labels_path is None:
-            self.__labels_path = self.raw_dir / "labels"
-
-        return self.__labels_path
+        self._train_dir: Path | None = None
+        self._val_dir: Path | None = None
+        self._test_dir: Path | None = None
 
     @property
     def train_dir(self) -> Path:
-        if self.__train_dir is None:
-            train_dir = self.dataset_dir / "train"
-            train_dir.mkdir(parents=True, exist_ok=True)
-            self.__train_dir = train_dir
-
-        return self.__train_dir
+        if self._train_dir is None:
+            self._train_dir = self.dataset_dir / "train"
+            self._train_dir.mkdir(parents=True, exist_ok=True)
+        return self._train_dir
 
     @property
     def val_dir(self) -> Path:
-        if self.__val_dir is None:
-            val_dir = self.dataset_dir / "val"
-            val_dir.mkdir(parents=True, exist_ok=True)
-            self.__val_dir = val_dir
-
-        return self.__val_dir
+        if self._val_dir is None:
+            self._val_dir = self.dataset_dir / "val"
+            self._val_dir.mkdir(parents=True, exist_ok=True)
+        return self._val_dir
 
     @property
     def test_dir(self) -> Path:
-        if self.__test_dir is None:
-            test_dir = self.dataset_dir / "test"
-            test_dir.mkdir(parents=True, exist_ok=True)
-            self.__test_dir = test_dir
+        if self._test_dir is None:
+            self._test_dir = self.dataset_dir / "test"
+            self._test_dir.mkdir(parents=True, exist_ok=True)
+        return self._test_dir
 
-        return self.__test_dir
+    @staticmethod
+    def _extract_filename(image_uri: str) -> str:
+        """Extract filename from Label Studio image URI.
 
-    @property
-    def data_yaml_path(self) -> Path:
-        if self.__data_yaml_path is None:
-            self.__data_yaml_path = self.dataset_dir / "data.yaml"
+        Args:
+            image_uri: URI like /data/local-files/?d=training%5Cdata%5Cimages%5Cfile.jpg
 
-        return self.__data_yaml_path
+        Returns:
+            Filename (e.g. biology_2008_12_old.jpg).
+        """
+        parsed = urllib.parse.urlparse(image_uri)
+        params = urllib.parse.parse_qs(parsed.query)
+        path = urllib.parse.unquote(params.get("d", [""])[0])
+        return Path(path).name
 
-    @property
-    def classes_path(self) -> Path:
-        if self.__classes_path is None:
-            self.__classes_path = self.raw_dir / "classes.txt"
+    @staticmethod
+    def _parse_annotation(entry: dict, label2id: dict[str, int]) -> tuple[str, str]:
+        """Parse a single Label Studio annotation entry into YOLO format.
 
-        return self.__classes_path
+        Args:
+            entry: Annotation dict with 'image' and 'label' keys.
+            label2id: Mapping from label name to class ID.
 
-    @property
-    def id2label(self) -> dict[int, str]:
-        if self.__id2label is None:
-            classes = DatasetCreator.read_classes_file(self.classes_path)
-            self.__id2label = {k: v for k, v in enumerate(classes)}
+        Returns:
+            Tuple of (filename, yolo_label_string).
+        """
+        filename = DatasetCreator._extract_filename(entry["image"])
+        lines = []
 
-        return self.__id2label
+        for polygon in entry.get("label", []):
+            try:
+                label_name = polygon["polygonlabels"][0]
+                class_id = label2id[label_name]
+                points = polygon["points"]
+                coords = " ".join(f"{x / 100:.6f} {y / 100:.6f}" for x, y in points)
+                lines.append(f"{class_id} {coords}")
+            except (KeyError, IndexError) as exc:
+                logger.warning("skipped_polygon", reason=str(exc), polygon=polygon)
+                continue
 
-    @property
-    def label2id(self) -> dict[str, int]:
-        if self.__label2id is None:
-            self.__label2id = {v: k for k, v in self.id2label.items()}
+        return filename, "\n".join(lines)
 
-        return self.__label2id
+    def _load_annotations(self, shuffle: bool = True) -> dict[str, str]:
+        """Load annotations.json, derive classes, and build image-to-label mapping.
 
-    @property
-    def images_labels_dict(self) -> dict[str, str]:
-        if self.__images_labels_dict is None:
-            self.__images_labels_dict = self.__create_images_labels_dict()
+        Args:
+            shuffle: Whether to shuffle the result dict.
 
-        return self.__images_labels_dict
+        Returns:
+            Dict mapping image filename to YOLO label string.
+        """
+        with self.annotations_file.open("r", encoding="utf-8") as f:
+            annotations = json.load(f)
 
-    def __create_images_labels_dict(self, shuffle: bool = True) -> dict[str, str]:
-        images = self.images_path.iterdir()
-        labels = self.labels_path.iterdir()
-        label_names = [label.name for label in labels]
+        label_names: set[str] = set()
+        for entry in annotations:
+            for polygon in entry.get("label", []):
+                for name in polygon.get("polygonlabels", []):
+                    label_names.add(name)
 
-        images_labels = {}
-        for image in images:
-            label = image.stem + '.txt'
+        self.classes = {i: name for i, name in enumerate(sorted(label_names))}
+        self.label2id = {v: k for k, v in self.classes.items()}
+        logger.info("classes_derived", classes=self.classes)
 
-            if label in label_names:
-                images_labels[image.name] = label
-            else:
-                images_labels[image.name] = ""
+        images_labels: dict[str, str] = {}
+        for entry in annotations:
+            filename, label_str = self._parse_annotation(entry, self.label2id)
+            images_labels[filename] = label_str
 
         if shuffle:
             keys = list(images_labels.keys())
             random.shuffle(keys)
-            images_labels = {key: images_labels[key] for key in keys}
+            images_labels = {k: images_labels[k] for k in keys}
 
+        logger.info("loaded_annotations", count=len(images_labels))
         return images_labels
 
-    @staticmethod
-    def read_classes_file(classes_path: str | Path) -> list[str]:
-        classes_path = Path(classes_path)
-        with classes_path.open('r') as classes_file:
-            classes = [i.split('\n')[0] for i in classes_file.readlines()]
+    def _write_label(self, label_str: str, dest_dir: Path, filename: str) -> None:
+        """Write a YOLO label .txt file next to the image.
 
-        return classes
+        Args:
+            label_str: YOLO-formatted label content.
+            dest_dir: Target directory (train/val/test).
+            filename: Image filename (used to derive label filename).
+        """
+        label_path = dest_dir / (Path(filename).stem + ".txt")
+        label_path.write_text(label_str, encoding="utf-8")
 
-    def write_data_yaml(self, anns_type: str) -> None:
-        logger.info(f"Available classes: {list(self.id2label.values())}")
-
-        data = {
-            'path': str(self.dataset_dir.resolve()),
-            'train': "train",
-            'val': "val",
-            'test': "test",
-            'names': self.id2label,
-        }
-
-        with self.data_yaml_path.open('w', encoding="utf-8") as yaml_file:
-            yaml.dump(data, yaml_file, default_flow_style=False)
-
-    @staticmethod
-    def copy_files_from_dict(
-        key: str,
-        value: str,
-        images_path: Path,
-        labels_path: Path,
-        copy_to: Path,
+    def _copy_split(
+        self,
+        data: dict[str, str],
+        dest_dir: Path,
     ) -> None:
-        shutil.copyfile(images_path / key, copy_to / key)
-        if value:
-            shutil.copyfile(labels_path / value, copy_to / value)
+        """Copy images and write labels for a data split.
+
+        Args:
+            data: Dict mapping image filename to YOLO label string.
+            dest_dir: Target directory for this split.
+        """
+        for image_name, label_str in data.items():
+            src = self.images_dir / image_name
+            if not src.exists():
+                logger.warning("image_not_found", name=image_name)
+                continue
+
+            shutil.copyfile(src, dest_dir / image_name)
+            if label_str:
+                self._write_label(label_str, dest_dir, image_name)
 
     def partition_data(self) -> None:
-        data = self.images_labels_dict
+        """Split data into train/val/test and copy files."""
+        data = self._load_annotations()
 
         num_train = int(len(data) * self.train_split)
         num_val = int(len(data) * self.val_split)
-        num_test = int(len(data) * self.test_split)
 
-        train_data = {key: data[key] for key in list(data.keys())[:num_train]}
-        val_data = {
-            key: data[key]
-            for key in list(data.keys())[num_train : num_train + num_val]
+        keys = list(data.keys())
+        train_data = {k: data[k] for k in keys[:num_train]}
+        val_data = {k: data[k] for k in keys[num_train : num_train + num_val]}
+        test_data = {k: data[k] for k in keys[num_train + num_val :]}
+
+        self._copy_split(train_data, self.train_dir)
+        self._copy_split(val_data, self.val_dir)
+        self._copy_split(test_data, self.test_dir)
+
+        logger.info(
+            "partitioned",
+            train=len(train_data),
+            val=len(val_data),
+            test=len(test_data),
+        )
+
+    def write_data_yaml(self) -> None:
+        """Write data.yaml for YOLO training."""
+        data = {
+            "path": str(self.dataset_dir.resolve()),
+            "train": "train",
+            "val": "val",
+            "test": "test",
+            "names": self.classes,
         }
-        test_data = {
-            key: data[key]
-            for key in list(data.keys())[
-                num_train + num_val : num_train + num_val + num_test
-            ]
-        }
 
-        for key, value in train_data.items():
-            DatasetCreator.copy_files_from_dict(
-                key=key,
-                value=value,
-                images_path=self.images_path,
-                labels_path=self.labels_path,
-                copy_to=self.train_dir,
-            )
+        yaml_path = self.dataset_dir / "data.yaml"
+        yaml_path.write_text(
+            yaml.dump(data, default_flow_style=False), encoding="utf-8"
+        )
 
-        for key, value in val_data.items():
-            DatasetCreator.copy_files_from_dict(
-                key=key,
-                value=value,
-                images_path=self.images_path,
-                labels_path=self.labels_path,
-                copy_to=self.val_dir,
-            )
-
-        for key, value in test_data.items():
-            DatasetCreator.copy_files_from_dict(
-                key=key,
-                value=value,
-                images_path=self.images_path,
-                labels_path=self.labels_path,
-                copy_to=self.test_dir,
-            )
-
-    def create(self, anns_type: str) -> None:
-        if anns_type not in self.anns_types:
-            raise ValueError(f"anns_type must be one of {self.anns_types}")
-
-        logger.info("Dataset is creating...")
+    def create(self) -> None:
+        """Create the full YOLO dataset."""
         self.partition_data()
-        logger.info("Train, validation, test dataset has created.")
-        self.write_data_yaml(anns_type)
-        logger.info("data.yaml file has created.")
+        self.write_data_yaml()
+        logger.info("dataset_created", dir=str(self.dataset_dir))

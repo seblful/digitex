@@ -11,21 +11,21 @@ training/
 ├── cli.py              # Unified CLI for training workflows
 ├── data/               # Training data (gitignored)
 │   └── <task>/         # Task-specific data (page, question, part)
-│       ├── raw-data/   # Raw annotations and images
-│       ├── dataset/    # Processed YOLO dataset
-│       └── images/     # Extracted page images
-├── output/             # Training outputs (gitignored)
+│       ├── annotations.json  # Label Studio export
+│       ├── images/           # Source page images
+│       ├── dataset/          # Processed YOLO dataset
+│       └── check-images/     # Visual verification images
 └── runs/               # Ultralytics runs (gitignored)
 ```
 
 ## Commands
 
-### 1. Prepare Training Data
+### 1. Select Random Pages
 
 Select random images from book folders and save them for annotation:
 
 ```bash
-uv run python -m training.cli prepare-train-data --data-subdir page --num-images 100
+uv run python -m training.cli select-random-pages --data-subdir page --num-images 100
 ```
 
 **Options:**
@@ -37,23 +37,22 @@ uv run python -m training.cli prepare-train-data --data-subdir page --num-images
 
 ### 2. Create Dataset
 
-Convert raw annotations to YOLO dataset format:
+Convert annotations from Label Studio to YOLO dataset format:
 
 ```bash
-uv run python -m training.cli create-data --data-subdir page --train-split 0.8
+uv run python -m training.cli create-dataset --data-subdir page --train-split 0.8
 ```
 
 **Options:**
 - `--data-subdir`: Task type (default: `page`)
 - `--train-split`: Training/validation split ratio (default: 0.8)
-- `--anns-type`: Annotation type (default: `polygon`)
+- `--vis-images`: Number of images to visualize (default: 20)
 - `--augment`: Enable data augmentation (default: False)
 - `--aug-images`: Number of augmented images (default: 100)
-- `--visualize`: Visualize dataset samples (default: False)
-- `--vis-images`: Number of images to visualize (default: 50)
 
 **Requirements:**
-- Raw annotations in `training/data/<task>/raw-data/`
+- `annotations.json` in `training/data/<task>/`
+- Images in `training/data/<task>/images/`
 
 ### 3. Train Model
 
@@ -80,13 +79,13 @@ uv run python -m training.cli train --num-epochs 50
 Run from the project root directory:
 
 ```bash
-# Step 1: Prepare training data (select random images from books)
-uv run python -m training.cli prepare-train-data --num-images 100
+# Step 1: Select random pages from books
+uv run python -m training.cli select-random-pages --num-images 100
 
-# Step 2: Annotate images and place labels in training/data/<task>/raw-data/
+# Step 2: Annotate images in Label Studio, then export annotations.json
 
-# Step 3: Create dataset from raw annotations
-uv run python -m training.cli create-data --augment --visualize
+# Step 3: Create dataset from annotations (visualizes automatically)
+uv run python -m training.cli create-dataset --augment
 
 # Step 4: Train model
 uv run python -m training.cli train --model-size m --num-epochs 100
@@ -98,12 +97,9 @@ Default training parameters are configured in `src/digitex/config/settings.py`:
 
 ```python
 class TrainingSettings(BaseSettings):
-    data_subdir: str = "page"
     model_type: str = "seg"
     model_size: str = "m"
-    pretrained_model_path: Optional[str] = None
     num_epochs: int = 100
-    image_size: int = 640
     batch_size: int = 4
     overlap_mask: bool = False
     patience: int = 50
@@ -120,15 +116,13 @@ export TRAIN_MODEL_SIZE=m
 
 ## Data Format
 
-### Raw Data
+### Annotations (Label Studio export)
 
-Raw annotations should be in YOLO polygon format. Each image has a corresponding `.txt` file:
+`annotations.json` contains polygon annotations exported from Label Studio. Each entry has:
+- `image`: URI referencing the image file
+- `label`: list of polygons with percentage coordinates (0-100) and class labels
 
-```
-class_id x1 y1 x2 y2 ... xn yn
-```
-
-Coordinates are normalized (0-1).
+The dataset creator converts percentage coordinates to YOLO normalized format (0-1) automatically.
 
 ### Dataset Structure
 
@@ -137,11 +131,10 @@ After creation, the dataset follows YOLO format:
 ```
 dataset/
 ├── train/
-│   ├── images/
-│   └── labels/
+│   ├── *.jpg
+│   └── *.txt        # YOLO polygon labels
 ├── val/
-│   ├── images/
-│   └── labels/
+├── test/
 └── data.yaml
 ```
 
@@ -157,8 +150,7 @@ uv run python -c "import torch; print(torch.cuda.is_available())"
 
 ### Dataset Issues
 
-- Verify raw-data structure matches expected format
-- Check annotation coordinate values are 0-1 normalized
+- Check annotation coordinate values in `annotations.json`
 - Use `--visualize` flag to inspect dataset quality
 
 ### Training Convergence

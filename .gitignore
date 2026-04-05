@@ -22,6 +22,8 @@ yolo*.pt
 # Code Assistance
 .superpowers/
 opencode.json
+.opencode/
+docs/superpowers
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -28,40 +28,40 @@ def create_dataset(
         "page", "--data-subdir", help="Type of task type"
     ),
     train_split: float = typer.Option(0.8, "--train-split", help="Split of train set"),
-    anns_type: str = typer.Option("polygon", "--anns-type", help="Annotation type"),
+    vis_images: int = typer.Option(20, "--vis-images", help="Images to visualize"),
     augment: bool = typer.Option(
         False, "--augment", help="Whether to augment train data"
     ),
     aug_images: int = typer.Option(
         100, "--aug-images", help="Augmented images to create"
     ),
-    visualize: bool = typer.Option(
-        False, "--visualize", help="Whether to visualize data"
-    ),
-    vis_images: int = typer.Option(50, "--vis-images", help="Images to visualize"),
 ) -> None:
     from digitex.config import get_settings
 
     s = get_settings()
     data_dir = _data_dir(data_type_dir_name)
-    raw_dir = data_dir / s.data.raw_data_dir_name
+    annotations_file = data_dir / "annotations.json"
+    images_dir = data_dir / s.data.images_dir_name
     dataset_dir = data_dir / s.data.dataset_dir_name
     check_images_dir = data_dir / "check-images"
 
-    DatasetCreator(
-        raw_dir=raw_dir, dataset_dir=dataset_dir, train_split=train_split
-    ).create(anns_type=anns_type)
+    creator = DatasetCreator(
+        annotations_file=annotations_file,
+        images_dir=images_dir,
+        dataset_dir=dataset_dir,
+        train_split=train_split,
+    )
+    creator.create()
+
+    PolygonVisualizer(
+        dataset_dir=str(dataset_dir),
+        check_images_dir=str(check_images_dir),
+    ).visualize(num_images=vis_images)
 
     if augment:
-        PolygonAugmenter(raw_dir=str(raw_dir), dataset_dir=str(dataset_dir)).augment(
+        PolygonAugmenter(classes=creator.classes, dataset_dir=str(dataset_dir)).augment(
             num_images=aug_images
         )
-
-    if visualize:
-        PolygonVisualizer(
-            dataset_dir=str(dataset_dir),
-            check_images_dir=str(check_images_dir),
-        ).visualize(num_images=vis_images)
 
 
 @app.command()

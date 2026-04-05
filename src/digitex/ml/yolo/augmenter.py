@@ -1,6 +1,5 @@
 import logging
 import os
-import random
 from pathlib import Path
 
 import cv2
@@ -14,29 +13,22 @@ from tqdm import tqdm
 from digitex.core.handlers import LabelHandler
 
 from .converter import Converter
-from .dataset import DatasetCreator
 from .utils import get_random_img
 
 logger = logging.getLogger(__name__)
 
 
 class Augmenter:
-    def __init__(
-        self, raw_dir: str | Path, dataset_dir: str | Path
-    ) -> None:
-        self.raw_dir = Path(raw_dir)
+    def __init__(self, classes: dict[int, str], dataset_dir: str | Path) -> None:
+        self.classes = classes
         self.dataset_dir = Path(dataset_dir)
         self.train_dir = self.dataset_dir / "train"
-        self.classes_path = self.raw_dir / "classes.txt"
 
         self.img_ext = ".jpg"
         self.anns_ext = ".txt"
 
         self._transforms = None
         self._augmenter = None
-
-        self.__id2label = None
-        self.__label2id = None
 
     @property
     def transforms(self) -> list:
@@ -71,7 +63,7 @@ class Augmenter:
                 A.CoarseDropout(fill=255, p=0.1),
                 A.Pad(padding=(15, 15), fill=255, p=0.4),
                 A.RandomScale(p=0.4),
-                A.SafeRotate(limit=(-3, 3), fill=255, p=0.4)
+                A.SafeRotate(limit=(-3, 3), fill=255, p=0.4),
             ]
 
         return self._transforms
@@ -84,18 +76,11 @@ class Augmenter:
 
     @property
     def id2label(self) -> dict[int, str]:
-        if self.__id2label is None:
-            classes = DatasetCreator.read_classes_file(self.classes_path)
-            self.__id2label = {k: v for k, v in enumerate(classes)}
-
-        return self.__id2label
+        return self.classes
 
     @property
     def label2id(self) -> dict[str, int]:
-        if self.__label2id is None:
-            self.__label2id = {v: k for k, v in self.id2label.items()}
-
-        return self.__label2id
+        return {v: k for k, v in self.classes.items()}
 
     def find_name(self, img_name: str) -> str:
         name = Path(img_name).stem
@@ -109,26 +94,19 @@ class Augmenter:
                 return aug_name
             increment += 1
 
-    def save_anns(
-        self,
-        name: str,
-        points_dict: dict[int, list] | None = None
-    ) -> None:
+    def save_anns(self, name: str, points_dict: dict[int, list] | None = None) -> None:
         pass
 
-    def save_image(
-        self, name: str, img: np.ndarray
-    ) -> None:
+    def save_image(self, name: str, img: np.ndarray) -> None:
         filename = f"{name}{self.img_ext}"
         filepath = self.train_dir / filename
 
         image = Image.fromarray(img)
         image.save(str(filepath))
 
-    def save(self,
-             img_name,
-             img: np.ndarray,
-             points_dict: dict[int, list] | None = None) -> None:
+    def save(
+        self, img_name, img: np.ndarray, points_dict: dict[int, list] | None = None
+    ) -> None:
 
         name = self.find_name(img_name)
         self.save_image(name, img)
@@ -136,19 +114,13 @@ class Augmenter:
 
 
 class PolygonAugmenter(Augmenter):
-    def __init__(self,
-                 raw_dir: str,
-                 dataset_dir: str) -> None:
-        super().__init__(raw_dir, dataset_dir)
+    def __init__(self, classes: dict[int, str], dataset_dir: str) -> None:
+        super().__init__(classes, dataset_dir)
 
         self.preprocess_func = Converter.point_to_polygon
         self.postprocess_func = Converter.polygon_to_point
 
-    def save_anns(
-        self,
-        name: str,
-        points_dict: dict[int, list] | None = None
-    ) -> None:
+    def save_anns(self, name: str, points_dict: dict[int, list] | None = None) -> None:
         filename = f"{name}{self.anns_ext}"
         filepath = self.train_dir / filename
 
@@ -186,10 +158,9 @@ class PolygonAugmenter(Augmenter):
 
         return masks_dict
 
-    def create_anns(self,
-                    masks_dict: dict[int, list] | None,
-                    img_width: int,
-                    img_height: int) -> None | dict[int, list]:
+    def create_anns(
+        self, masks_dict: dict[int, list] | None, img_width: int, img_height: int
+    ) -> None | dict[int, list]:
         if masks_dict is None:
             return None
 
@@ -199,22 +170,21 @@ class PolygonAugmenter(Augmenter):
             for mask in masks:
                 polygons = sv.mask_to_polygons(mask)
                 polygon = max(polygons, key=cv2.contourArea)  # ty: ignore[no-matching-overload]
-                anns = self.postprocess_func(
-                    polygon, img_width, img_height)
+                anns = self.postprocess_func(polygon, img_width, img_height)
                 points_dict[class_idx].append(anns)
 
         return points_dict
 
-    def augment_img(self,
-                    img: np.ndarray,
-                    masks_dict: dict[int, list] | None = None) -> tuple[np.ndarray, None] | tuple[np.ndarray, dict[int, list]]:
+    def augment_img(
+        self, img: np.ndarray, masks_dict: dict[int, list] | None = None
+    ) -> tuple[np.ndarray, None] | tuple[np.ndarray, dict[int, list]]:
 
         if masks_dict is None:
             aug = self.augmenter
             if aug is None:
                 raise RuntimeError("Failed to create augmenter")
             transf = aug(image=img)
-            transf_img = transf['image']
+            transf_img = transf["image"]
 
             return (transf_img, None)
 
@@ -226,8 +196,8 @@ class PolygonAugmenter(Augmenter):
         if aug is None:
             raise RuntimeError("Failed to create augmenter")
         transf = aug(image=img, masks=masks)
-        transf_img = transf['image']
-        transf_masks = transf['masks']
+        transf_img = transf["image"]
+        transf_masks = transf["masks"]
 
         transf_masks_dict = {key: [] for key in masks_dict.keys()}
         i = 0
@@ -238,21 +208,23 @@ class PolygonAugmenter(Augmenter):
 
         return transf_img, transf_masks_dict
 
-    def augment(self,
-                num_images: int) -> None:
-        images_listdir = [img_name for img_name in os.listdir(
-            self.train_dir) if img_name.endswith(".jpg")]
+    def augment(self, num_images: int) -> None:
+        images_listdir = [
+            img_name
+            for img_name in os.listdir(self.train_dir)
+            if img_name.endswith(".jpg")
+        ]
 
         for _ in tqdm(range(num_images), desc="Augmenting images"):
             img_name, img = get_random_img(self.train_dir, images_listdir)
 
             orig_height, orig_width = img.shape[:2]
-            masks_dict = self.create_masks(
-                img_name, orig_width, orig_height)
+            masks_dict = self.create_masks(img_name, orig_width, orig_height)
 
             transf_img, transf_masks_dict = self.augment_img(img, masks_dict)
             transf_height, transf_width = transf_img.shape[:2]
 
             transf_points_dict = self.create_anns(
-                transf_masks_dict, transf_width, transf_height)
+                transf_masks_dict, transf_width, transf_height
+            )
             self.save(img_name, transf_img, transf_points_dict)
