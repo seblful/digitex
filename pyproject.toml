@@ -4,55 +4,58 @@ version = "0.1.0"
 description = "Document digitization toolkit"
 readme = "README.md"
 requires-python = ">=3.13"
- dependencies = [
-    "pillow",
-    "numpy",
-    "opencv-python",
-    "pypdfium2",
-    "torch",
-    "torchvision",
-    "torchaudio",
-    "ultralytics",
-    "supervision",
-    "albumentations",
-    "tqdm",
-    "pyyaml",
-    "doxapy",
-    "typer",
-    "pytest",
-    "pydantic>=2.0",
-    "pydantic-settings>=2.0",
-    "pytesseract",
-    "deskew",
-    "label-studio-sdk>=2.0.19",
-    "structlog>=25.5.0",
-    "shapely>=2.1.2",
+dependencies = [
+  "pillow",
+  "numpy",
+  "opencv-python",
+  "pypdfium2",
+  "torch",
+  "torchvision",
+  "torchaudio",
+  "ultralytics",
+  "supervision",
+  "albumentations",
+  "tqdm",
+  "pyyaml",
+  "doxapy",
+  "typer",
+  "pytest",
+  "pydantic>=2.0",
+  "pydantic-settings>=2.0",
+  "pytesseract",
+  "deskew",
+  "label-studio-sdk",
+  "structlog>=25.5.0",
+  "shapely>=2.1.2",
+  "legacy-cgi>=2.6.4",
+  "label-studio>=1.23.0",
 ]
 
+
 [[tool.uv.index]]
- name = "pytorch-cu130"
- url = "https://download.pytorch.org/whl/cu130"
- explicit = true
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 
- [build-system]
-  requires = ["hatchling"]
-  build-backend = "hatchling.build"
+[tool.uv.extra-build-dependencies]
+htmlmin = ["legacy-cgi"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [dependency-groups]
-dev = [
-    "pytest>=9.0.2",
-    "ruff>=0.15.9",
-]
+dev = ["pytest>=9.0.2", "ruff>=0.15.9"]
 
-  [tool.hatch.build.targets.wheel]
-  packages = ["src/digitex"]
+[tool.hatch.build.targets.wheel]
+packages = ["src/digitex"]
 
- [tool.pytest.ini_options]
- testpaths = ["tests"]
- python_files = ["test_*.py"]
- python_classes = ["Test*"]
- python_functions = ["test_*"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

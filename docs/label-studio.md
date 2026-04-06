@@ -9,7 +9,7 @@ For the full training pipeline and dataset workflow, see [Training](training.md)
 ## Start Server
 
 ```bash
-uv run --env-file .env --with label-studio label-studio start
+uv run --env-file .env label-studio start
 ```
 
 Server runs at `http://localhost:8080`.
