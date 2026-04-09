@@ -110,7 +110,7 @@ class DataSettings(BaseSettings):
     )
 
     image_size: int = Field(
-        default=640,
+        default=1280,
         ge=32,
         multiple_of=32,
         description="Input image size for training (must be multiple of 32)",
