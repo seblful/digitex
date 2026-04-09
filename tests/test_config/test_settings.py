@@ -75,7 +75,7 @@ class TestDataSettings:
         """Test that DataSettings has correct default values."""
         settings = DataSettings()
         assert settings.data_type_dir_name == "page"
-        assert settings.image_size == 640
+        assert settings.image_size == 1280
         assert settings.data_dir_name == "data"
         assert settings.dataset_dir_name == "dataset"
 
