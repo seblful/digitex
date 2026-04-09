@@ -32,7 +32,7 @@ class TaskPredictor:
         url: str,
         api_key: str,
         model_version: str = "",
-        epsilon: float = 10.0,
+        epsilon: float = 4.0,
     ) -> None:
         self._predictor = YOLO_SegmentationPredictor(
             model_path, simplify=True, epsilon=epsilon
