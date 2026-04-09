@@ -79,7 +79,7 @@ def select_random_pages(
     s = get_settings()
     page_train_dir = _data_dir(data_type_dir_name) / s.data.images_dir_name
 
-    PageDataCreator(image_size=s.label_studio.image_size).create(
+    PageDataCreator(image_size=s.data.image_size).create(
         books_dir=s.paths.books_dir,
         output_dir=page_train_dir,
         num_images=num_images,
