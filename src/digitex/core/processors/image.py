@@ -18,7 +18,9 @@ DEFAULT_SKEW_MAX_DIM = 400
 
 
 def resize_image(image: Image.Image, max_width: int, max_height: int) -> Image.Image:
-    return ImageOps.contain(image, (max_width, max_height))
+    return ImageOps.contain(
+        image, (max_width, max_height), method=Image.Resampling.BILINEAR
+    )
 
 
 class ImageCropper:
