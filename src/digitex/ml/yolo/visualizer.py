@@ -3,7 +3,6 @@ import random
 from pathlib import Path
 
 from PIL import Image, ImageDraw
-
 from tqdm import tqdm
 
 from digitex.core.handlers import LabelHandler

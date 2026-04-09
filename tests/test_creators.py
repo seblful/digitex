@@ -12,9 +12,9 @@ class TestPageDataCreator:
     """Test suite for PageDataCreator class."""
 
     def test_page_data_creator_initialization(self) -> None:
-        """Test that PageDataCreator stores train_image_size."""
-        creator = PageDataCreator(train_image_size=640)
-        assert creator.train_image_size == 640
+        """Test that PageDataCreator stores image_size."""
+        creator = PageDataCreator(image_size=640)
+        assert creator.image_size == 640
 
     def test_create_resizes_images(self, tmp_path: Path) -> None:
         """Test that images are resized to train_image_size."""
@@ -25,7 +25,7 @@ class TestPageDataCreator:
         img.save(subject_dir / "page1.jpg")
 
         output_dir = tmp_path / "output"
-        creator = PageDataCreator(train_image_size=100)
+        creator = PageDataCreator(image_size=100)
         creator.create(books_dir, output_dir, num_images=1)
 
         output_file = output_dir / "math_2024_page1.jpg"
@@ -39,7 +39,7 @@ class TestPageDataCreator:
         books_dir.mkdir()
 
         output_dir = tmp_path / "output"
-        creator = PageDataCreator(train_image_size=100)
+        creator = PageDataCreator(image_size=100)
         with pytest.raises(FileNotFoundError):
             creator.create(books_dir, output_dir, num_images=1)
 
@@ -54,7 +54,7 @@ class TestPageDataCreator:
             img.save(subject_dir / f"page{i}.jpg")
 
         output_dir = tmp_path / "output"
-        creator = PageDataCreator(train_image_size=100)
+        creator = PageDataCreator(image_size=100)
         creator.create(books_dir, output_dir, num_images=3)
 
         output_files = list(output_dir.glob("*.jpg"))
@@ -69,7 +69,7 @@ class TestPageDataCreator:
         img.save(subject_dir / "page1.png")
 
         output_dir = tmp_path / "output"
-        creator = PageDataCreator(train_image_size=100)
+        creator = PageDataCreator(image_size=100)
         creator.create(books_dir, output_dir, num_images=1)
 
         output_file = output_dir / "math_2024_page1.jpg"
@@ -85,7 +85,7 @@ class TestPageDataCreator:
         img.save(subject_dir / "page1.jpg")
 
         output_dir = tmp_path / "output"
-        creator = PageDataCreator(train_image_size=100)
+        creator = PageDataCreator(image_size=100)
         creator.create(books_dir, output_dir, num_images=1)
 
         output_file = output_dir / "math_2024_page1.jpg"
@@ -101,7 +101,7 @@ class TestPageDataCreator:
         img.save(subject_dir / "page1.jpg")
 
         output_dir = tmp_path / "output" / "nested"
-        creator = PageDataCreator(train_image_size=100)
+        creator = PageDataCreator(image_size=100)
         creator.create(books_dir, output_dir, num_images=1)
 
         assert output_dir.exists()

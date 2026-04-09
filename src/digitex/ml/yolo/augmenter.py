@@ -2,12 +2,11 @@ import logging
 import os
 from pathlib import Path
 
+import albumentations as A
 import cv2
 import numpy as np
-from PIL import Image
-
-import albumentations as A
 import supervision as sv
+from PIL import Image
 from tqdm import tqdm
 
 from digitex.core.handlers import LabelHandler

@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 class PageDataCreator:
     """Creator for preparing training images from book scans."""
 
-    def __init__(self, train_image_size: int) -> None:
-        self.train_image_size = train_image_size
+    def __init__(self, image_size: int) -> None:
+        self.image_size = image_size
 
     def _parse_book_path(self, img_path: Path) -> tuple[str, str]:
         """Extract subject and year from a book image path.
@@ -52,7 +52,7 @@ class PageDataCreator:
         image = Image.open(img_path)
         if image.mode != "RGB":
             image = image.convert("RGB")
-        image = resize_image(image, self.train_image_size, self.train_image_size)
+        image = resize_image(image, self.image_size, self.image_size)
         image.save(output_path, "JPEG")
         return True
 

@@ -6,13 +6,13 @@ from unittest.mock import patch
 import pytest
 
 from digitex.config.settings import (
-    DataSettings,
     DatabaseSettings,
+    DataSettings,
     ExtractionSettings,
     LabelStudioSettings,
-    TrainingSettings,
     PathsSettings,
     Settings,
+    TrainingSettings,
     get_settings,
 )
 

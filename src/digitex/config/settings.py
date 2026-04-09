@@ -133,6 +133,13 @@ class LabelStudioSettings(BaseSettings):
 
     api_key: str = Field(default="", description="Label Studio API key")
 
+    image_size: int = Field(
+        default=1280,
+        ge=32,
+        multiple_of=32,
+        description="Image size for Label Studio tasks (must be multiple of 32)",
+    )
+
 
 class PathsSettings(BaseSettings):
     """Directory path settings."""

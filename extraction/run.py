@@ -3,6 +3,7 @@
 import logging
 
 import typer
+
 from digitex import TestsExtractor
 from digitex.config import get_settings
 

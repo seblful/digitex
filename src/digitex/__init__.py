@@ -1,8 +1,8 @@
 """Digitex - Document digitization toolkit."""
 
-from .creators import PageDataCreator
 from .core.handlers import LabelHandler
 from .core.processors import FileProcessor
+from .creators import PageDataCreator
 from .extractors import BookExtractor, PageExtractor, TestsExtractor
 from .label_studio import LabelStudioClient, TaskPredictor
 from .ml import Predictor, Trainer

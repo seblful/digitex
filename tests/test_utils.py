@@ -8,8 +8,8 @@ from PIL import Image
 from digitex.utils import (
     IMAGE_EXTENSIONS,
     _natural_sort_key,
-    rename_images_to_sequential,
     create_pdf_from_images,
+    rename_images_to_sequential,
 )
 
 

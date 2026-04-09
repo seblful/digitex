@@ -2,13 +2,13 @@ import logging
 from pathlib import Path
 
 import typer
+
 from digitex.creators import PageDataCreator
 from digitex.label_studio import TaskPredictor
 from digitex.ml.yolo import Trainer
 from digitex.ml.yolo.augmenter import PolygonAugmenter
 from digitex.ml.yolo.dataset import DatasetCreator
 from digitex.ml.yolo.visualizer import PolygonVisualizer
-
 
 app = typer.Typer(help="YOLO model training for document segmentation")
 logger = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ def select_random_pages(
     s = get_settings()
     page_train_dir = _data_dir(data_type_dir_name) / s.data.images_dir_name
 
-    PageDataCreator(train_image_size=s.data.image_size).create(
+    PageDataCreator(image_size=s.label_studio.image_size).create(
         books_dir=s.paths.books_dir,
         output_dir=page_train_dir,
         num_images=num_images,
@@ -114,7 +114,7 @@ def add_images(
 
     output_dir = data_dir / s.data.images_dir_name
 
-    PageDataCreator(train_image_size=s.data.image_size).add_from_file(
+    PageDataCreator(image_size=s.label_studio.image_size).add_from_file(
         paths_file=paths_file,
         output_dir=output_dir,
     )
