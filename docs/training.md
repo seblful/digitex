@@ -32,10 +32,12 @@ uv run python -m training.cli select-random-pages --data-subdir page --num-image
 ```
 
 **Options:**
+
 - `--data-subdir`: Task type (default: `page`)
 - `--num-images`: Number of images to select (default: 100)
 
 **Requirements:**
+
 - Book images in `books/<subject>/images/<year>/` directory
 
 ### 2. Add Images from File
@@ -47,9 +49,11 @@ uv run python -m training.cli add-images --data-subdir page
 ```
 
 **Options:**
+
 - `--data-subdir`: Task type (default: `page`)
 
 **Requirements:**
+
 - `paths.txt` in `training/data/<task>/` with one relative path per line:
 
 ```
@@ -59,6 +63,7 @@ books/biology/images/2023/5.jpg
 ```
 
 **Behavior:**
+
 - Copies and resizes images to 640x640
 - Renames to `{subject}_{year}_{page}.jpg`
 - Skips images that already exist in the output directory
@@ -73,6 +78,7 @@ uv run python -m training.cli create-dataset --data-subdir page --train-split 0.
 ```
 
 **Options:**
+
 - `--data-subdir`: Task type (default: `page`)
 - `--train-split`: Training/validation split ratio (default: 0.8)
 - `--vis-images`: Number of images to visualize (default: 20)
@@ -80,6 +86,7 @@ uv run python -m training.cli create-dataset --data-subdir page --train-split 0.
 - `--aug-images`: Number of augmented images (default: 100)
 
 **Requirements:**
+
 - `annotations.json` in `training/data/<task>/`
 - Images in `training/data/<task>/images/`
 
@@ -92,6 +99,7 @@ uv run python -m training.cli train --num-epochs 50
 ```
 
 **Options:**
+
 - `--data-subdir`: Task type (default from settings)
 - `--model-type`: YOLO model type (default: `seg`)
 - `--model-size`: Model size: n, s, m, l, x (default: `m`)
@@ -108,14 +116,16 @@ uv run python -m training.cli train --num-epochs 50
 Run trained model on unannotated Label Studio tasks and upload predictions (see [Label Studio](label-studio.md) for setup):
 
 ```bash
-uv run python -m training.cli ls-predict --project-id 1 --model-path training/data/page/models/best.pt
+uv run python -m training.cli ls-predict --project-id 1 --model-path extraction/models/page.pt
 ```
 
 **Options:**
+
 - `--project-id`: Label Studio project ID (required)
 - `--model-path`: Path to trained model (default from `TRAIN_PRETRAINED_MODEL_PATH`)
 
 **Behavior:**
+
 - Iterates tasks where `is_labeled=False`
 - Skips tasks with missing images (logs warning)
 - Uploads prediction immediately after each task
@@ -172,6 +182,7 @@ export TRAIN_MODEL_SIZE=m
 ### Annotations (Label Studio export)
 
 `annotations.json` contains polygon annotations exported from Label Studio. Each entry has:
+
 - `image`: URI referencing the image file
 - `label`: list of polygons with percentage coordinates (0-100) and class labels
 
