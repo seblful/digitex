@@ -87,40 +87,6 @@ def select_random_pages(
 
 
 @app.command()
-def add_images(
-    data_type_dir_name: str = typer.Option(
-        "page", "--data-subdir", help="Type of task type"
-    ),
-) -> None:
-    """Add specific images from paths.txt to training data."""
-    from digitex.config import get_settings
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-
-    s = get_settings()
-    data_dir = _data_dir(data_type_dir_name)
-    paths_file = data_dir / "paths.txt"
-
-    if not paths_file.exists():
-        typer.echo(f"Error: {paths_file} not found.")
-        raise typer.Exit(code=1)
-
-    if not paths_file.read_text().strip():
-        typer.echo("paths.txt is empty.")
-        raise typer.Exit(code=0)
-
-    output_dir = data_dir / s.data.images_dir_name
-
-    PageDataCreator(image_size=s.label_studio.image_size).add_from_file(
-        paths_file=paths_file,
-        output_dir=output_dir,
-    )
-
-
-@app.command()
 def train(
     data_type_dir_name: str | None = typer.Option(
         None, "--data-subdir", help="Task type"
