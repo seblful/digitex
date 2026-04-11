@@ -6,9 +6,7 @@ import typer
 from digitex.creators import PageDataCreator
 from digitex.label_studio import TaskPredictor
 from digitex.ml.yolo import Trainer
-from digitex.ml.yolo.augmenter import PolygonAugmenter
 from digitex.ml.yolo.dataset import DatasetCreator
-from digitex.ml.yolo.visualizer import PolygonVisualizer
 
 app = typer.Typer(help="YOLO model training for document segmentation")
 logger = logging.getLogger(__name__)
@@ -27,13 +25,6 @@ def _data_dir(data_type_dir_name: str) -> Path:
 def create_dataset(
     data_type_dir_name: str = typer.Argument(..., help="Type of task type"),
     train_split: float = typer.Option(0.8, "--train-split", help="Split of train set"),
-    vis_images: int = typer.Option(20, "--vis-images", help="Images to visualize"),
-    augment: bool = typer.Option(
-        False, "--augment", help="Whether to augment train data"
-    ),
-    aug_images: int = typer.Option(
-        100, "--aug-images", help="Augmented images to create"
-    ),
 ) -> None:
     from digitex.config import get_settings
 
@@ -42,7 +33,6 @@ def create_dataset(
     annotations_file = data_dir / "annotations.json"
     images_dir = data_dir / s.data.images_dir_name
     dataset_dir = data_dir / s.data.dataset_dir_name
-    check_images_dir = data_dir / "check-images"
 
     creator = DatasetCreator(
         annotations_file=annotations_file,
@@ -51,16 +41,6 @@ def create_dataset(
         train_split=train_split,
     )
     creator.create()
-
-    PolygonVisualizer(
-        dataset_dir=str(dataset_dir),
-        check_images_dir=str(check_images_dir),
-    ).visualize(num_images=vis_images)
-
-    if augment:
-        PolygonAugmenter(classes=creator.classes, dataset_dir=str(dataset_dir)).augment(
-            num_images=aug_images
-        )
 
 
 @app.command()

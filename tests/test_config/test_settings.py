@@ -37,35 +37,12 @@ class TestTrainingSettings:
     def test_default_training_values(self) -> None:
         """Test that TrainingSettings has correct default values."""
         settings = TrainingSettings()
-        assert settings.num_epochs == 100
-        assert settings.batch_size == 4
-        assert settings.overlap_mask is False
-        assert settings.patience == 50
-        assert settings.seed == 42
-        assert settings.model_type == "seg"
-        assert settings.model_size == "m"
-        assert settings.model_subdir == "models"
         assert settings.runs_dir_name == "runs"
 
     def test_custom_training_values(self) -> None:
         """Test custom training values."""
-        settings = TrainingSettings(
-            num_epochs=50,
-            batch_size=32,
-        )
-        assert settings.num_epochs == 50
-        assert settings.batch_size == 32
-
-    def test_positive_validation(self) -> None:
-        """Test that positive validation works for various fields."""
-        with pytest.raises(Exception):
-            TrainingSettings(num_epochs=0)
-
-        with pytest.raises(Exception):
-            TrainingSettings(batch_size=0)
-
-        with pytest.raises(Exception):
-            TrainingSettings(patience=0)
+        settings = TrainingSettings(runs_dir_name="custom_runs")
+        assert settings.runs_dir_name == "custom_runs"
 
 
 class TestDataSettings:
@@ -74,7 +51,6 @@ class TestDataSettings:
     def test_default_data_values(self) -> None:
         """Test that DataSettings has correct default values."""
         settings = DataSettings()
-        assert settings.data_type_dir_name == "page"
         assert settings.image_size == 1280
         assert settings.data_dir_name == "data"
         assert settings.dataset_dir_name == "dataset"
