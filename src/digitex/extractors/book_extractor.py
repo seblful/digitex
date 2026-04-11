@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from PIL import Image
 import structlog
 from tqdm import tqdm
 
@@ -60,11 +61,7 @@ class BookExtractor:
         for image_path in tqdm(
             images, desc=f"Processing {image_dir.name}", leave=False
         ):
-            from PIL import Image
-
             image = Image.open(image_path)
-            if image.mode != "RGB":
-                image = image.convert("RGB")
 
             option_counter, part_letter, question_counter = (
                 self._page_extractor.extract(

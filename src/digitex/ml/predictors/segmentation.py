@@ -25,6 +25,11 @@ class YOLO_SegmentationPredictor(Predictor):
         model_path: str | Path,
         simplify: bool = False,
         epsilon: float = 2.0,
+        conf: float = 0.25,
+        iou: float = 0.7,
+        imgsz: int | list[int] = 640,
+        agnostic_nms: bool = True,
+        verbose: bool = False,
     ) -> None:
         """Initialize the YOLO segmentation predictor.
 
@@ -32,6 +37,10 @@ class YOLO_SegmentationPredictor(Predictor):
             model_path: Path to the trained YOLO model file.
             simplify: Whether to apply Douglas-Peucker polygon simplification.
             epsilon: Distance tolerance for Douglas-Peucker algorithm (pixels).
+            conf: Confidence threshold for predictions (0.0-1.0).
+            iou: IoU threshold for non-maximum suppression (0.0-1.0).
+            imgsz: Image size for inference (int or list).
+            agnostic_nms: Whether to use class-agnostic NMS.
 
         Raises:
             FileNotFoundError: If model_path doesn't exist.
@@ -39,6 +48,11 @@ class YOLO_SegmentationPredictor(Predictor):
         self.model_path = model_path
         self.simplify = simplify
         self.epsilon = epsilon
+        self.conf = conf
+        self.iou = iou
+        self.imgsz = imgsz
+        self.agnostic_nms = agnostic_nms
+        self.verbose = verbose
         self.device = get_device()
         if not torch.cuda.is_available():
             logger.info("CUDA not available, using CPU")
@@ -67,17 +81,16 @@ class YOLO_SegmentationPredictor(Predictor):
 
         return self._model
 
-    def preprocess_image(self, image: Image.Image) -> np.ndarray:
+    def preprocess_image(self, image: Image.Image) -> Image.Image:
         """Preprocess a PIL Image for YOLO prediction.
 
         Args:
             image: PIL Image to preprocess.
 
         Returns:
-            NumPy array representation of the image.
+            The same image (YOLO accepts PIL Images directly).
         """
-        img = np.array(image)
-        return img
+        return image
 
     def create_result(
         self,
@@ -154,10 +167,16 @@ class YOLO_SegmentationPredictor(Predictor):
         Returns:
             SegmentationPredictionResult containing IDs and polygons.
         """
-        img = self.preprocess_image(image)
-        img_height, img_width, _ = img.shape
+        img_width, img_height = image.size
 
-        preds = self.model.predict(img, verbose=False)
+        preds = self.model.predict(
+            image,
+            verbose=self.verbose,
+            conf=self.conf,
+            iou=self.iou,
+            imgsz=self.imgsz,
+            agnostic_nms=self.agnostic_nms,
+        )
         result = self.create_result(preds, img_width, img_height)
 
         return result
