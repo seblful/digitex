@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 import structlog
+from structlog.processors import Timestamp
 
 
 def setup_logging(log_dir: Path | None = None, level: str = "INFO") -> None:
@@ -17,7 +18,7 @@ def setup_logging(log_dir: Path | None = None, level: str = "INFO") -> None:
     structlog.configure(
         processors=[
             structlog.make_filtering_bound_logger(log_level),
-            structlog.processors.TimeStamper(fmt="iso"),
+            Timestamp(fmt="iso"),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.processors.JSONRenderer(),
