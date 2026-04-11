@@ -15,7 +15,6 @@ classes: null
 visualize: false
 rect: true
 split: test
-project: training/runs
 name: val
 verbose: true
 save_txt: false

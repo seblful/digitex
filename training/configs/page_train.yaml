@@ -11,7 +11,6 @@ save_period: -1
 cache: false
 device: -1
 workers: 4
-project: training/runs
 name: train
 exist_ok: false
 pretrained: true
