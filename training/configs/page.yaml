@@ -17,7 +17,6 @@ optimizer: auto
 verbose: true
 seed: 0
 deterministic: true
-verbose: true
 single_cls: false
 rect: false
 cos_lr: false
@@ -39,3 +38,20 @@ augment: false
 agnostic_nms: false
 classes: null
 visualize: true
+
+# Augmentation Settings
+hsv_h: 0.3
+hsv_s: 0.7
+hsv_v: 0.4
+degrees: 5.0
+translate: 0.05
+scale: 0.1
+shear: 5.0
+perspective: 0.0
+flipud: 0.0
+fliplr: 0.0
+bgr: 0.0
+mosaic: 0.0
+mixup: 0.0
+cutmix: 0.0
+copy_paste: 0.0
