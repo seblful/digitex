@@ -56,38 +56,6 @@ class TrainingSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="TRAIN_")
 
-    num_epochs: int = Field(default=100, ge=1, description="Number of training epochs")
-
-    batch_size: int = Field(default=4, ge=1, description="Batch size for training")
-
-    overlap_mask: bool = Field(
-        default=True, description="Whether segmentation masks should overlap"
-    )
-
-    mask_ratio: int = Field(
-        default=1, ge=1, description="Downsample ratio for segmentation masks"
-    )
-
-    patience: int = Field(
-        default=50, ge=1, description="Early stopping patience in epochs"
-    )
-
-    seed: int = Field(default=42, ge=0, description="Random seed for reproducibility")
-
-    model_type: str = Field(default="seg", description="Type of YOLO model ('seg')")
-
-    model_size: str = Field(
-        default="m", description="Size of YOLO model ('n', 's', 'm', 'l', 'x')"
-    )
-
-    pretrained_model_path: str | None = Field(
-        default=None, description="Path to a previously trained model"
-    )
-
-    model_subdir: str = Field(
-        default="models", description="Subdirectory name for trained models"
-    )
-
     runs_dir_name: str = Field(
         default="runs", description="Subdirectory name for training runs"
     )
@@ -99,11 +67,6 @@ class DataSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="DATA_")
 
     data_dir_name: str = Field(default="data", description="Subdirectory name for data")
-
-    data_type_dir_name: str = Field(
-        default="page",
-        description="Type of task type (e.g., 'page', 'question', 'part')",
-    )
 
     dataset_dir_name: str = Field(
         default="dataset", description="Subdirectory name for datasets"

@@ -28,12 +28,11 @@ training/
 Select random images from book folders and save them for annotation:
 
 ```bash
-uv run python -m training.cli select-random-pages --data-subdir page --num-images 100
+uv run python -m training.cli select-random-pages --num-images 100
 ```
 
 **Options:**
 
-- `--data-subdir`: Task type (default: `page`)
 - `--num-images`: Number of images to select (default: 100)
 
 **Requirements:**
@@ -45,12 +44,12 @@ uv run python -m training.cli select-random-pages --data-subdir page --num-image
 Add specific images listed in a text file to the training data:
 
 ```bash
-uv run python -m training.cli add-images --data-subdir page
+uv run python -m training.cli add-images page
 ```
 
-**Options:**
+**Arguments:**
 
-- `--data-subdir`: Task type (default: `page`)
+- `page`: Task type (required)
 
 **Requirements:**
 
@@ -74,12 +73,15 @@ books/biology/images/2023/5.jpg
 Convert annotations from Label Studio to YOLO dataset format:
 
 ```bash
-uv run python -m training.cli create-dataset --data-subdir page --train-split 0.8
+uv run python -m training.cli create-dataset page --train-split 0.8
 ```
+
+**Arguments:**
+
+- `page`: Task type (required)
 
 **Options:**
 
-- `--data-subdir`: Task type (default: `page`)
 - `--train-split`: Training/validation split ratio (default: 0.8)
 - `--vis-images`: Number of images to visualize (default: 20)
 - `--augment`: Enable data augmentation (default: False)
@@ -95,21 +97,25 @@ uv run python -m training.cli create-dataset --data-subdir page --train-split 0.
 Train YOLO segmentation model:
 
 ```bash
-uv run python -m training.cli train --num-epochs 50
+uv run python -m training.cli train page
 ```
+
+**Arguments:**
+
+- `page`: Task type (required)
 
 **Options:**
 
-- `--data-subdir`: Task type (default from settings)
 - `--model-type`: YOLO model type (default: `seg`)
 - `--model-size`: Model size: n, s, m, l, x (default: `m`)
-- `--num-epochs`: Training epochs (default: 100)
+- `--pretrained-model-path`: Path to existing model weights
+- `--num-epochs`: Training epochs (default: 200)
 - `--image-size`: Input image size (default: 640)
 - `--batch-size`: Batch size (default: 4)
-- `--overlap-mask`: Mask overlap for segmentation (default: False)
-- `--patience`: Early stopping patience (default: 50)
+- `--overlap-mask/--no-overlap-mask`: Mask overlap for segmentation (default: True)
+- `--mask-ratio`: Mask downsample ratio (default: 1)
+- `--patience`: Early stopping patience (default: 25)
 - `--seed`: Random seed for reproducibility (default: 42)
-- `--pretrained-model-path`: Path to existing model weights
 
 ### 5. Predict Label Studio Tasks
 
@@ -122,7 +128,7 @@ uv run python -m training.cli ls-predict --project-id 1 --model-path extraction/
 **Options:**
 
 - `--project-id`: Label Studio project ID (required)
-- `--model-path`: Path to trained model (default from `TRAIN_PRETRAINED_MODEL_PATH`)
+- `--model-path`: Path to trained model (required)
 
 **Behavior:**
 
@@ -137,44 +143,18 @@ Run from the project root directory:
 
 ```bash
 # Step 1: Add images for annotation
-# Option A: Select random pages from books
 uv run python -m training.cli select-random-pages --num-images 100
-# Option B: Add specific images from paths.txt
-uv run python -m training.cli add-images --data-subdir page
 
 # Step 2: Annotate images in Label Studio (see [Label Studio](label-studio.md)), then export annotations.json
 
 # Step 3: Create dataset from annotations (visualizes automatically)
-uv run python -m training.cli create-dataset --augment
+uv run python -m training.cli create-dataset page --augment
 
 # Step 4: Train model
-uv run python -m training.cli train --model-size m --num-epochs 100
+uv run python -m training.cli train page --model-size m --num-epochs 100
 
 # Step 5: Predict unannotated tasks in Label Studio
-uv run python -m training.cli ls-predict --project-id 1 --model-path training/data/page/models/best.pt
-```
-
-## Configuration
-
-Default training parameters are configured in `src/digitex/config/settings.py`:
-
-```python
-class TrainingSettings(BaseSettings):
-    model_type: str = "seg"
-    model_size: str = "m"
-    num_epochs: int = 100
-    batch_size: int = 4
-    overlap_mask: bool = False
-    patience: int = 50
-    seed: int = 42
-```
-
-Override with environment variables:
-
-```bash
-export TRAIN_NUM_EPOCHS=200
-export TRAIN_BATCH_SIZE=8
-export TRAIN_MODEL_SIZE=m
+uv run python -m training.cli ls-predict --project-id 1 --model-path training/runs/segment/train/weights/best.pt
 ```
 
 ## Data Format
@@ -215,7 +195,7 @@ uv run python -c "import torch; print(torch.cuda.is_available())"
 ### Dataset Issues
 
 - Check annotation coordinate values in `annotations.json`
-- Use `--visualize` flag to inspect dataset quality
+- Use `--vis-images` flag to inspect dataset quality
 
 ### Training Convergence
 

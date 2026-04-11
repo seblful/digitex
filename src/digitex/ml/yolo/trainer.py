@@ -23,8 +23,8 @@ class Trainer:
         batch_size: int,
         pretrained_model_path: str | Path | None = None,
         overlap_mask: bool = False,
-        mask_ratio: int = 4,
-        patience: int = 50,
+        mask_ratio: int = 1,
+        patience: int = 25,
         seed: int = 42,
         project_dir: str | Path | None = None,
     ) -> None:

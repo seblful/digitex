@@ -25,9 +25,7 @@ def _data_dir(data_type_dir_name: str) -> Path:
 
 @app.command()
 def create_dataset(
-    data_type_dir_name: str = typer.Option(
-        "page", "--data-subdir", help="Type of task type"
-    ),
+    data_type_dir_name: str = typer.Argument(..., help="Type of task type"),
     train_split: float = typer.Option(0.8, "--train-split", help="Split of train set"),
     vis_images: int = typer.Option(20, "--vis-images", help="Images to visualize"),
     augment: bool = typer.Option(
@@ -67,9 +65,6 @@ def create_dataset(
 
 @app.command()
 def select_random_pages(
-    data_type_dir_name: str = typer.Option(
-        "page", "--data-subdir", help="Type of task type"
-    ),
     num_images: int = typer.Option(
         100, "--num-images", help="Number of images to create"
     ),
@@ -77,7 +72,7 @@ def select_random_pages(
     from digitex.config import get_settings
 
     s = get_settings()
-    page_train_dir = _data_dir(data_type_dir_name) / s.data.images_dir_name
+    page_train_dir = _data_dir("page") / s.data.images_dir_name
 
     PageDataCreator(image_size=s.data.image_size).create(
         books_dir=s.paths.books_dir,
@@ -88,29 +83,21 @@ def select_random_pages(
 
 @app.command()
 def train(
-    data_type_dir_name: str | None = typer.Option(
-        None, "--data-subdir", help="Task type"
-    ),
-    model_type: str | None = typer.Option(None, "--model-type", help="YOLO model type"),
-    model_size: str | None = typer.Option(None, "--model-size", help="YOLO model size"),
+    data_type_dir_name: str = typer.Argument(..., help="Task type"),
+    model_type: str = typer.Option("seg", "--model-type", help="YOLO model type"),
+    model_size: str = typer.Option("m", "--model-size", help="YOLO model size"),
     pretrained_model_path: str | None = typer.Option(
         None, "--pretrained-model-path", help="Model path"
     ),
-    num_epochs: int | None = typer.Option(None, "--num-epochs", help="Training epochs"),
-    image_size: int | None = typer.Option(
-        None, "--image-size", help="Input image size"
+    num_epochs: int = typer.Option(200, "--num-epochs", help="Training epochs"),
+    image_size: int = typer.Option(640, "--image-size", help="Input image size"),
+    batch_size: int = typer.Option(4, "--batch-size", help="Batch size"),
+    overlap_mask: bool = typer.Option(
+        True, "--overlap-mask/--no-overlap-mask", help="Mask overlap"
     ),
-    batch_size: int | None = typer.Option(None, "--batch-size", help="Batch size"),
-    overlap_mask: bool | None = typer.Option(
-        None, "--overlap-mask", help="Mask overlap"
-    ),
-    mask_ratio: int | None = typer.Option(
-        None, "--mask-ratio", help="Mask downsample ratio"
-    ),
-    patience: int | None = typer.Option(
-        None, "--patience", help="Early stopping patience"
-    ),
-    seed: int | None = typer.Option(None, "--seed", help="Random seed"),
+    mask_ratio: int = typer.Option(1, "--mask-ratio", help="Mask downsample ratio"),
+    patience: int = typer.Option(25, "--patience", help="Early stopping patience"),
+    seed: int = typer.Option(42, "--seed", help="Random seed"),
 ) -> None:
     from digitex.config import get_settings
 
@@ -120,12 +107,11 @@ def train(
     )
 
     s = get_settings()
-    train_defaults, data_defaults = s.training, s.data
-    data_type_dir_name = data_type_dir_name or data_defaults.data_type_dir_name
+    data_defaults = s.data
 
     data_dir = _data_dir(data_type_dir_name)
     dataset_dir = data_dir / data_defaults.dataset_dir_name
-    project_dir = TRAINING_ROOT / train_defaults.runs_dir_name
+    project_dir = TRAINING_ROOT / s.training.runs_dir_name
 
     logger.info(f"Starting YOLO training | Data: {data_dir} | Dataset: {dataset_dir}")
 
@@ -133,21 +119,16 @@ def train(
         trainer = Trainer(
             dataset_dir=dataset_dir,
             project_dir=project_dir,
-            model_type=model_type or train_defaults.model_type,
-            model_size=model_size or train_defaults.model_size,
-            pretrained_model_path=pretrained_model_path
-            or train_defaults.pretrained_model_path,
-            num_epochs=num_epochs or train_defaults.num_epochs,
-            image_size=image_size or data_defaults.image_size,
-            batch_size=batch_size or train_defaults.batch_size,
-            overlap_mask=overlap_mask
-            if overlap_mask is not None
-            else train_defaults.overlap_mask,
-            mask_ratio=mask_ratio
-            if mask_ratio is not None
-            else train_defaults.mask_ratio,
-            patience=patience or train_defaults.patience,
-            seed=seed or train_defaults.seed,
+            model_type=model_type,
+            model_size=model_size,
+            pretrained_model_path=pretrained_model_path,
+            num_epochs=num_epochs,
+            image_size=image_size,
+            batch_size=batch_size,
+            overlap_mask=overlap_mask,
+            mask_ratio=mask_ratio,
+            patience=patience,
+            seed=seed,
         )
         trainer.train()
         trainer.validate()
@@ -169,15 +150,12 @@ def ls_predict(
 
     s = get_settings()
 
-    model = model_path or s.training.pretrained_model_path
-    if not model:
-        typer.echo(
-            "Error: No model path. Use --model-path or set TRAIN_PRETRAINED_MODEL_PATH."
-        )
+    if not model_path:
+        typer.echo("Error: No model path. Use --model-path.")
         raise typer.Exit(1)
 
     predictor = TaskPredictor(
-        model_path=model,
+        model_path=model_path,
         url=s.label_studio.url,
         api_key=s.label_studio.api_key,
     )
