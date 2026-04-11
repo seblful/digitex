@@ -25,6 +25,7 @@ dependencies = [
   "pytesseract",
   "deskew",
   "label-studio-sdk",
+  "nvidia-ml-py>=12.0.0",
   "structlog>=25.5.0",
   "shapely>=2.1.2",
   "legacy-cgi>=2.6.4",
