@@ -1,7 +1,17 @@
 """Run extraction of question images from image books."""
 
+import platform
+
+if platform.system() == "Windows":
+    import pathlib
+    import pathlib._local as _local
+
+    _local.PosixPath = pathlib.WindowsPath
+
 import structlog
 import typer
+
+from pathlib import Path
 
 from digitex import TestsExtractor
 from digitex.config import get_settings
@@ -16,8 +26,9 @@ app = typer.Typer()
 def extract() -> None:
     """Extract question images from all image books."""
     settings = get_settings()
+    model_path = settings.paths.home_dir / settings.extraction.model_path
     extractor = TestsExtractor(
-        model_path=settings.extraction.model_path,
+        model_path=model_path,
         image_format=settings.extraction.image_format,
         question_max_width=settings.extraction.question_max_width,
         question_max_height=settings.extraction.question_max_height,

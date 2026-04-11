@@ -1,4 +1,5 @@
 import numpy as np
+import os
 from pathlib import Path
 
 import structlog
@@ -55,7 +56,11 @@ class YOLO_SegmentationPredictor(Predictor):
         """
         if self._model is None:
             try:
-                self._model = YOLO(str(self.model_path), verbose=False)
+                model_path = Path(self.model_path)
+                if not model_path.is_absolute():
+                    model_path = Path.cwd() / model_path
+                model_str = str(model_path.resolve())
+                self._model = YOLO(model_str, verbose=False)
                 logger.info(f"Model loaded successfully from {self.model_path}")
             except Exception as e:
                 raise RuntimeError(f"Failed to load model from {self.model_path}: {e}")
