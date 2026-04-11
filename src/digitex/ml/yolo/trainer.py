@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 
+import yaml
 from ultralytics import YOLO
 from ultralytics.engine.model import Model
 
@@ -30,6 +31,15 @@ class Trainer:
         self._model: Model | None = None
         self.is_trained = False
 
+    def _load_config(self) -> dict:
+        """Load training config from YAML file.
+
+        Returns:
+            Config dictionary.
+        """
+        with open(self.config_path) as f:
+            return yaml.safe_load(f)
+
     @property
     def model(self) -> Model:
         """Get or load the YOLO model.
@@ -42,10 +52,14 @@ class Trainer:
         """
         if self._model is None:
             try:
-                model = YOLO(self.config_path)
-                logger.info(f"Loaded model from config: {self.config_path}")
+                config = self._load_config()
+                model_path = config.get("model")
+                if not model_path:
+                    raise ValueError("Config must contain 'model' key")
 
-                self._model = model
+                self._model = YOLO(model_path)
+                logger.info(f"Loaded model: {model_path}")
+
             except Exception as e:
                 raise RuntimeError(f"Failed to load YOLO model: {e}")
 
