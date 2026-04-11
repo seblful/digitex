@@ -198,8 +198,10 @@ class DatasetCreator:
 
     def write_data_yaml(self) -> None:
         """Write data.yaml for YOLO training."""
+        base_path = self.dataset_dir.relative_to(Path.cwd()).as_posix()
+
         data = {
-            "path": str(self.dataset_dir.resolve()),
+            "path": base_path,
             "train": "train",
             "val": "val",
             "test": "test",
@@ -207,9 +209,7 @@ class DatasetCreator:
         }
 
         yaml_path = self.dataset_dir / "data.yaml"
-        yaml_path.write_text(
-            yaml.dump(data, default_flow_style=False), encoding="utf-8"
-        )
+        yaml_path.write_text(yaml.dump(data, sort_keys=False), encoding="utf-8")
 
     def create(self) -> None:
         """Create the full YOLO dataset."""

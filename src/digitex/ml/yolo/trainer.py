@@ -79,9 +79,7 @@ class Trainer:
         try:
             logger.info("Starting training...")
 
-            self.model.train(
-                cfg=self.train_config_path,
-            )
+            self.model.train(cfg=self.train_config_path)
 
             self.is_trained = True
             logger.info("Training completed successfully")
@@ -103,9 +101,7 @@ class Trainer:
         try:
             logger.info("Starting validation...")
 
-            self.model.val(
-                cfg=self.val_config_path,
-            )
+            self.model.val(cfg=self.val_config_path)
 
             logger.info("Validation completed successfully")
 
