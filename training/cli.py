@@ -104,6 +104,9 @@ def train(
     overlap_mask: bool | None = typer.Option(
         None, "--overlap-mask", help="Mask overlap"
     ),
+    mask_ratio: int | None = typer.Option(
+        None, "--mask-ratio", help="Mask downsample ratio"
+    ),
     patience: int | None = typer.Option(
         None, "--patience", help="Early stopping patience"
     ),
@@ -140,6 +143,9 @@ def train(
             overlap_mask=overlap_mask
             if overlap_mask is not None
             else train_defaults.overlap_mask,
+            mask_ratio=mask_ratio
+            if mask_ratio is not None
+            else train_defaults.mask_ratio,
             patience=patience or train_defaults.patience,
             seed=seed or train_defaults.seed,
         )

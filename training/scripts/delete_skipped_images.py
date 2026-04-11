@@ -8,6 +8,7 @@ import logging
 
 import structlog
 import typer
+
 from digitex.config import get_settings
 from digitex.label_studio import LabelStudioClient
 

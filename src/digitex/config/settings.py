@@ -61,7 +61,11 @@ class TrainingSettings(BaseSettings):
     batch_size: int = Field(default=4, ge=1, description="Batch size for training")
 
     overlap_mask: bool = Field(
-        default=False, description="Whether segmentation masks should overlap"
+        default=True, description="Whether segmentation masks should overlap"
+    )
+
+    mask_ratio: int = Field(
+        default=1, ge=1, description="Downsample ratio for segmentation masks"
     )
 
     patience: int = Field(

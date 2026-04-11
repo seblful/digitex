@@ -1,5 +1,4 @@
 import logging
-import os
 from pathlib import Path
 
 import torch
@@ -24,6 +23,7 @@ class Trainer:
         batch_size: int,
         pretrained_model_path: str | Path | None = None,
         overlap_mask: bool = False,
+        mask_ratio: int = 4,
         patience: int = 50,
         seed: int = 42,
         project_dir: str | Path | None = None,
@@ -39,6 +39,7 @@ class Trainer:
             batch_size: Batch size for training.
             pretrained_model_path: Path to a pre-trained model to fine-tune.
             overlap_mask: Whether to use overlapping masks for segmentation.
+            mask_ratio: Downsample ratio for segmentation masks.
             patience: Early stopping patience in epochs.
             seed: Random seed for reproducibility.
             project_dir: Directory for training outputs (defaults to dataset_dir parent / "runs").
@@ -62,16 +63,21 @@ class Trainer:
         self.image_size = image_size
         self.batch_size = batch_size
         self.overlap_mask = overlap_mask
+        self.mask_ratio = mask_ratio
         self.patience = patience
         self.seed = seed
 
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Using {self.device} device")
 
         self.device_idxs = get_device_indices()
-        logger.info(f"Device count: {len(self.device_idxs)}, devices: {self.device_idxs}")
+        logger.info(
+            f"Device count: {len(self.device_idxs)}, devices: {self.device_idxs}"
+        )
 
-        self.pretrained_model_path = str(pretrained_model_path) if pretrained_model_path else None
+        self.pretrained_model_path = (
+            str(pretrained_model_path) if pretrained_model_path else None
+        )
         self.model_yaml = f"yolo26{model_size}-{model_type}.yaml"
         self.model_pt = f"yolo26{model_size}-{model_type}.pt"
 
@@ -95,7 +101,9 @@ class Trainer:
                     logger.info(f"Loaded pretrained model: {self.model_pt}")
                 else:
                     model = YOLO(self.pretrained_model_path)
-                    logger.info(f"Loaded custom pretrained model: {self.pretrained_model_path}")
+                    logger.info(
+                        f"Loaded custom pretrained model: {self.pretrained_model_path}"
+                    )
 
                 self._model = model
             except Exception as e:
@@ -129,7 +137,9 @@ class Trainer:
         """
         try:
             logger.info("Starting training...")
-            logger.info(f"Epochs: {self.num_epochs}, Image size: {self.image_size}, Batch size: {self.batch_size}")
+            logger.info(
+                f"Epochs: {self.num_epochs}, Image size: {self.image_size}, Batch size: {self.batch_size}"
+            )
 
             self.model.train(
                 data=self.data,
@@ -137,6 +147,7 @@ class Trainer:
                 imgsz=self.image_size,
                 batch=self.batch_size,
                 overlap_mask=self.overlap_mask,
+                mask_ratio=self.mask_ratio,
                 patience=self.patience,
                 device=self.device_idxs,
                 seed=self.seed,
@@ -166,7 +177,7 @@ class Trainer:
             self.model.val(
                 data=self.data,
                 imgsz=self.image_size,
-                split='test',
+                split="test",
                 project=str(self.project_dir),
             )
 
