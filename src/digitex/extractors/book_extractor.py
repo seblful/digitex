@@ -1,14 +1,14 @@
 """Book extractor for extracting question images from image files."""
 
-import logging
 from pathlib import Path
 
+import structlog
 from tqdm import tqdm
 
 from digitex.extractors.page_extractor import PageExtractor
 from digitex.utils import _natural_sort_key
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class BookExtractor:

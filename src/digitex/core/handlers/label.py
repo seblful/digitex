@@ -1,10 +1,11 @@
 """Label handling utilities."""
 
-import logging
 from pathlib import Path
 from typing import Tuple
 
-logger = logging.getLogger(__name__)
+import structlog
+
+logger = structlog.get_logger()
 
 
 class LabelHandler:
@@ -58,7 +59,9 @@ class LabelHandler:
 
         rand_class_idx = random.choice(list(points_dict_filtered.keys()))
 
-        rand_points_idx = random.randint(0, len(points_dict_filtered[rand_class_idx]) - 1)
+        rand_points_idx = random.randint(
+            0, len(points_dict_filtered[rand_class_idx]) - 1
+        )
         rand_points = points_dict_filtered[rand_class_idx][rand_points_idx]
 
         return rand_points_idx, rand_points
@@ -79,7 +82,7 @@ class LabelHandler:
         """
         labels_dir = Path(labels_dir)
 
-        label_name = Path(image_name).stem + '.txt'
+        label_name = Path(image_name).stem + ".txt"
         label_path = labels_dir / label_name
 
         if not label_path.exists():
@@ -111,8 +114,7 @@ class LabelHandler:
 
         point_pairs = list(zip(points[::2], points[1::2]))
         abs_points = [
-            (int(x * image_width), int(y * image_height))
-            for x, y in point_pairs
+            (int(x * image_width), int(y * image_height)) for x, y in point_pairs
         ]
 
         return abs_points

@@ -1,15 +1,15 @@
 """Page data creator for extracting images for training."""
 
-import logging
 import random
 from pathlib import Path
 
+import structlog
 from PIL import Image
 from tqdm import tqdm
 
 from digitex.core.processors import resize_image
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class PageDataCreator:

@@ -1,12 +1,12 @@
 """Pytest configuration and shared fixtures."""
 
-import logging
 from pathlib import Path
 
 import pytest
+import structlog
 from PIL import Image
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def sample_image(tmp_path: Path) -> Image.Image:
     Returns:
         A sample PIL Image.
     """
-    img = Image.new('RGB', (100, 100), color='red')
+    img = Image.new("RGB", (100, 100), color="red")
     img_path = tmp_path / "test_image.jpg"
     img.save(img_path)
     return img

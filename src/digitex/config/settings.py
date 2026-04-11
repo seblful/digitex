@@ -106,6 +106,17 @@ class LabelStudioSettings(BaseSettings):
     api_key: str = Field(default="", description="Label Studio API key")
 
 
+class LoggingSettings(BaseSettings):
+    """Logging configuration settings."""
+
+    model_config = SettingsConfigDict(env_prefix="LOGGING_")
+
+    level: str = Field(
+        default="INFO",
+        description="Logging level (DEBUG, INFO, WARNING, ERROR)",
+    )
+
+
 class PathsSettings(BaseSettings):
     """Directory path settings."""
 
@@ -148,6 +159,7 @@ class Settings(BaseSettings):
     paths: PathsSettings = Field(default_factory=PathsSettings)
     extraction: ExtractionSettings = Field(default_factory=ExtractionSettings)
     label_studio: LabelStudioSettings = Field(default_factory=LabelStudioSettings)
+    logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
     @classmethod
     def load(cls) -> Self:

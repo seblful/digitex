@@ -4,18 +4,14 @@ A task is cancelled when an annotator clicks "Skip" or "Cancel" in Label Studio.
 This script finds such tasks and deletes their local image files.
 """
 
-import logging
-
 import structlog
 import typer
 
 from digitex.config import get_settings
 from digitex.label_studio import LabelStudioClient
+from digitex.logging import setup_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+setup_logging()
 logger = structlog.get_logger()
 
 app = typer.Typer(help="Delete local images for cancelled Label Studio tasks")

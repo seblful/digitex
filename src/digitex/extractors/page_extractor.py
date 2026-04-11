@@ -1,8 +1,8 @@
 """Page extractor for extracting question images from a single page."""
 
-import logging
 from pathlib import Path
 
+import structlog
 from PIL import Image
 
 from digitex.core import TextExtractor
@@ -16,7 +16,7 @@ from digitex.ml.predictors import (
     YOLO_SegmentationPredictor,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 Detection = tuple[str, list[tuple[int, int]]]
 
@@ -73,7 +73,9 @@ class PageExtractor:
         output_path: Path,
     ) -> None:
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
-        cropped = resize_image(cropped, self.question_max_width, self.question_max_height)
+        cropped = resize_image(
+            cropped, self.question_max_width, self.question_max_height
+        )
         processed = self._segment_processor.process(cropped)
         output_path = output_path.with_suffix(f".{self.image_format}")
         output_path.parent.mkdir(parents=True, exist_ok=True)

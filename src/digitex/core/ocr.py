@@ -1,16 +1,18 @@
 """OCR utilities using Tesseract."""
 
-import logging
 import re
 from typing import Final
 
 import pytesseract
+import structlog
 from PIL import Image
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 _TESSERACT_CONFIG_DEFAULT: Final = "--psm 7 --oem 1"
-_TESSERACT_CONFIG_DIGITS: Final = f"{_TESSERACT_CONFIG_DEFAULT} -c tessedit_char_whitelist=0123456789"
+_TESSERACT_CONFIG_DIGITS: Final = (
+    f"{_TESSERACT_CONFIG_DEFAULT} -c tessedit_char_whitelist=0123456789"
+)
 
 
 class TextExtractor:

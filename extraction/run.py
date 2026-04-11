@@ -1,16 +1,13 @@
 """Run extraction of question images from image books."""
 
-import logging
-
+import structlog
 import typer
 
 from digitex import TestsExtractor
 from digitex.config import get_settings
+from digitex.logging import setup_logging
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(message)s",
-)
+setup_logging()
 
 app = typer.Typer()
 
@@ -25,7 +22,8 @@ def extract() -> None:
         question_max_width=settings.extraction.question_max_width,
         question_max_height=settings.extraction.question_max_height,
         books_dir=settings.paths.books_dir,
-        extraction_dir=settings.paths.extraction_dir / settings.extraction.output_dir_name,
+        extraction_dir=settings.paths.extraction_dir
+        / settings.extraction.output_dir_name,
     )
     extractor.extract_all()
 

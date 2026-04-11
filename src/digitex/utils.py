@@ -1,14 +1,14 @@
-import logging
 import re
 from pathlib import Path
 
 import pypdfium2 as pdfium
+import structlog
 import torch
 from PIL import Image
 
 from digitex.core.processors import resize_image
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 IMAGE_EXTENSIONS: set[str] = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
@@ -34,8 +34,11 @@ def rename_images_to_sequential(base_dir: str | Path) -> None:
             continue
 
         images = sorted(
-            (p for p in folder.iterdir()
-             if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS),
+            (
+                p
+                for p in folder.iterdir()
+                if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+            ),
             key=_natural_sort_key,
         )
 
@@ -69,8 +72,11 @@ def create_pdf_from_images(
         raise FileNotFoundError(f"Image directory not found: {image_dir}")
 
     images = sorted(
-        (p for p in image_dir.iterdir()
-         if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS),
+        (
+            p
+            for p in image_dir.iterdir()
+            if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+        ),
         key=_natural_sort_key,
     )
 

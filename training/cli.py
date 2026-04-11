@@ -1,6 +1,6 @@
-import logging
 from pathlib import Path
 
+import structlog
 import typer
 
 from digitex.creators import PageDataCreator
@@ -9,7 +9,7 @@ from digitex.ml.yolo import Trainer
 from digitex.ml.yolo.dataset import DatasetCreator
 
 app = typer.Typer(help="YOLO model training for document segmentation")
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 def _data_dir(data_type_dir_name: str) -> Path:
@@ -68,11 +68,9 @@ def train(
     ),
 ) -> None:
     from digitex.config import get_settings
+    from digitex.logging import setup_logging
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
+    setup_logging()
 
     s = get_settings()
     train_config_path = (

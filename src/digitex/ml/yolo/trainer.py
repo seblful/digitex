@@ -1,11 +1,11 @@
-import logging
 from pathlib import Path
 
+import structlog
 import yaml
 from ultralytics import YOLO
 from ultralytics.engine.model import Model
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class Trainer:

@@ -1,14 +1,14 @@
 """Tests extractor that orchestrates extraction of all image books."""
 
 import json
-import logging
 from pathlib import Path
 
+import structlog
 from tqdm import tqdm
 
 from digitex.extractors.book_extractor import BookExtractor
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 PROGRESS_FILE = "progress.json"
 

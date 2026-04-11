@@ -1,6 +1,5 @@
-import logging
-
 import numpy as np
+import structlog
 import torch
 from PIL import Image
 from shapely.geometry import Polygon
@@ -12,7 +11,7 @@ from digitex.utils import get_device
 from .abstract_predictor import Predictor
 from .prediction_result import SegmentationPredictionResult
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class YOLO_SegmentationPredictor(Predictor):

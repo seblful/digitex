@@ -1,12 +1,12 @@
 """File processing utilities."""
 
 import json
-import logging
 from pathlib import Path
 
+import structlog
 import yaml
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class FileProcessor:
@@ -42,7 +42,7 @@ class FileProcessor:
         Raises:
             IOError: If the file cannot be written.
         """
-        with open(txt_path, 'w', encoding="utf-8") as txt_file:
+        with open(txt_path, "w", encoding="utf-8") as txt_file:
             txt_file.writelines(lines)
 
     @staticmethod
@@ -81,7 +81,7 @@ class FileProcessor:
             IOError: If the file cannot be written.
             TypeError: If the data is not JSON serializable.
         """
-        with open(json_path, 'w', encoding="utf-8") as json_file:
+        with open(json_path, "w", encoding="utf-8") as json_file:
             json.dump(json_dict, json_file, indent=indent, ensure_ascii=False)
 
     @staticmethod
@@ -100,7 +100,7 @@ class FileProcessor:
         Raises:
             IOError: If the file cannot be written.
         """
-        with open(yaml_path, 'w', encoding="utf-8") as yaml_file:
+        with open(yaml_path, "w", encoding="utf-8") as yaml_file:
             if comment:
                 yaml_file.write(comment)
             yaml.dump(data, yaml_file, default_flow_style=False, allow_unicode=True)

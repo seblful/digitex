@@ -1,14 +1,14 @@
 """Image processing utilities."""
 
-import logging
 import math
 
 import cv2
 import numpy as np
+import structlog
 from deskew import determine_skew
 from PIL import Image, ImageOps
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 DEFAULT_BG_THRESHOLD = 200
 DEFAULT_SATURATION_THRESHOLD = 100
