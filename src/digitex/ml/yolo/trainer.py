@@ -13,20 +13,25 @@ class Trainer:
 
     def __init__(
         self,
-        config_path: str | Path = "training/config.yaml",
+        train_config_path: str | Path,
+        val_config_path: str | Path,
     ) -> None:
         """Initialize the YOLO trainer.
 
         Args:
-            config_path: Path to training configuration YAML file.
+            train_config_path: Path to training configuration YAML file.
+            val_config_path: Path to validation configuration YAML file.
 
         Raises:
-            ValueError: If config_path doesn't exist.
+            ValueError: If config files don't exist.
         """
-        self.config_path = Path(config_path)
+        self.train_config_path = Path(train_config_path)
+        self.val_config_path = Path(val_config_path)
 
-        if not self.config_path.exists():
-            raise ValueError(f"Config file not found: {self.config_path}")
+        if not self.train_config_path.exists():
+            raise ValueError(f"Train config file not found: {self.train_config_path}")
+        if not self.val_config_path.exists():
+            raise ValueError(f"Val config file not found: {self.val_config_path}")
 
         self._model: Model | None = None
         self.is_trained = False
@@ -37,7 +42,7 @@ class Trainer:
         Returns:
             Config dictionary.
         """
-        with open(self.config_path) as f:
+        with open(self.train_config_path) as f:
             return yaml.safe_load(f)
 
     @property
@@ -75,7 +80,7 @@ class Trainer:
             logger.info("Starting training...")
 
             self.model.train(
-                cfg=self.config_path,
+                cfg=self.train_config_path,
             )
 
             self.is_trained = True
@@ -99,7 +104,7 @@ class Trainer:
             logger.info("Starting validation...")
 
             self.model.val(
-                split="test",
+                cfg=self.val_config_path,
             )
 
             logger.info("Validation completed successfully")

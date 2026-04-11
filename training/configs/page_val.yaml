@@ -1,0 +1,25 @@
+# YOLO Validation Configuration
+task: segment
+data: training/data/page/dataset/data.yaml
+imgsz: 640
+batch: 4
+save_json: false
+conf: 0.001
+iou: 0.7
+max_det: 50
+half: false
+plots: true
+augment: false
+agnostic_nms: false
+classes: null
+visualize: false
+rect: true
+split: test
+project: training
+name: null
+verbose: true
+save_txt: false
+save_conf: false
+workers: 4
+single_cls: false
+dnn: false

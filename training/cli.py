@@ -61,7 +61,11 @@ def select_random_pages(
 
 @app.command()
 def train(
-    config: str = typer.Option("page", "--config", help="Config name (without .yaml)"),
+    config: str = typer.Option(
+        "page",
+        "--config",
+        help="Train and val config name (without _train.yaml, _val.yaml)",
+    ),
 ) -> None:
     from digitex.config import get_settings
 
@@ -71,14 +75,21 @@ def train(
     )
 
     s = get_settings()
-    config_path = s.paths.training_dir / s.training.configs_dir_name / f"{config}.yaml"
+    train_config_path = (
+        s.paths.training_dir / s.training.configs_dir_name / f"{config}_train.yaml"
+    )
+    val_config_path = (
+        s.paths.training_dir / s.training.configs_dir_name / f"{config}_val.yaml"
+    )
 
     logger.info("Starting YOLO training")
-    logger.info(f"Using config: {config_path}")
+    logger.info(f"Using train config: {train_config_path}")
+    logger.info(f"Using val config: {val_config_path}")
 
     try:
         trainer = Trainer(
-            config_path=config_path,
+            train_config_path=train_config_path,
+            val_config_path=val_config_path,
         )
         trainer.train()
         trainer.validate()

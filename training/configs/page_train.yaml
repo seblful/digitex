@@ -12,6 +12,7 @@ cache: false
 device: -1
 workers: 4
 project: training
+name: null
 exist_ok: false
 pretrained: true
 optimizer: auto
@@ -30,15 +31,10 @@ dropout: 0.0
 val: true
 split: val
 save_json: false
-conf: 0.001
-iou: 0.7
 max_det: 50
 half: false
 plots: true
-augment: false
-agnostic_nms: false
 classes: null
-visualize: true
 
 # Augmentation Settings
 hsv_h: 0.3
