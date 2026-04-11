@@ -1,4 +1,6 @@
 import numpy as np
+from pathlib import Path
+
 import structlog
 import torch
 from PIL import Image
@@ -19,7 +21,7 @@ class YOLO_SegmentationPredictor(Predictor):
 
     def __init__(
         self,
-        model_path: str,
+        model_path: str | Path,
         simplify: bool = False,
         epsilon: float = 2.0,
     ) -> None:
@@ -53,7 +55,7 @@ class YOLO_SegmentationPredictor(Predictor):
         """
         if self._model is None:
             try:
-                self._model = YOLO(self.model_path, verbose=False)
+                self._model = YOLO(str(self.model_path), verbose=False)
                 logger.info(f"Model loaded successfully from {self.model_path}")
             except Exception as e:
                 raise RuntimeError(f"Failed to load model from {self.model_path}: {e}")
