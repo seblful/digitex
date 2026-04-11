@@ -11,13 +11,13 @@ For Label Studio setup, configuration, and server management, see [Label Studio]
 ```
 training/
 ├── cli.py              # Unified CLI for training workflows
+├── configs/            # Training configurations
+│   └── page.yaml       # Page segmentation config
 ├── data/               # Training data (gitignored)
 │   └── <task>/         # Task-specific data (page, question, part)
 │       ├── annotations.json  # Label Studio export
-│       ├── paths.txt         # Image paths for add-images command
 │       ├── images/           # Source page images
-│       ├── dataset/          # Processed YOLO dataset
-│       └── check-images/     # Visual verification images
+│       └── dataset/          # Processed YOLO dataset
 └── runs/               # Ultralytics runs (gitignored)
 ```
 
@@ -73,19 +73,16 @@ books/biology/images/2023/5.jpg
 Convert annotations from Label Studio to YOLO dataset format:
 
 ```bash
-uv run python -m training.cli create-dataset page --train-split 0.8
+uv run python -m training.cli create-dataset <task> --train-split 0.8
 ```
 
 **Arguments:**
 
-- `page`: Task type (required)
+- `<task>`: Task type (e.g., `page`)
 
 **Options:**
 
 - `--train-split`: Training/validation split ratio (default: 0.8)
-- `--vis-images`: Number of images to visualize (default: 20)
-- `--augment`: Enable data augmentation (default: False)
-- `--aug-images`: Number of augmented images (default: 100)
 
 **Requirements:**
 
@@ -94,35 +91,39 @@ uv run python -m training.cli create-dataset page --train-split 0.8
 
 ### 4. Train Model
 
-Train YOLO segmentation model:
+Train YOLO segmentation model using configuration from `training/configs/<config>.yaml`:
 
 ```bash
-uv run python -m training.cli train page
+uv run python -m training.cli train --config page
 ```
-
-**Arguments:**
-
-- `page`: Task type (required)
 
 **Options:**
 
-- `--model-type`: YOLO model type (default: `seg`)
-- `--model-size`: Model size: n, s, m, l, x (default: `m`)
-- `--pretrained-model-path`: Path to existing model weights
-- `--num-epochs`: Training epochs (default: 200)
-- `--image-size`: Input image size (default: 640)
-- `--batch-size`: Batch size (default: 4)
-- `--overlap-mask/--no-overlap-mask`: Mask overlap for segmentation (default: True)
-- `--mask-ratio`: Mask downsample ratio (default: 1)
-- `--patience`: Early stopping patience (default: 25)
-- `--seed`: Random seed for reproducibility (default: 42)
+- `--config`: Config name without `.yaml` extension (default: `page`)
+
+**Configuration:**
+
+All training parameters are managed in `training/configs/<config>.yaml`:
+- `model`: Model architecture (e.g., `yolo26m-seg.yaml`)
+- `data`: Path to dataset YAML (e.g., `training/data/page/dataset/data.yaml`)
+- `epochs`: Number of training epochs
+- `batch`: Batch size
+- `imgsz`: Input image size
+- `device`: Device for training (`-1` for auto-selection)
+- `patience`: Early stopping patience
+- `mask_ratio`: Mask downsample ratio
+- `overlap_mask`: Mask overlap for segmentation
+- `seed`: Random seed
+- etc.
+
+To modify training parameters, edit `training/configs/<config>.yaml`.
 
 ### 5. Predict Label Studio Tasks
 
 Run trained model on unannotated Label Studio tasks and upload predictions (see [Label Studio](label-studio.md) for setup):
 
 ```bash
-uv run python -m training.cli ls-predict --project-id 1 --model-path extraction/models/page.pt
+uv run python -m training.cli ls-predict --project-id 1 --model-path training/runs/train/weights/best.pt
 ```
 
 **Options:**
@@ -147,14 +148,14 @@ uv run python -m training.cli select-random-pages --num-images 100
 
 # Step 2: Annotate images in Label Studio (see [Label Studio](label-studio.md)), then export annotations.json
 
-# Step 3: Create dataset from annotations (visualizes automatically)
-uv run python -m training.cli create-dataset page --augment
+# Step 3: Create dataset from annotations
+uv run python -m training.cli create-dataset page
 
-# Step 4: Train model
-uv run python -m training.cli train page --model-size m --num-epochs 100
+# Step 4: Train model (uses training/config.yaml)
+uv run python -m training.cli train
 
 # Step 5: Predict unannotated tasks in Label Studio
-uv run python -m training.cli ls-predict --project-id 1 --model-path training/runs/segment/train/weights/best.pt
+uv run python -m training.cli ls-predict --project-id 1 --model-path training/runs/train/weights/best.pt
 ```
 
 ## Data Format
@@ -195,10 +196,9 @@ uv run python -c "import torch; print(torch.cuda.is_available())"
 ### Dataset Issues
 
 - Check annotation coordinate values in `annotations.json`
-- Use `--vis-images` flag to inspect dataset quality
 
 ### Training Convergence
 
-- Increase `--patience` for longer training
-- Reduce `--batch-size` if GPU memory issues occur
-- Try larger model sizes (`--model-size m/l/x`) for better accuracy
+- Increase `patience` in `training/config.yaml` for longer training
+- Reduce `batch` in `training/config.yaml` if GPU memory issues occur
+- Try larger model sizes by changing `model` in `training/config.yaml`

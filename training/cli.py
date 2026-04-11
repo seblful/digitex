@@ -11,8 +11,6 @@ from digitex.ml.yolo.dataset import DatasetCreator
 app = typer.Typer(help="YOLO model training for document segmentation")
 logger = logging.getLogger(__name__)
 
-TRAINING_ROOT = Path(__file__).parent.parent
-
 
 def _data_dir(data_type_dir_name: str) -> Path:
     from digitex.config import get_settings
@@ -63,21 +61,7 @@ def select_random_pages(
 
 @app.command()
 def train(
-    data_type_dir_name: str = typer.Argument(..., help="Task type"),
-    model_type: str = typer.Option("seg", "--model-type", help="YOLO model type"),
-    model_size: str = typer.Option("m", "--model-size", help="YOLO model size"),
-    pretrained_model_path: str | None = typer.Option(
-        None, "--pretrained-model-path", help="Model path"
-    ),
-    num_epochs: int = typer.Option(200, "--num-epochs", help="Training epochs"),
-    image_size: int = typer.Option(640, "--image-size", help="Input image size"),
-    batch_size: int = typer.Option(4, "--batch-size", help="Batch size"),
-    overlap_mask: bool = typer.Option(
-        True, "--overlap-mask/--no-overlap-mask", help="Mask overlap"
-    ),
-    mask_ratio: int = typer.Option(1, "--mask-ratio", help="Mask downsample ratio"),
-    patience: int = typer.Option(25, "--patience", help="Early stopping patience"),
-    seed: int = typer.Option(42, "--seed", help="Random seed"),
+    config: str = typer.Option("page", "--config", help="Config name (without .yaml)"),
 ) -> None:
     from digitex.config import get_settings
 
@@ -87,28 +71,14 @@ def train(
     )
 
     s = get_settings()
-    data_defaults = s.data
+    config_path = s.paths.training_dir / s.training.configs_dir_name / f"{config}.yaml"
 
-    data_dir = _data_dir(data_type_dir_name)
-    dataset_dir = data_dir / data_defaults.dataset_dir_name
-    project_dir = TRAINING_ROOT / s.training.runs_dir_name
-
-    logger.info(f"Starting YOLO training | Data: {data_dir} | Dataset: {dataset_dir}")
+    logger.info("Starting YOLO training")
+    logger.info(f"Using config: {config_path}")
 
     try:
         trainer = Trainer(
-            dataset_dir=dataset_dir,
-            project_dir=project_dir,
-            model_type=model_type,
-            model_size=model_size,
-            pretrained_model_path=pretrained_model_path,
-            num_epochs=num_epochs,
-            image_size=image_size,
-            batch_size=batch_size,
-            overlap_mask=overlap_mask,
-            mask_ratio=mask_ratio,
-            patience=patience,
-            seed=seed,
+            config_path=config_path,
         )
         trainer.train()
         trainer.validate()

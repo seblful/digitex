@@ -60,6 +60,11 @@ class TrainingSettings(BaseSettings):
         default="runs", description="Subdirectory name for training runs"
     )
 
+    configs_dir_name: str = Field(
+        default="configs",
+        description="Directory name for training configuration files",
+    )
+
 
 class DataSettings(BaseSettings):
     """Data configuration for training."""

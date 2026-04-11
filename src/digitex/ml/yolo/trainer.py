@@ -1,11 +1,8 @@
 import logging
 from pathlib import Path
 
-import torch
 from ultralytics import YOLO
 from ultralytics.engine.model import Model
-
-from digitex.utils import get_device_indices
 
 logger = logging.getLogger(__name__)
 
@@ -15,71 +12,20 @@ class Trainer:
 
     def __init__(
         self,
-        dataset_dir: str | Path,
-        model_type: str,
-        model_size: str,
-        num_epochs: int,
-        image_size: int,
-        batch_size: int,
-        pretrained_model_path: str | Path | None = None,
-        overlap_mask: bool = False,
-        mask_ratio: int = 1,
-        patience: int = 25,
-        seed: int = 42,
-        project_dir: str | Path | None = None,
+        config_path: str | Path = "training/config.yaml",
     ) -> None:
         """Initialize the YOLO trainer.
 
         Args:
-            dataset_dir: Directory containing the dataset and data.yaml.
-            model_type: Type of YOLO model ('seg').
-            model_size: Size of YOLO model ('n', 's', 'm', 'l', 'x').
-            num_epochs: Number of training epochs.
-            image_size: Input image size for training.
-            batch_size: Batch size for training.
-            pretrained_model_path: Path to a pre-trained model to fine-tune.
-            overlap_mask: Whether to use overlapping masks for segmentation.
-            mask_ratio: Downsample ratio for segmentation masks.
-            patience: Early stopping patience in epochs.
-            seed: Random seed for reproducibility.
-            project_dir: Directory for training outputs (defaults to dataset_dir parent / "runs").
+            config_path: Path to training configuration YAML file.
 
         Raises:
-            ValueError: If dataset_dir doesn't exist or model parameters are invalid.
+            ValueError: If config_path doesn't exist.
         """
-        self.dataset_dir = Path(dataset_dir)
+        self.config_path = Path(config_path)
 
-        if project_dir is None:
-            self.project_dir = self.dataset_dir.parent.parent / "runs"
-        else:
-            self.project_dir = Path(project_dir)
-
-        if not self.dataset_dir.exists():
-            raise ValueError(f"Dataset directory not found: {self.dataset_dir}")
-
-        self.__data: str | None = None
-
-        self.num_epochs = num_epochs
-        self.image_size = image_size
-        self.batch_size = batch_size
-        self.overlap_mask = overlap_mask
-        self.mask_ratio = mask_ratio
-        self.patience = patience
-        self.seed = seed
-
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        logger.info(f"Using {self.device} device")
-
-        self.device_idxs = get_device_indices()
-        logger.info(
-            f"Device count: {len(self.device_idxs)}, devices: {self.device_idxs}"
-        )
-
-        self.pretrained_model_path = (
-            str(pretrained_model_path) if pretrained_model_path else None
-        )
-        self.model_yaml = f"yolo26{model_size}-{model_type}.yaml"
-        self.model_pt = f"yolo26{model_size}-{model_type}.pt"
+        if not self.config_path.exists():
+            raise ValueError(f"Config file not found: {self.config_path}")
 
         self._model: Model | None = None
         self.is_trained = False
@@ -96,38 +42,14 @@ class Trainer:
         """
         if self._model is None:
             try:
-                if self.pretrained_model_path is None:
-                    model = YOLO(self.model_yaml).load(self.model_pt)
-                    logger.info(f"Loaded pretrained model: {self.model_pt}")
-                else:
-                    model = YOLO(self.pretrained_model_path)
-                    logger.info(
-                        f"Loaded custom pretrained model: {self.pretrained_model_path}"
-                    )
+                model = YOLO(self.config_path)
+                logger.info(f"Loaded model from config: {self.config_path}")
 
                 self._model = model
             except Exception as e:
                 raise RuntimeError(f"Failed to load YOLO model: {e}")
 
         return self._model  # type: ignore[return-value]
-
-    @property
-    def data(self) -> str:
-        """Get the data configuration path.
-
-        Returns:
-            Path to the data.yaml configuration file.
-
-        Raises:
-            FileNotFoundError: If data.yaml doesn't exist.
-        """
-        if self.__data is None:
-            data_path = self.dataset_dir / "data.yaml"
-            if not data_path.exists():
-                raise FileNotFoundError(f"data.yaml not found in {self.dataset_dir}")
-            self.__data = str(data_path)
-
-        return self.__data
 
     def train(self) -> None:
         """Train the YOLO model.
@@ -137,21 +59,9 @@ class Trainer:
         """
         try:
             logger.info("Starting training...")
-            logger.info(
-                f"Epochs: {self.num_epochs}, Image size: {self.image_size}, Batch size: {self.batch_size}"
-            )
 
             self.model.train(
-                data=self.data,
-                epochs=self.num_epochs,
-                imgsz=self.image_size,
-                batch=self.batch_size,
-                overlap_mask=self.overlap_mask,
-                mask_ratio=self.mask_ratio,
-                patience=self.patience,
-                device=self.device_idxs,
-                seed=self.seed,
-                project=str(self.project_dir),
+                cfg=self.config_path,
             )
 
             self.is_trained = True
@@ -175,10 +85,7 @@ class Trainer:
             logger.info("Starting validation...")
 
             self.model.val(
-                data=self.data,
-                imgsz=self.image_size,
                 split="test",
-                project=str(self.project_dir),
             )
 
             logger.info("Validation completed successfully")
