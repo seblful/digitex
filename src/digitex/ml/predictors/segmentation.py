@@ -1,6 +1,6 @@
-import numpy as np
 from pathlib import Path
 
+import numpy as np
 import structlog
 import torch
 from PIL import Image
@@ -160,10 +160,8 @@ class YOLO_SegmentationPredictor(Predictor):
         self,
         image: Image.Image,
         conf: float = 0.25,
-        iou: float = 0.7,
         imgsz: int | list[int] = 640,
-        agnostic_nms: bool = True,
-        end2end: bool = False,
+        end2end: bool = True,
         verbose: bool = False,
     ) -> SegmentationPredictionResult:
         """Make a segmentation prediction on an image.
@@ -171,10 +169,8 @@ class YOLO_SegmentationPredictor(Predictor):
         Args:
             image: PIL Image to predict on.
             conf: Confidence threshold for predictions (0.0-1.0).
-            iou: IoU threshold for non-maximum suppression (0.0-1.0).
             imgsz: Image size for inference (int or list).
-            agnostic_nms: Whether to use class-agnostic NMS.
-            end2end: Whether to use end-to-end mode.
+            end2end: Whether to use end-to-end mode (removes NMS).
             verbose: Whether to enable verbose output.
 
         Returns:
@@ -187,9 +183,7 @@ class YOLO_SegmentationPredictor(Predictor):
             preprocessed,
             verbose=verbose,
             conf=conf,
-            iou=iou,
             imgsz=imgsz,
-            agnostic_nms=agnostic_nms,
             end2end=end2end,
         )
         result = self.create_result(preds, img_width, img_height)

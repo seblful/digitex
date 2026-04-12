@@ -10,7 +10,7 @@ max_det: 50
 half: false
 plots: true
 augment: false
-agnostic_nms: false
+end2end: true
 classes: null
 visualize: false
 rect: true
