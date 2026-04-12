@@ -6,6 +6,8 @@ epochs: 200
 patience: 25
 batch: 4
 imgsz: 640
+multi_scale: 0.25
+fraction: 1.0
 save: true
 save_period: -1
 cache: false
@@ -34,6 +36,7 @@ max_det: 50
 half: false
 plots: true
 classes: null
+cls_pw: 0.25
 
 # Augmentation Settings
 hsv_h: 0.3
