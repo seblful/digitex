@@ -81,12 +81,10 @@ class TestYOLOSegmentationPredictor:
         predictor = YOLO_SegmentationPredictor(
             model_path=str(model_path),
             simplify=False,
-            epsilon=2.0,
         )
 
         assert predictor.model_path == str(model_path)
         assert predictor.simplify is False
-        assert predictor.epsilon == 2.0
         assert predictor._model is None
 
     def test_init_with_simplify(self, tmp_path: Path) -> None:
@@ -97,11 +95,9 @@ class TestYOLOSegmentationPredictor:
         predictor = YOLO_SegmentationPredictor(
             model_path=str(model_path),
             simplify=True,
-            epsilon=5.0,
         )
 
         assert predictor.simplify is True
-        assert predictor.epsilon == 5.0
 
     def test_model_loads_on_access(self, tmp_path: Path) -> None:
         """Test that model is loaded when accessed."""
@@ -157,8 +153,8 @@ class TestYOLOSegmentationPredictor:
         img = Image.new("RGB", (100, 100), color="red")
         result = predictor.preprocess_image(img)
 
-        assert isinstance(result, np.ndarray)
-        assert result.shape == (100, 100, 3)
+        assert isinstance(result, Image.Image)
+        assert result.size == (100, 100)
 
     def test_create_result_empty_predictions(self, tmp_path: Path) -> None:
         """Test create_result raises ValueError on empty predictions."""
@@ -239,7 +235,6 @@ class TestYOLOSegmentationPredictor:
         predictor = YOLO_SegmentationPredictor(
             model_path=str(model_path),
             simplify=True,
-            epsilon=2.0,
         )
 
         mock_box = MagicMock()
@@ -297,7 +292,7 @@ class TestYOLOSegmentationPredictor:
                 mock_result = MagicMock()
                 mock_create.return_value = mock_result
 
-                result = predictor.predict(img)
+                predictor.predict(img)
 
                 mock_preprocess.assert_called_once_with(img)
                 mock_create.assert_called_once()

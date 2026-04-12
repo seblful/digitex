@@ -3,8 +3,6 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from digitex.label_studio.client import LabelStudioClient
 from digitex.label_studio.predictor import TaskPredictor
 
@@ -15,7 +13,7 @@ class TestLabelStudioClient:
     def test_init(self) -> None:
         """Test client initialization."""
         with patch("digitex.label_studio.client.LabelStudio") as mock_ls:
-            client = LabelStudioClient("http://localhost:8080", "api-key")
+            LabelStudioClient("http://localhost:8080", "api-key")
             mock_ls.assert_called_once_with(
                 base_url="http://localhost:8080", api_key="api-key"
             )
@@ -124,7 +122,6 @@ class TestTaskPredictor:
                 model_path="model.pt",
                 url="http://localhost:8080",
                 api_key="api-key",
-                epsilon=5.0,
             )
             assert predictor._model_version == "model"
 
