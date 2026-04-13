@@ -106,14 +106,33 @@ class LabelStudioSettings(BaseSettings):
     api_key: str = Field(default="", description="Label Studio API key")
 
 
+class AppSettings(BaseSettings):
+    """Application settings."""
+
+    model_config = SettingsConfigDict(env_prefix="APP_")
+
+    environment: str = Field(
+        default="development",
+        description="Application environment (development, production)",
+    )
+
+
 class LoggingSettings(BaseSettings):
     """Logging configuration settings."""
 
     model_config = SettingsConfigDict(env_prefix="LOGGING_")
 
-    level: str = Field(
+    file_level: str = Field(
+        default="DEBUG",
+        description="File logging level (DEBUG, INFO, WARNING, ERROR)",
+    )
+    console_level: str = Field(
         default="INFO",
-        description="Logging level (DEBUG, INFO, WARNING, ERROR)",
+        description="Console logging level (DEBUG, INFO, WARNING, ERROR)",
+    )
+    log_file: Path = Field(
+        default=Path("logs/app.log"),
+        description="Path to the log file",
     )
 
 
@@ -121,6 +140,11 @@ class PathsSettings(BaseSettings):
     """Directory path settings."""
 
     model_config = SettingsConfigDict(env_prefix="PATH_")
+
+    @cached_property
+    def root_dir(self) -> Path:
+        """Get the project root directory."""
+        return Path.cwd()
 
     @cached_property
     def home_dir(self) -> Path:
@@ -160,6 +184,7 @@ class Settings(BaseSettings):
     extraction: ExtractionSettings = Field(default_factory=ExtractionSettings)
     label_studio: LabelStudioSettings = Field(default_factory=LabelStudioSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
+    app: AppSettings = Field(default_factory=AppSettings)
 
     @classmethod
     def load(cls) -> Self:

@@ -8,10 +8,7 @@ if platform.system() == "Windows":
 
     _local.PosixPath = pathlib.WindowsPath
 
-import structlog
 import typer
-
-from pathlib import Path
 
 from digitex import TestsExtractor
 from digitex.config import get_settings
