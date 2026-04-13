@@ -161,7 +161,8 @@ class YOLO_SegmentationPredictor(Predictor):
         image: Image.Image,
         conf: float = 0.25,
         imgsz: int | list[int] = 640,
-        end2end: bool = True,
+        end2end: bool = False,
+        agnostic_nms: bool = True,
         verbose: bool = False,
     ) -> SegmentationPredictionResult:
         """Make a segmentation prediction on an image.
@@ -171,6 +172,7 @@ class YOLO_SegmentationPredictor(Predictor):
             conf: Confidence threshold for predictions (0.0-1.0).
             imgsz: Image size for inference (int or list).
             end2end: Whether to use end-to-end mode (removes NMS).
+            agnostic_nms: Whether to use agnostic NMS.
             verbose: Whether to enable verbose output.
 
         Returns:
@@ -181,10 +183,11 @@ class YOLO_SegmentationPredictor(Predictor):
 
         preds = self.model.predict(
             preprocessed,
-            verbose=verbose,
             conf=conf,
             imgsz=imgsz,
             end2end=end2end,
+            agnostic_nms=agnostic_nms,
+            verbose=verbose,
         )
         result = self.create_result(preds, img_width, img_height)
 
