@@ -120,7 +120,12 @@ class AppSettings(BaseSettings):
 class LoggingSettings(BaseSettings):
     """Logging configuration settings."""
 
-    model_config = SettingsConfigDict(env_prefix="LOGGING_")
+    model_config = SettingsConfigDict(
+        env_prefix="LOGGING_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     file_level: str = Field(
         default="DEBUG",

@@ -63,6 +63,5 @@ class TextExtractor:
         language = lang if lang is not None else self.language
         text = self.extract_text(image, config=_TESSERACT_CONFIG_DIGITS, lang=language)
         numbers = re.findall(r"\d+", text)
-        print(f"Extracted digits: {numbers}")
         logger.debug("OCR digits", numbers=numbers)
         return [int(n) for n in numbers]
