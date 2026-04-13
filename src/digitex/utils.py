@@ -43,7 +43,7 @@ def rename_images_to_sequential(base_dir: str | Path) -> None:
         )
 
         if not images:
-            logger.debug(f"No images found in {folder}, skipping")
+            logger.debug("No images found, skipping", folder=folder)
             continue
 
         temp_names: list[Path] = []
@@ -56,7 +56,7 @@ def rename_images_to_sequential(base_dir: str | Path) -> None:
             final_path = temp_path.with_name(f"{i}{temp_path.suffix.lower()}")
             temp_path.rename(final_path)
 
-        logger.info(f"Renamed {len(images)} images in {folder}")
+        logger.info("Renamed images", count=len(images), folder=folder)
 
 
 def create_pdf_from_images(
@@ -106,11 +106,11 @@ def create_pdf_from_images(
             page.gen_content()
             bitmap.close()
         except (FileNotFoundError, IOError) as e:
-            logger.warning(f"Failed to process image {image_path}: {e}")
+            logger.warning("Failed to process image", image_path=image_path, error=e)
             continue
 
     pdf.save(str(output_path), version=17)
-    logger.info(f"PDF created successfully: {output_path}")
+    logger.info("PDF created successfully", output_path=output_path)
 
 
 def get_device() -> torch.device:

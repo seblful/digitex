@@ -130,7 +130,7 @@ class ImageCropper:
         thresh = ImageCropper._prepare_for_skew_detection(warped)
         angle = determine_skew(thresh, sigma=0.0, num_peaks=20, min_deviation=0.01)
         if angle is not None and angle != 0.0:
-            logger.debug(f"Detected skew angle: {angle:.2f} degrees, applying rotation")
+            logger.debug("Detected skew angle, applying rotation", angle=angle)
             warped = ImageCropper._rotate(warped, angle)
 
         return Image.fromarray(warped, mode="RGBA")

@@ -86,9 +86,12 @@ class PageDataCreator:
             raise FileNotFoundError(f"No images found in {books_dir}")
 
         selected = random.sample(images, min(num_images, len(images)))
-        logger.info(f"Selected {len(selected)} images from {books_dir}")
+        logger.info("Selected images", count=len(selected), books_dir=books_dir)
 
         saved, skipped = self._save_images(selected, output_dir, "Saving images")
         logger.info(
-            f"Saved {saved} images, skipped {skipped} (already exist) to {output_dir}"
+            "Saved images",
+            saved=saved,
+            skipped=skipped,
+            output_dir=output_dir,
         )

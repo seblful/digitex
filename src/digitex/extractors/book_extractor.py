@@ -49,7 +49,7 @@ class BookExtractor:
         )
 
         if not images:
-            logger.warning(f"No images found in {image_dir}")
+            logger.warning("No images found", image_dir=image_dir)
             return
 
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -69,4 +69,4 @@ class BookExtractor:
                 )
             )
 
-        logger.info(f"Extracted images to {output_dir}")
+        logger.info("Extracted images", output_dir=output_dir)

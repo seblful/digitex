@@ -63,7 +63,7 @@ class Trainer:
                     raise ValueError("Config must contain 'model' key")
 
                 self._model = YOLO(model_path)
-                logger.info(f"Loaded model: {model_path}")
+                logger.info("Loaded model", model_path=model_path)
 
             except Exception as e:
                 raise RuntimeError(f"Failed to load YOLO model: {e}")
@@ -85,7 +85,7 @@ class Trainer:
             logger.info("Training completed successfully")
 
         except (RuntimeError, ValueError, FileNotFoundError) as e:
-            logger.error(f"Training failed: {e}")
+            logger.error("Training failed", error=e)
             raise RuntimeError(f"Training failed: {e}") from e
 
     def validate(self) -> None:
@@ -106,5 +106,5 @@ class Trainer:
             logger.info("Validation completed successfully")
 
         except (RuntimeError, ValueError) as e:
-            logger.error(f"Validation failed: {e}")
+            logger.error("Validation failed", error=e)
             raise RuntimeError(f"Validation failed: {e}") from e

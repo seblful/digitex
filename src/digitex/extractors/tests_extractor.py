@@ -66,7 +66,7 @@ class TestsExtractor:
         subject_dirs = [d for d in self.books_dir.iterdir() if d.is_dir()]
 
         if not subject_dirs:
-            logger.warning(f"No subject folders found in {self.books_dir}")
+            logger.warning("No subject folders found", books_dir=self.books_dir)
             return
 
         completed = self._load_completed()
@@ -76,20 +76,22 @@ class TestsExtractor:
             images_dir = subject_dir / "images"
 
             if not images_dir.exists():
-                logger.warning(f"No images folder found in {subject_dir}")
+                logger.warning("No images folder found", subject_dir=subject_dir)
                 continue
 
             year_dirs = [d for d in images_dir.iterdir() if d.is_dir()]
 
             if not year_dirs:
-                logger.warning(f"No year folders found in {images_dir}")
+                logger.warning("No year folders found", images_dir=images_dir)
                 continue
 
             for year_dir in tqdm(year_dirs, desc=f"Extracting {subject}", leave=False):
                 year = year_dir.name
 
                 if self._is_completed(completed, subject, year):
-                    logger.info(f"Skipping {subject}/{year}, already extracted")
+                    logger.info(
+                        "Skipping, already extracted", subject=subject, year=year
+                    )
                     continue
 
                 output_dir = self.extraction_dir / subject / year

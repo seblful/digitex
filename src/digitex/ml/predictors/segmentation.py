@@ -57,7 +57,7 @@ class YOLO_SegmentationPredictor(Predictor):
                     model_path = Path.cwd() / model_path
                 model_str = str(model_path.resolve())
                 self._model = YOLO(model_str, verbose=False)
-                logger.info(f"Model loaded successfully from {self.model_path}")
+                logger.info("Model loaded successfully", model_path=self.model_path)
             except Exception as e:
                 raise RuntimeError(f"Failed to load model from {self.model_path}: {e}")
 
@@ -129,7 +129,7 @@ class YOLO_SegmentationPredictor(Predictor):
                 ids.append(idx)
                 polygons.append(polygon)
             except Exception as e:
-                logger.warning(f"Failed to process prediction: {e}")
+                logger.warning("Failed to process prediction", error=e)
                 continue
 
         result = SegmentationPredictionResult(

@@ -43,7 +43,7 @@ class TextExtractor:
         """
         language = lang if lang is not None else self.language
         text = pytesseract.image_to_string(image, lang=language, config=config)
-        logger.debug(f"OCR text: '{text.strip()}'")
+        logger.debug("OCR text", text=text.strip())
         return text.strip()
 
     def extract_digits(
@@ -63,5 +63,6 @@ class TextExtractor:
         language = lang if lang is not None else self.language
         text = self.extract_text(image, config=_TESSERACT_CONFIG_DIGITS, lang=language)
         numbers = re.findall(r"\d+", text)
-        logger.debug(f"OCR digits: {numbers}")
+        print(f"Extracted digits: {numbers}")
+        logger.debug("OCR digits", numbers=numbers)
         return [int(n) for n in numbers]
