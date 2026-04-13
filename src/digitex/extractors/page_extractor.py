@@ -87,7 +87,8 @@ class PageExtractor:
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
         digits = self._text_extractor.extract_digits(cropped)
         if digits:
-            return digits[0] % 10
+            remainder = digits[0] % 10
+            return 10 if remainder == 0 else remainder
         return None
 
     def _extract_part_letter(
@@ -126,7 +127,7 @@ class PageExtractor:
         for class_id in result.ids:
             label = self._get_label_name(result, class_id)
             class_counts[label] = class_counts.get(label, 0) + 1
-        logger.debug(f"Predictions: {class_counts}")
+        logger.debug("Predictions", class_counts=class_counts)
 
         detections: list[tuple[tuple[int, int], Detection]] = []
         for class_id, polygon in zip(result.ids, result.polygons):
@@ -166,17 +167,20 @@ class PageExtractor:
                     option_counter = new_option
                     part_letter = "A"
                     question_counter = 0
-                    logger.debug(f"Option changed to: {option_counter}")
+                    logger.debug("Option changed", option_counter=option_counter)
             elif label == "part":
                 new_part_letter = self._extract_part_letter(image, polygon)
                 if new_part_letter is not None and new_part_letter != part_letter:
                     part_letter = new_part_letter
                     question_counter = 0
-                    logger.debug(f"Part changed to: {part_letter}")
+                    logger.debug("Part changed", part_letter=part_letter)
             elif label == "question":
                 question_counter += 1
                 logger.debug(
-                    f"Extracting Option {option_counter}: {part_letter}{question_counter}"
+                    "Extracting option",
+                    option_counter=option_counter,
+                    part_letter=part_letter,
+                    question_counter=question_counter,
                 )
 
                 output_subdir = output_dir / str(option_counter) / part_letter
