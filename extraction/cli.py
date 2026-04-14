@@ -42,6 +42,40 @@ def extract() -> None:
 
 
 @app.command()
+def count() -> None:
+    """Count images in each subfolder of the extraction output."""
+    settings = get_settings()
+    folder = settings.paths.extraction_dir / settings.extraction.output_dir_name
+
+    if not folder.exists() or not folder.is_dir():
+        typer.echo(f"Error: {folder} is not a valid directory")
+        raise typer.Exit(code=1)
+
+    def count_images(root: Path) -> dict[Path, int]:
+        result: dict[Path, int] = {}
+        for item in root.iterdir():
+            if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS:
+                if root not in result:
+                    result[root] = 0
+                result[root] += 1
+            elif item.is_dir():
+                result.update(count_images(item))
+        return result
+
+    counts = count_images(folder)
+    if not counts:
+        typer.echo("No images found")
+        return
+
+    for subfolder, count in sorted(counts.items()):
+        rel = subfolder.relative_to(folder)
+        typer.echo(f"{rel}: {count}")
+
+    total = sum(counts.values())
+    typer.echo(f"\nTotal: {total} images in {len(counts)} folders")
+
+
+@app.command()
 def renumber(
     dry_run: bool = typer.Option(True, help="Preview changes without renaming"),
 ) -> None:
