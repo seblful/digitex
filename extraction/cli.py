@@ -44,6 +44,8 @@ def extract() -> None:
 @app.command()
 def count() -> None:
     """Count images in each subfolder of the extraction output."""
+    from collections import Counter
+
     settings = get_settings()
     folder = settings.paths.extraction_dir / settings.extraction.output_dir_name
 
@@ -62,14 +64,78 @@ def count() -> None:
                 result.update(count_images(item))
         return result
 
+    def get_mode(values: list[int]) -> int:
+        if not values:
+            return 0
+        counter = Counter(values)
+        return counter.most_common(1)[0][0]
+
+    def get_all_modes(values: list[int]) -> set[int]:
+        if not values:
+            return set()
+        counter = Counter(values)
+        max_count = counter.most_common(1)[0][1]
+        return {v for v, c in counter.items() if c == max_count}
+
     counts = count_images(folder)
     if not counts:
         typer.echo("No images found")
         return
 
-    for subfolder, count in sorted(counts.items()):
-        rel = subfolder.relative_to(folder)
-        typer.echo(f"{rel}: {count}")
+    struct: dict[str, dict[str, dict[str, dict[str, int]]]] = {}
+    for path, img_count in counts.items():
+        parts = path.relative_to(folder).parts
+        if len(parts) >= 4:
+            subject, year, option, part = parts[0], parts[1], parts[2], parts[3]
+            if subject not in struct:
+                struct[subject] = {}
+            if year not in struct[subject]:
+                struct[subject][year] = {}
+            if option not in struct[subject][year]:
+                struct[subject][year][option] = {}
+            struct[subject][year][option][part] = img_count
+
+    for subject in sorted(struct):
+        typer.echo(subject)
+        for year in sorted(struct[subject], key=lambda y: int(y) if y.isdigit() else y):
+            options = struct[subject][year]
+            num_options = len(options)
+            year_label = f"  {year}: {num_options} options"
+
+            all_parts: dict[str, list[int]] = {}
+            for opt in options:
+                for part, count in options[opt].items():
+                    if part not in all_parts:
+                        all_parts[part] = []
+                    all_parts[part].append(count)
+
+            part_modes: dict[str, set[int]] = {}
+            for part, part_counts in all_parts.items():
+                part_modes[part] = get_all_modes(part_counts)
+
+            all_good = True
+            for opt in options:
+                for part, part_count in options[opt].items():
+                    if part_count not in part_modes[part]:
+                        all_good = False
+                        break
+                if not all_good:
+                    break
+
+            if num_options < 10:
+                year_label = typer.style(year_label, fg="red", bold=True)
+            elif all_good:
+                year_label = typer.style(year_label, fg="green")
+            typer.echo(year_label)
+
+            for opt in sorted(options, key=lambda o: int(o) if o.isdigit() else o):
+                parts_dict = options[opt]
+                for part in sorted(parts_dict, key=lambda p: p):
+                    part_count = parts_dict[part]
+                    label = f"    {opt}/{part}: {part_count} images"
+                    if part_count not in part_modes[part]:
+                        label = typer.style(label, fg="red", bold=True)
+                    typer.echo(label)
 
     total = sum(counts.values())
     typer.echo(f"\nTotal: {total} images in {len(counts)} folders")
