@@ -65,7 +65,12 @@ class BookExtractor:
 
             option_counter, part_letter, question_counter = (
                 self._page_extractor.extract(
-                    image, output_dir, option_counter, part_letter, question_counter
+                    image,
+                    output_dir,
+                    option_counter,
+                    part_letter,
+                    question_counter,
+                    image_path.name,
                 )
             )
 

@@ -71,7 +71,10 @@ class PageExtractor:
         image: Image.Image,
         polygon: list[tuple[int, int]],
         output_path: Path,
-    ) -> None:
+        current_option: int,
+        source_image_name: str,
+        output_dir: Path,
+    ) -> int:
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
         cropped = resize_image(
             cropped, self.question_max_width, self.question_max_height
@@ -79,7 +82,59 @@ class PageExtractor:
         processed = self._segment_processor.process(cropped)
         output_path = output_path.with_suffix(f".{self.image_format}")
         output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if output_path.exists():
+            return self._handle_existing_file(
+                output_path, processed, current_option, source_image_name, output_dir
+            )
+
         processed.save(output_path)
+        return current_option
+
+    def _handle_existing_file(
+        self,
+        output_path: Path,
+        new_image: Image.Image,
+        current_option: int,
+        source_image_name: str,
+        output_dir: Path,
+    ) -> int:
+        existing_option = self._resolve_option_conflict(
+            new_image, output_path, current_option, source_image_name
+        )
+        if existing_option != current_option:
+            correct_path = output_dir / str(existing_option) / "A" / output_path.name
+            correct_path.parent.mkdir(parents=True, exist_ok=True)
+            logger.info(
+                "Saving corrected image",
+                from_path=output_path,
+                to_path=correct_path,
+            )
+            new_image.save(str(correct_path))
+            output_path.unlink()
+            return existing_option
+        return existing_option
+
+    def _resolve_option_conflict(
+        self,
+        new_image: Image.Image,
+        existing_path: Path,
+        current_option: int,
+        source_image_name: str,
+    ) -> int:
+        new_image.show()
+        print(f"Image: {source_image_name}")
+        print(f"Current option: {current_option}")
+
+        while True:
+            user_input = input(
+                f"Enter correct option number (current: {current_option}): "
+            ).strip()
+            if user_input.isdigit():
+                option = int(user_input)
+                if 1 <= option <= 10:
+                    return option
+            print("Please enter a number between 1 and 10")
 
     def _extract_option_number(
         self, image: Image.Image, polygon: list[tuple[int, int]]
@@ -145,6 +200,7 @@ class PageExtractor:
         option_counter: int,
         part_letter: str,
         question_counter: int,
+        source_image_name: str,
     ) -> tuple[int, str, int]:
         """Extract questions from a single page image.
 
@@ -154,6 +210,7 @@ class PageExtractor:
             option_counter: Current option counter.
             part_letter: Current part letter ("A" or "B").
             question_counter: Current question counter.
+            source_image_name: Source image filename for display.
 
         Returns:
             Updated tuple of (option_counter, part_letter, question_counter).
@@ -175,6 +232,19 @@ class PageExtractor:
                     question_counter = 0
                     logger.debug("Part changed", part_letter=part_letter)
             elif label == "question":
+                output_subdir = output_dir / str(option_counter) / part_letter
+                output_path = (
+                    output_subdir / f"{question_counter + 1}.{self.image_format}"
+                )
+
+                resolved_option = self._crop_and_save(
+                    image,
+                    polygon,
+                    output_path,
+                    option_counter,
+                    source_image_name,
+                    output_dir,
+                )
                 question_counter += 1
                 logger.debug(
                     "Extracting option",
@@ -182,10 +252,13 @@ class PageExtractor:
                     part_letter=part_letter,
                     question_counter=question_counter,
                 )
-
-                output_subdir = output_dir / str(option_counter) / part_letter
-                output_path = output_subdir / f"{question_counter}.{self.image_format}"
-
-                self._crop_and_save(image, polygon, output_path)
+                if resolved_option != option_counter:
+                    logger.info(
+                        "Option corrected",
+                        from_option=option_counter,
+                        to_option=resolved_option,
+                    )
+                    option_counter = resolved_option
+                    part_letter = "A"
 
         return option_counter, part_letter, question_counter
