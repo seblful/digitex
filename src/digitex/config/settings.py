@@ -18,6 +18,11 @@ class ExtractionSettings(BaseSettings):
         description="Path to the YOLO segmentation model",
     )
 
+    data_dir_name: str = Field(
+        default="data",
+        description="Subdirectory name for extraction data",
+    )
+
     output_dir_name: str = Field(
         default="output",
         description="Subdirectory name for extracted images",

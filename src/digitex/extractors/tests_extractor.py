@@ -10,8 +10,6 @@ from digitex.extractors.book_extractor import BookExtractor
 
 logger = structlog.get_logger()
 
-PROGRESS_FILE = "progress.json"
-
 
 class TestsExtractor:
     """Orchestrates extraction of question images from all image books."""
@@ -24,10 +22,12 @@ class TestsExtractor:
         question_max_height: int,
         books_dir: Path,
         extraction_dir: Path,
+        data_dir: Path | None = None,
     ) -> None:
         self.books_dir = books_dir
         self.extraction_dir = extraction_dir
-        self._progress_path = extraction_dir / PROGRESS_FILE
+        self.data_dir = data_dir or extraction_dir.parent / "data"
+        self._progress_path = self.data_dir / "progress.json"
 
         self._book_extractor = BookExtractor(
             model_path=model_path,

@@ -8,7 +8,7 @@ training/data/
 
 # Extraction outputs
 extraction/models/
-extraction/output/
+extraction/data/
 
 # Drafts
 draft*.py

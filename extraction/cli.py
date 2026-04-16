@@ -36,6 +36,7 @@ def extract() -> None:
         question_max_height=settings.extraction.question_max_height,
         books_dir=settings.paths.books_dir,
         extraction_dir=settings.paths.extraction_dir
+        / settings.extraction.data_dir_name
         / settings.extraction.output_dir_name,
     )
     extractor.extract_all()
@@ -47,7 +48,11 @@ def count() -> None:
     from collections import Counter
 
     settings = get_settings()
-    folder = settings.paths.extraction_dir / settings.extraction.output_dir_name
+    folder = (
+        settings.paths.extraction_dir
+        / settings.extraction.data_dir_name
+        / settings.extraction.output_dir_name
+    )
 
     if not folder.exists() or not folder.is_dir():
         typer.echo(f"Error: {folder} is not a valid directory")
@@ -147,7 +152,11 @@ def renumber(
 ) -> None:
     """Renumber images in the extraction output folder to fill gaps (e.g., 1, 2, 4, 5 -> 1, 2, 3, 4)."""
     settings = get_settings()
-    folder = settings.paths.extraction_dir / settings.extraction.output_dir_name
+    folder = (
+        settings.paths.extraction_dir
+        / settings.extraction.data_dir_name
+        / settings.extraction.output_dir_name
+    )
 
     if not folder.exists() or not folder.is_dir():
         typer.echo(f"Error: {folder} is not a valid directory")
