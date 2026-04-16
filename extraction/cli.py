@@ -15,6 +15,7 @@ import typer
 
 from digitex import TestsExtractor
 from digitex.config import get_settings
+from digitex.extractors.manual_extractor import ManualExtractor
 from digitex.logging import setup_logging
 
 setup_logging()
@@ -211,6 +212,38 @@ def renumber(
         typer.echo(f"Renamed {total} files successfully")
     else:
         typer.echo("All images are already sequential")
+
+
+@app.command()
+def add_manual(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Preview changes without applying"
+    ),
+) -> None:
+    """Add manually cropped question images to the extraction output.
+
+    Manual images should be placed in extraction/data/manual/{subject}/
+    with filename format: YYYY_OPTION_PART_QUESTION.png
+    Example: biology/2016_3_A_20.png
+    """
+    settings = get_settings()
+    manual_dir = (
+        settings.paths.extraction_dir / settings.extraction.data_dir_name / "manual"
+    )
+    output_dir = (
+        settings.paths.extraction_dir
+        / settings.extraction.data_dir_name
+        / settings.extraction.output_dir_name
+    )
+
+    extractor = ManualExtractor(
+        image_format=settings.extraction.image_format,
+        question_max_width=settings.extraction.question_max_width,
+        question_max_height=settings.extraction.question_max_height,
+        manual_dir=manual_dir,
+        output_dir=output_dir,
+    )
+    extractor.process_all(dry_run=dry_run)
 
 
 if __name__ == "__main__":
