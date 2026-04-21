@@ -370,8 +370,10 @@ class AnswersExtractor(BaseExtractor):
                 logger.error(error_msg)
                 errors.append(error_msg)
 
-        return ExtractionResult.success_result(
-            processed=processed_count,
+        return ExtractionResult.failure_result(
             errors=errors,
+            processed=processed_count,
+        ) if errors else ExtractionResult.success_result(
+            processed=processed_count,
             metadata={"years_processed": len(results)},
         )

@@ -42,34 +42,28 @@ YYYY_OPTION_PART_QUESTION.png
 ### Count Images
 
 ```bash
-# Count all subjects
-uv run python -m training.cli count
-
-# Count total images per subject
-uv run python -m training.cli count --subject biology
-
-# Count specific year/option/part
-uv run python -m training.cli count --subject biology --year 2016 --option 1 --part A
+# Count images for a specific subject
+digitex-extract count-questions biology
 ```
 
 ### Renumber Files
 
 ```bash
-# Preview renumbering from question 10
-uv run python -m training.cli renumber --subject biology --year 2016 --option 1 --part A --start 10 --dry-run
+# Preview renumbering for a subject
+digitex-extract renumber-questions biology --dry-run
 
 # Apply renumbering
-uv run python -m training.cli renumber --subject biology --year 2016 --option 1 --part A --start 10
+digitex-extract renumber-questions biology
 ```
 
 ### Add Manual Images
 
 ```bash
-# Process all manual images
-uv run python -m training.cli extract-manual
+# Process all manual images for a subject
+digitex-extract add-questions-manually biology
 
 # Dry run (preview only)
-uv run python -m training.cli extract-manual --dry-run
+digitex-extract add-questions-manually biology --dry-run
 ```
 
 ## Workflow
@@ -77,7 +71,7 @@ uv run python -m training.cli extract-manual --dry-run
 ### 1. Count Existing Images
 
 ```bash
-uv run python -m training.cli count --subject biology
+digitex-extract count-questions biology
 ```
 
 ### 2. Clean Broken Images
@@ -91,26 +85,29 @@ del extraction\output\biology\2016\1\A\broken_image.jpg
 
 ### 3. Prepare Images
 
-Place manually cropped question images in `extraction/data/<subject>/`.
+Place manually cropped question images in `extraction/data/manual/<subject>/`.
+
+**Important:** Manual images must be placed in the `manual` subdirectory, not directly in the subject folder.
 
 ### 4. Renumber Files
 
 If inserting a question that already exists, renumber first to avoid conflicts:
 
 ```bash
-uv run python -m training.cli renumber --subject biology --year 2016 --option 1 --part A --start 10
+digitex-extract renumber-questions biology --dry-run
 ```
 
 ### 5. Add Manual Images
 
 ```bash
-uv run python -m training.cli extract-manual
+digitex-extract add-questions-manually biology --dry-run  # Preview first
+digitex-extract add-questions-manually biology            # Apply changes
 ```
 
-### 6. Count Existing Images
+### 6. Verify Results
 
 ```bash
-uv run python -m training.cli count --subject biology
+digitex-extract count-questions biology
 ```
 
 **Behavior:**
@@ -121,27 +118,16 @@ uv run python -m training.cli count --subject biology
 - Automatically renumbers subsequent files if target exists
 - Deletes source manual file after processing
 
-## Training Data Paths
+## Directory Locations
 
-For training workflows, list image paths in `training/data/<task>/images.txt`:
+**Manual Input:** `extraction/data/manual/<subject>/`
+- Place your manually cropped `.png` files here
+- Files are processed and moved to output
+- Source files are deleted after processing
 
-```
-books/biology/2016/14.jpg
-books/biology/2016/15.jpg
-books/physics/2024/3.jpg
-```
-
-**Format:**
-
-- One relative path per line
-- Paths are relative to project root
-- Structure: `books/<subject>/<year>/<page>.jpg`
-
-Then add them with:
-
-```bash
-uv run python -m training.cli add-images page
-```
+**Output:** `extraction/data/output/<subject>/<year>/<option>/<part>/`
+- Processed images saved here
+- Format: `<question_number>.jpg`
 
 ## Troubleshooting
 

@@ -1,6 +1,5 @@
 """Tests extractor that orchestrates extraction of all image books."""
 
-import json
 from pathlib import Path
 
 import structlog
@@ -62,8 +61,11 @@ class TestsExtractor(BaseExtractor):
         if not self.books_dir.exists():
             raise DirectoryNotFoundError(self.books_dir)
 
-    def extract_all(self) -> ExtractionResult:
-        """Extract question images from all subjects in the books directory.
+    def extract(self, subject: str) -> ExtractionResult:
+        """Extract question images from a specific subject.
+
+        Args:
+            subject: Subject name to extract (e.g., 'biology', 'chemistry').
 
         Returns:
             ExtractionResult with statistics.
@@ -73,67 +75,54 @@ class TestsExtractor(BaseExtractor):
         except DirectoryNotFoundError as e:
             return ExtractionResult.failure_result(errors=[str(e)])
 
-        subject_dirs = [d for d in self.books_dir.iterdir() if d.is_dir()]
+        subject_dir = self.books_dir / subject
 
-        if not subject_dirs:
-            logger.warning("No subject folders found", books_dir=str(self.books_dir))
+        if not subject_dir.exists():
+            return ExtractionResult.failure_result(
+                errors=[f"Subject '{subject}' not found in {self.books_dir}"]
+            )
+
+        images_dir = subject_dir / "images"
+
+        if not images_dir.exists():
+            logger.warning("No images folder found", subject_dir=str(subject_dir))
+            return ExtractionResult.failure_result(
+                errors=[f"No images folder found for subject '{subject}'"]
+            )
+
+        year_dirs = [d for d in images_dir.iterdir() if d.is_dir()]
+
+        if not year_dirs:
+            logger.warning("No year folders found", images_dir=str(images_dir))
             return ExtractionResult.success_result(
-                processed=0, warnings=["No subject folders found"]
+                processed=0, warnings=[f"No year folders found for subject '{subject}'"]
             )
 
         total_processed = 0
         total_skipped = 0
         warnings: list[str] = []
 
-        for subject_dir in tqdm(subject_dirs, desc="Processing subjects"):
-            subject = subject_dir.name
-            images_dir = subject_dir / "images"
+        for year_dir in tqdm(year_dirs, desc=f"Extracting {subject}"):
+            year = year_dir.name
 
-            if not images_dir.exists():
-                logger.warning(
-                    "No images folder found", subject_dir=str(subject_dir)
-                )
-                warnings.append(f"No images folder for {subject}")
+            if self._progress_tracker.is_completed(subject, year):
+                logger.info("Skipping, already extracted", subject=subject, year=year)
+                total_skipped += 1
                 continue
 
-            year_dirs = [d for d in images_dir.iterdir() if d.is_dir()]
+            output_dir = self.extraction_dir / subject / year
+            self._book_extractor.extract(year_dir, output_dir)
 
-            if not year_dirs:
-                logger.warning("No year folders found", images_dir=str(images_dir))
-                warnings.append(f"No year folders for {subject}")
-                continue
-
-            for year_dir in tqdm(
-                year_dirs, desc=f"Extracting {subject}", leave=False
-            ):
-                year = year_dir.name
-
-                if self._progress_tracker.is_completed(subject, year):
-                    logger.info("Skipping, already extracted", subject=subject, year=year)
-                    total_skipped += 1
-                    continue
-
-                output_dir = self.extraction_dir / subject / year
-                self._book_extractor.extract(year_dir, output_dir)
-
-                self._progress_tracker.mark_completed(subject, year)
-                self._progress_tracker.save()
-                total_processed += 1
+            self._progress_tracker.mark_completed(subject, year)
+            self._progress_tracker.save()
+            total_processed += 1
 
         return ExtractionResult.success_result(
             processed=total_processed,
             skipped=total_skipped,
             warnings=warnings,
-            metadata={"subjects": len(subject_dirs)},
+            metadata={"subject": subject, "years": len(year_dirs)},
         )
-
-    def extract(self) -> ExtractionResult:
-        """Extract all tests (alias for extract_all).
-
-        Returns:
-            ExtractionResult with statistics.
-        """
-        return self.extract_all()
 
     def get_progress_tracker(self) -> ProgressTracker:
         """Get the progress tracker instance."""

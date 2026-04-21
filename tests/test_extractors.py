@@ -361,8 +361,8 @@ class TestTestsExtractor:
         assert "progress.json" in str(extractor._progress_tracker._path)
         assert extractor._book_extractor is not None
 
-    def test_extract_all_raises_on_missing_books_dir(self, tmp_path: Path) -> None:
-        """Test extract_all raises FileNotFoundError for missing books directory."""
+    def test_extract_raises_on_missing_books_dir(self, tmp_path: Path) -> None:
+        """Test extract raises FileNotFoundError for missing books directory."""
         extractor = TestsExtractor(
             model_path=Path("model.pt"),
             image_format="jpg",
@@ -371,26 +371,69 @@ class TestTestsExtractor:
             books_dir=tmp_path / "nonexistent",
             extraction_dir=tmp_path / "extraction",
         )
-        result = extractor.extract_all()
+        result = extractor.extract("math")
         assert not result.success
         assert len(result.errors) > 0
 
-    def test_extract_all_no_subjects(self, tmp_path: Path) -> None:
-        """Test extract_all with empty books directory."""
+    def test_extract_subject_not_found(self, tmp_path: Path) -> None:
+        """Test extract returns error when subject not found."""
+        books_dir = tmp_path / "books"
+        books_dir.mkdir()
+        
         extractor = TestsExtractor(
             model_path=Path("model.pt"),
             image_format="jpg",
             question_max_width=2000,
             question_max_height=2000,
-            books_dir=tmp_path,
+            books_dir=books_dir,
             extraction_dir=tmp_path / "extraction",
         )
-        result = extractor.extract_all()
+        result = extractor.extract("nonexistent")
+        assert not result.success
+        assert "Subject 'nonexistent' not found" in result.errors[0]
+
+    def test_extract_no_images_folder(self, tmp_path: Path) -> None:
+        """Test extract returns error when images folder missing."""
+        books_dir = tmp_path / "books"
+        books_dir.mkdir()
+        subject_dir = books_dir / "math"
+        subject_dir.mkdir()
+        
+        extractor = TestsExtractor(
+            model_path=Path("model.pt"),
+            image_format="jpg",
+            question_max_width=2000,
+            question_max_height=2000,
+            books_dir=books_dir,
+            extraction_dir=tmp_path / "extraction",
+        )
+        result = extractor.extract("math")
+        assert not result.success
+        assert "No images folder found" in result.errors[0]
+
+    def test_extract_no_year_folders(self, tmp_path: Path) -> None:
+        """Test extract returns warning when no year folders."""
+        books_dir = tmp_path / "books"
+        books_dir.mkdir()
+        subject_dir = books_dir / "math"
+        images_dir = subject_dir / "images"
+        images_dir.mkdir(parents=True)
+        
+        extractor = TestsExtractor(
+            model_path=Path("model.pt"),
+            image_format="jpg",
+            question_max_width=2000,
+            question_max_height=2000,
+            books_dir=books_dir,
+            extraction_dir=tmp_path / "extraction",
+        )
+        result = extractor.extract("math")
         assert result.success
         assert result.processed == 0
+        assert len(result.warnings) > 0
 
-    def test_extract_all_skips_completed(self, tmp_path: Path) -> None:
-        """Test extract_all skips already completed extractions."""
+    def test_extract_skips_completed(self, tmp_path: Path) -> None:
+        """Test extract skips already completed years."""
         books_dir = tmp_path / "books"
         books_dir.mkdir()
         subject_dir = books_dir / "math"
@@ -419,9 +462,10 @@ class TestTestsExtractor:
         )
 
         with patch.object(extractor._book_extractor, "extract") as mock_extract:
-            result = extractor.extract_all()
+            result = extractor.extract("math")
             mock_extract.assert_not_called()
             assert result.skipped == 1
+            assert result.processed == 0
 
 
 class TestManualExtractor:

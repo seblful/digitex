@@ -1,7 +1,6 @@
 """Page extractor for extracting question images from a single page."""
 
 from pathlib import Path
-from typing import Any
 
 import structlog
 from PIL import Image

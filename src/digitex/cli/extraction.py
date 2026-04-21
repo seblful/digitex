@@ -5,9 +5,8 @@ from typing import Annotated
 
 from digitex.config import get_settings
 from digitex.extractors.factory import ExtractorFactory
-from digitex.extractors.manual_extractor import ManualExtractor
 from digitex.extractors.utils import (
-    count_images_by_hierarchy,
+    count_subject_images,
     count_total_images,
     get_mode_values,
     renumber_directory_tree,
@@ -22,15 +21,22 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
 
 
 @app.command(name="extract-questions")
-def extract_questions() -> None:
-    """Extract question images from all image books."""
+def extract_questions(
+    subject: Annotated[
+        str, typer.Argument(help="Subject name to extract (e.g., biology, chemistry)")
+    ],
+) -> None:
+    """Extract question images from a specific subject.
+    
+    SUBJECT is the name of the subject folder in the books directory.
+    """
     extractor = ExtractorFactory.create_tests_extractor()
-    result = extractor.extract_all()
+    result = extractor.extract(subject=subject)
 
     if result.success:
         typer.echo(
             typer.style(
-                f"✓ Extraction completed: {result.processed} processed, {result.skipped} skipped",
+                f"✓ Extraction completed: {result.processed} processed, {result.skipped} skipped (subject: {subject})",
                 fg="green",
             )
         )
@@ -47,95 +53,96 @@ def extract_questions() -> None:
 
 @app.command(name="count-questions")
 def count_questions(
-    subject: Annotated[str | None, typer.Option(help="Filter by subject name")] = None,
+    subject: Annotated[
+        str, typer.Argument(help="Subject name to count (e.g., biology, chemistry)")
+    ],
 ) -> None:
-    """Count images in each subfolder of the extraction output."""
+    """Count images in a specific subject's extraction output."""
     settings = get_settings()
     folder = (
         settings.paths.extraction_dir
         / settings.extraction.data_dir_name
         / settings.extraction.output_dir_name
+        / subject
     )
 
     if not folder.exists() or not folder.is_dir():
-        typer.echo(f"Error: {folder} is not a valid directory", err=True)
+        typer.echo(f"Error: Subject '{subject}' not found", err=True)
         raise typer.Exit(code=1)
 
-    counts = count_images_by_hierarchy(folder)
+    counts = count_subject_images(folder)
 
     if not counts:
-        typer.echo("No images found")
+        typer.echo(f"No images found for subject '{subject}'")
         return
 
-    for subj in sorted(counts):
-        if subject and subj != subject:
-            continue
+    for year in sorted(counts, key=lambda y: int(y) if y.isdigit() else y):
+        options = counts[year]
+        num_options = len(options)
+        year_label = f"  {year}: {num_options} options"
 
-        typer.echo(subj)
-        for year in sorted(counts[subj], key=lambda y: int(y) if y.isdigit() else y):
-            options = counts[subj][year]
-            num_options = len(options)
-            year_label = f"  {year}: {num_options} options"
+        all_parts: dict[str, list[int]] = {}
+        for opt in options:
+            for part, count in options[opt].items():
+                if part not in all_parts:
+                    all_parts[part] = []
+                all_parts[part].append(count)
 
-            all_parts: dict[str, list[int]] = {}
-            for opt in options:
-                for part, count in options[opt].items():
-                    if part not in all_parts:
-                        all_parts[part] = []
-                    all_parts[part].append(count)
+        part_modes: dict[str, set[int]] = {}
+        for part, part_counts in all_parts.items():
+            part_modes[part] = get_mode_values(part_counts)
 
-            part_modes: dict[str, set[int]] = {}
-            for part, part_counts in all_parts.items():
-                part_modes[part] = get_mode_values(part_counts)
-
-            all_good = True
-            for opt in options:
-                for part, part_count in options[opt].items():
-                    if part_count not in part_modes[part]:
-                        all_good = False
-                        break
-                if not all_good:
+        all_good = True
+        for opt in options:
+            for part, part_count in options[opt].items():
+                if part_count not in part_modes[part]:
+                    all_good = False
                     break
+            if not all_good:
+                break
 
-            if num_options < 10:
-                year_label = typer.style(year_label, fg="red", bold=True)
-            elif all_good:
-                year_label = typer.style(year_label, fg="green")
-            typer.echo(year_label)
+        if num_options < 10:
+            year_label = typer.style(year_label, fg="red", bold=True)
+        elif all_good:
+            year_label = typer.style(year_label, fg="green")
+        typer.echo(year_label)
 
-            for opt in sorted(options, key=lambda o: int(o) if o.isdigit() else o):
-                parts_dict = options[opt]
-                for part in sorted(parts_dict, key=lambda p: p):
-                    part_count = parts_dict[part]
-                    label = f"    {opt}/{part}: {part_count} images"
-                    if part_count not in part_modes[part]:
-                        label = typer.style(label, fg="red", bold=True)
-                    typer.echo(label)
+        for opt in sorted(options, key=lambda o: int(o) if o.isdigit() else o):
+            parts_dict = options[opt]
+            for part in sorted(parts_dict, key=lambda p: p):
+                part_count = parts_dict[part]
+                label = f"    {opt}/{part}: {part_count} images"
+                if part_count not in part_modes[part]:
+                    label = typer.style(label, fg="red", bold=True)
+                typer.echo(label)
 
     total_images, total_folders = count_total_images(folder)
-    typer.echo(f"\nTotal: {total_images} images in {total_folders} folders")
+    typer.echo(f"\nTotal: {total_images} images in {total_folders} folders (subject: {subject})")
 
 
 @app.command(name="renumber-questions")
 def renumber_questions(
+    subject: Annotated[
+        str, typer.Argument(help="Subject name to renumber (e.g., biology, chemistry)")
+    ],
     dry_run: Annotated[
         bool, typer.Option(help="Preview changes without renaming")
     ] = True,
-    subject: Annotated[str | None, typer.Option(help="Filter by subject name")] = None,
 ) -> None:
-    """Renumber images in the extraction output folder to fill gaps (e.g., 1, 2, 4, 5 -> 1, 2, 3, 4)."""
+    """Renumber images in a specific subject's extraction output to fill gaps."""
     settings = get_settings()
     folder = (
         settings.paths.extraction_dir
         / settings.extraction.data_dir_name
         / settings.extraction.output_dir_name
+        / subject
     )
 
     if not folder.exists() or not folder.is_dir():
-        typer.echo(f"Error: {folder} is not a valid directory", err=True)
+        typer.echo(f"Error: Subject '{subject}' not found", err=True)
         raise typer.Exit(code=1)
 
-    total = renumber_directory_tree(folder, subject=subject, dry_run=dry_run)
+    total = renumber_directory_tree(folder, dry_run=dry_run)
 
     if dry_run and total:
         typer.echo(f"\n{total} files would be renamed")
@@ -147,17 +154,32 @@ def renumber_questions(
 
 @app.command(name="add-questions-manually")
 def add_questions_manually(
+    subject: Annotated[
+        str, typer.Argument(help="Subject name to process (e.g., biology, chemistry)")
+    ],
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help="Preview changes without applying")
     ] = False,
 ) -> None:
-    """Add manually cropped question images to the extraction output.
+    """Add manually cropped question images for a specific subject.
 
     Manual images should be placed in extraction/data/manual/{subject}/
     with filename format: YYYY_OPTION_PART_QUESTION.png
     Example: biology/2016_3_A_20.png
     """
-    extractor = ExtractorFactory.create_manual_extractor()
+    settings = get_settings()
+    manual_dir = (
+        settings.paths.extraction_dir
+        / settings.extraction.data_dir_name
+        / "manual"
+        / subject
+    )
+    
+    if not manual_dir.exists():
+        typer.echo(f"Error: Manual directory '{subject}' not found", err=True)
+        raise typer.Exit(code=1)
+    
+    extractor = ExtractorFactory.create_manual_extractor(manual_dir=manual_dir)
     result = extractor.process_all(dry_run=dry_run)
 
     if result.success:
@@ -215,7 +237,7 @@ def extract_answers(
                 typer.echo(f"  - {error}")
     else:
         typer.echo(
-            typer.style(f"✗ Answer extraction failed:", fg="red", bold=True), err=True
+            typer.style("✗ Answer extraction failed:", fg="red", bold=True), err=True
         )
         for error in result.errors:
             typer.echo(f"  - {error}", err=True)

@@ -44,7 +44,6 @@ def count_images_by_hierarchy(
     Returns:
         Nested dictionary: {subject: {year: {option: {part: count}}}}
     """
-    from collections import Counter
 
     def count_in_folder(folder: Path) -> int:
         return sum(
@@ -82,6 +81,50 @@ def count_images_by_hierarchy(
                     result.setdefault(subject, {}).setdefault(year, {}).setdefault(
                         option, {}
                     )[part] = count
+
+    return result
+
+
+def count_subject_images(
+    subject_dir: Path,
+) -> dict[str, dict[str, dict[str, int]]]:
+    """Count images in a subject directory by year/option/part.
+
+    Args:
+        subject_dir: Subject directory containing year folders.
+
+    Returns:
+        Nested dictionary: {year: {option: {part: count}}}
+    """
+    def count_in_folder(folder: Path) -> int:
+        return sum(
+            1
+            for p in folder.iterdir()
+            if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+        )
+
+    result: dict[str, dict[str, dict[str, int]]] = {}
+
+    if not subject_dir.exists() or not subject_dir.is_dir():
+        return result
+
+    for year_dir in subject_dir.iterdir():
+        if not year_dir.is_dir():
+            continue
+        year = year_dir.name
+
+        for option_dir in year_dir.iterdir():
+            if not option_dir.is_dir():
+                continue
+            option = option_dir.name
+
+            for part_dir in option_dir.iterdir():
+                if not part_dir.is_dir():
+                    continue
+                part = part_dir.name
+                count = count_in_folder(part_dir)
+
+                result.setdefault(year, {}).setdefault(option, {})[part] = count
 
     return result
 
