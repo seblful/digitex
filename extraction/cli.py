@@ -13,7 +13,7 @@ if platform.system() == "Windows":
 
 import typer
 
-from digitex import TestsExtractor
+from digitex import AnswersExtractor, TestsExtractor
 from digitex.config import get_settings
 from digitex.extractors.manual_extractor import ManualExtractor
 from digitex.logging import setup_logging
@@ -244,6 +244,24 @@ def add_manual(
         output_dir=output_dir,
     )
     extractor.process_all(dry_run=dry_run)
+
+
+@app.command()
+def extract_answers(
+    subject: str = typer.Argument(..., help="Subject name (e.g., biology, chemistry)"),
+) -> None:
+    """Extract answer keys from answer sheet images using Mistral OCR.
+
+    Answer images should be placed in books/{subject}/answers/
+    with filename format: YYYY_N.jpg (e.g., 2016_1.jpg, 2016_2.jpg)
+
+    Results are saved to extraction/data/output/{subject}/{year}/answers.json
+    """
+    extractor = AnswersExtractor()
+    results = extractor.extract(subject=subject)
+
+    for year in sorted(results.keys()):
+        typer.echo(f"Extracted answers for {year}: {len(results[year])} question types")
 
 
 if __name__ == "__main__":

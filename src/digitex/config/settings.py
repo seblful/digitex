@@ -46,6 +46,27 @@ class ExtractionSettings(BaseSettings):
     )
 
 
+class MistralSettings(BaseSettings):
+    """Mistral API settings."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="MISTRAL_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    api_key: str = Field(
+        default="",
+        description="Mistral API key for OCR services",
+    )
+
+    ocr_model: str = Field(
+        default="mistral-ocr-latest",
+        description="Mistral OCR model name",
+    )
+
+
 class DatabaseSettings(BaseSettings):
     """Database connection settings."""
 
@@ -192,6 +213,7 @@ class Settings(BaseSettings):
     data: DataSettings = Field(default_factory=DataSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)
     extraction: ExtractionSettings = Field(default_factory=ExtractionSettings)
+    mistral: MistralSettings = Field(default_factory=MistralSettings)
     label_studio: LabelStudioSettings = Field(default_factory=LabelStudioSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     app: AppSettings = Field(default_factory=AppSettings)
