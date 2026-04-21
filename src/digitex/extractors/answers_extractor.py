@@ -321,20 +321,7 @@ class AnswersExtractor:
                     encoding="utf-8",
                 )
                 
-                a_count = sum(1 for k in sorted_answers["1"].keys() if k.startswith("A"))
-                b_count = sum(1 for k in sorted_answers["1"].keys() if k.startswith("B"))
-                
-                all_options_same = True
-                first_option_questions = set(sorted_answers["1"].keys())
-                for opt in sorted_answers:
-                    if set(sorted_answers[opt].keys()) != first_option_questions:
-                        all_options_same = False
-                        break
-                
-                status = "✓" if all_options_same else "✗"
-                tqdm.write(
-                    f"Saved answers for {year}: {a_count} A-part, {b_count} B-part [{status}]"
-                )
+                tqdm.write(f"Saved answers for {year}")
 
         return results
 

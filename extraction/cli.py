@@ -258,30 +258,120 @@ def extract_answers(
     Results are saved to extraction/data/output/{subject}/{year}/answers.json
     """
     extractor = AnswersExtractor()
-    results = extractor.extract(subject=subject)
+    extractor.extract(subject=subject)
 
-    typer.echo("\n" + "=" * 60)
-    typer.echo("EXTRACTION SUMMARY")
+
+@app.command()
+def check_answers(
+    subject: str = typer.Argument(..., help="Subject name (e.g., biology, chemistry)"),
+) -> None:
+    """Check that answers.json files correspond to extracted question images.
+
+    Verifies that:
+    1. Each year has an answers.json file
+    2. Questions in answers.json match the image files in option/part folders
+    3. All options have the same questions (validation check)
+    4. Reports any mismatches or missing files
+    """
+    settings = get_settings()
+    output_dir = (
+        settings.paths.extraction_dir
+        / settings.extraction.data_dir_name
+        / settings.extraction.output_dir_name
+        / subject
+    )
+
+    if not output_dir.exists():
+        typer.echo(f"Error: {output_dir} does not exist")
+        raise typer.Exit(code=1)
+
+    import json
+
+    years = sorted([d.name for d in output_dir.iterdir() if d.is_dir()])
+    
+    typer.echo("=" * 60)
+    typer.echo(f"CHECKING ANSWERS FOR: {subject}")
     typer.echo("=" * 60)
     
-    for year in sorted(results.keys()):
-        year_data = results[year]
-        first_option = year_data.get("1", {})
-        a_count = sum(1 for k in first_option.keys() if k.startswith("A"))
-        b_count = sum(1 for k in first_option.keys() if k.startswith("B"))
+    total_issues = 0
+    
+    for year in years:
+        year_dir = output_dir / year
+        answers_file = year_dir / "answers.json"
+        
+        if not answers_file.exists():
+            typer.echo(f"\n{year}: ✗ answers.json NOT FOUND")
+            total_issues += 1
+            continue
+        
+        with open(answers_file, encoding="utf-8") as f:
+            answers_data = json.load(f)
+        
+        answer_questions = set()
+        for option_data in answers_data.values():
+            answer_questions.update(option_data.keys())
+        
+        image_questions = set()
+        for option_folder in year_dir.iterdir():
+            if not option_folder.is_dir():
+                continue
+            for part_folder in option_folder.iterdir():
+                if not part_folder.is_dir():
+                    continue
+                for img_file in part_folder.iterdir():
+                    if img_file.suffix.lower() in IMAGE_EXTENSIONS:
+                        try:
+                            q_num = int(img_file.stem)
+                            part = part_folder.name.upper()
+                            image_questions.add(f"{part}{q_num}")
+                        except ValueError:
+                            pass
+        
+        missing_in_answers = image_questions - answer_questions
+        missing_in_images = answer_questions - image_questions
         
         all_options_same = True
-        first_questions = set(first_option.keys())
-        for opt in year_data:
-            if set(year_data[opt].keys()) != first_questions:
+        first_option_questions = set(answers_data.get("1", {}).keys())
+        for opt in answers_data:
+            if set(answers_data[opt].keys()) != first_option_questions:
                 all_options_same = False
                 break
         
-        status = "✓" if all_options_same else "✗"
-        typer.echo(
-            f"{year}: {a_count} A-part, {b_count} B-part [{status}]"
-        )
+        has_mismatch = bool(missing_in_answers or missing_in_images)
+        if has_mismatch:
+            status = "❌ MISMATCH"
+            total_issues += 1
+        elif not all_options_same:
+            status = "❌ OPTIONS DIFFER"
+            total_issues += 1
+        else:
+            status = "✅ OK"
+        
+        a_count = sum(1 for k in answer_questions if k.startswith("A"))
+        b_count = sum(1 for k in answer_questions if k.startswith("B"))
+        
+        typer.echo(f"\n{year}: {status}")
+        typer.echo(f"  A-part: {a_count}, B-part: {b_count}")
+        typer.echo(f"  Questions in images: {len(image_questions)}")
+        typer.echo(f"  Questions in answers.json: {len(answer_questions)}")
+        
+        if not all_options_same:
+            different_options = [
+                opt for opt in answers_data 
+                if set(answers_data[opt].keys()) != first_option_questions
+            ]
+            typer.echo(f"  Options with different questions: {different_options}")
+        
+        if missing_in_answers:
+            typer.echo(f"  Missing in answers.json: {sorted(missing_in_answers)}")
+        if missing_in_images:
+            typer.echo(f"  Missing in images: {sorted(missing_in_images)}")
     
+    typer.echo("\n" + "=" * 60)
+    if total_issues == 0:
+        typer.echo("RESULT: All years match ✅")
+    else:
+        typer.echo(f"RESULT: {total_issues} issue(s) found ❌")
     typer.echo("=" * 60)
 
 
