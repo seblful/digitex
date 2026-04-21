@@ -71,6 +71,47 @@ class PageDataCreator:
                 skipped += 1
         return saved, skipped
 
+    def add_from_file(
+        self,
+        paths_file: str | Path,
+        output_dir: str | Path,
+    ) -> None:
+        """Add images listed in a txt file to the output directory.
+
+        Args:
+            paths_file: Path to txt file with one relative image path per line.
+            output_dir: Destination directory for processed images.
+        """
+        paths_file = Path(paths_file)
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        lines = paths_file.read_text(encoding="utf-8").strip().splitlines()
+        if not lines:
+            logger.warning("Paths file is empty")
+            return
+
+        valid_paths: list[Path] = []
+        skipped_missing = 0
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            img_path = Path(line)
+            if not img_path.exists():
+                logger.warning("Source not found", path=str(img_path))
+                skipped_missing += 1
+                continue
+            valid_paths.append(img_path)
+
+        saved, skipped_exist = self._save_images(valid_paths, output_dir, "Adding images")
+        logger.info(
+            "Done",
+            processed=saved,
+            skipped_exist=skipped_exist,
+            skipped_missing=skipped_missing,
+        )
+
     def create(
         self,
         books_dir: str | Path,
