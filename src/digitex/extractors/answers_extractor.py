@@ -130,21 +130,6 @@ class AnswersExtractor:
 
         return rows
 
-    def _variant_to_option(self, variant: int, part: int) -> int:
-        """Convert variant number to option number (1-10).
-
-        Args:
-            variant: Variant number (e.g., 11-20).
-            part: Part number (1 or 2).
-
-        Returns:
-            Option number (1-5 for part 1, 6-10 for part 2).
-        """
-        option = variant % 10
-        if option == 0:
-            option = 10
-        return option
-
     def _normalize_label(self, label: str) -> str:
         """Normalize question label to use only Latin A or B.
 
@@ -173,27 +158,6 @@ class AnswersExtractor:
         latin_to_cyrillic = str.maketrans("ABCEHKMOPTXY", "АВСЕНКМОРТХУ")
         return answer.translate(latin_to_cyrillic)
 
-    def _sort_answers(
-        self, answers: dict[str, dict[str, str]]
-    ) -> dict[str, dict[str, str]]:
-        """Sort answers by option number, then by question label.
-
-        Args:
-            answers: Dictionary of {option: {question_label: answer}}.
-
-        Returns:
-            Sorted dictionary with options in order, questions sorted within each option.
-        """
-        sorted_options = sorted(answers.keys(), key=lambda x: int(x))
-        result: dict[str, dict[str, str]] = {}
-        for option in sorted_options:
-            sorted_labels = sorted(
-                answers[option].keys(),
-                key=lambda x: (x[0], int(x[1:])),
-            )
-            result[option] = {label: answers[option][label] for label in sorted_labels}
-        return result
-
     def _parse_answers_from_markdown(
         self, markdown: str, part: int
     ) -> dict[str, dict[str, str]]:
@@ -201,7 +165,7 @@ class AnswersExtractor:
 
         Args:
             markdown: OCR output in markdown format with tables.
-            part: Part number (1 or 2) to determine option mapping.
+            part: Part number (1 or 2) to determine variant mapping.
 
         Returns:
             Dictionary: {option: {question_label: answer}}
@@ -213,13 +177,13 @@ class AnswersExtractor:
 
         variant_row_idx = 0
         for i, row in enumerate(rows):
-            if any(cell.isdigit() and len(cell) == 2 for cell in row):
+            if any(cell.isdigit() for cell in row):
                 variant_row_idx = i
                 break
 
         variants: list[int] = []
         for cell in rows[variant_row_idx]:
-            if cell.isdigit() and 10 <= int(cell) <= 30:
+            if cell.isdigit() and 1 <= int(cell) <= 100:
                 variants.append(int(cell))
 
         if not variants:
@@ -243,11 +207,32 @@ class AnswersExtractor:
 
                 answer = row[i + 1].strip()
                 if answer:
-                    option = str(self._variant_to_option(variant, part))
+                    option = str((variant - 1) % 10 + 1)
                     if option not in result:
                         result[option] = {}
                     result[option][label] = self._normalize_answer(answer)
 
+        return result
+
+    def _sort_answers(
+        self, answers: dict[str, dict[str, str]]
+    ) -> dict[str, dict[str, str]]:
+        """Sort answers by option number, then by question label.
+
+        Args:
+            answers: Dictionary of {option: {question_label: answer}}.
+
+        Returns:
+            Sorted dictionary with options in order, questions sorted within each option.
+        """
+        sorted_options = sorted(answers.keys(), key=lambda x: int(x))
+        result: dict[str, dict[str, str]] = {}
+        for option in sorted_options:
+            sorted_labels = sorted(
+                answers[option].keys(),
+                key=lambda x: (x[0], int(x[1:])),
+            )
+            result[option] = {label: answers[option][label] for label in sorted_labels}
         return result
 
     def _extract_year_and_part(self, image_path: Path) -> tuple[int, int]:
@@ -335,7 +320,21 @@ class AnswersExtractor:
                     json.dumps(sorted_answers, ensure_ascii=False, indent=2),
                     encoding="utf-8",
                 )
-                tqdm.write(f"Saved answers for {year}")
+                
+                a_count = sum(1 for k in sorted_answers["1"].keys() if k.startswith("A"))
+                b_count = sum(1 for k in sorted_answers["1"].keys() if k.startswith("B"))
+                
+                all_options_same = True
+                first_option_questions = set(sorted_answers["1"].keys())
+                for opt in sorted_answers:
+                    if set(sorted_answers[opt].keys()) != first_option_questions:
+                        all_options_same = False
+                        break
+                
+                status = "✓" if all_options_same else "✗"
+                tqdm.write(
+                    f"Saved answers for {year}: {a_count} A-part, {b_count} B-part [{status}]"
+                )
 
         return results
 

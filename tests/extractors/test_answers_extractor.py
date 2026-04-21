@@ -14,22 +14,6 @@ class TestAnswersExtractor:
         """Create an AnswersExtractor instance."""
         return AnswersExtractor.__new__(AnswersExtractor)
 
-    def test_variant_to_option_part1(self, extractor: AnswersExtractor) -> None:
-        """Test variant to option mapping for part 1."""
-        assert extractor._variant_to_option(11, 1) == 1
-        assert extractor._variant_to_option(12, 1) == 2
-        assert extractor._variant_to_option(13, 1) == 3
-        assert extractor._variant_to_option(14, 1) == 4
-        assert extractor._variant_to_option(15, 1) == 5
-
-    def test_variant_to_option_part2(self, extractor: AnswersExtractor) -> None:
-        """Test variant to option mapping for part 2."""
-        assert extractor._variant_to_option(16, 2) == 6
-        assert extractor._variant_to_option(17, 2) == 7
-        assert extractor._variant_to_option(18, 2) == 8
-        assert extractor._variant_to_option(19, 2) == 9
-        assert extractor._variant_to_option(20, 2) == 10
-
     def test_extract_year_and_part(self, extractor: AnswersExtractor) -> None:
         """Test year and part extraction from filename."""
         year, part = extractor._extract_year_and_part(Path("2016_1.jpg"))
@@ -62,7 +46,7 @@ class TestAnswersExtractor:
     def test_parse_answers_simple(self, extractor: AnswersExtractor) -> None:
         """Test parsing simple answer table."""
         markdown = """
-| Задание | 11 | 12 | 13 | 14 | 15 |
+| Задание | 1 | 2 | 3 | 4 | 5 |
 | --- | --- | --- | --- | --- | --- |
 | A1 | 2 | 2 | 1 | 4 | 4 |
 | A2 | 3 | 4 | 1 | 3 | 3 |
@@ -77,7 +61,7 @@ class TestAnswersExtractor:
     def test_parse_answers_complex(self, extractor: AnswersExtractor) -> None:
         """Test parsing answer table with complex answers."""
         markdown = """
-| Задание | 11 | 12 | 13 | 14 | 15 |
+| Задание | 1 | 2 | 3 | 4 | 5 |
 | --- | --- | --- | --- | --- | --- |
 | B1 | 134 | 123 | 125 | 134 | 124 |
 | B2 | А1Б1В5 | А2Б2В5 | А5Б5В1 | А5Б5В2 | А2Б1В1 |
@@ -105,7 +89,7 @@ class TestAnswersExtractor:
     def test_parse_answers_part2(self, extractor: AnswersExtractor) -> None:
         """Test parsing answers for part 2 (options 6-10)."""
         markdown = """
-| Задание | 16 | 17 | 18 | 19 | 20 |
+| Задание | 6 | 7 | 8 | 9 | 10 |
 | --- | --- | --- | --- | --- | --- |
 | A1 | 1 | 2 | 3 | 4 | 1 |
 """

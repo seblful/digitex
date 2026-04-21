@@ -260,8 +260,29 @@ def extract_answers(
     extractor = AnswersExtractor()
     results = extractor.extract(subject=subject)
 
+    typer.echo("\n" + "=" * 60)
+    typer.echo("EXTRACTION SUMMARY")
+    typer.echo("=" * 60)
+    
     for year in sorted(results.keys()):
-        typer.echo(f"Extracted answers for {year}: {len(results[year])} question types")
+        year_data = results[year]
+        first_option = year_data.get("1", {})
+        a_count = sum(1 for k in first_option.keys() if k.startswith("A"))
+        b_count = sum(1 for k in first_option.keys() if k.startswith("B"))
+        
+        all_options_same = True
+        first_questions = set(first_option.keys())
+        for opt in year_data:
+            if set(year_data[opt].keys()) != first_questions:
+                all_options_same = False
+                break
+        
+        status = "✓" if all_options_same else "✗"
+        typer.echo(
+            f"{year}: {a_count} A-part, {b_count} B-part [{status}]"
+        )
+    
+    typer.echo("=" * 60)
 
 
 if __name__ == "__main__":
