@@ -56,6 +56,10 @@ dev = ["pytest>=9.0.2", "ruff>=0.15.9"]
 [tool.hatch.build.targets.wheel]
 packages = ["src/digitex"]
 
+[project.scripts]
+digitex-extract = "digitex.cli.extraction:app"
+digitex-train = "digitex.cli.training:app"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

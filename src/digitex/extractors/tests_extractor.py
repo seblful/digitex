@@ -6,12 +6,17 @@ from pathlib import Path
 import structlog
 from tqdm import tqdm
 
+from digitex.extractors.base import BaseExtractor, ExtractionResult
 from digitex.extractors.book_extractor import BookExtractor
+from digitex.extractors.exceptions import DirectoryNotFoundError
+from digitex.extractors.progress import JSONProgressTracker, ProgressTracker
 
 logger = structlog.get_logger()
 
+PROGRESS_FILE = "progress.json"
 
-class TestsExtractor:
+
+class TestsExtractor(BaseExtractor):
     """Orchestrates extraction of question images from all image books."""
 
     def __init__(
@@ -23,11 +28,27 @@ class TestsExtractor:
         books_dir: Path,
         extraction_dir: Path,
         data_dir: Path | None = None,
+        progress_tracker: ProgressTracker | None = None,
     ) -> None:
+        """Initialize the tests extractor.
+
+        Args:
+            model_path: Path to YOLO segmentation model.
+            image_format: Output image format.
+            question_max_width: Maximum width for question images.
+            question_max_height: Maximum height for question images.
+            books_dir: Directory containing subject folders.
+            extraction_dir: Output directory for extracted images.
+            data_dir: Directory for progress tracking (default: extraction_dir parent / "data").
+            progress_tracker: Optional custom progress tracker.
+        """
         self.books_dir = books_dir
         self.extraction_dir = extraction_dir
         self.data_dir = data_dir or extraction_dir.parent / "data"
-        self._progress_path = self.data_dir / "progress.json"
+
+        self._progress_tracker = progress_tracker or JSONProgressTracker(
+            self.data_dir / PROGRESS_FILE
+        )
 
         self._book_extractor = BookExtractor(
             model_path=model_path,
@@ -36,66 +57,89 @@ class TestsExtractor:
             question_max_height=question_max_height,
         )
 
-    def _load_completed(self) -> dict[str, set[str]]:
-        if not self._progress_path.exists():
-            return {}
-        data = json.loads(self._progress_path.read_text(encoding="utf-8"))
-        return {k: set(v) for k, v in data.items()}
+    def _validate_prerequisites(self) -> None:
+        """Validate that books directory exists."""
+        if not self.books_dir.exists():
+            raise DirectoryNotFoundError(self.books_dir)
 
-    def _save_completed(self, completed: dict[str, set[str]]) -> None:
-        self.extraction_dir.mkdir(parents=True, exist_ok=True)
-        self._progress_path.write_text(
-            json.dumps({k: sorted(v) for k, v in completed.items()}, indent=2),
-            encoding="utf-8",
-        )
-
-    def _is_completed(
-        self, completed: dict[str, set[str]], subject: str, year: str
-    ) -> bool:
-        return year in completed.get(subject, set())
-
-    def extract_all(self) -> None:
+    def extract_all(self) -> ExtractionResult:
         """Extract question images from all subjects in the books directory.
 
-        Raises:
-            FileNotFoundError: If books directory doesn't exist.
+        Returns:
+            ExtractionResult with statistics.
         """
-        if not self.books_dir.exists():
-            raise FileNotFoundError(f"Books directory not found: {self.books_dir}")
+        try:
+            self._validate_prerequisites()
+        except DirectoryNotFoundError as e:
+            return ExtractionResult.failure_result(errors=[str(e)])
 
         subject_dirs = [d for d in self.books_dir.iterdir() if d.is_dir()]
 
         if not subject_dirs:
-            logger.warning("No subject folders found", books_dir=self.books_dir)
-            return
+            logger.warning("No subject folders found", books_dir=str(self.books_dir))
+            return ExtractionResult.success_result(
+                processed=0, warnings=["No subject folders found"]
+            )
 
-        completed = self._load_completed()
+        total_processed = 0
+        total_skipped = 0
+        warnings: list[str] = []
 
         for subject_dir in tqdm(subject_dirs, desc="Processing subjects"):
             subject = subject_dir.name
             images_dir = subject_dir / "images"
 
             if not images_dir.exists():
-                logger.warning("No images folder found", subject_dir=subject_dir)
+                logger.warning(
+                    "No images folder found", subject_dir=str(subject_dir)
+                )
+                warnings.append(f"No images folder for {subject}")
                 continue
 
             year_dirs = [d for d in images_dir.iterdir() if d.is_dir()]
 
             if not year_dirs:
-                logger.warning("No year folders found", images_dir=images_dir)
+                logger.warning("No year folders found", images_dir=str(images_dir))
+                warnings.append(f"No year folders for {subject}")
                 continue
 
-            for year_dir in tqdm(year_dirs, desc=f"Extracting {subject}", leave=False):
+            for year_dir in tqdm(
+                year_dirs, desc=f"Extracting {subject}", leave=False
+            ):
                 year = year_dir.name
 
-                if self._is_completed(completed, subject, year):
-                    logger.info(
-                        "Skipping, already extracted", subject=subject, year=year
-                    )
+                if self._progress_tracker.is_completed(subject, year):
+                    logger.info("Skipping, already extracted", subject=subject, year=year)
+                    total_skipped += 1
                     continue
 
                 output_dir = self.extraction_dir / subject / year
                 self._book_extractor.extract(year_dir, output_dir)
 
-                completed.setdefault(subject, set()).add(year)
-                self._save_completed(completed)
+                self._progress_tracker.mark_completed(subject, year)
+                self._progress_tracker.save()
+                total_processed += 1
+
+        return ExtractionResult.success_result(
+            processed=total_processed,
+            skipped=total_skipped,
+            warnings=warnings,
+            metadata={"subjects": len(subject_dirs)},
+        )
+
+    def extract(self) -> ExtractionResult:
+        """Extract all tests (alias for extract_all).
+
+        Returns:
+            ExtractionResult with statistics.
+        """
+        return self.extract_all()
+
+    def get_progress_tracker(self) -> ProgressTracker:
+        """Get the progress tracker instance."""
+        return self._progress_tracker
+
+    def clear_progress(self) -> None:
+        """Clear all progress tracking."""
+        if hasattr(self._progress_tracker, "clear"):
+            self._progress_tracker.clear()

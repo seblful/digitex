@@ -1,6 +1,7 @@
 """Page extractor for extracting question images from a single page."""
 
 from pathlib import Path
+from typing import Any
 
 import structlog
 from PIL import Image
@@ -11,6 +12,10 @@ from digitex.core.processors import (
     SegmentProcessor,
     resize_image,
 )
+from digitex.extractors.conflict_resolution import (
+    ConflictResolutionStrategy,
+    InteractiveConflictResolution,
+)
 from digitex.ml.predictors import (
     SegmentationPredictionResult,
     YOLO_SegmentationPredictor,
@@ -19,7 +24,6 @@ from digitex.ml.predictors import (
 logger = structlog.get_logger()
 
 Detection = tuple[str, list[tuple[int, int]]]
-
 OCR_LANGUAGE = "rus"
 
 
@@ -29,27 +33,42 @@ class PageExtractor:
     def __init__(
         self,
         model_path: Path,
-        image_format: str,
-        question_max_width: int,
-        question_max_height: int,
+        image_format: str = "jpg",
+        question_max_width: int = 2000,
+        question_max_height: int = 2000,
+        predictor: YOLO_SegmentationPredictor | None = None,
+        segment_processor: SegmentProcessor | None = None,
+        image_cropper: ImageCropper | None = None,
+        text_extractor: TextExtractor | None = None,
+        conflict_strategy: ConflictResolutionStrategy | None = None,
     ) -> None:
+        """Initialize the page extractor.
+
+        Args:
+            model_path: Path to YOLO model file.
+            image_format: Output image format.
+            question_max_width: Maximum width for extracted questions.
+            question_max_height: Maximum height for extracted questions.
+            predictor: Optional pre-configured predictor (dependency injection).
+            segment_processor: Optional pre-configured processor (dependency injection).
+            image_cropper: Optional pre-configured cropper (dependency injection).
+            text_extractor: Optional pre-configured OCR extractor (dependency injection).
+            conflict_strategy: Strategy for resolving file conflicts.
+        """
         self.model_path = model_path
         self.image_format = image_format
         self.question_max_width = question_max_width
         self.question_max_height = question_max_height
 
-        self._predictor: YOLO_SegmentationPredictor | None = None
-        self._segment_processor = SegmentProcessor()
-        self._image_cropper = ImageCropper()
-        self._text_extractor = TextExtractor(language=OCR_LANGUAGE)
+        self._predictor = predictor
+        self._segment_processor = segment_processor or SegmentProcessor()
+        self._image_cropper = image_cropper or ImageCropper()
+        self._text_extractor = text_extractor or TextExtractor(language=OCR_LANGUAGE)
+        self._conflict_strategy = conflict_strategy or InteractiveConflictResolution()
 
     @property
     def predictor(self) -> YOLO_SegmentationPredictor:
-        """Get or initialize the YOLO predictor.
-
-        Returns:
-            Initialized YOLO segmentation predictor.
-        """
+        """Get or initialize the YOLO predictor."""
         if self._predictor is None:
             self._predictor = YOLO_SegmentationPredictor(str(self.model_path))
         return self._predictor
@@ -57,11 +76,13 @@ class PageExtractor:
     def _get_label_name(
         self, result: SegmentationPredictionResult, class_id: int
     ) -> str:
+        """Get label name from class ID."""
         return result.id2label.get(class_id, "unknown")
 
     def _get_polygon_bounding_box(
         self, polygon: list[tuple[int, int]]
     ) -> tuple[int, int]:
+        """Get bounding box position from polygon."""
         min_y = min(p[1] for p in polygon)
         min_x = min(p[0] for p in polygon)
         return (min_y, min_x)
@@ -75,6 +96,19 @@ class PageExtractor:
         source_image_name: str,
         output_dir: Path,
     ) -> int:
+        """Crop, process, and save extracted image.
+
+        Args:
+            image: Source image.
+            polygon: Polygon coordinates for cropping.
+            output_path: Target output path.
+            current_option: Current option number.
+            source_image_name: Source image filename.
+            output_dir: Base output directory.
+
+        Returns:
+            Resolved option number.
+        """
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
         cropped = resize_image(
             cropped, self.question_max_width, self.question_max_height
@@ -99,46 +133,51 @@ class PageExtractor:
         source_image_name: str,
         output_dir: Path,
     ) -> int:
-        existing_option = self._resolve_option_conflict(
-            new_image, output_path, current_option, source_image_name
+        """Handle case when output file already exists.
+
+        Args:
+            output_path: Path of existing file.
+            new_image: New image to save.
+            current_option: Current option number.
+            source_image_name: Source image filename.
+            output_dir: Base output directory.
+
+        Returns:
+            Resolved option number.
+        """
+        resolved_option = self._conflict_strategy.resolve(
+            new_image=new_image,
+            existing_path=output_path,
+            current_option=current_option,
+            source_image_name=source_image_name,
         )
-        if existing_option != current_option:
-            correct_path = output_dir / str(existing_option) / "A" / output_path.name
+
+        if resolved_option != current_option:
+            correct_path = output_dir / str(resolved_option) / "A" / output_path.name
             correct_path.parent.mkdir(parents=True, exist_ok=True)
             logger.info(
                 "Saving corrected image",
-                from_path=output_path,
-                to_path=correct_path,
+                from_path=str(output_path),
+                to_path=str(correct_path),
             )
             new_image.save(str(correct_path))
             output_path.unlink()
-            return existing_option
-        return existing_option
+            return resolved_option
 
-    def _resolve_option_conflict(
-        self,
-        new_image: Image.Image,
-        existing_path: Path,
-        current_option: int,
-        source_image_name: str,
-    ) -> int:
-        new_image.show()
-        print(f"Image: {source_image_name}")
-        print(f"Current option: {current_option}")
-
-        while True:
-            user_input = input(
-                f"Enter correct option number (current: {current_option}): "
-            ).strip()
-            if user_input.isdigit():
-                option = int(user_input)
-                if 1 <= option <= 10:
-                    return option
-            print("Please enter a number between 1 and 10")
+        return resolved_option
 
     def _extract_option_number(
         self, image: Image.Image, polygon: list[tuple[int, int]]
     ) -> int | None:
+        """Extract option number from image region.
+
+        Args:
+            image: Source image.
+            polygon: Polygon coordinates of option region.
+
+        Returns:
+            Option number or None if not found.
+        """
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
         digits = self._text_extractor.extract_digits(cropped)
         if digits:
@@ -149,6 +188,15 @@ class PageExtractor:
     def _extract_part_letter(
         self, image: Image.Image, polygon: list[tuple[int, int]]
     ) -> str | None:
+        """Extract part letter (A/B) from image region.
+
+        Args:
+            image: Source image.
+            polygon: Polygon coordinates of part region.
+
+        Returns:
+            Part letter or None if not found.
+        """
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
         text = self._text_extractor.extract_text(cropped)
         text = text.replace("Часть", "").replace("часть", "").strip()
@@ -197,10 +245,10 @@ class PageExtractor:
         self,
         image: Image.Image,
         output_dir: Path,
-        option_counter: int,
-        part_letter: str,
-        question_counter: int,
-        source_image_name: str,
+        option_counter: int = 1,
+        part_letter: str = "A",
+        question_counter: int = 0,
+        source_image_name: str = "",
     ) -> tuple[int, str, int]:
         """Extract questions from a single page image.
 
@@ -247,10 +295,10 @@ class PageExtractor:
                 )
                 question_counter += 1
                 logger.debug(
-                    "Extracting option",
-                    option_counter=option_counter,
-                    part_letter=part_letter,
-                    question_counter=question_counter,
+                    "Extracting question",
+                    option=option_counter,
+                    part=part_letter,
+                    question=question_counter,
                 )
                 if resolved_option != option_counter:
                     logger.info(

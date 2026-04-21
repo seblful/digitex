@@ -6,12 +6,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PIL import Image
 
+from digitex.extractors.base import ExtractionResult
 from digitex.extractors.book_extractor import BookExtractor
-from digitex.extractors.page_extractor import (
-    OCR_LANGUAGE,
-    Detection,
-    PageExtractor,
-)
+from digitex.extractors.exceptions import DirectoryNotFoundError, InvalidFilenameError
+from digitex.extractors.manual_extractor import ManualExtractor
+from digitex.extractors.page_extractor import OCR_LANGUAGE, Detection, PageExtractor
 from digitex.extractors.tests_extractor import PROGRESS_FILE, TestsExtractor
 
 
@@ -40,7 +39,7 @@ class TestBookExtractor:
             question_max_height=2000,
         )
         nonexistent_dir = tmp_path / "nonexistent"
-        with pytest.raises(FileNotFoundError, match="Image directory not found"):
+        with pytest.raises(DirectoryNotFoundError, match="Directory not found"):
             extractor.extract(nonexistent_dir, tmp_path / "output")
 
     def test_extract_no_images(self, tmp_path: Path) -> None:
@@ -53,7 +52,8 @@ class TestBookExtractor:
         )
         output_dir = tmp_path / "output"
         result = extractor.extract(tmp_path, output_dir)
-        assert result is None
+        assert isinstance(result, ExtractionResult)
+        assert result.processed == 0
 
     @patch("PIL.Image.open")
     @patch("digitex.extractors.page_extractor.PageExtractor.extract")
@@ -75,10 +75,11 @@ class TestBookExtractor:
             question_max_height=2000,
         )
         output_dir = tmp_path / "output"
-        extractor.extract(tmp_path, output_dir)
+        result = extractor.extract(tmp_path, output_dir)
 
         assert output_dir.exists()
         mock_page_extract.assert_called_once()
+        assert isinstance(result, ExtractionResult)
 
 
 class TestPageExtractor:
@@ -101,6 +102,26 @@ class TestPageExtractor:
         assert extractor._image_cropper is not None
         assert extractor._text_extractor is not None
         assert extractor._text_extractor.language == OCR_LANGUAGE
+
+    def test_init_with_dependencies(self) -> None:
+        """Test PageExtractor initialization with dependency injection."""
+        mock_predictor = MagicMock()
+        mock_processor = MagicMock()
+        mock_cropper = MagicMock()
+        mock_text_extractor = MagicMock()
+
+        extractor = PageExtractor(
+            model_path=Path("model.pt"),
+            predictor=mock_predictor,
+            segment_processor=mock_processor,
+            image_cropper=mock_cropper,
+            text_extractor=mock_text_extractor,
+        )
+
+        assert extractor._predictor is mock_predictor
+        assert extractor._segment_processor is mock_processor
+        assert extractor._image_cropper is mock_cropper
+        assert extractor._text_extractor is mock_text_extractor
 
     def test_get_label_name(self) -> None:
         """Test _get_label_name returns correct label."""
@@ -160,7 +181,7 @@ class TestPageExtractor:
         polygon = [(10, 10), (100, 10), (100, 100), (10, 100)]
         output_path = tmp_path / "output" / "question.png"
 
-        extractor._crop_and_save(image, polygon, output_path)
+        extractor._crop_and_save(image, polygon, output_path, 1, "test.jpg", tmp_path)
 
         assert output_path.with_suffix(".jpg").exists()
         mock_cut.assert_called_once_with(image, polygon)
@@ -337,74 +358,8 @@ class TestTestsExtractor:
         )
         assert extractor.books_dir == Path("books")
         assert extractor.extraction_dir == Path("extraction")
-        assert extractor._progress_path == Path("extraction") / PROGRESS_FILE
+        assert "progress.json" in str(extractor._progress_tracker._path)
         assert extractor._book_extractor is not None
-
-    def test_load_completed_empty(self, tmp_path: Path) -> None:
-        """Test _load_completed returns empty dict when file doesn't exist."""
-        extractor = TestsExtractor(
-            model_path=Path("model.pt"),
-            image_format="jpg",
-            question_max_width=2000,
-            question_max_height=2000,
-            books_dir=tmp_path,
-            extraction_dir=tmp_path / "extraction",
-        )
-        result = extractor._load_completed()
-        assert result == {}
-
-    def test_load_completed_with_data(self, tmp_path: Path) -> None:
-        """Test _load_completed parses existing progress file."""
-        progress_file = tmp_path / PROGRESS_FILE
-        progress_file.write_text('{"math": ["2020", "2021"], "physics": ["2019"]}')
-
-        extractor = TestsExtractor(
-            model_path=Path("model.pt"),
-            image_format="jpg",
-            question_max_width=2000,
-            question_max_height=2000,
-            books_dir=tmp_path,
-            extraction_dir=tmp_path,
-        )
-        result = extractor._load_completed()
-        assert result == {"math": {"2020", "2021"}, "physics": {"2019"}}
-
-    def test_save_completed(self, tmp_path: Path) -> None:
-        """Test _save_completed writes progress file."""
-        extractor = TestsExtractor(
-            model_path=Path("model.pt"),
-            image_format="jpg",
-            question_max_width=2000,
-            question_max_height=2000,
-            books_dir=tmp_path,
-            extraction_dir=tmp_path,
-        )
-        completed = {"math": {"2020", "2021"}, "physics": {"2019"}}
-        extractor._save_completed(completed)
-
-        assert extractor._progress_path.exists()
-        content = extractor._progress_path.read_text()
-        assert "math" in content
-        assert "2020" in content
-        assert "2021" in content
-        assert "physics" in content
-        assert "2019" in content
-
-    def test_is_completed(self, tmp_path: Path) -> None:
-        """Test _is_completed correctly checks completion status."""
-        extractor = TestsExtractor(
-            model_path=Path("model.pt"),
-            image_format="jpg",
-            question_max_width=2000,
-            question_max_height=2000,
-            books_dir=tmp_path,
-            extraction_dir=tmp_path,
-        )
-        completed = {"math": {"2020", "2021"}, "physics": {"2019"}}
-
-        assert extractor._is_completed(completed, "math", "2020") is True
-        assert extractor._is_completed(completed, "math", "2022") is False
-        assert extractor._is_completed(completed, "biology", "2020") is False
 
     def test_extract_all_raises_on_missing_books_dir(self, tmp_path: Path) -> None:
         """Test extract_all raises FileNotFoundError for missing books directory."""
@@ -416,8 +371,9 @@ class TestTestsExtractor:
             books_dir=tmp_path / "nonexistent",
             extraction_dir=tmp_path / "extraction",
         )
-        with pytest.raises(FileNotFoundError, match="Books directory not found"):
-            extractor.extract_all()
+        result = extractor.extract_all()
+        assert not result.success
+        assert len(result.errors) > 0
 
     def test_extract_all_no_subjects(self, tmp_path: Path) -> None:
         """Test extract_all with empty books directory."""
@@ -430,7 +386,8 @@ class TestTestsExtractor:
             extraction_dir=tmp_path / "extraction",
         )
         result = extractor.extract_all()
-        assert result is None
+        assert result.success
+        assert result.processed == 0
 
     def test_extract_all_skips_completed(self, tmp_path: Path) -> None:
         """Test extract_all skips already completed extractions."""
@@ -446,7 +403,9 @@ class TestTestsExtractor:
 
         extraction_dir = tmp_path / "extraction"
         extraction_dir.mkdir()
-        progress_file = extraction_dir / PROGRESS_FILE
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        progress_file = data_dir / PROGRESS_FILE
         progress_file.write_text('{"math": ["2020"]}')
 
         extractor = TestsExtractor(
@@ -456,8 +415,94 @@ class TestTestsExtractor:
             question_max_height=2000,
             books_dir=books_dir,
             extraction_dir=extraction_dir,
+            data_dir=data_dir,
         )
 
         with patch.object(extractor._book_extractor, "extract") as mock_extract:
-            extractor.extract_all()
+            result = extractor.extract_all()
             mock_extract.assert_not_called()
+            assert result.skipped == 1
+
+
+class TestManualExtractor:
+    """Test suite for ManualExtractor class."""
+
+    def test_init(self) -> None:
+        """Test ManualExtractor initialization."""
+        extractor = ManualExtractor(
+            image_format="jpg",
+            question_max_width=2000,
+            question_max_height=2000,
+            manual_dir=Path("manual"),
+            output_dir=Path("output"),
+        )
+        assert extractor.image_format == "jpg"
+        assert extractor.question_max_width == 2000
+        assert extractor.question_max_height == 2000
+        assert extractor.manual_dir == Path("manual")
+        assert extractor.output_dir == Path("output")
+
+    def test_parse_filename_valid(self, tmp_path: Path) -> None:
+        """Test parsing valid filename."""
+        extractor = ManualExtractor(
+            manual_dir=tmp_path / "manual",
+            output_dir=tmp_path / "output",
+        )
+        test_file = tmp_path / "manual" / "2016_3_A_20.png"
+        test_file.parent.mkdir(parents=True, exist_ok=True)
+        test_file.touch()
+
+        year, option, part, question = extractor._parse_filename(test_file)
+        assert year == 2016
+        assert option == 3
+        assert part == "A"
+        assert question == 20
+
+    def test_parse_filename_invalid(self, tmp_path: Path) -> None:
+        """Test parsing invalid filename raises error."""
+        extractor = ManualExtractor(
+            manual_dir=tmp_path / "manual",
+            output_dir=tmp_path / "output",
+        )
+        test_file = tmp_path / "manual" / "invalid.png"
+        test_file.parent.mkdir(parents=True, exist_ok=True)
+        test_file.touch()
+
+        with pytest.raises(InvalidFilenameError):
+            extractor._parse_filename(test_file)
+
+
+class TestExtractionResult:
+    """Test suite for ExtractionResult dataclass."""
+
+    def test_success_result(self) -> None:
+        """Test creating a success result."""
+        result = ExtractionResult.success_result(
+            processed=10, skipped=2, warnings=["Warning 1"]
+        )
+        assert result.success is True
+        assert result.processed == 10
+        assert result.skipped == 2
+        assert result.warnings == ["Warning 1"]
+        assert result.errors == []
+
+    def test_failure_result(self) -> None:
+        """Test creating a failure result."""
+        result = ExtractionResult.failure_result(
+            errors=["Error 1", "Error 2"], processed=5
+        )
+        assert result.success is False
+        assert result.processed == 5
+        assert result.errors == ["Error 1", "Error 2"]
+        assert result.warnings == []
+
+    def test_merge_results(self) -> None:
+        """Test merging two results."""
+        result1 = ExtractionResult.success_result(processed=10, warnings=["Warning 1"])
+        result2 = ExtractionResult.success_result(processed=5, warnings=["Warning 2"])
+
+        merged = result1.merge(result2)
+
+        assert merged.processed == 15
+        assert merged.warnings == ["Warning 1", "Warning 2"]
+        assert merged.success is True

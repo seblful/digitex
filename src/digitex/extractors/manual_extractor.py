@@ -11,31 +11,49 @@ from PIL import Image
 from tqdm import tqdm
 
 from digitex.core.processors import SegmentProcessor, resize_image
+from digitex.extractors.base import BaseExtractor, ExtractionResult
+from digitex.extractors.exceptions import InvalidFilenameError
+from digitex.extractors.utils import IMAGE_EXTENSIONS
 
 logger = structlog.get_logger()
 
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
 FILENAME_PATTERN = re.compile(r"^(\d{4})_(\d+)_([AB])_(\d+)\.png$")
 VALID_PARTS = {"A", "B"}
 
 
-class ManualExtractor:
+class ManualExtractor(BaseExtractor):
     """Process manually cropped question images and integrate into extraction output."""
 
     def __init__(
         self,
-        image_format: str,
-        question_max_width: int,
-        question_max_height: int,
-        manual_dir: Path,
-        output_dir: Path,
+        image_format: str = "jpg",
+        question_max_width: int = 2000,
+        question_max_height: int = 2000,
+        manual_dir: Path | None = None,
+        output_dir: Path | None = None,
+        segment_processor: SegmentProcessor | None = None,
     ) -> None:
+        """Initialize the manual extractor.
+
+        Args:
+            image_format: Output image format.
+            question_max_width: Maximum width for question images.
+            question_max_height: Maximum height for question images.
+            manual_dir: Directory containing manual images.
+            output_dir: Output directory for processed images.
+            segment_processor: Optional pre-configured processor (dependency injection).
+        """
         self.image_format = image_format
         self.question_max_width = question_max_width
         self.question_max_height = question_max_height
         self.manual_dir = manual_dir
         self.output_dir = output_dir
-        self._segment_processor = SegmentProcessor()
+        self._segment_processor = segment_processor or SegmentProcessor()
+
+    def _validate_prerequisites(self) -> None:
+        """Validate that manual directory exists."""
+        if self.manual_dir and not self.manual_dir.exists():
+            raise FileNotFoundError(f"Manual directory not found: {self.manual_dir}")
 
     def _parse_filename(self, file_path: Path) -> tuple[int, int, str, int]:
         """Parse manual image filename into components.
@@ -47,30 +65,25 @@ class ManualExtractor:
             Tuple of (year, option, part, question_number).
 
         Raises:
-            ValueError: If filename doesn't match expected pattern or has invalid part.
+            InvalidFilenameError: If filename doesn't match expected pattern.
         """
         match = FILENAME_PATTERN.match(file_path.name)
         if not match:
             if file_path.name.endswith(".png"):
                 parts = file_path.stem.split("_")
                 if len(parts) < 4:
-                    raise ValueError(
-                        f"Invalid filename format: {file_path.name}. "
-                        f"Expected format: YYYY_OPTION_PART_QUESTION.png (e.g., 2016_3_A_20.png)"
+                    raise InvalidFilenameError(
+                        file_path.name, "YYYY_OPTION_PART_QUESTION.png"
                     )
                 if len(parts) == 4 and not parts[3]:
-                    raise ValueError(
-                        f"Question number is missing in filename: {file_path.name}"
+                    raise InvalidFilenameError(
+                        file_path.name, "YYYY_OPTION_PART_QUESTION.png"
                     )
                 if len(parts) >= 3 and parts[2].upper() not in VALID_PARTS:
-                    raise ValueError(
-                        f"Invalid part '{parts[2]}' in filename: {file_path.name}. "
-                        f"Part must be one of: {', '.join(sorted(VALID_PARTS))}"
+                    raise InvalidFilenameError(
+                        file_path.name, "YYYY_OPTION_PART_QUESTION.png"
                     )
-            raise ValueError(
-                f"Invalid filename format: {file_path.name}. "
-                f"Expected format: YYYY_OPTION_PART_QUESTION.png (e.g., 2016_3_A_20.png)"
-            )
+            raise InvalidFilenameError(file_path.name, "YYYY_OPTION_PART_QUESTION.png")
 
         year = int(match.group(1))
         option = int(match.group(2))
@@ -134,7 +147,7 @@ class ManualExtractor:
         self,
         target_dir: Path,
         start_num: int,
-        dry_run: bool,
+        dry_run: bool = False,
     ) -> list[tuple[Path, Path]]:
         """Shift existing files starting from start_num by +1.
 
@@ -168,18 +181,21 @@ class ManualExtractor:
 
         return changes
 
-    def _process_file(self, file_path: Path, dry_run: bool) -> None:
+    def _process_file(self, file_path: Path, dry_run: bool = False) -> bool:
         """Process single manual image file.
 
         Args:
             file_path: Path to manual image file.
             dry_run: If True, only preview changes.
+
+        Returns:
+            True if processed successfully, False otherwise.
         """
         try:
             year, option, part, question_number = self._parse_filename(file_path)
-        except ValueError as e:
+        except InvalidFilenameError as e:
             logger.error("Skipping invalid filename", error=str(e))
-            return
+            return False
 
         subject = file_path.parent.name
         target_dir = self.output_dir / subject / str(year) / str(option) / part
@@ -202,7 +218,7 @@ class ManualExtractor:
                 source=str(file_path),
                 target=str(target_path),
             )
-            return
+            return True
 
         try:
             image = Image.open(file_path).convert("RGB")
@@ -212,7 +228,7 @@ class ManualExtractor:
                 file_path=str(file_path),
                 error=str(e),
             )
-            return
+            return False
 
         processed = self._preprocess(image)
 
@@ -231,16 +247,24 @@ class ManualExtractor:
 
         file_path.unlink()
         logger.info("Deleted source manual file", path=str(file_path))
+        return True
 
-    def process_all(self, dry_run: bool = False) -> None:
+    def extract(self, dry_run: bool = False) -> ExtractionResult:
         """Process all manual images in the manual directory.
 
         Args:
             dry_run: If True, only preview changes without applying.
+
+        Returns:
+            ExtractionResult with statistics.
         """
-        if not self.manual_dir.exists():
-            logger.warning("Manual directory does not exist", path=str(self.manual_dir))
-            return
+        if not self.manual_dir or not self.manual_dir.exists():
+            logger.warning(
+                "Manual directory does not exist", path=str(self.manual_dir)
+            )
+            return ExtractionResult.success_result(
+                processed=0, warnings=["Manual directory does not exist"]
+            )
 
         manual_files = [
             f
@@ -250,7 +274,9 @@ class ManualExtractor:
 
         if not manual_files:
             logger.info("No manual images found", manual_dir=str(self.manual_dir))
-            return
+            return ExtractionResult.success_result(
+                processed=0, warnings=["No manual images found"]
+            )
 
         logger.info(
             "Found manual images to process",
@@ -258,10 +284,35 @@ class ManualExtractor:
             dry_run=dry_run,
         )
 
+        processed_count = 0
+        failed_count = 0
+
         for file_path in tqdm(manual_files, desc="Processing manual images"):
-            self._process_file(file_path, dry_run)
+            if self._process_file(file_path, dry_run):
+                processed_count += 1
+            else:
+                failed_count += 1
 
         if dry_run:
             logger.info("Dry run completed, no changes applied")
-        else:
-            logger.info("Manual image processing completed")
+            return ExtractionResult.success_result(
+                processed=processed_count,
+                metadata={"dry_run": True, "failed": failed_count},
+            )
+
+        logger.info("Manual image processing completed")
+        return ExtractionResult.success_result(
+            processed=processed_count,
+            metadata={"failed": failed_count},
+        )
+
+    def process_all(self, dry_run: bool = False) -> ExtractionResult:
+        """Process all manual images (alias for extract).
+
+        Args:
+            dry_run: If True, only preview changes without applying.
+
+        Returns:
+            ExtractionResult with statistics.
+        """
+        return self.extract(dry_run=dry_run)

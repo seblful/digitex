@@ -6,53 +6,71 @@ import os
 import re
 from pathlib import Path
 
+import structlog
 from mistralai.client import Mistral
 from tqdm import tqdm
 
+from digitex.config import get_settings
+from digitex.extractors.base import BaseExtractor, ExtractionResult
+from digitex.extractors.exceptions import APIError, DirectoryNotFoundError
 
-class AnswersExtractor:
+logger = structlog.get_logger()
+
+
+class AnswersExtractor(BaseExtractor):
     """Extracts answer keys from answer sheet images via Mistral OCR."""
 
     def __init__(
         self,
         api_key: str | None = None,
         model: str | None = None,
+        client: Mistral | None = None,
     ) -> None:
         """Initialize the extractor.
 
         Args:
             api_key: Mistral API key. If None, uses MISTRAL_API_KEY from environment or settings.
             model: OCR model name. If None, uses settings or default.
+            client: Optional pre-configured Mistral client. If None, creates a new client.
         """
+        if client is not None:
+            self._client = client
+            self._api_key = ""
+            self._model = ""
+            return
+
         if api_key is None:
             try:
-                from digitex.config import get_settings
                 settings = get_settings()
                 api_key = settings.mistral.api_key or os.environ.get("MISTRAL_API_KEY")
             except Exception:
                 api_key = os.environ.get("MISTRAL_API_KEY")
-        
+
         if model is None:
             try:
-                from digitex.config import get_settings
                 settings = get_settings()
                 model = settings.mistral.ocr_model
             except Exception:
                 model = "mistral-ocr-latest"
-        
+
         self._api_key = api_key or ""
         self._model = model
-        self._client: Mistral | None = None
 
-    def _get_client(self) -> Mistral:
-        """Return the Mistral client, creating it on first use."""
-        if self._api_key is None or self._api_key == "":
-            raise ValueError(
-                "MISTRAL_API_KEY must be set in environment or passed as api_key"
+        if not self._api_key:
+            raise APIError(
+                service="Mistral",
+                message="API key not set. Set MISTRAL_API_KEY environment variable.",
             )
+
+        self._client = Mistral(api_key=self._api_key)
+
+    def _validate_prerequisites(self) -> None:
+        """Validate that client is initialized."""
         if self._client is None:
-            self._client = Mistral(api_key=self._api_key)
-        return self._client
+            raise APIError(
+                service="Mistral",
+                message="Client not initialized. API key required.",
+            )
 
     def encode_image(self, image_path: Path) -> str:
         """Encode an image file to a data URL (base64).
@@ -81,20 +99,29 @@ class AnswersExtractor:
 
         Returns:
             Extracted text as markdown.
-        """
-        client = self._get_client()
-        data_url = self.encode_image(image_path)
 
-        res = client.ocr.process(
-            model=self._model,
-            document={
-                "image_url": {"url": data_url},
-                "type": "image_url",
-            },
-        )
-        if res.pages:
-            return res.pages[0].markdown or ""
-        return ""
+        Raises:
+            APIError: If OCR API call fails.
+        """
+        try:
+            data_url = self.encode_image(image_path)
+
+            res = self._client.ocr.process(
+                model=self._model,
+                document={
+                    "image_url": {"url": data_url},
+                    "type": "image_url",
+                },
+            )
+            if res.pages:
+                return res.pages[0].markdown or ""
+            return ""
+        except Exception as e:
+            raise APIError(
+                service="Mistral",
+                message=f"OCR failed: {str(e)}",
+                context={"image_path": str(image_path)},
+            ) from e
 
     def _parse_markdown_table(self, markdown: str) -> list[list[str]]:
         """Parse markdown table into list of rows.
@@ -173,6 +200,7 @@ class AnswersExtractor:
         rows = self._parse_markdown_table(markdown)
 
         if len(rows) < 2:
+            logger.warning("Not enough rows in markdown table", rows=len(rows))
             return {}
 
         variant_row_idx = 0
@@ -187,6 +215,7 @@ class AnswersExtractor:
                 variants.append(int(cell))
 
         if not variants:
+            logger.warning("No variants found in answer sheet")
             return {}
 
         result: dict[str, dict[str, str]] = {}
@@ -250,29 +279,32 @@ class AnswersExtractor:
         match = re.match(r"(\d{4})_(\d+)", image_path.stem)
         if not match:
             raise ValueError(
-                f"Invalid filename format: {image_path.name}. "
-                f"Expected format: YYYY_N.jpg"
+                f"Invalid filename format: {image_path.name}. Expected format: YYYY_N.jpg"
             )
         return int(match.group(1)), int(match.group(2))
 
     def extract(
         self,
         subject: str,
-    ) -> dict[int, dict[str, dict[str, str]]]:
+    ) -> ExtractionResult:
         """Extract answers from all answer sheet images.
 
         Args:
             subject: Subject name (e.g., "biology", "chemistry").
 
         Returns:
-            Dictionary: {year: {question_label: {option: answer}}}
+            ExtractionResult with statistics.
         """
+        try:
+            self._validate_prerequisites()
+        except APIError as e:
+            return ExtractionResult.failure_result(errors=[str(e)])
 
-        settings = self._get_settings()
+        settings = get_settings()
         answers_dir = settings.paths.books_dir / subject / "answers"
 
         if not answers_dir.exists():
-            raise FileNotFoundError(f"Answers directory not found: {answers_dir}")
+            raise DirectoryNotFoundError(answers_dir)
 
         image_files = sorted(
             [
@@ -283,50 +315,63 @@ class AnswersExtractor:
             key=lambda p: p.name,
         )
 
+        if not image_files:
+            logger.warning("No answer images found", answers_dir=str(answers_dir))
+            return ExtractionResult.success_result(
+                processed=0, warnings=["No answer images found"]
+            )
+
         results: dict[int, dict[str, dict[str, str]]] = {}
         year_parts: dict[int, set[int]] = {}
 
-        settings = self._get_settings()
         output_base = (
             settings.paths.extraction_dir
             / settings.extraction.data_dir_name
             / settings.extraction.output_dir_name
         )
 
+        processed_count = 0
+        errors: list[str] = []
+
         for image_path in tqdm(image_files, desc=f"Extracting {subject} answers"):
-            year, part = self._extract_year_and_part(image_path)
+            try:
+                year, part = self._extract_year_and_part(image_path)
 
-            markdown = self.ocr(image_path)
-            answers = self._parse_answers_from_markdown(markdown, part)
+                markdown = self.ocr(image_path)
+                answers = self._parse_answers_from_markdown(markdown, part)
 
-            if year not in results:
-                results[year] = {}
-                year_parts[year] = set()
+                if year not in results:
+                    results[year] = {}
+                    year_parts[year] = set()
 
-            year_parts[year].add(part)
+                year_parts[year].add(part)
 
-            for label, option_answers in answers.items():
-                if label not in results[year]:
-                    results[year][label] = {}
-                results[year][label].update(option_answers)
+                for label, option_answers in answers.items():
+                    if label not in results[year]:
+                        results[year][label] = {}
+                    results[year][label].update(option_answers)
 
-            if len(year_parts[year]) == 2:
-                year_output_dir = output_base / subject / str(year)
-                year_output_dir.mkdir(parents=True, exist_ok=True)
+                if len(year_parts[year]) == 2:
+                    year_output_dir = output_base / subject / str(year)
+                    year_output_dir.mkdir(parents=True, exist_ok=True)
 
-                sorted_answers = self._sort_answers(results[year])
-                output_path = year_output_dir / "answers.json"
-                output_path.write_text(
-                    json.dumps(sorted_answers, ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                )
-                
-                tqdm.write(f"Saved answers for {year}")
+                    sorted_answers = self._sort_answers(results[year])
+                    output_path = year_output_dir / "answers.json"
+                    output_path.write_text(
+                        json.dumps(sorted_answers, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
 
-        return results
+                    tqdm.write(f"Saved answers for {year}")
+                    processed_count += 1
 
-    def _get_settings(self):
-        """Get application settings."""
-        from digitex.config import get_settings
+            except Exception as e:
+                error_msg = f"Failed to process {image_path.name}: {str(e)}"
+                logger.error(error_msg)
+                errors.append(error_msg)
 
-        return get_settings()
+        return ExtractionResult.success_result(
+            processed=processed_count,
+            errors=errors,
+            metadata={"years_processed": len(results)},
+        )

@@ -37,13 +37,17 @@ class TestManualExtractorFilename:
         assert result == (2020, 5, "B", 15)
 
     def test_parse_invalid_part(self, extractor: ManualExtractor) -> None:
-        """Test that invalid part raises ValueError."""
-        with pytest.raises(ValueError, match="Invalid part"):
+        """Test that invalid part raises InvalidFilenameError."""
+        from digitex.extractors.exceptions import InvalidFilenameError
+        
+        with pytest.raises(InvalidFilenameError, match="Invalid filename format"):
             extractor._parse_filename(Path("2016_3_C_20.png"))
 
     def test_parse_missing_question(self, extractor: ManualExtractor) -> None:
-        """Test that missing question number raises ValueError."""
-        with pytest.raises(ValueError, match="Question number is missing"):
+        """Test that missing question number raises InvalidFilenameError."""
+        from digitex.extractors.exceptions import InvalidFilenameError
+        
+        with pytest.raises(InvalidFilenameError, match="Invalid filename format"):
             extractor._parse_filename(Path("2016_3_A_.png"))
 
     def test_parse_invalid_format(self, extractor: ManualExtractor) -> None:
