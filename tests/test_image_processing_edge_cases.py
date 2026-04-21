@@ -1,7 +1,6 @@
 """Tests for edge cases in image processing."""
 
 import numpy as np
-import pytest
 from PIL import Image
 
 from digitex.core.processors.image import ImageCropper, SegmentProcessor

@@ -130,5 +130,4 @@ class TestsExtractor(BaseExtractor):
 
     def clear_progress(self) -> None:
         """Clear all progress tracking."""
-        if hasattr(self._progress_tracker, "clear"):
-            self._progress_tracker.clear()
+        self._progress_tracker.clear()

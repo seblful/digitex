@@ -45,6 +45,11 @@ class ProgressTracker(ABC):
         """Load progress from storage."""
         pass
 
+    @abstractmethod
+    def clear(self) -> None:
+        """Clear all progress."""
+        pass
+
 
 class JSONProgressTracker(ProgressTracker):
     """JSON file-based progress tracker."""

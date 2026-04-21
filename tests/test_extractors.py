@@ -10,7 +10,7 @@ from digitex.extractors.base import ExtractionResult
 from digitex.extractors.book_extractor import BookExtractor
 from digitex.extractors.exceptions import DirectoryNotFoundError, InvalidFilenameError
 from digitex.extractors.manual_extractor import ManualExtractor
-from digitex.extractors.page_extractor import OCR_LANGUAGE, Detection, PageExtractor
+from digitex.extractors.page_extractor import OCR_LANGUAGE, PageExtractor
 from digitex.extractors.tests_extractor import PROGRESS_FILE, TestsExtractor
 
 
@@ -358,7 +358,7 @@ class TestTestsExtractor:
         )
         assert extractor.books_dir == Path("books")
         assert extractor.extraction_dir == Path("extraction")
-        assert "progress.json" in str(extractor._progress_tracker._path)
+        assert extractor.get_progress_tracker() is not None
         assert extractor._book_extractor is not None
 
     def test_extract_raises_on_missing_books_dir(self, tmp_path: Path) -> None:

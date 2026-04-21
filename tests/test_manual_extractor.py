@@ -148,6 +148,7 @@ class TestManualExtractorRenumbering:
 
     def test_get_existing_images(self, extractor: ManualExtractor) -> None:
         """Test getting existing images from directory."""
+        assert extractor.output_dir is not None
         target_dir = extractor.output_dir / "biology" / "2016" / "3" / "A"
         images = extractor._get_existing_images(target_dir)
         assert len(images) == 6
@@ -156,6 +157,7 @@ class TestManualExtractorRenumbering:
 
     def test_renumber_files_shifts_correctly(self, extractor: ManualExtractor) -> None:
         """Test that renumbering shifts files correctly."""
+        assert extractor.output_dir is not None
         target_dir = extractor.output_dir / "biology" / "2016" / "3" / "A"
         changes = extractor._renumber_files(target_dir, start_num=20, dry_run=False)
 
@@ -175,6 +177,7 @@ class TestManualExtractorRenumbering:
 
     def test_renumber_files_dry_run(self, extractor: ManualExtractor) -> None:
         """Test that dry run doesn't modify files."""
+        assert extractor.output_dir is not None
         target_dir = extractor.output_dir / "biology" / "2016" / "3" / "A"
         changes = extractor._renumber_files(target_dir, start_num=20, dry_run=True)
 

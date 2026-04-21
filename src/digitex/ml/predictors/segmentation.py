@@ -113,8 +113,10 @@ class YOLO_SegmentationPredictor(Predictor):
             )
 
         mask_data = masks.xyn
+        boxes_list = [boxes[i] for i in range(len(boxes))]
+        masks_list = [mask_data[i] for i in range(len(mask_data))]
 
-        for box, polygon in zip(boxes, mask_data):  # ty: ignore[invalid-argument-type]
+        for box, polygon in zip(boxes_list, masks_list):
             try:
                 polygon = polygon * np.array([img_width, img_height])
                 polygon = polygon.astype(np.int32)

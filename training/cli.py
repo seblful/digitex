@@ -102,7 +102,6 @@ def count(
     ),
 ) -> None:
     """Count extracted images by subject/year/option/part."""
-    from collections import Counter
 
     from digitex.config import get_settings
 
@@ -170,10 +169,8 @@ def renumber(
     ),
 ) -> None:
     """Renumber existing question images starting from a specific number."""
-    from pathlib import Path
 
     from digitex.config import get_settings
-    from digitex.extractors.manual_extractor import ManualExtractor
 
     s = get_settings()
     extractor = ManualExtractor(
@@ -224,7 +221,6 @@ def extract_manual(
 ) -> None:
     """Process manually cropped question images."""
     from digitex.config import get_settings
-    from digitex.extractors.manual_extractor import ManualExtractor
 
     s = get_settings()
     extractor = ManualExtractor(

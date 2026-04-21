@@ -198,6 +198,7 @@ class ManualExtractor(BaseExtractor):
             return False
 
         subject = file_path.parent.name
+        assert self.output_dir is not None
         target_dir = self.output_dir / subject / str(year) / str(option) / part
         target_path = target_dir / f"{question_number}.{self.image_format}"
 

@@ -7,9 +7,8 @@ from pathlib import Path
 
 if platform.system() == "Windows":
     import pathlib
-    import pathlib._local as _local
 
-    _local.PosixPath = pathlib.WindowsPath
+    pathlib.PosixPath = pathlib.WindowsPath  # ty: ignore[invalid-assignment]
 
 import typer
 
@@ -40,7 +39,7 @@ def extract() -> None:
         / settings.extraction.data_dir_name
         / settings.extraction.output_dir_name,
     )
-    extractor.extract_all()
+    extractor.extract(subject="all")
 
 
 @app.command()

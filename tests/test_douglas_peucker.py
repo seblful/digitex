@@ -1,6 +1,5 @@
 """Tests for Douglas-Peucker polygon simplification."""
 
-import numpy as np
 from shapely.geometry import Polygon
 
 
