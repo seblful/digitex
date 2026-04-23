@@ -41,17 +41,7 @@ CREATE TABLE questions (
     UNIQUE (part_id, question_number)
 );
 
--- Answer choices for Part A questions (A–E, display only — no is_correct flag)
-CREATE TABLE question_options (
-    question_option_id INTEGER PRIMARY KEY,
-    question_id INTEGER NOT NULL,
-    option_text TEXT NOT NULL,
-    display_order INTEGER NOT NULL CHECK (display_order BETWEEN 1 AND 5),
-    FOREIGN KEY (question_id) REFERENCES questions(question_id),
-    UNIQUE (question_id, display_order)
-);
-
--- Correct answer for Part A (separated from options to avoid duplication)
+-- Correct answer for Part A
 CREATE TABLE part_a_answers (
     question_id INTEGER PRIMARY KEY,
     correct_order INTEGER NOT NULL CHECK (correct_order BETWEEN 1 AND 5),
