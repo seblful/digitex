@@ -9,6 +9,7 @@ import structlog
 from mistralai.client import Mistral
 from tqdm import tqdm
 
+from digitex.core.value_objects import QuestionKey
 from digitex.extractors.base import BaseExtractor, ExtractionResult
 from digitex.extractors.exceptions import APIError, DirectoryNotFoundError
 
@@ -184,11 +185,15 @@ class AnswersExtractor(BaseExtractor):
             if not row:
                 continue
 
-            label = row[0].strip() if row else ""
-            if not label or not re.match(r"^[A-ZА-Я]\d+$", label, re.IGNORECASE):
+            raw_label = row[0].strip() if row else ""
+            if not raw_label:
                 continue
-
-            label = self._normalize_label(label)
+            normalized = self._normalize_label(raw_label)
+            try:
+                QuestionKey.parse(normalized)
+            except ValueError:
+                continue
+            label = normalized
 
             for i, variant in enumerate(variants):
                 if i + 1 >= len(row):
