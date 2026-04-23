@@ -15,7 +15,7 @@ def _data_dir(data_type_dir_name: str):
     from digitex.config import get_settings
 
     s = get_settings()
-    return s.paths.training_dir / s.data.data_dir_name / data_type_dir_name
+    return s.paths.training_data_dir / data_type_dir_name
 
 
 @app.command(name="create-dataset")
@@ -109,7 +109,7 @@ def train(
     from digitex.ml.yolo import Trainer
 
     s = get_settings()
-    configs_dir = s.paths.training_dir / s.training.configs_dir_name
+    configs_dir = s.paths.training_configs_dir
     train_config_path = configs_dir / f"{config}_train.yaml"
     val_config_path = configs_dir / f"{config}_val.yaml"
 

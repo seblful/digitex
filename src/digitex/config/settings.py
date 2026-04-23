@@ -4,7 +4,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Self
 
-from pydantic import Field
+from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,21 +12,6 @@ class ExtractionSettings(BaseSettings):
     """Image extraction settings."""
 
     model_config = SettingsConfigDict(env_prefix="EXTRACTION_")
-
-    model_path: Path = Field(
-        default=Path("extraction/models/page.pt"),
-        description="Path to the YOLO segmentation model",
-    )
-
-    data_dir_name: str = Field(
-        default="data",
-        description="Subdirectory name for extraction data",
-    )
-
-    output_dir_name: str = Field(
-        default="output",
-        description="Subdirectory name for extracted images",
-    )
 
     question_max_width: int = Field(
         default=2000,
@@ -86,18 +71,11 @@ class TrainingSettings(BaseSettings):
         default="runs", description="Subdirectory name for training runs"
     )
 
-    configs_dir_name: str = Field(
-        default="configs",
-        description="Directory name for training configuration files",
-    )
-
 
 class DataSettings(BaseSettings):
     """Data configuration for training."""
 
     model_config = SettingsConfigDict(env_prefix="DATA_")
-
-    data_dir_name: str = Field(default="data", description="Subdirectory name for data")
 
     dataset_dir_name: str = Field(
         default="dataset", description="Subdirectory name for datasets"
@@ -168,34 +146,66 @@ class LoggingSettings(BaseSettings):
 
 
 class PathsSettings(BaseSettings):
-    """Directory path settings."""
+    """Directory path settings.
+
+    All paths derive from root_dir, which defaults to cwd() and can be
+    overridden via the PATH_ROOT_DIR environment variable.
+    """
 
     model_config = SettingsConfigDict(env_prefix="PATH_")
 
-    @cached_property
-    def root_dir(self) -> Path:
-        """Get the project root directory."""
-        return Path.cwd()
+    root_dir: Path = Field(default_factory=Path.cwd)
 
-    @cached_property
-    def home_dir(self) -> Path:
-        """Get the current working directory."""
-        return Path.cwd()
+    # Top-level directories
 
+    @computed_field
     @cached_property
     def training_dir(self) -> Path:
-        """Get the training directory path."""
-        return self.home_dir / "training"
+        return self.root_dir / "training"
 
+    @computed_field
     @cached_property
     def books_dir(self) -> Path:
-        """Get the books directory path."""
-        return self.home_dir / "books"
+        return self.root_dir / "books"
 
+    @computed_field
     @cached_property
     def extraction_dir(self) -> Path:
-        """Get the extraction directory path."""
-        return self.home_dir / "extraction"
+        return self.root_dir / "extraction"
+
+    # Extraction sub-paths
+
+    @computed_field
+    @cached_property
+    def extraction_data_dir(self) -> Path:
+        return self.extraction_dir / "data"
+
+    @computed_field
+    @cached_property
+    def extraction_output_dir(self) -> Path:
+        return self.extraction_data_dir / "output"
+
+    @computed_field
+    @cached_property
+    def extraction_manual_dir(self) -> Path:
+        return self.extraction_data_dir / "manual"
+
+    @computed_field
+    @cached_property
+    def extraction_model_path(self) -> Path:
+        return self.extraction_dir / "models" / "page.pt"
+
+    # Training sub-paths
+
+    @computed_field
+    @cached_property
+    def training_data_dir(self) -> Path:
+        return self.training_dir / "data"
+
+    @computed_field
+    @cached_property
+    def training_configs_dir(self) -> Path:
+        return self.training_dir / "configs"
 
 
 class Settings(BaseSettings):
@@ -228,11 +238,7 @@ _settings: Settings | None = None
 
 
 def get_settings() -> Settings:
-    """Get the singleton settings instance.
-
-    Returns:
-        Settings: The global settings instance.
-    """
+    """Get the singleton settings instance."""
     global _settings
 
     if _settings is None:

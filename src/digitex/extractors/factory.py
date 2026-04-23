@@ -34,8 +34,7 @@ class ExtractorFactory:
         settings = get_settings()
 
         return PageExtractor(
-            model_path=model_path
-            or settings.paths.home_dir / settings.extraction.model_path,
+            model_path=model_path or settings.paths.extraction_model_path,
             image_format=image_format or settings.extraction.image_format,
             question_max_width=question_max_width
             or settings.extraction.question_max_width,
@@ -64,8 +63,7 @@ class ExtractorFactory:
         settings = get_settings()
 
         return BookExtractor(
-            model_path=model_path
-            or settings.paths.home_dir / settings.extraction.model_path,
+            model_path=model_path or settings.paths.extraction_model_path,
             image_format=image_format or settings.extraction.image_format,
             question_max_width=question_max_width
             or settings.extraction.question_max_width,
@@ -98,20 +96,14 @@ class ExtractorFactory:
         settings = get_settings()
 
         return TestsExtractor(
-            model_path=model_path
-            or settings.paths.home_dir / settings.extraction.model_path,
+            model_path=model_path or settings.paths.extraction_model_path,
             image_format=image_format or settings.extraction.image_format,
             question_max_width=question_max_width
             or settings.extraction.question_max_width,
             question_max_height=question_max_height
             or settings.extraction.question_max_height,
             books_dir=books_dir or settings.paths.books_dir,
-            extraction_dir=extraction_dir
-            or (
-                settings.paths.extraction_dir
-                / settings.extraction.data_dir_name
-                / settings.extraction.output_dir_name
-            ),
+            extraction_dir=extraction_dir or settings.paths.extraction_output_dir,
         )
 
     @staticmethod
@@ -142,18 +134,8 @@ class ExtractorFactory:
             or settings.extraction.question_max_width,
             question_max_height=question_max_height
             or settings.extraction.question_max_height,
-            manual_dir=manual_dir
-            or (
-                settings.paths.extraction_dir
-                / settings.extraction.data_dir_name
-                / "manual"
-            ),
-            output_dir=output_dir
-            or (
-                settings.paths.extraction_dir
-                / settings.extraction.data_dir_name
-                / settings.extraction.output_dir_name
-            ),
+            manual_dir=manual_dir or settings.paths.extraction_manual_dir,
+            output_dir=output_dir or settings.paths.extraction_output_dir,
         )
 
     @staticmethod
@@ -170,4 +152,17 @@ class ExtractorFactory:
         Returns:
             Configured AnswersExtractor instance.
         """
-        return AnswersExtractor(api_key=api_key, model=model)
+        settings = get_settings()
+        resolved_key = api_key or settings.mistral.api_key
+        if not resolved_key:
+            from digitex.extractors.exceptions import APIError
+            raise APIError(
+                service="Mistral",
+                message="API key not set. Set MISTRAL_API_KEY environment variable.",
+            )
+        return AnswersExtractor(
+            api_key=resolved_key,
+            model=model or settings.mistral.ocr_model,
+            books_dir=settings.paths.books_dir,
+            output_dir=settings.paths.extraction_output_dir,
+        )

@@ -2,7 +2,6 @@
 
 import base64
 import json
-import os
 import re
 from pathlib import Path
 
@@ -10,7 +9,6 @@ import structlog
 from mistralai.client import Mistral
 from tqdm import tqdm
 
-from digitex.config import get_settings
 from digitex.extractors.base import BaseExtractor, ExtractionResult
 from digitex.extractors.exceptions import APIError, DirectoryNotFoundError
 
@@ -22,55 +20,17 @@ class AnswersExtractor(BaseExtractor):
 
     def __init__(
         self,
-        api_key: str | None = None,
-        model: str | None = None,
+        api_key: str,
+        books_dir: Path,
+        output_dir: Path,
+        model: str = "mistral-ocr-latest",
         client: Mistral | None = None,
     ) -> None:
-        """Initialize the extractor.
-
-        Args:
-            api_key: Mistral API key. If None, uses MISTRAL_API_KEY from environment or settings.
-            model: OCR model name. If None, uses settings or default.
-            client: Optional pre-configured Mistral client. If None, creates a new client.
-        """
-        if client is not None:
-            self._client = client
-            self._api_key = ""
-            self._model = ""
-            return
-
-        if api_key is None:
-            try:
-                settings = get_settings()
-                api_key = settings.mistral.api_key or os.environ.get("MISTRAL_API_KEY")
-            except Exception:
-                api_key = os.environ.get("MISTRAL_API_KEY")
-
-        if model is None:
-            try:
-                settings = get_settings()
-                model = settings.mistral.ocr_model
-            except Exception:
-                model = "mistral-ocr-latest"
-
-        self._api_key = api_key or ""
+        self._api_key = api_key
         self._model = model
-
-        if not self._api_key:
-            raise APIError(
-                service="Mistral",
-                message="API key not set. Set MISTRAL_API_KEY environment variable.",
-            )
-
-        self._client = Mistral(api_key=self._api_key)
-
-    def _validate_prerequisites(self) -> None:
-        """Validate that client is initialized."""
-        if self._client is None:
-            raise APIError(
-                service="Mistral",
-                message="Client not initialized. API key required.",
-            )
+        self._books_dir = books_dir
+        self._output_dir = output_dir
+        self._client = client or Mistral(api_key=api_key)
 
     def encode_image(self, image_path: Path) -> str:
         """Encode an image file to a data URL (base64).
@@ -295,13 +255,7 @@ class AnswersExtractor(BaseExtractor):
         Returns:
             ExtractionResult with statistics.
         """
-        try:
-            self._validate_prerequisites()
-        except APIError as e:
-            return ExtractionResult.failure_result(errors=[str(e)])
-
-        settings = get_settings()
-        answers_dir = settings.paths.books_dir / subject / "answers"
+        answers_dir = self._books_dir / subject / "answers"
 
         if not answers_dir.exists():
             raise DirectoryNotFoundError(answers_dir)
@@ -324,11 +278,7 @@ class AnswersExtractor(BaseExtractor):
         results: dict[int, dict[str, dict[str, str]]] = {}
         year_parts: dict[int, set[int]] = {}
 
-        output_base = (
-            settings.paths.extraction_dir
-            / settings.extraction.data_dir_name
-            / settings.extraction.output_dir_name
-        )
+        output_base = self._output_dir
 
         processed_count = 0
         errors: list[str] = []

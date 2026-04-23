@@ -59,12 +59,7 @@ def count_questions(
 ) -> None:
     """Count images in a specific subject's extraction output."""
     settings = get_settings()
-    folder = (
-        settings.paths.extraction_dir
-        / settings.extraction.data_dir_name
-        / settings.extraction.output_dir_name
-        / subject
-    )
+    folder = settings.paths.extraction_output_dir / subject
 
     if not folder.exists() or not folder.is_dir():
         typer.echo(f"Error: Subject '{subject}' not found", err=True)
@@ -131,12 +126,7 @@ def renumber_questions(
 ) -> None:
     """Renumber images in a specific subject's extraction output to fill gaps."""
     settings = get_settings()
-    folder = (
-        settings.paths.extraction_dir
-        / settings.extraction.data_dir_name
-        / settings.extraction.output_dir_name
-        / subject
-    )
+    folder = settings.paths.extraction_output_dir / subject
 
     if not folder.exists() or not folder.is_dir():
         typer.echo(f"Error: Subject '{subject}' not found", err=True)
@@ -168,12 +158,7 @@ def add_questions_manually(
     Example: biology/2016_3_A_20.png
     """
     settings = get_settings()
-    manual_dir = (
-        settings.paths.extraction_dir
-        / settings.extraction.data_dir_name
-        / "manual"
-        / subject
-    )
+    manual_dir = settings.paths.extraction_manual_dir / subject
     
     if not manual_dir.exists():
         typer.echo(f"Error: Manual directory '{subject}' not found", err=True)
@@ -259,12 +244,7 @@ def check_answers(
     4. Reports any mismatches or missing files
     """
     settings = get_settings()
-    output_dir = (
-        settings.paths.extraction_dir
-        / settings.extraction.data_dir_name
-        / settings.extraction.output_dir_name
-        / subject
-    )
+    output_dir = settings.paths.extraction_output_dir / subject
 
     if not output_dir.exists():
         typer.echo(f"Error: {output_dir} does not exist", err=True)
