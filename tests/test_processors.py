@@ -290,27 +290,27 @@ class TestImageCropper:
 
     def test_order_quad_points(self) -> None:
         """Test ordering of quad points."""
-        from digitex.core.processors.image import ImageCropper
+        from digitex.core.processors.image import _order_quad_points
 
         pts = np.array([[10, 10], [50, 10], [50, 50], [10, 50]], dtype=np.float32)
-        ordered = ImageCropper._order_quad_points(pts)
+        ordered = _order_quad_points(pts)
         assert ordered.shape == (4, 2)
         assert ordered[0, 0] < ordered[2, 0]
 
     def test_polygon_to_quad_with_rectangle(self) -> None:
         """Test polygon to quad conversion with rectangle."""
-        from digitex.core.processors.image import ImageCropper
+        from digitex.core.processors.image import _polygon_to_quad
 
         polygon = [(10, 10), (50, 10), (50, 50), (10, 50)]
-        quad = ImageCropper._polygon_to_quad(polygon)
+        quad = _polygon_to_quad(polygon)
         assert quad.shape == (4, 2)
 
     def test_polygon_to_quad_with_skewed(self) -> None:
         """Test polygon to quad conversion with skewed polygon."""
-        from digitex.core.processors.image import ImageCropper
+        from digitex.core.processors.image import _polygon_to_quad
 
         polygon = [(10, 10), (50, 15), (48, 50), (12, 48)]
-        quad = ImageCropper._polygon_to_quad(polygon)
+        quad = _polygon_to_quad(polygon)
         assert quad.shape == (4, 2)
 
     def test_cut_out_image_by_polygon_min_points(self) -> None:

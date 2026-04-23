@@ -8,8 +8,7 @@ from PIL import Image
 
 from digitex.extractors.base import ExtractionResult
 from digitex.extractors.book_extractor import BookExtractor
-from digitex.extractors.exceptions import DirectoryNotFoundError, InvalidFilenameError
-from digitex.extractors.manual_extractor import ManualExtractor
+from digitex.extractors.exceptions import DirectoryNotFoundError
 from digitex.extractors.page_extractor import OCR_LANGUAGE, PageExtractor
 from digitex.extractors.tests_extractor import PROGRESS_FILE, TestsExtractor
 
@@ -467,53 +466,6 @@ class TestTestsExtractor:
             assert result.skipped == 1
             assert result.processed == 0
 
-
-class TestManualExtractor:
-    """Test suite for ManualExtractor class."""
-
-    def test_init(self) -> None:
-        """Test ManualExtractor initialization."""
-        extractor = ManualExtractor(
-            image_format="jpg",
-            question_max_width=2000,
-            question_max_height=2000,
-            manual_dir=Path("manual"),
-            output_dir=Path("output"),
-        )
-        assert extractor.image_format == "jpg"
-        assert extractor.question_max_width == 2000
-        assert extractor.question_max_height == 2000
-        assert extractor.manual_dir == Path("manual")
-        assert extractor.output_dir == Path("output")
-
-    def test_parse_filename_valid(self, tmp_path: Path) -> None:
-        """Test parsing valid filename."""
-        extractor = ManualExtractor(
-            manual_dir=tmp_path / "manual",
-            output_dir=tmp_path / "output",
-        )
-        test_file = tmp_path / "manual" / "2016_3_A_20.png"
-        test_file.parent.mkdir(parents=True, exist_ok=True)
-        test_file.touch()
-
-        year, option, part, question = extractor._parse_filename(test_file)
-        assert year == 2016
-        assert option == 3
-        assert part == "A"
-        assert question == 20
-
-    def test_parse_filename_invalid(self, tmp_path: Path) -> None:
-        """Test parsing invalid filename raises error."""
-        extractor = ManualExtractor(
-            manual_dir=tmp_path / "manual",
-            output_dir=tmp_path / "output",
-        )
-        test_file = tmp_path / "manual" / "invalid.png"
-        test_file.parent.mkdir(parents=True, exist_ok=True)
-        test_file.touch()
-
-        with pytest.raises(InvalidFilenameError):
-            extractor._parse_filename(test_file)
 
 
 class TestExtractionResult:

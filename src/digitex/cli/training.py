@@ -3,6 +3,7 @@
 import typer
 import structlog
 
+from digitex.config import get_settings
 from digitex.logging import setup_logging
 
 setup_logging()
@@ -12,8 +13,6 @@ logger = structlog.get_logger()
 
 
 def _data_dir(data_type_dir_name: str):
-    from digitex.config import get_settings
-
     s = get_settings()
     return s.paths.training_data_dir / data_type_dir_name
 
@@ -24,7 +23,6 @@ def create_dataset(
     train_split: float = typer.Option(0.8, "--train-split", help="Fraction of data used for training"),
 ) -> None:
     """Convert Label Studio annotations into a YOLO training dataset."""
-    from digitex.config import get_settings
     from digitex.ml.yolo.dataset import DatasetCreator
 
     s = get_settings()
@@ -54,7 +52,6 @@ def add_images(
     ),
 ) -> None:
     """Add images listed in images.txt to training data."""
-    from digitex.config import get_settings
     from digitex.creators import PageDataCreator
 
     s = get_settings()
@@ -82,7 +79,6 @@ def select_random_pages(
     num_images: int = typer.Option(100, "--num-images", help="Number of page images to sample"),
 ) -> None:
     """Randomly sample page images from the books directory for training."""
-    from digitex.config import get_settings
     from digitex.creators import PageDataCreator
 
     s = get_settings()
@@ -105,7 +101,6 @@ def train(
     ),
 ) -> None:
     """Train and validate a YOLO segmentation model."""
-    from digitex.config import get_settings
     from digitex.ml.yolo import Trainer
 
     s = get_settings()
@@ -143,7 +138,6 @@ def ls_predict(
     model_path: str = typer.Option(..., "--model-path", help="Path to trained YOLO model (.pt file)"),
 ) -> None:
     """Run model predictions on Label Studio tasks for a project."""
-    from digitex.config import get_settings
     from digitex.label_studio import TaskPredictor
 
     s = get_settings()
