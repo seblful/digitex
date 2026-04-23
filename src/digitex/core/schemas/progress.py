@@ -1,49 +1,35 @@
 """Schemas for student progress tracking."""
 
 from datetime import datetime
-from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 
 class Student(BaseModel):
-    """Student entity."""
-
     id: int
     telegram_id: int
     name: str
     username: str | None = None
 
 
-class QuestionPart(str, Enum):
-    """Question part identifier."""
-
-    A = "A"
-    B = "B"
-
-
 class QuestionRef(BaseModel):
-    """Reference to a specific question in a test."""
+    """Identifies a question by its natural key matching the DB unique constraint."""
 
-    book_id: int
-    option_number: int
-    part: QuestionPart
+    option_id: int
+    part: Literal["A", "B"]
     question_number: int
 
 
 class AnswerRecord(BaseModel):
-    """Record of a student's answer to a question."""
-
     question_ref: QuestionRef
-    student_answer: str | int
+    student_answer: str
     is_correct: bool
     time_spent: float = Field(description="Time in seconds")
     timestamp: datetime
 
 
 class TestResult(BaseModel):
-    """Result of a completed test option."""
-
     book_id: int
     option_number: int
     part_a_score: int
@@ -56,8 +42,6 @@ class TestResult(BaseModel):
 
 
 class SubjectProgress(BaseModel):
-    """Progress tracking for a single subject."""
-
     subject: str
     tests_completed: int
     total_tests: int
@@ -67,8 +51,6 @@ class SubjectProgress(BaseModel):
 
 
 class StudentProgress(BaseModel):
-    """Overall progress tracking for a student."""
-
     student: Student
     subjects: dict[str, SubjectProgress]
     total_tests_completed: int

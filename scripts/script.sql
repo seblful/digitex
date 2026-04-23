@@ -22,40 +22,32 @@ CREATE TABLE options (
     UNIQUE (book_id, option_number)
 );
 
--- Parts (A and B for each option)
-CREATE TABLE parts (
-    part_id INTEGER PRIMARY KEY,
-    option_id INTEGER NOT NULL,
-    part_type TEXT NOT NULL CHECK (part_type IN ('A', 'B')),
-    FOREIGN KEY (option_id) REFERENCES options(option_id),
-    UNIQUE (option_id, part_type)
-);
-
--- Questions (image-only, no text)
+-- Questions — part and number mirror filesystem: {option}/{part}/{number}.jpg
 CREATE TABLE questions (
     question_id INTEGER PRIMARY KEY,
-    part_id INTEGER NOT NULL,
+    option_id INTEGER NOT NULL,
+    part TEXT NOT NULL CHECK (part IN ('A', 'B')),
     question_number INTEGER NOT NULL,
     specification TEXT,
-    FOREIGN KEY (part_id) REFERENCES parts(part_id),
-    UNIQUE (part_id, question_number)
+    FOREIGN KEY (option_id) REFERENCES options(option_id),
+    UNIQUE (option_id, part, question_number)
 );
 
--- Correct answer for Part A
+-- Correct answer for Part A (1–5, matches extracted answer digit)
 CREATE TABLE part_a_answers (
     question_id INTEGER PRIMARY KEY,
     correct_order INTEGER NOT NULL CHECK (correct_order BETWEEN 1 AND 5),
     FOREIGN KEY (question_id) REFERENCES questions(question_id)
 );
 
--- Correct answer for Part B (exactly one per question)
+-- Correct answer for Part B (text, e.g. "ВЕРНАДСКИЙ", "А4Б2В1Г3")
 CREATE TABLE part_b_answers (
     question_id INTEGER PRIMARY KEY,
     answer_text TEXT NOT NULL,
     FOREIGN KEY (question_id) REFERENCES questions(question_id)
 );
 
--- Images (question images and table images)
+-- Images (one per question in current extraction, structure allows more)
 CREATE TABLE images (
     image_id INTEGER PRIMARY KEY,
     question_id INTEGER NOT NULL,
@@ -99,5 +91,5 @@ CREATE TABLE session_answers (
     answered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (session_id) REFERENCES test_sessions(session_id),
     FOREIGN KEY (question_id) REFERENCES questions(question_id),
-    UNIQUE (session_id, question_id)    -- one answer per question per session
+    UNIQUE (session_id, question_id)
 );
