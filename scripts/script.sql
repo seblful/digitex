@@ -1,11 +1,11 @@
 -- Subjects
-CREATE TABLE subjects (
+CREATE TABLE IF NOT EXISTS subjects (
     subject_id INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE
 );
 
 -- Books (one per subject per year)
-CREATE TABLE books (
+CREATE TABLE IF NOT EXISTS books (
     book_id INTEGER PRIMARY KEY,
     subject_id INTEGER NOT NULL,
     year_value INTEGER NOT NULL,
@@ -14,7 +14,7 @@ CREATE TABLE books (
 );
 
 -- Options / variants (up to 10 per book)
-CREATE TABLE options (
+CREATE TABLE IF NOT EXISTS options (
     option_id INTEGER PRIMARY KEY,
     book_id INTEGER NOT NULL,
     option_number INTEGER NOT NULL CHECK (option_number BETWEEN 1 AND 10),
@@ -23,7 +23,7 @@ CREATE TABLE options (
 );
 
 -- Questions — part and number mirror filesystem: {option}/{part}/{number}.jpg
-CREATE TABLE questions (
+CREATE TABLE IF NOT EXISTS questions (
     question_id INTEGER PRIMARY KEY,
     option_id INTEGER NOT NULL,
     part TEXT NOT NULL CHECK (part IN ('A', 'B')),
@@ -34,21 +34,21 @@ CREATE TABLE questions (
 );
 
 -- Correct answer for Part A (1–5, matches extracted answer digit)
-CREATE TABLE part_a_answers (
+CREATE TABLE IF NOT EXISTS part_a_answers (
     question_id INTEGER PRIMARY KEY,
     correct_order INTEGER NOT NULL CHECK (correct_order BETWEEN 1 AND 5),
     FOREIGN KEY (question_id) REFERENCES questions(question_id)
 );
 
 -- Correct answer for Part B (text, e.g. "ВЕРНАДСКИЙ", "А4Б2В1Г3")
-CREATE TABLE part_b_answers (
+CREATE TABLE IF NOT EXISTS part_b_answers (
     question_id INTEGER PRIMARY KEY,
     answer_text TEXT NOT NULL,
     FOREIGN KEY (question_id) REFERENCES questions(question_id)
 );
 
 -- Images (one per question in current extraction, structure allows more)
-CREATE TABLE images (
+CREATE TABLE IF NOT EXISTS images (
     image_id INTEGER PRIMARY KEY,
     question_id INTEGER NOT NULL,
     image_data BLOB NOT NULL,
@@ -60,7 +60,7 @@ CREATE TABLE images (
 );
 
 -- Students (Telegram users)
-CREATE TABLE students (
+CREATE TABLE IF NOT EXISTS students (
     student_id INTEGER PRIMARY KEY,
     telegram_id INTEGER NOT NULL UNIQUE,
     name TEXT NOT NULL,
@@ -69,7 +69,7 @@ CREATE TABLE students (
 );
 
 -- Active or completed test sessions
-CREATE TABLE test_sessions (
+CREATE TABLE IF NOT EXISTS test_sessions (
     session_id INTEGER PRIMARY KEY,
     student_id INTEGER NOT NULL,
     book_id INTEGER NOT NULL,
@@ -81,7 +81,7 @@ CREATE TABLE test_sessions (
 );
 
 -- Per-question answers recorded during a session
-CREATE TABLE session_answers (
+CREATE TABLE IF NOT EXISTS session_answers (
     answer_id INTEGER PRIMARY KEY,
     session_id INTEGER NOT NULL,
     question_id INTEGER NOT NULL,

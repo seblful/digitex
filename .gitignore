@@ -1,5 +1,6 @@
 # Data
 books/
+data/
 
 # Training outputs
 training/runs/

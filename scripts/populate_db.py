@@ -1,6 +1,6 @@
-"""Populate database from extraction output.
+"""Populate database from extraction output. Initializes DB automatically if needed.
 
-Run after init_db.py. Idempotent — safe to re-run.
+Idempotent — safe to re-run.
 
 Usage:
     python scripts/populate_db.py              # all subjects
@@ -8,6 +8,7 @@ Usage:
 """
 
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -18,6 +19,22 @@ from digitex.core.db import UnitOfWork
 from digitex.core.value_objects import QuestionKey
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+SQL_SCRIPT_PATH = Path("scripts/script.sql")
+
+
+def init_db(db_path: str) -> None:
+    db_file = Path(db_path)
+    if db_file.exists():
+        return
+    db_file.parent.mkdir(parents=True, exist_ok=True)
+    sql = SQL_SCRIPT_PATH.read_text(encoding="utf-8")
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(sql)
+        conn.commit()
+        print(f"Initialized database at {db_path}")
+    finally:
+        conn.close()
 
 
 def _populate_year(uow: UnitOfWork, subject_id: int, year_dir: Path) -> tuple[int, int]:
@@ -50,7 +67,13 @@ def _populate_year(uow: UnitOfWork, subject_id: int, year_dir: Path) -> tuple[in
                 continue
 
             img_files = sorted(
-                (f for f in part_dir.iterdir() if f.is_file() and f.suffix.lower() in IMAGE_EXTENSIONS and f.stem.isdigit()),
+                (
+                    f
+                    for f in part_dir.iterdir()
+                    if f.is_file()
+                    and f.suffix.lower() in IMAGE_EXTENSIONS
+                    and f.stem.isdigit()
+                ),
                 key=lambda f: int(f.stem),
             )
 
@@ -103,6 +126,8 @@ def main() -> None:
         print(f"Extraction output not found: {output_dir}")
         sys.exit(1)
 
+    init_db(db_path)
+
     if len(sys.argv) > 1:
         populate_subject(db_path, output_dir, sys.argv[1])
     else:
@@ -118,4 +143,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-```
