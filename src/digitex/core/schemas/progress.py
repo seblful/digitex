@@ -10,7 +10,9 @@ class Student(BaseModel):
     """Student entity."""
 
     id: int
+    telegram_id: int
     name: str
+    username: str | None = None
 
 
 class QuestionPart(str, Enum):
@@ -34,7 +36,6 @@ class AnswerRecord(BaseModel):
 
     question_ref: QuestionRef
     student_answer: str | int
-    correct_answer: str | int
     is_correct: bool
     time_spent: float = Field(description="Time in seconds")
     timestamp: datetime
