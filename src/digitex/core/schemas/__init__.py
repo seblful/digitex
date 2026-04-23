@@ -1,28 +1,5 @@
 """Schemas package."""
 
-from .progress import (
-    AnswerRecord,
-    QuestionPart,
-    QuestionRef,
-    Student,
-    StudentProgress,
-    SubjectProgress,
-    TestResult,
-)
-from .tests import Book, Option, PartA, PartB, QuestionA, QuestionB
+from .bot import Question, Session, Student, TestResult
 
-__all__ = [
-    "Book",
-    "Option",
-    "PartA",
-    "PartB",
-    "QuestionA",
-    "QuestionB",
-    "Student",
-    "QuestionPart",
-    "QuestionRef",
-    "AnswerRecord",
-    "TestResult",
-    "SubjectProgress",
-    "StudentProgress",
-]
+__all__ = ["Question", "Session", "Student", "TestResult"]
