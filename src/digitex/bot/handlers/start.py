@@ -9,6 +9,20 @@ from digitex.bot.keyboards import subjects_kb
 from digitex.bot.states import Navigation
 from digitex.config import get_settings
 
+SUBJECT_NAMES = {
+    "biology": "Биология",
+    "chemistry": "Химия",
+    "physics": "Физика",
+    "math": "Математика",
+    "russian": "Русский язык",
+    "history": "История",
+    "social": "Обществознание",
+}
+
+
+def get_subject_name(subject: str) -> str:
+    return SUBJECT_NAMES.get(subject.lower(), subject.capitalize())
+
 router = Router()
 
 
@@ -18,7 +32,7 @@ async def cmd_start(message: types.Message, state: FSMContext) -> None:
 
     def register(uow):
         telegram_id = message.from_user.id if message.from_user else 0
-        name = message.from_user.full_name if message.from_user else "User"
+        name = message.from_user.full_name if message.from_user else "Пользователь"
         username = message.from_user.username if message.from_user else None
         uow.students.get_or_create(
             telegram_id=telegram_id,
@@ -28,7 +42,7 @@ async def cmd_start(message: types.Message, state: FSMContext) -> None:
         rows = uow._conn.execute(
             "SELECT subject_id, name FROM subjects ORDER BY name"
         ).fetchall()
-        return rows
+        return [(row[0], get_subject_name(row[1])) for row in rows]
 
     subjects = await with_uow(db_path, register)
     user_name = message.from_user.full_name if message.from_user else "Пользователь"

@@ -8,6 +8,20 @@ from digitex.bot.keyboards import subjects_kb
 from digitex.bot.states import Navigation
 from digitex.config import get_settings
 
+SUBJECT_NAMES = {
+    "biology": "Биология",
+    "chemistry": "Химия",
+    "physics": "Физика",
+    "math": "Математика",
+    "russian": "Русский язык",
+    "history": "История",
+    "social": "Обществознание",
+}
+
+
+def get_subject_name(subject: str) -> str:
+    return SUBJECT_NAMES.get(subject.lower(), subject.capitalize())
+
 router = Router()
 
 
@@ -46,9 +60,12 @@ async def show_results(
         return result, wrong_rows, session_row
 
     result, wrong_rows, session_row = await with_uow(db_path, get_results)
-    subject_name = session_row[2]
+    subject_name = get_subject_name(session_row[2])
     year = session_row[1]
     option_number = session_row[3]
+
+    wrong_a = [r for r in wrong_rows if r[1] == "A"]
+    wrong_b = [r for r in wrong_rows if r[1] == "B"]
 
     lines = [
         "📊 <b>Тестирование завершено</b>",
@@ -64,14 +81,23 @@ async def show_results(
         f"<b>Время:</b> {result.time_spent:.0f} сек",
     ]
 
-    if wrong_rows:
+    if wrong_a or wrong_b:
         lines.append("")
         lines.append("<b>Ошибки:</b>")
-        for row in wrong_rows:
-            qnum, part, user_ans, correct_ans = row
-            lines.append(f"  • Вопрос {qnum} (Часть {part})")
-            lines.append(f"    Ваш ответ: <code>{user_ans}</code>")
-            lines.append(f"    Правильный: <code>{correct_ans}</code>")
+
+        if wrong_a:
+            lines.append("")
+            lines.append("<b>Часть А:</b>")
+            for row in wrong_a:
+                qnum, part, user_ans, correct_ans = row
+                lines.append(f"  • Вопрос {qnum}: ваш ответ <code>{user_ans}</code>, правильный <code>{correct_ans}</code>")
+
+        if wrong_b:
+            lines.append("")
+            lines.append("<b>Часть Б:</b>")
+            for row in wrong_b:
+                qnum, part, user_ans, correct_ans = row
+                lines.append(f"  • Вопрос {qnum}: ваш ответ <code>{user_ans}</code>, правильный <code>{correct_ans}</code>")
 
     await bot.send_message(message.chat.id, "\n".join(lines), parse_mode="HTML")
     await state.clear()
