@@ -82,11 +82,8 @@ async def _record_and_advance(
 
     await with_uow(db_path, record)
 
-    # Reset waiting flag before moving to next question
-    await state.update_data(
-        current_index=current_index + 1,
-        waiting_for_answer=False,
-    )
+    # Move to next question
+    await state.update_data(current_index=current_index + 1)
     await send_current_question(message, state, bot)
 
 
@@ -114,6 +111,6 @@ async def on_part_b_answer(message: types.Message, state: FSMContext) -> None:
     if current_part != "B" or not waiting:
         return
 
-    # Mark as not waiting to ignore subsequent messages
+    # Mark as not waiting IMMEDIATELY to prevent race condition
     await state.update_data(waiting_for_answer=False)
     await _record_and_advance(message, state, message.bot, message.text)
