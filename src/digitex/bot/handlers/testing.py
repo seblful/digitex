@@ -37,8 +37,12 @@ async def send_current_question(
 
     question, part = await with_uow(db_path, fetch_question)
 
-    # Store timestamp when question is shown
-    await state.update_data(question_start_time=time.time())
+    # Store timestamp and part when question is shown
+    await state.update_data(
+        question_start_time=time.time(),
+        current_part=part,
+        waiting_for_answer=True,
+    )
 
     if part == "A":
         await send_question(bot, message.chat.id, question, db_path, reply_markup=part_a_kb())
@@ -78,7 +82,11 @@ async def _record_and_advance(
 
     await with_uow(db_path, record)
 
-    await state.update_data(current_index=current_index + 1)
+    # Reset waiting flag before moving to next question
+    await state.update_data(
+        current_index=current_index + 1,
+        waiting_for_answer=False,
+    )
     await send_current_question(message, state, bot)
 
 
@@ -97,4 +105,15 @@ async def on_part_a_answer(callback: types.CallbackQuery, state: FSMContext) -> 
 async def on_part_b_answer(message: types.Message, state: FSMContext) -> None:
     if not message.text:
         return
+
+    data = await state.get_data()
+    current_part = data.get("current_part")
+    waiting = data.get("waiting_for_answer", False)
+
+    # Only process text messages for Part B, and only if waiting for answer
+    if current_part != "B" or not waiting:
+        return
+
+    # Mark as not waiting to ignore subsequent messages
+    await state.update_data(waiting_for_answer=False)
     await _record_and_advance(message, state, message.bot, message.text)
