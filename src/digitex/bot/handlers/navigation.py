@@ -29,12 +29,12 @@ async def on_subject_selected(callback: types.CallbackQuery, state: FSMContext) 
 
     years = await with_uow(db_path, fetch_years)
     if not years:
-        await callback.message.edit_text("No years available for this subject.")
+        await callback.message.edit_text("Нет доступных лет для этого предмета.")
         await callback.answer()
         return
 
     await callback.message.edit_text(
-        "Select year:",
+        "Выберите год:",
         reply_markup=years_kb(years),
     )
     await state.update_data(subject_id=subject_id)
@@ -63,12 +63,12 @@ async def on_year_selected(callback: types.CallbackQuery, state: FSMContext) -> 
 
     book_id, options = await with_uow(db_path, fetch_options)
     if not options:
-        await callback.message.edit_text("No options available for this year.")
+        await callback.message.edit_text("Нет доступных вариантов для этого года.")
         await callback.answer()
         return
 
     await callback.message.edit_text(
-        "Select option:",
+        "Выберите вариант:",
         reply_markup=options_kb(options),
     )
     await state.update_data(book_id=book_id)
@@ -89,7 +89,7 @@ async def on_option_selected(callback: types.CallbackQuery, state: FSMContext) -
 
     def start_test(uow):
         telegram_id = callback.from_user.id if callback.from_user else 0
-        name = callback.from_user.full_name if callback.from_user and callback.from_user.full_name else "User"
+        name = callback.from_user.full_name if callback.from_user and callback.from_user.full_name else "Пользователь"
         username = callback.from_user.username if callback.from_user else None
         student = uow.students.get_or_create(
             telegram_id=telegram_id,
@@ -106,7 +106,7 @@ async def on_option_selected(callback: types.CallbackQuery, state: FSMContext) -
         return session.session_id, [q.question_id for q in qs]
 
     session_id, question_ids = await with_uow(db_path, start_test)
-    await callback.message.edit_text("Starting test!")
+    await callback.message.edit_text("Начинаем тестирование!")
     await state.update_data(
         session_id=session_id,
         question_ids=question_ids,

@@ -51,21 +51,29 @@ async def show_results(
     option_number = session_row[3]
 
     lines = [
-        f"Test Complete: {subject_name} {year} — Option {option_number}",
+        "📊 <b>Тестирование завершено</b>",
         "",
-        f"Correct: {result.total_score}/{result.max_score}",
-        f"Part A: {result.part_a_score} | Part B: {result.part_b_score}",
-        f"Time: {result.time_spent:.0f}s",
+        f"<b>Предмет:</b> {subject_name}",
+        f"<b>Год:</b> {year}",
+        f"<b>Вариант:</b> {option_number}",
+        "",
+        f"<b>Результат:</b> {result.total_score} из {result.max_score}",
+        f"├─ Часть А: {result.part_a_score}",
+        f"└─ Часть Б: {result.part_b_score}",
+        "",
+        f"<b>Время:</b> {result.time_spent:.0f} сек",
     ]
 
     if wrong_rows:
         lines.append("")
-        lines.append("Mistakes:")
+        lines.append("<b>Ошибки:</b>")
         for row in wrong_rows:
             qnum, part, user_ans, correct_ans = row
-            lines.append(f"  Q{qnum} ({part}): yours '{user_ans}', correct '{correct_ans}'")
+            lines.append(f"  • Вопрос {qnum} (Часть {part})")
+            lines.append(f"    Ваш ответ: <code>{user_ans}</code>")
+            lines.append(f"    Правильный: <code>{correct_ans}</code>")
 
-    await bot.send_message(message.chat.id, "\n".join(lines))
+    await bot.send_message(message.chat.id, "\n".join(lines), parse_mode="HTML")
     await state.clear()
     await state.set_state(Navigation.select_subject)
 
@@ -77,6 +85,6 @@ async def show_results(
     subjects = await with_uow(db_path, list_subjects)
     await bot.send_message(
         message.chat.id,
-        "Select a subject to start a new test:",
+        "Выберите предмет для нового тестирования:",
         reply_markup=subjects_kb(subjects),
     )

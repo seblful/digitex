@@ -4,7 +4,7 @@ from aiogram import F, Router, types
 from aiogram.fsm.context import FSMContext
 
 from digitex.bot.database import with_uow
-from digitex.bot.keyboards import part_a_kb, quit_kb
+from digitex.bot.keyboards import part_a_kb
 from digitex.bot.renderer import send_question
 from digitex.bot.states import Testing
 from digitex.config import get_settings
@@ -38,8 +38,8 @@ async def send_current_question(
     if part == "A":
         await send_question(bot, message.chat.id, question, db_path, reply_markup=part_a_kb())
     else:
-        await send_question(bot, message.chat.id, question, db_path, reply_markup=quit_kb())
-        await message.answer("Enter your answer (text):")
+        await send_question(bot, message.chat.id, question, db_path)
+        await message.answer("Введите ответ текстом:")
 
 
 async def _record_and_advance(
@@ -82,18 +82,6 @@ async def on_part_a_answer(callback: types.CallbackQuery, state: FSMContext) -> 
 
     answer = callback.data.split(":")[1]
     await _record_and_advance(callback.message, state, callback.bot, answer)
-    await callback.answer()
-
-
-@router.callback_query(Testing.answering, F.data == "quit")
-async def on_quit(callback: types.CallbackQuery, state: FSMContext) -> None:
-    if not isinstance(callback.message, types.Message):
-        await callback.answer()
-        return
-
-    await callback.message.edit_text("Test ended early.")
-    from digitex.bot.handlers.results import show_results
-    await show_results(callback.message, state, callback.bot)
     await callback.answer()
 
 

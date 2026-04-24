@@ -31,9 +31,9 @@ async def cmd_start(message: types.Message, state: FSMContext) -> None:
         return rows
 
     subjects = await with_uow(db_path, register)
-    user_name = message.from_user.full_name if message.from_user else "User"
+    user_name = message.from_user.full_name if message.from_user else "Пользователь"
     await message.answer(
-        f"Hello, {user_name}! Select a subject:",
+        f"Здравствуйте, {user_name}! Выберите предмет:",
         reply_markup=subjects_kb(subjects),
     )
     await state.set_state(Navigation.select_subject)

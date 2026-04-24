@@ -23,8 +23,8 @@ def years_kb(years: list[int]) -> InlineKeyboardMarkup:
 def options_kb(options: list[int]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for opt in options:
-        builder.add(InlineKeyboardButton(text=str(opt), callback_data=f"opt:{opt}"))
-    builder.adjust(5)
+        builder.add(InlineKeyboardButton(text=f"Вариант {opt}", callback_data=f"opt:{opt}"))
+    builder.adjust(2)
     return builder.as_markup()
 
 
@@ -33,10 +33,4 @@ def part_a_kb() -> InlineKeyboardMarkup:
     for i in range(1, 6):
         builder.add(InlineKeyboardButton(text=str(i), callback_data=f"ans:{i}"))
     builder.adjust(5)
-    return builder.as_markup()
-
-
-def quit_kb() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="Quit", callback_data="quit"))
     return builder.as_markup()
