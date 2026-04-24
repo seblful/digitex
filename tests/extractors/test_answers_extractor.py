@@ -1,7 +1,8 @@
 """Tests for AnswersExtractor."""
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 from digitex.extractors import AnswersExtractor
 

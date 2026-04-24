@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime
 
-from digitex.core.schemas.bot import Question, Session, Student, TestResult
+from digitex.bot.schemas import Question, Session, Student, TestResult
 from digitex.core.value_objects import QuestionKey
 
 
@@ -64,8 +64,8 @@ class QuestionRepository:
 
     def insert_image(self, question_id: int, image_data: bytes) -> None:
         self._conn.execute(
-            "INSERT OR IGNORE INTO images (question_id, image_data, is_table, image_order)"
-            " VALUES (?, ?, 0, 1)",
+            "INSERT OR IGNORE INTO images (question_id, image_data, image_order)"
+            " VALUES (?, ?, 1)",
             (question_id, image_data),
         )
 

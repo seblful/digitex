@@ -1,7 +1,8 @@
 """Extraction CLI commands."""
 
-import typer
 from typing import Annotated
+
+import typer
 
 from digitex.config import get_settings
 from digitex.extractors.factory import ExtractorFactory

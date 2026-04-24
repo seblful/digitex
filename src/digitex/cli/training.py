@@ -1,7 +1,7 @@
 """Training CLI commands."""
 
-import typer
 import structlog
+import typer
 
 from digitex.config import get_settings
 from digitex.logging import setup_logging

@@ -22,7 +22,8 @@ class QuestionKey:
         raw = raw.strip().upper()
         if len(raw) < 2 or raw[0] not in ("A", "B") or not raw[1:].isdigit():
             raise ValueError(f"Invalid question key: {raw!r}")
-        return cls(part=raw[0], number=int(raw[1:]))  # type: ignore[arg-type]
+        part = "A" if raw[0] == "A" else "B"
+        return cls(part=part, number=int(raw[1:]))
 
     def __str__(self) -> str:
         return f"{self.part}{self.number}"

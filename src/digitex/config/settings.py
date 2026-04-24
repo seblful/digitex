@@ -110,6 +110,21 @@ class LabelStudioSettings(BaseSettings):
     api_key: str = Field(default="", description="Label Studio API key")
 
 
+class BotSettings(BaseSettings):
+    """Telegram bot settings."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="BOT__",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    token: str = Field(
+        default="", description="Telegram bot token from @BotFather",
+    )
+
+
 class AppSettings(BaseSettings):
     """Application settings."""
 
@@ -227,6 +242,7 @@ class Settings(BaseSettings):
     label_studio: LabelStudioSettings = Field(default_factory=LabelStudioSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     app: AppSettings = Field(default_factory=AppSettings)
+    bot: BotSettings = Field(default_factory=BotSettings)
 
     @classmethod
     def load(cls) -> Self:

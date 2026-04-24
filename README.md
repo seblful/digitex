@@ -1,21 +1,23 @@
 # Digitex
 
-Document digitization toolkit for processing images and ML-based document segmentation.
+Document digitization toolkit for processing images, ML-based document segmentation, and centralized testing via Telegram bot.
 
 ## Project Structure
 
 ```
 digitex/
 ├── src/digitex/              # Main package
+│   ├── bot/                  # Telegram bot (aiogram)
 │   ├── config/               # Configuration management
-│   ├── core/                # Core domain logic
-│   ├── ml/                  # Machine learning components
-│   └── utils.py            # Common utilities
-├── extraction/              # Image extraction pipeline
-├── training/               # ML training workflow
-├── scripts/               # SQL scripts
-├── tests/                 # Test suite
-└── AGENTS.md             # AI agent instructions
+│   ├── core/                 # Core domain logic + DB layer
+│   ├── ml/                   # Machine learning components
+│   ├── extractors/           # Image extraction pipeline
+│   └── cli/                  # CLI entry points
+├── extraction/               # Legacy extraction scripts
+├── training/                 # ML training workflow
+├── scripts/                  # DB schema and population scripts
+├── tests/                    # Test suite
+└── AGENTS.md                 # AI agent instructions
 ```
 
 ## Features
@@ -23,7 +25,50 @@ digitex/
 - **Image Extraction**: Extract and process question images from book images
 - **Image Processing**: Crop, transform, resize with aspect ratio preservation
 - **YOLO Segmentation**: Detect and segment document regions
+- **Telegram Bot**: Take centralized tests via Telegram with automatic grading
 - **Configuration Management**: Pydantic-based settings with environment variable support
+
+## CLI Commands
+
+```bash
+# Extract question images from books
+digitex-extract extract-questions <subject>
+
+# Train YOLO segmentation model
+digitex-train create-dataset
+digitex-train train
+
+# Start Telegram bot
+digitex-bot run
+
+# Populate database from extraction output
+uv run python scripts/populate_db.py
+```
+
+## Telegram Bot
+
+The bot allows students to take centralized tests via Telegram:
+
+1. **Start** — `/start` to register and select a subject
+2. **Navigate** — Choose subject → year → option number
+3. **Test** — Answer Part A (multiple choice 1-5) and Part B (text) questions
+4. **Results** — Get instant score and mistake review
+
+### Bot Setup
+
+1. Get a bot token from [@BotFather](https://t.me/BotFather)
+2. Add to `.env`:
+   ```
+   BOT__TOKEN=your_bot_token_here
+   ```
+3. Populate the database:
+   ```bash
+   uv run python scripts/populate_db.py
+   ```
+4. Run the bot:
+   ```bash
+   digitex-bot run
+   ```
 
 ## Configuration
 
@@ -38,32 +83,13 @@ This project uses Pydantic Settings for configuration management. Settings can b
 - **DatabaseSettings**: Database connection settings
 - **TrainingSettings**: YOLO training parameters (epochs, batch size, image size, etc.)
 - **PathsSettings**: Directory paths for data, models, and datasets
-
-### Example Usage
-
-```python
-from digitex.config import get_settings
-
-settings = get_settings()
-
-# Access extraction settings
-image_format = settings.extraction.image_format
-question_size = (settings.extraction.question_max_width, settings.extraction.question_max_height)
-
-# Access data settings
-image_size = settings.data.image_size
-
-# Access training settings
-num_epochs = settings.training.num_epochs
-
-# Access database settings
-db_path = settings.database.path
-```
+- **BotSettings**: Telegram bot token
 
 ### Environment Variables
 
 Key environment variables include:
 
+- `BOT__TOKEN`: Telegram bot token from @BotFather
 - `EXTRACTION_MODEL_PATH`: Path to the YOLO segmentation model (default: extraction/models/page.pt)
 - `EXTRACTION_BOOKS_DIR`: Source books directory (default: books)
 - `EXTRACTION_EXTRACTION_DIR`: Output directory (default: extraction/output)
