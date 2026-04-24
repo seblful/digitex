@@ -1,5 +1,7 @@
 """Question answering loop — Part A (callbacks) and Part B (text)."""
 
+import time
+
 from aiogram import F, Router, types
 from aiogram.fsm.context import FSMContext
 
@@ -35,6 +37,9 @@ async def send_current_question(
 
     question, part = await with_uow(db_path, fetch_question)
 
+    # Store timestamp when question is shown
+    await state.update_data(question_start_time=time.time())
+
     if part == "A":
         await send_question(bot, message.chat.id, question, db_path, reply_markup=part_a_kb())
     else:
@@ -53,7 +58,10 @@ async def _record_and_advance(
     question_ids: list[int] = data["question_ids"]
     current_index: int = data["current_index"]
     question_id = question_ids[current_index]
+    question_start_time: float = data.get("question_start_time", time.time())
     db_path = get_settings().database.path
+
+    time_spent = time.time() - question_start_time
 
     def record(uow):
         question = uow.questions.get(question_id)
@@ -64,7 +72,7 @@ async def _record_and_advance(
             question_id=question_id,
             student_answer=answer.strip(),
             is_correct=is_correct,
-            time_spent=0.0,
+            time_spent=time_spent,
         )
         return is_correct
 

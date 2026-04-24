@@ -74,12 +74,12 @@ class QuestionRepository:
             if not answer.isdigit():
                 raise ValueError(f"Part A answer must be a digit, got {answer!r}")
             self._conn.execute(
-                "INSERT OR IGNORE INTO part_a_answers (question_id, answer_text) VALUES (?, ?)",
+                "INSERT OR IGNORE INTO part_a_answers (question_id, answer) VALUES (?, ?)",
                 (question_id, int(answer)),
             )
         else:
             self._conn.execute(
-                "INSERT OR IGNORE INTO part_b_answers (question_id, answer_text) VALUES (?, ?)",
+                "INSERT OR IGNORE INTO part_b_answers (question_id, answer) VALUES (?, ?)",
                 (question_id, answer),
             )
 
@@ -128,9 +128,9 @@ class QuestionRepository:
 
     def get_correct_answer(self, question_id: int, part: str) -> str:
         row = self._conn.execute(
-            "SELECT answer_text FROM part_a_answers WHERE question_id = ?"
+            "SELECT answer FROM part_a_answers WHERE question_id = ?"
             " UNION ALL "
-            "SELECT answer_text FROM part_b_answers WHERE question_id = ?",
+            "SELECT answer FROM part_b_answers WHERE question_id = ?",
             (question_id, question_id),
         ).fetchone()
         if row is None:

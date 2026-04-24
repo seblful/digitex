@@ -35,14 +35,14 @@ CREATE TABLE IF NOT EXISTS questions (
 -- Correct answer for Part A (1–5, matches extracted answer digit)
 CREATE TABLE IF NOT EXISTS part_a_answers (
     question_id INTEGER PRIMARY KEY,
-    answer_text INTEGER NOT NULL CHECK (answer_text BETWEEN 1 AND 5),
+    answer INTEGER NOT NULL CHECK (answer BETWEEN 1 AND 5),
     FOREIGN KEY (question_id) REFERENCES questions(question_id)
 );
 
 -- Correct answer for Part B (text, e.g. "ВЕРНАДСКИЙ", "А4Б2В1Г3")
 CREATE TABLE IF NOT EXISTS part_b_answers (
     question_id INTEGER PRIMARY KEY,
-    answer_text TEXT NOT NULL,
+    answer TEXT NOT NULL,
     FOREIGN KEY (question_id) REFERENCES questions(question_id)
 );
 
