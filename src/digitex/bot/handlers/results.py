@@ -8,20 +8,6 @@ from digitex.bot.keyboards import subjects_kb
 from digitex.bot.states import Navigation
 from digitex.config import get_settings
 
-SUBJECT_NAMES = {
-    "biology": "Биология",
-    "chemistry": "Химия",
-    "physics": "Физика",
-    "math": "Математика",
-    "russian": "Русский язык",
-    "history": "История",
-    "social": "Обществознание",
-}
-
-
-def get_subject_name(subject: str) -> str:
-    return SUBJECT_NAMES.get(subject.lower(), subject.capitalize())
-
 router = Router()
 
 
@@ -60,7 +46,7 @@ async def show_results(
         return result, wrong_rows, session_row
 
     result, wrong_rows, session_row = await with_uow(db_path, get_results)
-    subject_name = get_subject_name(session_row[2])
+    subject_name = session_row[2]
     year = session_row[1]
     option_number = session_row[3]
 
@@ -104,10 +90,9 @@ async def show_results(
     await state.set_state(Navigation.select_subject)
 
     def list_subjects(uow):
-        rows = uow._conn.execute(
+        return uow._conn.execute(
             "SELECT subject_id, name FROM subjects ORDER BY name"
         ).fetchall()
-        return [(row[0], get_subject_name(row[1])) for row in rows]
 
     subjects = await with_uow(db_path, list_subjects)
     await bot.send_message(

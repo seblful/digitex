@@ -21,6 +21,21 @@ from digitex.core.value_objects import QuestionKey
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 SQL_SCRIPT_PATH = Path("scripts/script.sql")
 
+SUBJECT_NAMES = {
+    "biology": "Биология",
+    "chemistry": "Химия",
+    "physics": "Физика",
+    "math": "Математика",
+    "russian": "Русский язык",
+    "history": "История",
+    "social": "Обществознание",
+}
+
+
+def get_subject_name(subject: str) -> str:
+    """Translate subject name to Russian if mapping exists."""
+    return SUBJECT_NAMES.get(subject.lower(), subject.capitalize())
+
 
 def init_db(db_path: str) -> None:
     db_file = Path(db_path)
@@ -112,7 +127,7 @@ def populate_subject(db_path: str, output_dir: Path, subject: str) -> None:
 
     for year_dir in tqdm(year_dirs, desc=subject):
         with UnitOfWork(db_path) as uow:
-            subject_id = uow.books.get_or_create_subject(subject)
+            subject_id = uow.books.get_or_create_subject(get_subject_name(subject))
             questions, answers = _populate_year(uow, subject_id, year_dir)
         tqdm.write(f"  {year_dir.name}: {questions} questions, {answers} answers")
 

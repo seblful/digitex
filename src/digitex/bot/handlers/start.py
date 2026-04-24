@@ -9,20 +9,6 @@ from digitex.bot.keyboards import subjects_kb
 from digitex.bot.states import Navigation
 from digitex.config import get_settings
 
-SUBJECT_NAMES = {
-    "biology": "Биология",
-    "chemistry": "Химия",
-    "physics": "Физика",
-    "math": "Математика",
-    "russian": "Русский язык",
-    "history": "История",
-    "social": "Обществознание",
-}
-
-
-def get_subject_name(subject: str) -> str:
-    return SUBJECT_NAMES.get(subject.lower(), subject.capitalize())
-
 router = Router()
 
 
@@ -42,7 +28,7 @@ async def cmd_start(message: types.Message, state: FSMContext) -> None:
         rows = uow._conn.execute(
             "SELECT subject_id, name FROM subjects ORDER BY name"
         ).fetchall()
-        return [(row[0], get_subject_name(row[1])) for row in rows]
+        return rows
 
     subjects = await with_uow(db_path, register)
     user_name = message.from_user.full_name if message.from_user else "Пользователь"
