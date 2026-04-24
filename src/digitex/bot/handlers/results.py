@@ -104,9 +104,10 @@ async def show_results(
     await state.set_state(Navigation.select_subject)
 
     def list_subjects(uow):
-        return uow._conn.execute(
+        rows = uow._conn.execute(
             "SELECT subject_id, name FROM subjects ORDER BY name"
         ).fetchall()
+        return [(row[0], get_subject_name(row[1])) for row in rows]
 
     subjects = await with_uow(db_path, list_subjects)
     await bot.send_message(
