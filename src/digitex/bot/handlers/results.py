@@ -24,11 +24,10 @@ async def show_results(
         result = uow.sessions.complete(session_id)
         wrong_rows = uow._conn.execute(
             "SELECT q.question_number, q.part, sa.student_answer,"
-            "       COALESCE(pa.correct_order, pb.answer_text) AS correct_answer"
+            "       pa.answer_text AS correct_answer"
             "  FROM session_answers sa"
             "  JOIN questions q ON q.question_id = sa.question_id"
             "  LEFT JOIN part_a_answers pa ON pa.question_id = sa.question_id"
-            "  LEFT JOIN part_b_answers pb ON pb.question_id = sa.question_id"
             " WHERE sa.session_id = ? AND sa.is_correct = 0"
             " ORDER BY q.part, q.question_number",
             (session_id,),

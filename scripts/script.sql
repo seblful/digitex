@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS questions (
 -- Correct answer for Part A (1–5, matches extracted answer digit)
 CREATE TABLE IF NOT EXISTS part_a_answers (
     question_id INTEGER PRIMARY KEY,
-    correct_order INTEGER NOT NULL CHECK (correct_order BETWEEN 1 AND 5),
+    answer_text INTEGER NOT NULL CHECK (answer_text BETWEEN 1 AND 5),
     FOREIGN KEY (question_id) REFERENCES questions(question_id)
 );
 
