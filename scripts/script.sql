@@ -28,7 +28,6 @@ CREATE TABLE IF NOT EXISTS questions (
     option_id INTEGER NOT NULL,
     part TEXT NOT NULL CHECK (part IN ('A', 'B')),
     question_number INTEGER NOT NULL,
-    specification TEXT,
     FOREIGN KEY (option_id) REFERENCES options(option_id),
     UNIQUE (option_id, part, question_number)
 );
@@ -53,7 +52,6 @@ CREATE TABLE IF NOT EXISTS images (
     question_id INTEGER NOT NULL,
     image_data BLOB NOT NULL,
     telegram_file_id TEXT,              -- cached after first Telegram upload
-    is_table BOOLEAN NOT NULL DEFAULT 0 CHECK (is_table IN (0, 1)),
     image_order INTEGER NOT NULL,
     FOREIGN KEY (question_id) REFERENCES questions(question_id),
     UNIQUE (question_id, image_order)
