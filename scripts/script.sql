@@ -47,10 +47,10 @@ CREATE TABLE IF NOT EXISTS part_b_questions (
 CREATE TABLE IF NOT EXISTS images (
     image_id INTEGER PRIMARY KEY,
     question_id INTEGER NOT NULL,
+    part TEXT NOT NULL,
     image_data BLOB NOT NULL,
     telegram_file_id TEXT,
-    image_order INTEGER NOT NULL,
-    UNIQUE (question_id, image_order)
+    UNIQUE (question_id, part)
 );
 
 -- Students (Telegram users)

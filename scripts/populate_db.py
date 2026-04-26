@@ -116,7 +116,7 @@ def _populate_year(uow: UnitOfWork, subject_id: int, year_dir: Path) -> tuple[in
                 else:
                     fallback = "1" if key.part == "A" else ""
                     question_id = uow.questions.get_or_create(option_id, key, fallback)
-                uow.questions.insert_image(question_id, img_file.read_bytes())
+                uow.questions.insert_image(question_id, key.part, img_file.read_bytes())
                 questions_loaded += 1
 
     return questions_loaded, answers_loaded

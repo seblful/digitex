@@ -40,4 +40,4 @@ async def send_question(
         file_id = msg.photo[-1].file_id
         from digitex.core.db import UnitOfWork
         with UnitOfWork(db_path) as uow:
-            uow.questions.cache_file_id(question.question_id, file_id)
+            uow.questions.cache_file_id(question.question_id, question.part, file_id)

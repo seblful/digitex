@@ -89,28 +89,29 @@ class QuestionRepository:
 
         return qid
 
-    def insert_image(self, question_id: int, image_data: bytes) -> None:
+    def insert_image(self, question_id: int, part: str, image_data: bytes) -> None:
         self._conn.execute(
-            "INSERT OR IGNORE INTO images (question_id, image_data, image_order)"
-            " VALUES (?, ?, 1)",
-            (question_id, image_data),
+            "INSERT OR IGNORE INTO images (question_id, part, image_data)"
+            " VALUES (?, ?, ?)",
+            (question_id, part, image_data),
         )
 
-    def cache_file_id(self, question_id: int, telegram_file_id: str) -> None:
+    def cache_file_id(self, question_id: int, part: str, telegram_file_id: str) -> None:
         self._conn.execute(
-            "UPDATE images SET telegram_file_id = ? WHERE question_id = ? AND image_order = 1",
-            (telegram_file_id, question_id),
+            "UPDATE images SET telegram_file_id = ? WHERE question_id = ? AND part = ?",
+            (telegram_file_id, question_id, part),
         )
 
     def _question_sql(self, table: str) -> str:
+        part_literal = "'A'" if table == "part_a_questions" else "'B'"
         return (
-            f"SELECT q.question_id, '{'A' if table == 'part_a_questions' else 'B'}' AS part,"
+            f"SELECT q.question_id, {part_literal} AS part,"
             f"       q.question_number, b.a_num_options,"
             f"       i.image_data, i.telegram_file_id"
             f"  FROM {table} q"
             f"  JOIN options o ON q.option_id = o.option_id"
             f"  JOIN books b ON o.book_id = b.book_id"
-            f"  JOIN images i ON i.question_id = q.question_id AND i.image_order = 1"
+            f"  JOIN images i ON i.question_id = q.question_id AND i.part = {part_literal}"
         )
 
     def get(self, question_id: int, part: str) -> Question:
