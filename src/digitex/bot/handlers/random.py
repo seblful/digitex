@@ -25,18 +25,36 @@ async def start_random_question(
     def fetch_random(uow):
         qid = uow.questions.get_random_question_id(subject_id, part)
         question = uow.questions.get(qid, part)
-        return question
+        origin = uow._conn.execute(
+            "SELECT b.year_value, o.option_number"
+            " FROM part_a_questions q"
+            " JOIN options o ON q.option_id = o.option_id"
+            " JOIN books b ON o.book_id = b.book_id"
+            " WHERE q.question_id = ?"
+            " UNION ALL"
+            " SELECT b.year_value, o.option_number"
+            " FROM part_b_questions q"
+            " JOIN options o ON q.option_id = o.option_id"
+            " JOIN books b ON o.book_id = b.book_id"
+            " WHERE q.question_id = ?",
+            (qid, qid),
+        ).fetchone()
+        return question, origin
 
     try:
-        question = await with_uow(db_path, fetch_random)
+        question, origin = await with_uow(db_path, fetch_random)
     except KeyError:
         await message.answer("Не удалось найти случайный вопрос.")
         return
+
+    year, option = origin
 
     await state.update_data(
         current_question_id=question.question_id,
         current_part=question.part,
         question_start_time=time.time(),
+        question_year=year,
+        question_option=option,
     )
     
     if question.part == "A":
@@ -77,6 +95,8 @@ async def process_random_answer(
     data = await state.get_data()
     question_id = data["current_question_id"]
     current_part = data["current_part"]
+    year = data["question_year"]
+    option = data["question_option"]
     db_path = get_settings().database.path
 
     def check_answer(uow):
@@ -86,7 +106,8 @@ async def process_random_answer(
     correct_answer = await with_uow(db_path, check_answer)
     is_correct = answer.strip() == correct_answer.strip()
     
-    feedback = "✅ Правильно!" if is_correct else f"❌ Неправильно. Правильный ответ: {correct_answer}"
+    result = "✅" if is_correct else "❌"
+    feedback = f"{result} {year} год, вариант {option} — {'Правильно!' if is_correct else f'Неправильно. Правильный ответ: {correct_answer}'}"
     
     await message.answer(
         feedback,
