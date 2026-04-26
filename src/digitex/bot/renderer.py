@@ -12,12 +12,16 @@ async def send_question(
     question: Question,
     db_path: str,
     reply_markup: InlineKeyboardMarkup | None = None,
+    caption: str | None = None,
+    parse_mode: str | None = None,
 ) -> None:
     """Send a question image with optional inline keyboard, caching the Telegram file_id."""
     if question.telegram_file_id:
         await bot.send_photo(
             chat_id=chat_id,
             photo=question.telegram_file_id,
+            caption=caption,
+            parse_mode=parse_mode,
             reply_markup=reply_markup,
         )
         return
@@ -28,6 +32,8 @@ async def send_question(
             question.image_data,
             filename=f"q{question.question_number}.jpg",
         ),
+        caption=caption,
+        parse_mode=parse_mode,
         reply_markup=reply_markup,
     )
     if msg.photo:

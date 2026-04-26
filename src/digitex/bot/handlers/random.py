@@ -53,14 +53,14 @@ async def start_random_question(
         current_question_id=question.question_id,
         current_part=question.part,
         question_start_time=time.time(),
-        question_year=year,
-        question_option=option,
     )
     
+    caption = f"<tg-spoiler>{year} год, вариант {option}</tg-spoiler>"
+    
     if question.part == "A":
-        await send_question(bot, message.chat.id, question, db_path, reply_markup=part_a_kb(question.num_options))
+        await send_question(bot, message.chat.id, question, db_path, reply_markup=part_a_kb(question.num_options), caption=caption, parse_mode="HTML")
     else:
-        await send_question(bot, message.chat.id, question, db_path)
+        await send_question(bot, message.chat.id, question, db_path, caption=caption, parse_mode="HTML")
         await message.answer("Введите ответ текстом:")
     
     await state.set_state(RandomTesting.answering)
@@ -95,8 +95,6 @@ async def process_random_answer(
     data = await state.get_data()
     question_id = data["current_question_id"]
     current_part = data["current_part"]
-    year = data["question_year"]
-    option = data["question_option"]
     db_path = get_settings().database.path
 
     def check_answer(uow):
@@ -105,14 +103,15 @@ async def process_random_answer(
 
     correct_answer = await with_uow(db_path, check_answer)
     is_correct = answer.strip() == correct_answer.strip()
-    
-    result = "✅" if is_correct else "❌"
-    feedback = f"{result} {year} год, вариант {option} — {'Правильно!' if is_correct else f'Неправильно. Правильный ответ: {correct_answer}'}"
-    
-    await message.answer(
-        feedback,
-        reply_markup=random_feedback_kb()
-    )
+
+    if is_correct:
+        await message.answer("✅ Правильно!", reply_markup=random_feedback_kb())
+    else:
+        await message.answer(
+            f"❌ Неправильно!\nПравильный ответ: <b>{correct_answer}</b>",
+            reply_markup=random_feedback_kb(),
+            parse_mode="HTML",
+        )
     await state.set_state(RandomTesting.feedback)
 
 @router.callback_query(RandomTesting.feedback, F.data == "random:next")
