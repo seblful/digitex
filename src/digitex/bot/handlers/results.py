@@ -23,15 +23,17 @@ async def show_results(
     def get_results(uow):
         result = uow.sessions.complete(session_id)
         wrong_rows = uow._conn.execute(
-            "SELECT q.question_number, q.part, sa.student_answer,"
-            "       COALESCE(pa.answer, pb.answer) AS correct_answer"
+            "SELECT q.question_number, 'A', sa.student_answer, q.answer"
             "  FROM session_answers sa"
-            "  JOIN questions q ON q.question_id = sa.question_id"
-            "  LEFT JOIN part_a_answers pa ON pa.question_id = sa.question_id"
-            "  LEFT JOIN part_b_answers pb ON pb.question_id = sa.question_id"
+            "  JOIN part_a_questions q ON q.question_id = sa.question_id"
             " WHERE sa.session_id = ? AND sa.is_correct = 0"
-            " ORDER BY q.part, q.question_number",
-            (session_id,),
+            " UNION ALL"
+            " SELECT q.question_number, 'B', sa.student_answer, q.answer"
+            "  FROM session_answers sa"
+            "  JOIN part_b_questions q ON q.question_id = sa.question_id"
+            " WHERE sa.session_id = ? AND sa.is_correct = 0"
+            " ORDER BY 2, 1",
+            (session_id, session_id),
         ).fetchall()
 
         session_row = uow._conn.execute(

@@ -55,7 +55,6 @@ def init_db(db_path: str) -> None:
 def _populate_year(uow: UnitOfWork, subject_id: int, year_dir: Path) -> tuple[int, int]:
     """Returns (questions_loaded, answers_loaded)."""
     year = int(year_dir.name)
-    book_id = uow.books.get_or_create_book(subject_id, year)
 
     answers: dict[str, dict[str, str]] = {}
     answers_file = year_dir / "answers.json"
@@ -63,6 +62,17 @@ def _populate_year(uow: UnitOfWork, subject_id: int, year_dir: Path) -> tuple[in
         answers = json.loads(answers_file.read_text(encoding="utf-8"))
     else:
         tqdm.write(f"  Warning: no answers.json in {year_dir}")
+
+    # Compute a_num_options for the year (max Part A answer across all options)
+    a_num_options = 0
+    for option, q_answers in answers.items():
+        for label, answer in q_answers.items():
+            if label.startswith("A") and answer.isdigit():
+                a_num_options = max(a_num_options, int(answer))
+    if a_num_options == 0:
+        a_num_options = 5
+
+    book_id = uow.books.get_or_create_book(subject_id, year, a_num_options)
 
     questions_loaded = 0
     answers_loaded = 0
@@ -94,17 +104,20 @@ def _populate_year(uow: UnitOfWork, subject_id: int, year_dir: Path) -> tuple[in
 
             for img_file in img_files:
                 key = QuestionKey(part=part_dir.name, number=int(img_file.stem))  # type: ignore[arg-type]
-                question_id = uow.questions.get_or_create(option_id, key)
-                uow.questions.insert_image(question_id, img_file.read_bytes())
-                questions_loaded += 1
-
                 raw_answer = option_answers.get(str(key))
                 if raw_answer:
                     try:
-                        uow.questions.insert_answer(question_id, key, raw_answer)
+                        question_id = uow.questions.get_or_create(option_id, key, raw_answer)
                         answers_loaded += 1
                     except ValueError as e:
                         tqdm.write(f"  Warning: {e} (skipped)")
+                        fallback = "1" if key.part == "A" else ""
+                        question_id = uow.questions.get_or_create(option_id, key, fallback)
+                else:
+                    fallback = "1" if key.part == "A" else ""
+                    question_id = uow.questions.get_or_create(option_id, key, fallback)
+                uow.questions.insert_image(question_id, img_file.read_bytes())
+                questions_loaded += 1
 
     return questions_loaded, answers_loaded
 

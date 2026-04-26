@@ -20,7 +20,7 @@ async def send_current_question(
     bot,
 ) -> None:
     data = await state.get_data()
-    question_ids: list[int] = data["question_ids"]
+    question_ids: list[tuple[int, str]] = data["question_ids"]
     current_index: int = data["current_index"]
 
     if current_index >= len(question_ids):
@@ -28,16 +28,15 @@ async def send_current_question(
         await show_results(message, state, bot)
         return
 
-    question_id = question_ids[current_index]
+    question_id, part = question_ids[current_index]
     db_path = get_settings().database.path
 
     def fetch_question(uow):
-        question = uow.questions.get(question_id)
-        return question, question.part
+        question = uow.questions.get(question_id, part)
+        return question
 
-    question, part = await with_uow(db_path, fetch_question)
+    question = await with_uow(db_path, fetch_question)
 
-    # Store timestamp and part when question is shown
     await state.update_data(
         question_start_time=time.time(),
         current_part=part,
@@ -45,7 +44,7 @@ async def send_current_question(
     )
 
     if part == "A":
-        await send_question(bot, message.chat.id, question, db_path, reply_markup=part_a_kb())
+        await send_question(bot, message.chat.id, question, db_path, reply_markup=part_a_kb(question.num_options))
     else:
         await send_question(bot, message.chat.id, question, db_path)
         await message.answer("Введите ответ текстом:")
@@ -59,17 +58,16 @@ async def _record_and_advance(
 ) -> None:
     data = await state.get_data()
     session_id: int = data["session_id"]
-    question_ids: list[int] = data["question_ids"]
+    question_ids: list[tuple[int, str]] = data["question_ids"]
     current_index: int = data["current_index"]
-    question_id = question_ids[current_index]
+    question_id, part = question_ids[current_index]
     question_start_time: float = data.get("question_start_time", time.time())
     db_path = get_settings().database.path
 
     time_spent = time.time() - question_start_time
 
     def record(uow):
-        question = uow.questions.get(question_id)
-        correct = uow.questions.get_correct_answer(question_id, question.part)
+        correct = uow.questions.get_correct_answer(question_id, part)
         is_correct = answer.strip() == correct.strip()
         uow.sessions.record_answer(
             session_id=session_id,
@@ -82,7 +80,6 @@ async def _record_and_advance(
 
     await with_uow(db_path, record)
 
-    # Move to next question
     await state.update_data(current_index=current_index + 1)
     await send_current_question(message, state, bot)
 
@@ -107,10 +104,8 @@ async def on_part_b_answer(message: types.Message, state: FSMContext) -> None:
     current_part = data.get("current_part")
     waiting = data.get("waiting_for_answer", False)
 
-    # Only process text messages for Part B, and only if waiting for answer
     if current_part != "B" or not waiting:
         return
 
-    # Mark as not waiting IMMEDIATELY to prevent race condition
     await state.update_data(waiting_for_answer=False)
     await _record_and_advance(message, state, message.bot, message.text)

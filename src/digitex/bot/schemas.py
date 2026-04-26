@@ -19,6 +19,7 @@ class Question(BaseModel):
     question_number: int
     image_data: bytes
     telegram_file_id: str | None = None
+    num_options: int = 5
 
 
 class Session(BaseModel):

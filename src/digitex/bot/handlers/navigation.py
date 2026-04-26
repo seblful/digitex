@@ -4,7 +4,7 @@ from aiogram import F, Router, types
 from aiogram.fsm.context import FSMContext
 
 from digitex.bot.database import with_uow
-from digitex.bot.keyboards import options_kb, years_kb
+from digitex.bot.keyboards import options_kb, years_kb, mode_kb, random_part_kb
 from digitex.bot.states import Navigation, Testing
 from digitex.config import get_settings
 
@@ -18,27 +18,66 @@ async def on_subject_selected(callback: types.CallbackQuery, state: FSMContext) 
         return
 
     subject_id = int(callback.data.split(":")[1])
-    db_path = get_settings().database.path
+    await callback.message.edit_text(
+        "Выберите режим тестирования:",
+        reply_markup=mode_kb(),
+    )
+    await state.update_data(subject_id=subject_id)
+    await state.set_state(Navigation.select_mode)
+    await callback.answer()
 
-    def fetch_years(uow):
-        rows = uow._conn.execute(
-            "SELECT year_value FROM books WHERE subject_id = ? ORDER BY year_value DESC",
-            (subject_id,),
-        ).fetchall()
-        return [r[0] for r in rows]
 
-    years = await with_uow(db_path, fetch_years)
-    if not years:
-        await callback.message.edit_text("Нет доступных лет для этого предмета.")
+@router.callback_query(Navigation.select_mode, F.data.startswith("mode:"))
+async def on_mode_selected(callback: types.CallbackQuery, state: FSMContext) -> None:
+    if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
         return
 
-    await callback.message.edit_text(
-        "Выберите год:",
-        reply_markup=years_kb(years),
-    )
-    await state.update_data(subject_id=subject_id)
-    await state.set_state(Navigation.select_year)
+    mode = callback.data.split(":")[1]
+    data = await state.get_data()
+    subject_id = data["subject_id"]
+    db_path = get_settings().database.path
+
+    if mode == "standard":
+        def fetch_years(uow):
+            rows = uow._conn.execute(
+                "SELECT year_value FROM books WHERE subject_id = ? ORDER BY year_value DESC",
+                (subject_id,),
+            ).fetchall()
+            return [r[0] for r in rows]
+
+        years = await with_uow(db_path, fetch_years)
+        if not years:
+            await callback.message.edit_text("Нет доступных лет для этого предмета.")
+            await callback.answer()
+            return
+
+        await callback.message.edit_text(
+            "Выберите год:",
+            reply_markup=years_kb(years),
+        )
+        await state.set_state(Navigation.select_year)
+    elif mode == "random":
+        await callback.message.edit_text(
+            "Выберите часть:",
+            reply_markup=random_part_kb(),
+        )
+        await state.set_state(Navigation.select_random_part)
+
+    await callback.answer()
+
+
+@router.callback_query(Navigation.select_random_part, F.data.startswith("random_part:"))
+async def on_random_part_selected(callback: types.CallbackQuery, state: FSMContext) -> None:
+    if not callback.data or not isinstance(callback.message, types.Message):
+        await callback.answer()
+        return
+
+    part = callback.data.split(":")[1]
+    await state.update_data(random_part=part)
+
+    from digitex.bot.handlers.random import start_random_question
+    await start_random_question(callback.message, state, callback.bot)
     await callback.answer()
 
 
@@ -103,7 +142,7 @@ async def on_option_selected(callback: types.CallbackQuery, state: FSMContext) -
         ).fetchone()[0]
         qs = uow.questions.list_for_option(option_id, "A")
         qs += uow.questions.list_for_option(option_id, "B")
-        return session.session_id, [q.question_id for q in qs]
+        return session.session_id, [(q.question_id, q.part) for q in qs]
 
     session_id, question_ids = await with_uow(db_path, start_test)
     await callback.message.edit_text("Начинаем тестирование!")

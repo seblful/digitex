@@ -28,9 +28,33 @@ def options_kb(options: list[int]) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def part_a_kb() -> InlineKeyboardMarkup:
+def part_a_kb(num_options: int = 5) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for i in range(1, 6):
+    for i in range(1, num_options + 1):
         builder.add(InlineKeyboardButton(text=str(i), callback_data=f"ans:{i}"))
-    builder.adjust(5)
+    builder.adjust(num_options)
+    return builder.as_markup()
+
+
+def mode_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="Стандартный режим", callback_data="mode:standard"))
+    builder.add(InlineKeyboardButton(text="Случайные вопросы", callback_data="mode:random"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def random_feedback_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="Следующий вопрос", callback_data="random:next"))
+    builder.add(InlineKeyboardButton(text="Завершить", callback_data="random:finish"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def random_part_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="Часть A", callback_data="random_part:A"))
+    builder.add(InlineKeyboardButton(text="Часть B", callback_data="random_part:B"))
+    builder.adjust(1)
     return builder.as_markup()
