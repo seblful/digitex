@@ -1,8 +1,8 @@
 """Logging configuration using structlog."""
 
+import codecs
 import logging
 import sys
-import codecs
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 

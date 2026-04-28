@@ -25,6 +25,7 @@ async def send_current_question(
 
     if current_index >= len(question_ids):
         from digitex.bot.handlers.results import show_results
+
         await show_results(message, state, bot)
         return
 
@@ -44,10 +45,16 @@ async def send_current_question(
     )
 
     if part == "A":
-        await send_question(bot, message.chat.id, question, db_path, reply_markup=part_a_kb(question.num_options))
+        await send_question(
+            bot,
+            message.chat.id,
+            question,
+            db_path,
+            reply_markup=part_a_kb(question.num_options),
+        )
     else:
         await send_question(bot, message.chat.id, question, db_path)
-        await message.answer("Введите ответ текстом:")
+        await message.answer("Введите ответ:")
 
 
 async def _record_and_advance(

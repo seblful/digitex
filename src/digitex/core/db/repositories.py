@@ -48,11 +48,16 @@ class BookRepository:
         )
         return book_id
 
-    def get_or_create_option(self, book_id: int, option_number: int) -> int:
-        return _get_or_create(
+    def get_or_create_option(self, book_id: int, option_number: int, exam_type: str = "CT") -> int:
+        option_id = _get_or_create(
             self._conn, "options", "option_id",
             {"book_id": book_id, "option_number": option_number},
         )
+        self._conn.execute(
+            "UPDATE options SET exam_type = ? WHERE option_id = ? AND exam_type != ?",
+            (exam_type, option_id, exam_type),
+        )
+        return option_id
 
 
 class QuestionRepository:
@@ -154,15 +159,20 @@ class QuestionRepository:
             raise KeyError(f"No answer for question {question_id}")
         return str(row[0])
 
-    def get_random_question_id(self, subject_id: int, part: str) -> int:
+    def get_random_question_id(self, subject_id: int, part: str, exam_type: str | None = None) -> int:
         table = "part_a_questions" if part == "A" else "part_b_questions"
+        where = "b.subject_id = ?"
+        params: list = [subject_id]
+        if exam_type:
+            where += " AND o.exam_type = ?"
+            params.append(exam_type)
         row = self._conn.execute(
             f"SELECT q.question_id FROM {table} q"
             " JOIN options o ON q.option_id = o.option_id"
-            " JOIN books b ON o.book_id = b.book_id"
-            " WHERE b.subject_id = ?"
+            f" JOIN books b ON o.book_id = b.book_id"
+            f" WHERE {where}"
             " ORDER BY RANDOM() LIMIT 1",
-            (subject_id,),
+            params,
         ).fetchone()
         if row is None:
             raise KeyError(f"No {part} questions found for subject {subject_id}")
@@ -197,19 +207,22 @@ class SessionRepository:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
-    def create(self, student_id: int, book_id: int, option_number: int) -> Session:
+    def create(self, student_id: int, book_id: int, option_number: int, exam_type: str = "CT") -> Session:
         cur = self._conn.execute(
-            "INSERT INTO test_sessions (student_id, book_id, option_number) VALUES (?, ?, ?)",
-            (student_id, book_id, option_number),
+            "INSERT INTO test_sessions (student_id, book_id, option_number, exam_type)"
+            " VALUES (?, ?, ?, ?)",
+            (student_id, book_id, option_number, exam_type),
         )
         row = self._conn.execute(
-            "SELECT session_id, student_id, book_id, option_number, started_at, completed_at"
+            "SELECT session_id, student_id, book_id, option_number,"
+            "       exam_type, started_at, completed_at"
             "  FROM test_sessions WHERE session_id = ?",
             (cur.lastrowid,),
         ).fetchone()
         return Session(
             session_id=row[0], student_id=row[1], book_id=row[2],
-            option_number=row[3], started_at=row[4], completed_at=row[5],
+            option_number=row[3], exam_type=row[4], started_at=row[5],
+            completed_at=row[6],
         )
 
     def record_answer(
@@ -236,7 +249,7 @@ class SessionRepository:
 
     def get_result(self, session_id: int) -> TestResult:
         session_row = self._conn.execute(
-            "SELECT book_id, option_number, started_at, completed_at"
+            "SELECT book_id, option_number, exam_type, started_at, completed_at"
             "  FROM test_sessions WHERE session_id = ?",
             (session_id,),
         ).fetchone()
@@ -259,11 +272,12 @@ class SessionRepository:
         max_a = sum(1 for _, part in answer_rows if part == "A")
         max_b = sum(1 for _, part in answer_rows if part == "B")
 
-        started = datetime.fromisoformat(session_row[2])
-        completed = datetime.fromisoformat(session_row[3])
+        started = datetime.fromisoformat(session_row[3])
+        completed = datetime.fromisoformat(session_row[4])
 
         return TestResult(
             session_id=session_id,
+            exam_type=session_row[2],
             part_a_score=part_a_score,
             part_b_score=part_b_score,
             total_score=part_a_score + part_b_score,

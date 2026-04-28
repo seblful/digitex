@@ -7,8 +7,10 @@ class Navigation(StatesGroup):
     select_subject = State()
     select_mode = State()
     select_year = State()
+    select_exam_type = State()
     select_option = State()
     select_random_part = State()
+    select_random_exam_type = State()
 
 
 class Testing(StatesGroup):

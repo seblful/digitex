@@ -4,7 +4,13 @@ from aiogram import F, Router, types
 from aiogram.fsm.context import FSMContext
 
 from digitex.bot.database import with_uow
-from digitex.bot.keyboards import options_kb, years_kb, mode_kb, random_part_kb
+from digitex.bot.keyboards import (
+    exam_type_kb,
+    mode_kb,
+    options_kb,
+    random_part_kb,
+    years_kb,
+)
 from digitex.bot.states import Navigation, Testing
 from digitex.config import get_settings
 
@@ -59,11 +65,27 @@ async def on_mode_selected(callback: types.CallbackQuery, state: FSMContext) -> 
         await state.set_state(Navigation.select_year)
     elif mode == "random":
         await callback.message.edit_text(
-            "Выберите часть:",
-            reply_markup=random_part_kb(),
+            "Выберите тип экзамена:",
+            reply_markup=exam_type_kb(),
         )
-        await state.set_state(Navigation.select_random_part)
+        await state.set_state(Navigation.select_random_exam_type)
 
+    await callback.answer()
+
+
+@router.callback_query(Navigation.select_random_exam_type, F.data.startswith("exam_type:"))
+async def on_random_exam_type_selected(callback: types.CallbackQuery, state: FSMContext) -> None:
+    if not callback.data or not isinstance(callback.message, types.Message):
+        await callback.answer()
+        return
+
+    exam_type = callback.data.split(":")[1]
+    await state.update_data(exam_type=exam_type)
+    await callback.message.edit_text(
+        "Выберите часть:",
+        reply_markup=random_part_kb(),
+    )
+    await state.set_state(Navigation.select_random_part)
     await callback.answer()
 
 
@@ -88,6 +110,39 @@ async def on_year_selected(callback: types.CallbackQuery, state: FSMContext) -> 
         return
 
     year = int(callback.data.split(":")[1])
+    await state.update_data(year=year)
+
+    if year >= 2023:
+        await callback.message.edit_text(
+            "Выберите тип экзамена:",
+            reply_markup=exam_type_kb(),
+        )
+        await state.set_state(Navigation.select_exam_type)
+    else:
+        await _show_options_for_exam_type(callback.message, state, year, "CT")
+
+    await callback.answer()
+
+
+@router.callback_query(Navigation.select_exam_type, F.data.startswith("exam_type:"))
+async def on_exam_type_selected(callback: types.CallbackQuery, state: FSMContext) -> None:
+    if not callback.data or not isinstance(callback.message, types.Message):
+        await callback.answer()
+        return
+
+    exam_type = callback.data.split(":")[1]
+    data = await state.get_data()
+    year = data["year"]
+    await _show_options_for_exam_type(callback.message, state, year, exam_type)
+    await callback.answer()
+
+
+async def _show_options_for_exam_type(
+    message: types.Message,
+    state: FSMContext,
+    year: int,
+    exam_type: str,
+) -> None:
     data = await state.get_data()
     subject_id = data["subject_id"]
     db_path = get_settings().database.path
@@ -95,24 +150,23 @@ async def on_year_selected(callback: types.CallbackQuery, state: FSMContext) -> 
     def fetch_options(uow):
         book_id = uow.books.get_or_create_book(subject_id, year)
         rows = uow._conn.execute(
-            "SELECT option_number FROM options WHERE book_id = ? ORDER BY option_number",
-            (book_id,),
+            "SELECT option_number FROM options"
+            " WHERE book_id = ? AND exam_type = ? ORDER BY option_number",
+            (book_id, exam_type),
         ).fetchall()
         return book_id, [r[0] for r in rows]
 
     book_id, options = await with_uow(db_path, fetch_options)
     if not options:
-        await callback.message.edit_text("Нет доступных вариантов для этого года.")
-        await callback.answer()
+        await message.edit_text(f"Нет доступных вариантов для {exam_type}.")
         return
 
-    await callback.message.edit_text(
+    await message.edit_text(
         "Выберите вариант:",
         reply_markup=options_kb(options),
     )
-    await state.update_data(book_id=book_id)
+    await state.update_data(book_id=book_id, exam_type=exam_type)
     await state.set_state(Navigation.select_option)
-    await callback.answer()
 
 
 @router.callback_query(Navigation.select_option, F.data.startswith("opt:"))
@@ -124,6 +178,7 @@ async def on_option_selected(callback: types.CallbackQuery, state: FSMContext) -
     option_number = int(callback.data.split(":")[1])
     data = await state.get_data()
     book_id = data["book_id"]
+    exam_type = data.get("exam_type", "CT")
     db_path = get_settings().database.path
 
     def start_test(uow):
@@ -135,7 +190,7 @@ async def on_option_selected(callback: types.CallbackQuery, state: FSMContext) -
             name=name,
             username=username,
         )
-        session = uow.sessions.create(student.student_id, book_id, option_number)
+        session = uow.sessions.create(student.student_id, book_id, option_number, exam_type)
         option_id = uow._conn.execute(
             "SELECT option_id FROM options WHERE book_id = ? AND option_number = ?",
             (book_id, option_number),

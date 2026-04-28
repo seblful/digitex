@@ -55,10 +55,13 @@ async def show_results(
     wrong_a = [r for r in wrong_rows if r[1] == "A"]
     wrong_b = [r for r in wrong_rows if r[1] == "B"]
 
+    exam_type_label = "ЦЭ" if result.exam_type == "CE" else "ЦТ"
+
     lines = [
         "📊 <b>Тестирование завершено</b>",
         "",
         f"<b>Предмет:</b> {subject_name}",
+        f"<b>Тип:</b> {exam_type_label}",
         f"<b>Год:</b> {year}",
         f"<b>Вариант:</b> {option_number}",
         "",

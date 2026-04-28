@@ -27,12 +27,14 @@ class Session(BaseModel):
     student_id: int
     book_id: int
     option_number: int
+    exam_type: str = "CT"
     started_at: datetime
     completed_at: datetime | None = None
 
 
 class TestResult(BaseModel):
     session_id: int
+    exam_type: str = "CT"
     part_a_score: int
     part_b_score: int
     total_score: int

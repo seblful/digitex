@@ -39,15 +39,14 @@ def get_subject_name(subject: str) -> str:
 
 def init_db(db_path: str) -> None:
     db_file = Path(db_path)
-    if db_file.exists():
-        return
     db_file.parent.mkdir(parents=True, exist_ok=True)
     sql = SQL_SCRIPT_PATH.read_text(encoding="utf-8")
     conn = sqlite3.connect(db_path)
     try:
         conn.executescript(sql)
         conn.commit()
-        print(f"Initialized database at {db_path}")
+        if not db_file.exists() or db_file.stat().st_size == 0:
+            print(f"Initialized database at {db_path}")
     finally:
         conn.close()
 
@@ -84,7 +83,8 @@ def _populate_year(uow: UnitOfWork, subject_id: int, year_dir: Path) -> tuple[in
 
     for option_dir in option_dirs:
         option_number = int(option_dir.name)
-        option_id = uow.books.get_or_create_option(book_id, option_number)
+        exam_type = "CE" if year >= 2023 and option_number <= 5 else "CT"
+        option_id = uow.books.get_or_create_option(book_id, option_number, exam_type)
         option_answers = answers.get(str(option_number), {})
 
         for part_dir in sorted(option_dir.iterdir()):

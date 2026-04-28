@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+ExamType = Literal["CE", "CT"]
+
 
 @dataclass(frozen=True)
 class QuestionKey:

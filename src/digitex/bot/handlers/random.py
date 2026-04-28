@@ -1,6 +1,7 @@
 """Handler for random question mode."""
 
 import time
+
 from aiogram import F, Router, types
 from aiogram.fsm.context import FSMContext
 
@@ -12,6 +13,7 @@ from digitex.config import get_settings
 
 router = Router()
 
+
 async def start_random_question(
     message: types.Message,
     state: FSMContext,
@@ -20,10 +22,11 @@ async def start_random_question(
     data = await state.get_data()
     subject_id = data["subject_id"]
     part = data["random_part"]
+    exam_type = data.get("exam_type")
     db_path = get_settings().database.path
 
     def fetch_random(uow):
-        qid = uow.questions.get_random_question_id(subject_id, part)
+        qid = uow.questions.get_random_question_id(subject_id, part, exam_type)
         question = uow.questions.get(qid, part)
         origin = uow._conn.execute(
             "SELECT b.year_value, o.option_number"
@@ -48,43 +51,59 @@ async def start_random_question(
         return
 
     year, option = origin
+    exam_type_label = "ЦЭ" if exam_type == "CE" else "ЦТ"
 
     await state.update_data(
         current_question_id=question.question_id,
         current_part=question.part,
         question_start_time=time.time(),
     )
-    
-    caption = f"<tg-spoiler>{year} год, вариант {option}</tg-spoiler>"
-    
+
+    caption = f"<tg-spoiler>{exam_type_label} {year} год, вариант {option}</tg-spoiler>"
+
     if question.part == "A":
-        await send_question(bot, message.chat.id, question, db_path, reply_markup=part_a_kb(question.num_options), caption=caption, parse_mode="HTML")
+        await send_question(
+            bot,
+            message.chat.id,
+            question,
+            db_path,
+            reply_markup=part_a_kb(question.num_options),
+            caption=caption,
+            parse_mode="HTML",
+        )
     else:
-        await send_question(bot, message.chat.id, question, db_path, caption=caption, parse_mode="HTML")
-        await message.answer("Введите ответ текстом:")
-    
+        await send_question(
+            bot, message.chat.id, question, db_path, caption=caption, parse_mode="HTML"
+        )
+        await message.answer("Введите ответ:")
+
     await state.set_state(RandomTesting.answering)
 
+
 @router.callback_query(RandomTesting.answering, F.data.startswith("ans:"))
-async def on_random_part_a_answer(callback: types.CallbackQuery, state: FSMContext) -> None:
+async def on_random_part_a_answer(
+    callback: types.CallbackQuery, state: FSMContext
+) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
         return
-    
+
     answer = callback.data.split(":")[1]
     await process_random_answer(callback.message, state, callback.bot, answer)
     await callback.answer()
+
 
 @router.message(RandomTesting.answering)
 async def on_random_part_b_answer(message: types.Message, state: FSMContext) -> None:
     if not message.text:
         return
-    
+
     data = await state.get_data()
     if data.get("current_part") != "B":
         return
-        
+
     await process_random_answer(message, state, message.bot, message.text)
+
 
 async def process_random_answer(
     message: types.Message,
@@ -114,6 +133,7 @@ async def process_random_answer(
         )
     await state.set_state(RandomTesting.feedback)
 
+
 @router.callback_query(RandomTesting.feedback, F.data == "random:next")
 async def on_random_next(callback: types.CallbackQuery, state: FSMContext) -> None:
     if not callback.message or not isinstance(callback.message, types.Message):
@@ -122,11 +142,14 @@ async def on_random_next(callback: types.CallbackQuery, state: FSMContext) -> No
     await start_random_question(callback.message, state, callback.bot)
     await callback.answer()
 
+
 @router.callback_query(RandomTesting.feedback, F.data == "random:finish")
 async def on_random_finish(callback: types.CallbackQuery, state: FSMContext) -> None:
     if not callback.message or not isinstance(callback.message, types.Message):
         await callback.answer("Ошибка: сообщение недоступно")
         return
-    await callback.message.answer("Режим случайных вопросов завершен. Используйте /start для начала заново.")
+    await callback.message.answer(
+        "Режим случайных вопросов завершен. Используйте /start для начала заново."
+    )
     await state.clear()
     await callback.answer()

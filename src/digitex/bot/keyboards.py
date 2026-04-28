@@ -52,6 +52,14 @@ def random_feedback_kb() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def exam_type_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="ЦЭ", callback_data="exam_type:CE"))
+    builder.add(InlineKeyboardButton(text="ЦТ", callback_data="exam_type:CT"))
+    builder.adjust(2)
+    return builder.as_markup()
+
+
 def random_part_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.add(InlineKeyboardButton(text="Часть A", callback_data="random_part:A"))

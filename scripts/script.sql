@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS options (
     option_id INTEGER PRIMARY KEY,
     book_id INTEGER NOT NULL,
     option_number INTEGER NOT NULL CHECK (option_number BETWEEN 1 AND 10),
+    exam_type TEXT NOT NULL DEFAULT 'CT' CHECK (exam_type IN ('CE', 'CT')),
     FOREIGN KEY (book_id) REFERENCES books(book_id),
     UNIQUE (book_id, option_number)
 );
@@ -68,6 +69,7 @@ CREATE TABLE IF NOT EXISTS test_sessions (
     student_id INTEGER NOT NULL,
     book_id INTEGER NOT NULL,
     option_number INTEGER NOT NULL CHECK (option_number BETWEEN 1 AND 10),
+    exam_type TEXT NOT NULL DEFAULT 'CT' CHECK (exam_type IN ('CE', 'CT')),
     started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at DATETIME,
     FOREIGN KEY (student_id) REFERENCES students(student_id),
