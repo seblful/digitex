@@ -11,6 +11,7 @@ class Navigation(StatesGroup):
     select_option = State()
     select_random_part = State()
     select_random_exam_type = State()
+    select_topic = State()
 
 
 class Testing(StatesGroup):

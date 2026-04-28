@@ -76,6 +76,14 @@ CREATE TABLE IF NOT EXISTS test_sessions (
     FOREIGN KEY (book_id) REFERENCES books(book_id)
 );
 
+-- Topic-to-question mappings (loaded from topic_to_year.json)
+CREATE TABLE IF NOT EXISTS question_topics (
+    question_id INTEGER NOT NULL,
+    part TEXT NOT NULL CHECK (part IN ('A', 'B')),
+    topic_name TEXT NOT NULL,
+    PRIMARY KEY (question_id, part, topic_name)
+);
+
 -- Per-question answers recorded during a session
 CREATE TABLE IF NOT EXISTS session_answers (
     answer_id INTEGER PRIMARY KEY,

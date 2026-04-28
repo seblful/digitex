@@ -21,45 +21,61 @@ async def start_random_question(
 ) -> None:
     data = await state.get_data()
     subject_id = data["subject_id"]
-    part = data["random_part"]
-    exam_type = data.get("exam_type")
+    topic_name = data.get("topic_name")
     db_path = get_settings().database.path
 
-    def fetch_random(uow):
-        qid = uow.questions.get_random_question_id(subject_id, part, exam_type)
-        question = uow.questions.get(qid, part)
-        origin = uow._conn.execute(
-            "SELECT b.year_value, o.option_number"
-            " FROM part_a_questions q"
-            " JOIN options o ON q.option_id = o.option_id"
-            " JOIN books b ON o.book_id = b.book_id"
-            " WHERE q.question_id = ?"
-            " UNION ALL"
-            " SELECT b.year_value, o.option_number"
-            " FROM part_b_questions q"
-            " JOIN options o ON q.option_id = o.option_id"
-            " JOIN books b ON o.book_id = b.book_id"
-            " WHERE q.question_id = ?",
-            (qid, qid),
-        ).fetchone()
-        return question, origin
+    if topic_name:
+        def fetch(uow):
+            qid, part = uow.questions.get_random_question_id_by_topic(subject_id, topic_name)
+            question = uow.questions.get(qid, part)
+            origin = uow.questions.get_question_origin(qid)
+            return question, origin
 
-    try:
-        question, origin = await with_uow(db_path, fetch_random)
-    except KeyError:
-        await message.answer("Не удалось найти случайный вопрос.")
-        return
+        try:
+            question, origin = await with_uow(db_path, fetch)
+        except KeyError:
+            await message.answer("Не удалось найти вопрос по этой теме.")
+            return
 
-    year, option = origin
-    exam_type_label = "ЦЭ" if exam_type == "CE" else "ЦТ"
+        year, option, exam_type = origin
 
-    await state.update_data(
-        current_question_id=question.question_id,
-        current_part=question.part,
-        question_start_time=time.time(),
-    )
+        await state.update_data(
+            current_question_id=question.question_id,
+            current_part=question.part,
+            question_start_time=time.time(),
+        )
 
-    caption = f"<tg-spoiler>{exam_type_label} {year} год, вариант {option}</tg-spoiler>"
+        exam_type_label = "ЦЭ" if exam_type == "CE" else "ЦТ"
+        caption = (
+            f"Тема: {topic_name}\n"
+            f"<tg-spoiler>{exam_type_label} {year} год, вариант {option}</tg-spoiler>"
+        )
+    else:
+        part = data["random_part"]
+        exam_type = data.get("exam_type")
+
+        def fetch(uow):
+            qid = uow.questions.get_random_question_id(subject_id, part, exam_type)
+            question = uow.questions.get(qid, part)
+            origin = uow.questions.get_question_origin(qid)
+            return question, origin
+
+        try:
+            question, origin = await with_uow(db_path, fetch)
+        except KeyError:
+            await message.answer("Не удалось найти случайный вопрос.")
+            return
+
+        year, option, exam_type = origin
+
+        await state.update_data(
+            current_question_id=question.question_id,
+            current_part=question.part,
+            question_start_time=time.time(),
+        )
+
+        exam_type_label = "ЦЭ" if exam_type == "CE" else "ЦТ"
+        caption = f"<tg-spoiler>{exam_type_label} {year} год, вариант {option}</tg-spoiler>"
 
     if question.part == "A":
         await send_question(

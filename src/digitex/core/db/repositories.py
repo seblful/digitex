@@ -178,6 +178,69 @@ class QuestionRepository:
             raise KeyError(f"No {part} questions found for subject {subject_id}")
         return row[0]
 
+    def get_topics_for_subject(self, subject_id: int) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT DISTINCT qt.topic_name"
+            "  FROM question_topics qt"
+            "  JOIN part_a_questions q ON q.question_id = qt.question_id AND qt.part = 'A'"
+            "  JOIN options o ON q.option_id = o.option_id"
+            "  JOIN books b ON o.book_id = b.book_id"
+            " WHERE b.subject_id = ?"
+            " UNION"
+            " SELECT DISTINCT qt.topic_name"
+            "  FROM question_topics qt"
+            "  JOIN part_b_questions q ON q.question_id = qt.question_id AND qt.part = 'B'"
+            "  JOIN options o ON q.option_id = o.option_id"
+            "  JOIN books b ON o.book_id = b.book_id"
+            " WHERE b.subject_id = ?"
+            " ORDER BY topic_name",
+            (subject_id, subject_id),
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def get_random_question_id_by_topic(self, subject_id: int, topic_name: str) -> tuple[int, str]:
+        row = self._conn.execute(
+            "SELECT * FROM ("
+            "  SELECT qt.question_id, qt.part"
+            "    FROM question_topics qt"
+            "    JOIN part_a_questions q ON q.question_id = qt.question_id AND qt.part = 'A'"
+            "    JOIN options o ON q.option_id = o.option_id"
+            "    JOIN books b ON o.book_id = b.book_id"
+            "   WHERE b.subject_id = ? AND qt.topic_name = ?"
+            "   UNION ALL"
+            "  SELECT qt.question_id, qt.part"
+            "    FROM question_topics qt"
+            "    JOIN part_b_questions q ON q.question_id = qt.question_id AND qt.part = 'B'"
+            "    JOIN options o ON q.option_id = o.option_id"
+            "    JOIN books b ON o.book_id = b.book_id"
+            "   WHERE b.subject_id = ? AND qt.topic_name = ?"
+            ") ORDER BY RANDOM() LIMIT 1",
+            (subject_id, topic_name, subject_id, topic_name),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"No questions found for topic {topic_name!r} in subject {subject_id}")
+        return row[0], row[1]
+
+    def get_question_origin(self, question_id: int) -> tuple[int, int, str]:
+        """Return (year, option_number, exam_type) for a question."""
+        row = self._conn.execute(
+            "SELECT b.year_value, o.option_number, o.exam_type"
+            "  FROM part_a_questions q"
+            "  JOIN options o ON q.option_id = o.option_id"
+            "  JOIN books b ON o.book_id = b.book_id"
+            " WHERE q.question_id = ?"
+            " UNION ALL"
+            " SELECT b.year_value, o.option_number, o.exam_type"
+            "  FROM part_b_questions q"
+            "  JOIN options o ON q.option_id = o.option_id"
+            "  JOIN books b ON o.book_id = b.book_id"
+            " WHERE q.question_id = ?",
+            (question_id, question_id),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"Origin not found for question {question_id}")
+        return row[0], row[1], row[2]
+
 
 class StudentRepository:
     """Repository for Telegram users."""

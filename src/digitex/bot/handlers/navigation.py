@@ -9,6 +9,7 @@ from digitex.bot.keyboards import (
     mode_kb,
     options_kb,
     random_part_kb,
+    topics_kb,
     years_kb,
 )
 from digitex.bot.states import Navigation, Testing
@@ -69,7 +70,39 @@ async def on_mode_selected(callback: types.CallbackQuery, state: FSMContext) -> 
             reply_markup=exam_type_kb(),
         )
         await state.set_state(Navigation.select_random_exam_type)
+    elif mode == "topics":
+        def fetch_topics(uow):
+            return uow.questions.get_topics_for_subject(subject_id)
 
+        topics = await with_uow(db_path, fetch_topics)
+        if not topics:
+            await callback.message.edit_text("Нет доступных тем для этого предмета.")
+            await callback.answer()
+            return
+
+        await callback.message.edit_text(
+            "Выберите тему:",
+            reply_markup=topics_kb(topics),
+        )
+        await state.update_data(topic_names=topics)
+        await state.set_state(Navigation.select_topic)
+
+    await callback.answer()
+
+
+@router.callback_query(Navigation.select_topic, F.data.startswith("topic:"))
+async def on_topic_selected(callback: types.CallbackQuery, state: FSMContext) -> None:
+    if not callback.data or not isinstance(callback.message, types.Message):
+        await callback.answer()
+        return
+
+    idx = int(callback.data.split(":")[1])
+    data = await state.get_data()
+    topic_name = data["topic_names"][idx]
+    await state.update_data(topic_name=topic_name)
+
+    from digitex.bot.handlers.random import start_random_question
+    await start_random_question(callback.message, state, callback.bot)
     await callback.answer()
 
 

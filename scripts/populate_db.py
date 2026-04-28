@@ -122,6 +122,58 @@ def _populate_year(uow: UnitOfWork, subject_id: int, year_dir: Path) -> tuple[in
     return questions_loaded, answers_loaded
 
 
+def _populate_topics(db_path: str, subject_id: int, subject_dir: Path) -> int:
+    """Populate question_topics table from topic_to_year.json. Returns count of mappings."""
+    topics_file = subject_dir / "topic_to_year.json"
+    if not topics_file.exists():
+        print(f"  No topic_to_year.json in {subject_dir}, skipping topics")
+        return 0
+
+    topics_data = json.loads(topics_file.read_text(encoding="utf-8"))
+    count = 0
+
+    with UnitOfWork(db_path) as uow:
+        for topic_name, years in tqdm(topics_data.items(), desc="topics"):
+            for year_str, exam_types in years.items():
+                year = int(year_str)
+                for exam_type, keys in exam_types.items():
+                    book_row = uow._conn.execute(
+                        "SELECT book_id FROM books WHERE subject_id = ? AND year_value = ?",
+                        (subject_id, year),
+                    ).fetchone()
+                    if not book_row:
+                        tqdm.write(f"    Warning: no book for year {year}")
+                        continue
+
+                    book_id = book_row[0]
+                    option_rows = uow._conn.execute(
+                        "SELECT option_id FROM options"
+                        " WHERE book_id = ? AND exam_type = ?",
+                        (book_id, exam_type),
+                    ).fetchall()
+
+                    for key in keys:
+                        part = key[0]
+                        qnum = int(key[1:])
+                        table = "part_a_questions" if part == "A" else "part_b_questions"
+
+                        for (option_id,) in option_rows:
+                            uow._conn.execute(
+                                f"INSERT OR IGNORE INTO question_topics"
+                                f" (question_id, part, topic_name)"
+                                f" SELECT q.question_id, ?, ?"
+                                f" FROM {table} q"
+                                f" WHERE q.option_id = ? AND q.question_number = ?",
+                                (part, topic_name, option_id, qnum),
+                            )
+
+        count = uow._conn.execute(
+            "SELECT COUNT(*) FROM question_topics"
+        ).fetchone()[0]
+
+    return count
+
+
 def populate_subject(db_path: str, output_dir: Path, subject: str) -> None:
     subject_dir = output_dir / subject
     if not subject_dir.exists():
@@ -138,11 +190,17 @@ def populate_subject(db_path: str, output_dir: Path, subject: str) -> None:
 
     print(f"\n{subject} — {len(year_dirs)} year(s)")
 
+    with UnitOfWork(db_path) as uow:
+        subject_id = uow.books.get_or_create_subject(get_subject_name(subject))
+
     for year_dir in tqdm(year_dirs, desc=subject):
         with UnitOfWork(db_path) as uow:
-            subject_id = uow.books.get_or_create_subject(get_subject_name(subject))
             questions, answers = _populate_year(uow, subject_id, year_dir)
         tqdm.write(f"  {year_dir.name}: {questions} questions, {answers} answers")
+
+    topic_count = _populate_topics(db_path, subject_id, subject_dir)
+    if topic_count:
+        print(f"  {topic_count} topic mappings loaded")
 
 
 def main() -> None:

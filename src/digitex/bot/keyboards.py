@@ -40,6 +40,7 @@ def mode_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.add(InlineKeyboardButton(text="Стандартный режим", callback_data="mode:standard"))
     builder.add(InlineKeyboardButton(text="Случайные вопросы", callback_data="mode:random"))
+    builder.add(InlineKeyboardButton(text="Темы", callback_data="mode:topics"))
     builder.adjust(1)
     return builder.as_markup()
 
@@ -64,5 +65,13 @@ def random_part_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.add(InlineKeyboardButton(text="Часть A", callback_data="random_part:A"))
     builder.add(InlineKeyboardButton(text="Часть B", callback_data="random_part:B"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def topics_kb(topics: list[str]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for i, name in enumerate(topics):
+        builder.add(InlineKeyboardButton(text=name, callback_data=f"topic:{i}"))
     builder.adjust(1)
     return builder.as_markup()
