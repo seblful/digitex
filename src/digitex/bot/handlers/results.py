@@ -5,6 +5,24 @@ from aiogram.fsm.context import FSMContext
 
 from digitex.bot.database import with_uow
 from digitex.bot.keyboards import subjects_kb
+from digitex.bot.messages import (
+    MSG_EXAM_CE,
+    MSG_EXAM_CT,
+    MSG_RESULTS_ERRORS,
+    MSG_RESULTS_ERROR_ITEM,
+    MSG_RESULTS_HEADER,
+    MSG_RESULTS_OPTION,
+    MSG_RESULTS_PART_A,
+    MSG_RESULTS_PART_A_H,
+    MSG_RESULTS_PART_B,
+    MSG_RESULTS_PART_B_H,
+    MSG_RESULTS_RETRY,
+    MSG_RESULTS_SCORE,
+    MSG_RESULTS_SUBJECT,
+    MSG_RESULTS_TIME,
+    MSG_RESULTS_TYPE,
+    MSG_RESULTS_YEAR,
+)
 from digitex.bot.states import Navigation
 from digitex.config import get_settings
 
@@ -22,86 +40,60 @@ async def show_results(
 
     def get_results(uow):
         result = uow.sessions.complete(session_id)
-        wrong_rows = uow._conn.execute(
-            "SELECT q.question_number, 'A', sa.student_answer, q.answer"
-            "  FROM session_answers sa"
-            "  JOIN part_a_questions q ON q.question_id = sa.question_id"
-            " WHERE sa.session_id = ? AND sa.is_correct = 0"
-            " UNION ALL"
-            " SELECT q.question_number, 'B', sa.student_answer, q.answer"
-            "  FROM session_answers sa"
-            "  JOIN part_b_questions q ON q.question_id = sa.question_id"
-            " WHERE sa.session_id = ? AND sa.is_correct = 0"
-            " ORDER BY 2, 1",
-            (session_id, session_id),
-        ).fetchall()
+        wrong_rows = uow.sessions.get_wrong_answers(session_id)
+        subject_name, year, option_number = uow.sessions.get_session_info(session_id)
+        return result, wrong_rows, subject_name, year, option_number
 
-        session_row = uow._conn.execute(
-            "SELECT b.subject_id, b.year_value, s.name, ts.option_number"
-            "  FROM test_sessions ts"
-            "  JOIN books b ON b.book_id = ts.book_id"
-            "  JOIN subjects s ON s.subject_id = b.subject_id"
-            " WHERE ts.session_id = ?",
-            (session_id,),
-        ).fetchone()
-
-        return result, wrong_rows, session_row
-
-    result, wrong_rows, session_row = await with_uow(db_path, get_results)
-    subject_name = session_row[2]
-    year = session_row[1]
-    option_number = session_row[3]
+    result, wrong_rows, subject_name, year, option_number = await with_uow(db_path, get_results)
 
     wrong_a = [r for r in wrong_rows if r[1] == "A"]
     wrong_b = [r for r in wrong_rows if r[1] == "B"]
 
-    exam_type_label = "ЦЭ" if result.exam_type == "CE" else "ЦТ"
+    exam_type_label = MSG_EXAM_CE if result.exam_type == "CE" else MSG_EXAM_CT
 
     lines = [
-        "📊 <b>Тестирование завершено</b>",
+        MSG_RESULTS_HEADER,
         "",
-        f"<b>Предмет:</b> {subject_name}",
-        f"<b>Тип:</b> {exam_type_label}",
-        f"<b>Год:</b> {year}",
-        f"<b>Вариант:</b> {option_number}",
+        MSG_RESULTS_SUBJECT.format(subject_name=subject_name),
+        MSG_RESULTS_TYPE.format(exam_type=exam_type_label),
+        MSG_RESULTS_YEAR.format(year=year),
+        MSG_RESULTS_OPTION.format(option_number=option_number),
         "",
-        f"<b>Результат:</b> {result.total_score} из {result.max_score}",
-        f"├─ Часть А: {result.part_a_score}",
-        f"└─ Часть Б: {result.part_b_score}",
+        MSG_RESULTS_SCORE.format(total_score=result.total_score, max_score=result.max_score),
+        MSG_RESULTS_PART_A.format(part_a_score=result.part_a_score),
+        MSG_RESULTS_PART_B.format(part_b_score=result.part_b_score),
         "",
-        f"<b>Время:</b> {result.time_spent:.0f} сек",
+        MSG_RESULTS_TIME.format(time_spent=result.time_spent),
     ]
 
     if wrong_a or wrong_b:
         lines.append("")
-        lines.append("<b>Ошибки:</b>")
+        lines.append(MSG_RESULTS_ERRORS)
 
         if wrong_a:
             lines.append("")
-            lines.append("<b>Часть А:</b>")
+            lines.append(MSG_RESULTS_PART_A_H)
             for row in wrong_a:
                 qnum, part, user_ans, correct_ans = row
-                lines.append(f"  • Вопрос {qnum}: ваш ответ <code>{user_ans}</code>, правильный <code>{correct_ans}</code>")
+                lines.append(MSG_RESULTS_ERROR_ITEM.format(qnum=qnum, user_ans=user_ans, correct_ans=correct_ans))
 
         if wrong_b:
             lines.append("")
-            lines.append("<b>Часть Б:</b>")
+            lines.append(MSG_RESULTS_PART_B_H)
             for row in wrong_b:
                 qnum, part, user_ans, correct_ans = row
-                lines.append(f"  • Вопрос {qnum}: ваш ответ <code>{user_ans}</code>, правильный <code>{correct_ans}</code>")
+                lines.append(MSG_RESULTS_ERROR_ITEM.format(qnum=qnum, user_ans=user_ans, correct_ans=correct_ans))
 
     await bot.send_message(message.chat.id, "\n".join(lines), parse_mode="HTML")
     await state.clear()
     await state.set_state(Navigation.select_subject)
 
     def list_subjects(uow):
-        return uow._conn.execute(
-            "SELECT subject_id, name FROM subjects ORDER BY name"
-        ).fetchall()
+        return uow.books.list_subjects()
 
     subjects = await with_uow(db_path, list_subjects)
     await bot.send_message(
         message.chat.id,
-        "Выберите предмет для нового тестирования:",
+        MSG_RESULTS_RETRY,
         reply_markup=subjects_kb(subjects),
     )

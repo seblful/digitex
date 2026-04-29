@@ -4,13 +4,28 @@ from aiogram import F, Router, types
 from aiogram.fsm.context import FSMContext
 
 from digitex.bot.database import with_uow
+from digitex.bot.handlers.random import start_random_question
+from digitex.bot.handlers.testing import send_current_question
 from digitex.bot.keyboards import (
     exam_type_kb,
     mode_kb,
     options_kb,
     random_part_kb,
+    subjects_kb,
     topics_kb,
     years_kb,
+)
+from digitex.bot.messages import (
+    MSG_EXAM_TYPE_SELECT,
+    MSG_MODE_SELECT,
+    MSG_NO_OPTIONS,
+    MSG_NO_TOPICS,
+    MSG_NO_YEARS,
+    MSG_OPTION_SELECT,
+    MSG_PART_SELECT,
+    MSG_START_TESTING,
+    MSG_TOPIC_SELECT,
+    MSG_YEAR_SELECT,
 )
 from digitex.bot.states import Navigation, Testing
 from digitex.config import get_settings
@@ -25,10 +40,7 @@ async def on_subject_selected(callback: types.CallbackQuery, state: FSMContext) 
         return
 
     subject_id = int(callback.data.split(":")[1])
-    await callback.message.edit_text(
-        "Выберите режим тестирования:",
-        reply_markup=mode_kb(),
-    )
+    await callback.message.edit_text(MSG_MODE_SELECT, reply_markup=mode_kb())
     await state.update_data(subject_id=subject_id)
     await state.set_state(Navigation.select_mode)
     await callback.answer()
@@ -47,28 +59,26 @@ async def on_mode_selected(callback: types.CallbackQuery, state: FSMContext) -> 
 
     if mode == "standard":
         def fetch_years(uow):
-            rows = uow._conn.execute(
-                "SELECT year_value FROM books WHERE subject_id = ? ORDER BY year_value DESC",
-                (subject_id,),
-            ).fetchall()
-            return [r[0] for r in rows]
+            return uow.books.list_years(subject_id)
 
         years = await with_uow(db_path, fetch_years)
         if not years:
-            await callback.message.edit_text("Нет доступных лет для этого предмета.")
+            def list_subjects(uow):
+                return uow.books.list_subjects()
+
+            subjects = await with_uow(db_path, list_subjects)
+            await callback.message.edit_text(
+                MSG_NO_YEARS,
+                reply_markup=subjects_kb(subjects),
+            )
+            await state.set_state(Navigation.select_subject)
             await callback.answer()
             return
 
-        await callback.message.edit_text(
-            "Выберите год:",
-            reply_markup=years_kb(years),
-        )
+        await callback.message.edit_text(MSG_YEAR_SELECT, reply_markup=years_kb(years))
         await state.set_state(Navigation.select_year)
     elif mode == "random":
-        await callback.message.edit_text(
-            "Выберите тип экзамена:",
-            reply_markup=exam_type_kb(),
-        )
+        await callback.message.edit_text(MSG_EXAM_TYPE_SELECT, reply_markup=exam_type_kb())
         await state.set_state(Navigation.select_random_exam_type)
     elif mode == "topics":
         def fetch_topics(uow):
@@ -76,14 +86,11 @@ async def on_mode_selected(callback: types.CallbackQuery, state: FSMContext) -> 
 
         topics = await with_uow(db_path, fetch_topics)
         if not topics:
-            await callback.message.edit_text("Нет доступных тем для этого предмета.")
+            await callback.message.edit_text(MSG_NO_TOPICS)
             await callback.answer()
             return
 
-        await callback.message.edit_text(
-            "Выберите тему:",
-            reply_markup=topics_kb(topics),
-        )
+        await callback.message.edit_text(MSG_TOPIC_SELECT, reply_markup=topics_kb(topics))
         await state.update_data(topic_names=topics)
         await state.set_state(Navigation.select_topic)
 
@@ -101,7 +108,6 @@ async def on_topic_selected(callback: types.CallbackQuery, state: FSMContext) ->
     topic_name = data["topic_names"][idx]
     await state.update_data(topic_name=topic_name)
 
-    from digitex.bot.handlers.random import start_random_question
     await start_random_question(callback.message, state, callback.bot)
     await callback.answer()
 
@@ -114,10 +120,7 @@ async def on_random_exam_type_selected(callback: types.CallbackQuery, state: FSM
 
     exam_type = callback.data.split(":")[1]
     await state.update_data(exam_type=exam_type)
-    await callback.message.edit_text(
-        "Выберите часть:",
-        reply_markup=random_part_kb(),
-    )
+    await callback.message.edit_text(MSG_PART_SELECT, reply_markup=random_part_kb())
     await state.set_state(Navigation.select_random_part)
     await callback.answer()
 
@@ -131,7 +134,6 @@ async def on_random_part_selected(callback: types.CallbackQuery, state: FSMConte
     part = callback.data.split(":")[1]
     await state.update_data(random_part=part)
 
-    from digitex.bot.handlers.random import start_random_question
     await start_random_question(callback.message, state, callback.bot)
     await callback.answer()
 
@@ -147,7 +149,7 @@ async def on_year_selected(callback: types.CallbackQuery, state: FSMContext) -> 
 
     if year >= 2023:
         await callback.message.edit_text(
-            "Выберите тип экзамена:",
+            MSG_EXAM_TYPE_SELECT,
             reply_markup=exam_type_kb(),
         )
         await state.set_state(Navigation.select_exam_type)
@@ -182,22 +184,16 @@ async def _show_options_for_exam_type(
 
     def fetch_options(uow):
         book_id = uow.books.get_or_create_book(subject_id, year)
-        rows = uow._conn.execute(
-            "SELECT option_number FROM options"
-            " WHERE book_id = ? AND exam_type = ? ORDER BY option_number",
-            (book_id, exam_type),
-        ).fetchall()
-        return book_id, [r[0] for r in rows]
+        options = uow.books.list_options(book_id, exam_type)
+        return book_id, options
 
     book_id, options = await with_uow(db_path, fetch_options)
     if not options:
-        await message.edit_text(f"Нет доступных вариантов для {exam_type}.")
+        await message.edit_text(MSG_NO_OPTIONS.format(exam_type=exam_type))
+        await state.set_state(Navigation.select_year)
         return
 
-    await message.edit_text(
-        "Выберите вариант:",
-        reply_markup=options_kb(options),
-    )
+    await message.edit_text(MSG_OPTION_SELECT, reply_markup=options_kb(options))
     await state.update_data(book_id=book_id, exam_type=exam_type)
     await state.set_state(Navigation.select_option)
 
@@ -215,25 +211,25 @@ async def on_option_selected(callback: types.CallbackQuery, state: FSMContext) -
     db_path = get_settings().database.path
 
     def start_test(uow):
-        telegram_id = callback.from_user.id if callback.from_user else 0
-        name = callback.from_user.full_name if callback.from_user and callback.from_user.full_name else "Пользователь"
-        username = callback.from_user.username if callback.from_user else None
-        student = uow.students.get_or_create(
-            telegram_id=telegram_id,
-            name=name,
-            username=username,
-        )
-        session = uow.sessions.create(student.student_id, book_id, option_number, exam_type)
-        option_id = uow._conn.execute(
-            "SELECT option_id FROM options WHERE book_id = ? AND option_number = ?",
-            (book_id, option_number),
-        ).fetchone()[0]
+        student_id = data.get("student_id")
+        if student_id is None:
+            telegram_id = callback.from_user.id if callback.from_user else 0
+            name = callback.from_user.full_name if callback.from_user and callback.from_user.full_name else "Пользователь"
+            username = callback.from_user.username if callback.from_user else None
+            student = uow.students.get_or_create(
+                telegram_id=telegram_id,
+                name=name,
+                username=username,
+            )
+            student_id = student.student_id
+        session = uow.sessions.create(student_id, book_id, option_number, exam_type)
+        option_id = uow.books.get_option_id(book_id, option_number)
         qs = uow.questions.list_for_option(option_id, "A")
         qs += uow.questions.list_for_option(option_id, "B")
         return session.session_id, [(q.question_id, q.part) for q in qs]
 
     session_id, question_ids = await with_uow(db_path, start_test)
-    await callback.message.edit_text("Начинаем тестирование!")
+    await callback.message.edit_text(MSG_START_TESTING)
     await state.update_data(
         session_id=session_id,
         question_ids=question_ids,
@@ -242,5 +238,4 @@ async def on_option_selected(callback: types.CallbackQuery, state: FSMContext) -
     await state.set_state(Testing.answering)
     await callback.answer()
 
-    from digitex.bot.handlers.testing import send_current_question
     await send_current_question(callback.message, state, callback.bot)

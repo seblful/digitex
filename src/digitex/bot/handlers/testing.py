@@ -6,7 +6,9 @@ from aiogram import F, Router, types
 from aiogram.fsm.context import FSMContext
 
 from digitex.bot.database import with_uow
+from digitex.bot.handlers.results import show_results
 from digitex.bot.keyboards import part_a_kb
+from digitex.bot.messages import MSG_ENTER_ANSWER
 from digitex.bot.renderer import send_question
 from digitex.bot.states import Testing
 from digitex.config import get_settings
@@ -24,8 +26,6 @@ async def send_current_question(
     current_index: int = data["current_index"]
 
     if current_index >= len(question_ids):
-        from digitex.bot.handlers.results import show_results
-
         await show_results(message, state, bot)
         return
 
@@ -54,7 +54,7 @@ async def send_current_question(
         )
     else:
         await send_question(bot, message.chat.id, question, db_path)
-        await message.answer("Введите ответ:")
+        await message.answer(MSG_ENTER_ANSWER)
 
 
 async def _record_and_advance(

@@ -1,8 +1,14 @@
 """Configuration module for application settings."""
 
 from .settings import (
+    AppSettings,
+    BotSettings,
+    DataSettings,
     DatabaseSettings,
     ExtractionSettings,
+    LabelStudioSettings,
+    LoggingSettings,
+    MistralSettings,
     PathsSettings,
     Settings,
     TrainingSettings,
@@ -10,10 +16,16 @@ from .settings import (
 )
 
 __all__ = [
-    "get_settings",
-    "Settings",
+    "AppSettings",
+    "BotSettings",
+    "DataSettings",
     "DatabaseSettings",
     "ExtractionSettings",
+    "LabelStudioSettings",
+    "LoggingSettings",
+    "MistralSettings",
     "PathsSettings",
+    "Settings",
     "TrainingSettings",
+    "get_settings",
 ]

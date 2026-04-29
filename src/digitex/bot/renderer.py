@@ -1,9 +1,14 @@
 """Question image renderer with Telegram file_id caching."""
 
+import structlog
+
 from aiogram import Bot
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
 
+from digitex.bot.database import with_uow
 from digitex.bot.schemas import Question
+
+logger = structlog.get_logger()
 
 
 async def send_question(
@@ -38,6 +43,14 @@ async def send_question(
     )
     if msg.photo:
         file_id = msg.photo[-1].file_id
-        from digitex.core.db import UnitOfWork
-        with UnitOfWork(db_path) as uow:
+
+        def cache(uow):
             uow.questions.cache_file_id(question.question_id, question.part, file_id)
+
+        await with_uow(db_path, cache)
+    else:
+        logger.warning(
+            "No photo in response for question",
+            question_id=question.question_id,
+            part=question.part,
+        )

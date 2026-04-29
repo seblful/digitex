@@ -59,6 +59,36 @@ class BookRepository:
         )
         return option_id
 
+    def list_subjects(self) -> list[tuple[int, str]]:
+        rows = self._conn.execute(
+            "SELECT subject_id, name FROM subjects ORDER BY name"
+        ).fetchall()
+        return [(r[0], r[1]) for r in rows]
+
+    def list_years(self, subject_id: int) -> list[int]:
+        rows = self._conn.execute(
+            "SELECT year_value FROM books WHERE subject_id = ? ORDER BY year_value DESC",
+            (subject_id,),
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def list_options(self, book_id: int, exam_type: str) -> list[int]:
+        rows = self._conn.execute(
+            "SELECT option_number FROM options"
+            " WHERE book_id = ? AND exam_type = ? ORDER BY option_number",
+            (book_id, exam_type),
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def get_option_id(self, book_id: int, option_number: int) -> int:
+        row = self._conn.execute(
+            "SELECT option_id FROM options WHERE book_id = ? AND option_number = ?",
+            (book_id, option_number),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"Option {option_number} not found for book {book_id}")
+        return row[0]
+
 
 class QuestionRepository:
     """Repository for questions, images, and answers."""
@@ -309,6 +339,34 @@ class SessionRepository:
             (session_id,),
         )
         return self.get_result(session_id)
+
+    def get_session_info(self, session_id: int) -> tuple[str, int, int]:
+        row = self._conn.execute(
+            "SELECT s.name, b.year_value, ts.option_number"
+            "  FROM test_sessions ts"
+            "  JOIN books b ON b.book_id = ts.book_id"
+            "  JOIN subjects s ON s.subject_id = b.subject_id"
+            " WHERE ts.session_id = ?",
+            (session_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"Session {session_id} not found")
+        return row[0], row[1], row[2]
+
+    def get_wrong_answers(self, session_id: int) -> list[tuple[int, str, str, str]]:
+        return self._conn.execute(
+            "SELECT q.question_number, 'A', sa.student_answer, q.answer"
+            "  FROM session_answers sa"
+            "  JOIN part_a_questions q ON q.question_id = sa.question_id"
+            " WHERE sa.session_id = ? AND sa.is_correct = 0"
+            " UNION ALL"
+            " SELECT q.question_number, 'B', sa.student_answer, q.answer"
+            "  FROM session_answers sa"
+            "  JOIN part_b_questions q ON q.question_id = sa.question_id"
+            " WHERE sa.session_id = ? AND sa.is_correct = 0"
+            " ORDER BY 2, 1",
+            (session_id, session_id),
+        ).fetchall()
 
     def get_result(self, session_id: int) -> TestResult:
         session_row = self._conn.execute(

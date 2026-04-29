@@ -7,6 +7,16 @@ from aiogram.fsm.context import FSMContext
 
 from digitex.bot.database import with_uow
 from digitex.bot.keyboards import part_a_kb, random_feedback_kb
+from digitex.bot.messages import (
+    MSG_CORRECT_ANSWER,
+    MSG_ENTER_ANSWER,
+    MSG_EXAM_CE,
+    MSG_EXAM_CT,
+    MSG_NO_RANDOM_QUESTION,
+    MSG_NO_TOPIC_QUESTION,
+    MSG_RANDOM_FINISH,
+    MSG_WRONG_ANSWER,
+)
 from digitex.bot.renderer import send_question
 from digitex.bot.states import RandomTesting
 from digitex.config import get_settings
@@ -34,7 +44,7 @@ async def start_random_question(
         try:
             question, origin = await with_uow(db_path, fetch)
         except KeyError:
-            await message.answer("Не удалось найти вопрос по этой теме.")
+            await message.answer(MSG_NO_TOPIC_QUESTION)
             return
 
         year, option, exam_type = origin
@@ -45,7 +55,7 @@ async def start_random_question(
             question_start_time=time.time(),
         )
 
-        exam_type_label = "ЦЭ" if exam_type == "CE" else "ЦТ"
+        exam_type_label = MSG_EXAM_CE if exam_type == "CE" else MSG_EXAM_CT
         caption = (
             f"Тема: {topic_name}\n"
             f"<tg-spoiler>{exam_type_label} {year} год, вариант {option}</tg-spoiler>"
@@ -63,7 +73,7 @@ async def start_random_question(
         try:
             question, origin = await with_uow(db_path, fetch)
         except KeyError:
-            await message.answer("Не удалось найти случайный вопрос.")
+            await message.answer(MSG_NO_RANDOM_QUESTION)
             return
 
         year, option, exam_type = origin
@@ -74,7 +84,7 @@ async def start_random_question(
             question_start_time=time.time(),
         )
 
-        exam_type_label = "ЦЭ" if exam_type == "CE" else "ЦТ"
+        exam_type_label = MSG_EXAM_CE if exam_type == "CE" else MSG_EXAM_CT
         caption = f"<tg-spoiler>{exam_type_label} {year} год, вариант {option}</tg-spoiler>"
 
     if question.part == "A":
@@ -91,7 +101,7 @@ async def start_random_question(
         await send_question(
             bot, message.chat.id, question, db_path, caption=caption, parse_mode="HTML"
         )
-        await message.answer("Введите ответ:")
+        await message.answer(MSG_ENTER_ANSWER)
 
     await state.set_state(RandomTesting.answering)
 
@@ -140,10 +150,10 @@ async def process_random_answer(
     is_correct = answer.strip() == correct_answer.strip()
 
     if is_correct:
-        await message.answer("✅ Правильно!", reply_markup=random_feedback_kb())
+        await message.answer(MSG_CORRECT_ANSWER, reply_markup=random_feedback_kb())
     else:
         await message.answer(
-            f"❌ Неправильно!\nПравильный ответ: <b>{correct_answer}</b>",
+            MSG_WRONG_ANSWER.format(correct_answer=correct_answer),
             reply_markup=random_feedback_kb(),
             parse_mode="HTML",
         )
@@ -164,8 +174,6 @@ async def on_random_finish(callback: types.CallbackQuery, state: FSMContext) -> 
     if not callback.message or not isinstance(callback.message, types.Message):
         await callback.answer("Ошибка: сообщение недоступно")
         return
-    await callback.message.answer(
-        "Режим случайных вопросов завершен. Используйте /start для начала заново."
-    )
+    await callback.message.answer(MSG_RANDOM_FINISH)
     await state.clear()
     await callback.answer()

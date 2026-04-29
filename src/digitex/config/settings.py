@@ -2,6 +2,7 @@
 
 from functools import cached_property
 from pathlib import Path
+from threading import Lock
 from typing import Self
 
 from pydantic import Field, computed_field
@@ -251,6 +252,7 @@ class Settings(BaseSettings):
 
 
 _settings: Settings | None = None
+_settings_lock = Lock()
 
 
 def get_settings() -> Settings:
@@ -258,6 +260,8 @@ def get_settings() -> Settings:
     global _settings
 
     if _settings is None:
-        _settings = Settings.load()
+        with _settings_lock:
+            if _settings is None:
+                _settings = Settings.load()
 
     return _settings
