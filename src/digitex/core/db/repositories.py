@@ -79,30 +79,44 @@ def _union_both_parts(
     limit: str = "",
     params: tuple = (),
     select_b: str | None = None,
+    joins_b: str | None = None,
 ) -> list:
     """Execute a UNION-ALL query across ``part_a_*`` / ``part_b_*``.
 
-    The SELECT columns must be identical for both halves.  Use the
-    *select_b* override only when a hard-coded literal differs (e.g.
-    ``'A'`` vs ``'B'``).
+    The template always includes the standard ``JOIN options o …`` and
+    ``JOIN books b`` so that ``o.*`` and ``b.*`` columns are available.
+
+    *select_b* / *joins_b* override the first-half values when the two
+    halves differ (e.g. a hard-coded part literal ``'A'`` vs ``'B'``).
     """
     if select_b is None:
         select_b = select_a
-    template = (
+    if joins_b is None:
+        joins_b = joins
+
+    base = (
         f"SELECT {{select}}"
         f" FROM {{table}} q"
-        f" {joins}"
-        f" {where}"
+        f" JOIN options o ON q.option_id = o.option_id"
+        f" JOIN books b ON o.book_id = b.book_id"
+        f" {{joins}}"
+        f" {{where}}"
     )
-    sql = (
-        template.format(select=select_a, table="part_a_questions")
+    union = (
+        base.format(select=select_a, table="part_a_questions", joins=joins, where=where)
         + " UNION ALL "
-        + template.format(select=select_b, table="part_b_questions")
+        + base.format(select=select_b, table="part_b_questions", joins=joins_b, where=where)
     )
-    if order_by:
-        sql += f" ORDER BY {order_by}"
-    if limit:
-        sql += f" LIMIT {limit}"
+    # SQLite requires a subquery wrapper for ORDER BY / LIMIT on compound
+    # SELECTs when the ordering expression is not a result-set column.
+    if order_by or limit:
+        sql = f"SELECT * FROM ({union})"
+        if order_by:
+            sql += f" ORDER BY {order_by}"
+        if limit:
+            sql += f" LIMIT {limit}"
+    else:
+        sql = union
     return conn.execute(sql, params + params).fetchall()
 
 
@@ -329,8 +343,9 @@ class QuestionRepository:
         rows = _union_both_parts(self._conn,
             select_a="DISTINCT qt.topic_name",
             joins="JOIN question_topics qt ON qt.question_id = q.question_id AND qt.part = 'A'",
+            joins_b="JOIN question_topics qt ON qt.question_id = q.question_id AND qt.part = 'B'",
             where="WHERE b.subject_id = ?",
-            order_by="qt.topic_name",
+            order_by="topic_name",
             params=(subject_id,),
         )
         return [r[0] for r in rows]
@@ -343,6 +358,10 @@ class QuestionRepository:
             joins=(
                 "JOIN question_topics qt"
                 " ON qt.question_id = q.question_id AND qt.part = 'A'"
+            ),
+            joins_b=(
+                "JOIN question_topics qt"
+                " ON qt.question_id = q.question_id AND qt.part = 'B'"
             ),
             where="WHERE b.subject_id = ? AND qt.topic_name = ?",
             order_by="RANDOM()",
