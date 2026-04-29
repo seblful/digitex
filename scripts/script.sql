@@ -67,13 +67,11 @@ CREATE TABLE IF NOT EXISTS students (
 CREATE TABLE IF NOT EXISTS test_sessions (
     session_id INTEGER PRIMARY KEY,
     student_id INTEGER NOT NULL,
-    book_id INTEGER NOT NULL,
-    option_number INTEGER NOT NULL CHECK (option_number BETWEEN 1 AND 10),
-    exam_type TEXT NOT NULL DEFAULT 'CT' CHECK (exam_type IN ('CE', 'CT')),
+    option_id INTEGER NOT NULL,
     started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at DATETIME,
     FOREIGN KEY (student_id) REFERENCES students(student_id),
-    FOREIGN KEY (book_id) REFERENCES books(book_id)
+    FOREIGN KEY (option_id) REFERENCES options(option_id)
 );
 
 -- Topic-to-question mappings (loaded from topic_to_year.json)
@@ -96,3 +94,10 @@ CREATE TABLE IF NOT EXISTS session_answers (
     FOREIGN KEY (session_id) REFERENCES test_sessions(session_id),
     UNIQUE (session_id, question_id)
 );
+
+-- Indexes for common query patterns
+CREATE INDEX IF NOT EXISTS idx_books_subject_year ON books(subject_id, year_value);
+CREATE INDEX IF NOT EXISTS idx_options_book_exam ON options(book_id, exam_type);
+CREATE INDEX IF NOT EXISTS idx_options_exam_type ON options(exam_type);
+CREATE INDEX IF NOT EXISTS idx_question_topics_topic ON question_topics(topic_name);
+CREATE INDEX IF NOT EXISTS idx_session_answers_session ON session_answers(session_id);

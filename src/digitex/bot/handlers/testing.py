@@ -75,7 +75,10 @@ async def _record_and_advance(
 
     def record(uow):
         correct = uow.questions.get_correct_answer(question_id, part)
-        is_correct = answer.strip() == correct.strip()
+        if part == "A":
+            is_correct = int(answer.strip()) == correct
+        else:
+            is_correct = answer.strip() == correct
         uow.sessions.record_answer(
             session_id=session_id,
             question_id=question_id,

@@ -222,8 +222,8 @@ async def on_option_selected(callback: types.CallbackQuery, state: FSMContext) -
                 username=username,
             )
             student_id = student.student_id
-        session = uow.sessions.create(student_id, book_id, option_number, exam_type)
         option_id = uow.books.get_option_id(book_id, option_number)
+        session = uow.sessions.create(student_id, option_id)
         qs = uow.questions.list_for_option(option_id, "A")
         qs += uow.questions.list_for_option(option_id, "B")
         return session.session_id, [(q.question_id, q.part) for q in qs]

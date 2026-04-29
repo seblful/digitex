@@ -68,26 +68,22 @@ class TestSession:
         session = Session(
             session_id=1,
             student_id=1,
-            book_id=1,
-            option_number=1,
+            option_id=5,
             started_at=now,
         )
         assert session.session_id == 1
-        assert session.exam_type == "CT"
+        assert session.option_id == 5
         assert session.completed_at is None
 
-    def test_session_with_exam_type(self) -> None:
+    def test_session_with_completed_at(self) -> None:
         now = datetime.now(timezone.utc)
         session = Session(
             session_id=1,
             student_id=1,
-            book_id=1,
-            option_number=1,
-            exam_type="CE",
+            option_id=5,
             started_at=now,
             completed_at=now,
         )
-        assert session.exam_type == "CE"
         assert session.completed_at == now
 
 

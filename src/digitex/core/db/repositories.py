@@ -4,9 +4,44 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime
+from typing import NamedTuple
 
 from digitex.bot.schemas import Question, Session, Student, TestResult
 from digitex.core.value_objects import QuestionKey
+
+
+# ---------------------------------------------------------------------------
+# Row types — lightweight containers for query results
+# ---------------------------------------------------------------------------
+
+
+class SubjectRow(NamedTuple):
+    id: int
+    name: str
+
+
+class SessionInfo(NamedTuple):
+    subject_name: str
+    year: int
+    option_number: int
+
+
+class WrongAnswer(NamedTuple):
+    question_number: int
+    part: str
+    student_answer: str
+    correct_answer: str
+
+
+class QuestionOrigin(NamedTuple):
+    year: int
+    option_number: int
+    exam_type: str
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 def _get_or_create(
@@ -15,17 +50,65 @@ def _get_or_create(
     id_col: str,
     where: dict,
 ) -> int:
-    cols = ", ".join(where.keys())
-    placeholders = ", ".join("?" * len(where))
-    conn.execute(
-        f"INSERT OR IGNORE INTO {table} ({cols}) VALUES ({placeholders})",
-        tuple(where.values()),
+    """Insert or get an existing row, returning its id.
+
+    Uses ``ON CONFLICT … DO UPDATE … RETURNING`` so only one round-trip is
+    needed (SQLite ≥ 3.35).
+    """
+    cols = list(where.keys())
+    values = list(where.values())
+    placeholders = ", ".join("?" * len(cols))
+    col_list = ", ".join(cols)
+    conflict_cols = ", ".join(cols)
+    set_clause = ", ".join(f"{c} = excluded.{c}" for c in cols)
+    row = conn.execute(
+        f"INSERT INTO {table} ({col_list}) VALUES ({placeholders})"
+        f" ON CONFLICT({conflict_cols}) DO UPDATE SET {set_clause}"
+        f" RETURNING {id_col}",
+        values,
+    ).fetchone()
+    return row[0]
+
+
+def _union_both_parts(
+    conn: sqlite3.Connection,
+    select_a: str,
+    joins: str = "",
+    where: str = "",
+    order_by: str = "",
+    limit: str = "",
+    params: tuple = (),
+    select_b: str | None = None,
+) -> list:
+    """Execute a UNION-ALL query across ``part_a_*`` / ``part_b_*``.
+
+    The SELECT columns must be identical for both halves.  Use the
+    *select_b* override only when a hard-coded literal differs (e.g.
+    ``'A'`` vs ``'B'``).
+    """
+    if select_b is None:
+        select_b = select_a
+    template = (
+        f"SELECT {{select}}"
+        f" FROM {{table}} q"
+        f" {joins}"
+        f" {where}"
     )
-    conditions = " AND ".join(f"{k} = ?" for k in where)
-    return conn.execute(
-        f"SELECT {id_col} FROM {table} WHERE {conditions}",
-        tuple(where.values()),
-    ).fetchone()[0]
+    sql = (
+        template.format(select=select_a, table="part_a_questions")
+        + " UNION ALL "
+        + template.format(select=select_b, table="part_b_questions")
+    )
+    if order_by:
+        sql += f" ORDER BY {order_by}"
+    if limit:
+        sql += f" LIMIT {limit}"
+    return conn.execute(sql, params + params).fetchall()
+
+
+# ---------------------------------------------------------------------------
+# Repositories
+# ---------------------------------------------------------------------------
 
 
 class BookRepository:
@@ -37,9 +120,13 @@ class BookRepository:
     def get_or_create_subject(self, name: str) -> int:
         return _get_or_create(self._conn, "subjects", "subject_id", {"name": name})
 
-    def get_or_create_book(self, subject_id: int, year: int, a_num_options: int = 5) -> int:
+    def get_or_create_book(
+        self, subject_id: int, year: int, a_num_options: int = 5
+    ) -> int:
         book_id = _get_or_create(
-            self._conn, "books", "book_id",
+            self._conn,
+            "books",
+            "book_id",
             {"subject_id": subject_id, "year_value": year},
         )
         self._conn.execute(
@@ -48,9 +135,13 @@ class BookRepository:
         )
         return book_id
 
-    def get_or_create_option(self, book_id: int, option_number: int, exam_type: str = "CT") -> int:
+    def get_or_create_option(
+        self, book_id: int, option_number: int, exam_type: str = "CT"
+    ) -> int:
         option_id = _get_or_create(
-            self._conn, "options", "option_id",
+            self._conn,
+            "options",
+            "option_id",
             {"book_id": book_id, "option_number": option_number},
         )
         self._conn.execute(
@@ -59,11 +150,11 @@ class BookRepository:
         )
         return option_id
 
-    def list_subjects(self) -> list[tuple[int, str]]:
+    def list_subjects(self) -> list[SubjectRow]:
         rows = self._conn.execute(
             "SELECT subject_id, name FROM subjects ORDER BY name"
         ).fetchall()
-        return [(r[0], r[1]) for r in rows]
+        return [SubjectRow(r[0], r[1]) for r in rows]
 
     def list_years(self, subject_id: int) -> list[int]:
         rows = self._conn.execute(
@@ -96,6 +187,22 @@ class QuestionRepository:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
+    # -- helpers ---------------------------------------------------------------
+
+    def _question_sql(self, table: str) -> str:
+        part_literal = "'A'" if table == "part_a_questions" else "'B'"
+        return (
+            f"SELECT q.question_id, {part_literal} AS part,"
+            f"       q.question_number, b.a_num_options,"
+            f"       i.image_data, i.telegram_file_id"
+            f"  FROM {table} q"
+            f"  JOIN options o ON q.option_id = o.option_id"
+            f"  JOIN books b ON o.book_id = b.book_id"
+            f"  JOIN images i ON i.question_id = q.question_id AND i.part = {part_literal}"
+        )
+
+    # -- CRUD ------------------------------------------------------------------
+
     def get_or_create(self, option_id: int, key: QuestionKey, answer: str) -> int:
         if key.part == "A":
             if not answer.isdigit():
@@ -124,30 +231,24 @@ class QuestionRepository:
 
         return qid
 
-    def insert_image(self, question_id: int, part: str, image_data: bytes) -> None:
+    def insert_image(
+        self, question_id: int, part: str, image_data: bytes
+    ) -> None:
         self._conn.execute(
             "INSERT OR IGNORE INTO images (question_id, part, image_data)"
             " VALUES (?, ?, ?)",
             (question_id, part, image_data),
         )
 
-    def cache_file_id(self, question_id: int, part: str, telegram_file_id: str) -> None:
+    def cache_file_id(
+        self, question_id: int, part: str, telegram_file_id: str
+    ) -> None:
         self._conn.execute(
             "UPDATE images SET telegram_file_id = ? WHERE question_id = ? AND part = ?",
             (telegram_file_id, question_id, part),
         )
 
-    def _question_sql(self, table: str) -> str:
-        part_literal = "'A'" if table == "part_a_questions" else "'B'"
-        return (
-            f"SELECT q.question_id, {part_literal} AS part,"
-            f"       q.question_number, b.a_num_options,"
-            f"       i.image_data, i.telegram_file_id"
-            f"  FROM {table} q"
-            f"  JOIN options o ON q.option_id = o.option_id"
-            f"  JOIN books b ON o.book_id = b.book_id"
-            f"  JOIN images i ON i.question_id = q.question_id AND i.part = {part_literal}"
-        )
+    # -- queries ---------------------------------------------------------------
 
     def get(self, question_id: int, part: str) -> Question:
         table = "part_a_questions" if part == "A" else "part_b_questions"
@@ -158,9 +259,12 @@ class QuestionRepository:
         if row is None:
             raise KeyError(f"Question {question_id} not found")
         return Question(
-            question_id=row[0], part=row[1], question_number=row[2],
+            question_id=row[0],
+            part=row[1],
+            question_number=row[2],
             num_options=row[3],
-            image_data=row[4], telegram_file_id=row[5],
+            image_data=row[4],
+            telegram_file_id=row[5],
         )
 
     def list_for_option(self, option_id: int, part: str) -> list[Question]:
@@ -172,14 +276,22 @@ class QuestionRepository:
         ).fetchall()
         return [
             Question(
-                question_id=r[0], part=r[1], question_number=r[2],
+                question_id=r[0],
+                part=r[1],
+                question_number=r[2],
                 num_options=r[3],
-                image_data=r[4], telegram_file_id=r[5],
+                image_data=r[4],
+                telegram_file_id=r[5],
             )
             for r in rows
         ]
 
-    def get_correct_answer(self, question_id: int, part: str) -> str:
+    def get_correct_answer(self, question_id: int, part: str) -> int | str:
+        """Return the correct answer for a question.
+
+        Part A answers are *integers* (option index); Part B answers are
+        free-form *strings*.
+        """
         table = "part_a_questions" if part == "A" else "part_b_questions"
         row = self._conn.execute(
             f"SELECT answer FROM {table} WHERE question_id = ?",
@@ -187,9 +299,12 @@ class QuestionRepository:
         ).fetchone()
         if row is None:
             raise KeyError(f"No answer for question {question_id}")
-        return str(row[0])
+        return int(row[0]) if part == "A" else str(row[0])
 
-    def get_random_question_id(self, subject_id: int, part: str, exam_type: str | None = None) -> int:
+    def get_random_question_id(
+        self, subject_id: int, part: str, exam_type: str | None = None
+    ) -> int:
+        """Pick a random question for the given subject / part / exam type."""
         table = "part_a_questions" if part == "A" else "part_b_questions"
         where = "b.subject_id = ?"
         params: list = [subject_id]
@@ -205,71 +320,51 @@ class QuestionRepository:
             params,
         ).fetchone()
         if row is None:
-            raise KeyError(f"No {part} questions found for subject {subject_id}")
+            raise KeyError(
+                f"No {part} questions found for subject {subject_id}"
+            )
         return row[0]
 
     def get_topics_for_subject(self, subject_id: int) -> list[str]:
-        rows = self._conn.execute(
-            "SELECT DISTINCT qt.topic_name"
-            "  FROM question_topics qt"
-            "  JOIN part_a_questions q ON q.question_id = qt.question_id AND qt.part = 'A'"
-            "  JOIN options o ON q.option_id = o.option_id"
-            "  JOIN books b ON o.book_id = b.book_id"
-            " WHERE b.subject_id = ?"
-            " UNION"
-            " SELECT DISTINCT qt.topic_name"
-            "  FROM question_topics qt"
-            "  JOIN part_b_questions q ON q.question_id = qt.question_id AND qt.part = 'B'"
-            "  JOIN options o ON q.option_id = o.option_id"
-            "  JOIN books b ON o.book_id = b.book_id"
-            " WHERE b.subject_id = ?"
-            " ORDER BY topic_name",
-            (subject_id, subject_id),
-        ).fetchall()
+        rows = _union_both_parts(self._conn,
+            select_a="DISTINCT qt.topic_name",
+            joins="JOIN question_topics qt ON qt.question_id = q.question_id AND qt.part = 'A'",
+            where="WHERE b.subject_id = ?",
+            order_by="qt.topic_name",
+            params=(subject_id,),
+        )
         return [r[0] for r in rows]
 
-    def get_random_question_id_by_topic(self, subject_id: int, topic_name: str) -> tuple[int, str]:
-        row = self._conn.execute(
-            "SELECT * FROM ("
-            "  SELECT qt.question_id, qt.part"
-            "    FROM question_topics qt"
-            "    JOIN part_a_questions q ON q.question_id = qt.question_id AND qt.part = 'A'"
-            "    JOIN options o ON q.option_id = o.option_id"
-            "    JOIN books b ON o.book_id = b.book_id"
-            "   WHERE b.subject_id = ? AND qt.topic_name = ?"
-            "   UNION ALL"
-            "  SELECT qt.question_id, qt.part"
-            "    FROM question_topics qt"
-            "    JOIN part_b_questions q ON q.question_id = qt.question_id AND qt.part = 'B'"
-            "    JOIN options o ON q.option_id = o.option_id"
-            "    JOIN books b ON o.book_id = b.book_id"
-            "   WHERE b.subject_id = ? AND qt.topic_name = ?"
-            ") ORDER BY RANDOM() LIMIT 1",
-            (subject_id, topic_name, subject_id, topic_name),
-        ).fetchone()
-        if row is None:
-            raise KeyError(f"No questions found for topic {topic_name!r} in subject {subject_id}")
-        return row[0], row[1]
+    def get_random_question_id_by_topic(
+        self, subject_id: int, topic_name: str
+    ) -> tuple[int, str]:
+        rows = _union_both_parts(self._conn,
+            select_a="qt.question_id, qt.part",
+            joins=(
+                "JOIN question_topics qt"
+                " ON qt.question_id = q.question_id AND qt.part = 'A'"
+            ),
+            where="WHERE b.subject_id = ? AND qt.topic_name = ?",
+            order_by="RANDOM()",
+            limit="1",
+            params=(subject_id, topic_name),
+        )
+        if not rows:
+            raise KeyError(
+                f"No questions found for topic {topic_name!r} in subject {subject_id}"
+            )
+        return rows[0][0], rows[0][1]
 
-    def get_question_origin(self, question_id: int) -> tuple[int, int, str]:
+    def get_question_origin(self, question_id: int) -> QuestionOrigin:
         """Return (year, option_number, exam_type) for a question."""
-        row = self._conn.execute(
-            "SELECT b.year_value, o.option_number, o.exam_type"
-            "  FROM part_a_questions q"
-            "  JOIN options o ON q.option_id = o.option_id"
-            "  JOIN books b ON o.book_id = b.book_id"
-            " WHERE q.question_id = ?"
-            " UNION ALL"
-            " SELECT b.year_value, o.option_number, o.exam_type"
-            "  FROM part_b_questions q"
-            "  JOIN options o ON q.option_id = o.option_id"
-            "  JOIN books b ON o.book_id = b.book_id"
-            " WHERE q.question_id = ?",
-            (question_id, question_id),
-        ).fetchone()
-        if row is None:
+        rows = _union_both_parts(self._conn,
+            select_a="b.year_value, o.option_number, o.exam_type",
+            where="WHERE q.question_id = ?",
+            params=(question_id,),
+        )
+        if not rows:
             raise KeyError(f"Origin not found for question {question_id}")
-        return row[0], row[1], row[2]
+        return QuestionOrigin(*rows[0])
 
 
 class StudentRepository:
@@ -282,15 +377,20 @@ class StudentRepository:
         self, telegram_id: int, name: str, username: str | None = None
     ) -> Student:
         self._conn.execute(
-            "INSERT OR IGNORE INTO students (telegram_id, name, username) VALUES (?, ?, ?)",
+            "INSERT OR IGNORE INTO students (telegram_id, name, username)"
+            " VALUES (?, ?, ?)",
             (telegram_id, name, username),
         )
         row = self._conn.execute(
-            "SELECT student_id, telegram_id, name, username FROM students WHERE telegram_id = ?",
+            "SELECT student_id, telegram_id, name, username"
+            "  FROM students WHERE telegram_id = ?",
             (telegram_id,),
         ).fetchone()
         return Student(
-            student_id=row[0], telegram_id=row[1], name=row[2], username=row[3]
+            student_id=row[0],
+            telegram_id=row[1],
+            name=row[2],
+            username=row[3],
         )
 
 
@@ -300,22 +400,23 @@ class SessionRepository:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
-    def create(self, student_id: int, book_id: int, option_number: int, exam_type: str = "CT") -> Session:
+    def create(self, student_id: int, option_id: int) -> Session:
         cur = self._conn.execute(
-            "INSERT INTO test_sessions (student_id, book_id, option_number, exam_type)"
-            " VALUES (?, ?, ?, ?)",
-            (student_id, book_id, option_number, exam_type),
+            "INSERT INTO test_sessions (student_id, option_id)"
+            " VALUES (?, ?)",
+            (student_id, option_id),
         )
         row = self._conn.execute(
-            "SELECT session_id, student_id, book_id, option_number,"
-            "       exam_type, started_at, completed_at"
+            "SELECT session_id, student_id, option_id, started_at, completed_at"
             "  FROM test_sessions WHERE session_id = ?",
             (cur.lastrowid,),
         ).fetchone()
         return Session(
-            session_id=row[0], student_id=row[1], book_id=row[2],
-            option_number=row[3], exam_type=row[4], started_at=row[5],
-            completed_at=row[6],
+            session_id=row[0],
+            student_id=row[1],
+            option_id=row[2],
+            started_at=row[3],
+            completed_at=row[4],
         )
 
     def record_answer(
@@ -335,70 +436,68 @@ class SessionRepository:
 
     def complete(self, session_id: int) -> TestResult:
         self._conn.execute(
-            "UPDATE test_sessions SET completed_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+            "UPDATE test_sessions SET completed_at = CURRENT_TIMESTAMP"
+            " WHERE session_id = ?",
             (session_id,),
         )
         return self.get_result(session_id)
 
-    def get_session_info(self, session_id: int) -> tuple[str, int, int]:
+    def get_session_info(self, session_id: int) -> SessionInfo:
         row = self._conn.execute(
-            "SELECT s.name, b.year_value, ts.option_number"
+            "SELECT s.name, b.year_value, o.option_number"
             "  FROM test_sessions ts"
-            "  JOIN books b ON b.book_id = ts.book_id"
+            "  JOIN options o ON o.option_id = ts.option_id"
+            "  JOIN books b ON b.book_id = o.book_id"
             "  JOIN subjects s ON s.subject_id = b.subject_id"
             " WHERE ts.session_id = ?",
             (session_id,),
         ).fetchone()
         if row is None:
             raise KeyError(f"Session {session_id} not found")
-        return row[0], row[1], row[2]
+        return SessionInfo(row[0], row[1], row[2])
 
-    def get_wrong_answers(self, session_id: int) -> list[tuple[int, str, str, str]]:
-        return self._conn.execute(
-            "SELECT q.question_number, 'A', sa.student_answer, q.answer"
-            "  FROM session_answers sa"
-            "  JOIN part_a_questions q ON q.question_id = sa.question_id"
-            " WHERE sa.session_id = ? AND sa.is_correct = 0"
-            " UNION ALL"
-            " SELECT q.question_number, 'B', sa.student_answer, q.answer"
-            "  FROM session_answers sa"
-            "  JOIN part_b_questions q ON q.question_id = sa.question_id"
-            " WHERE sa.session_id = ? AND sa.is_correct = 0"
-            " ORDER BY 2, 1",
-            (session_id, session_id),
-        ).fetchall()
+    def get_wrong_answers(self, session_id: int) -> list[WrongAnswer]:
+        rows = _union_both_parts(self._conn,
+            select_a="q.question_number, 'A', sa.student_answer, q.answer",
+            joins="JOIN session_answers sa ON sa.question_id = q.question_id",
+            where="WHERE sa.session_id = ? AND sa.is_correct = 0",
+            order_by="2, 1",
+            params=(session_id,),
+            select_b="q.question_number, 'B', sa.student_answer, q.answer",
+        )
+        return [WrongAnswer(*r) for r in rows]
 
     def get_result(self, session_id: int) -> TestResult:
         session_row = self._conn.execute(
-            "SELECT book_id, option_number, exam_type, started_at, completed_at"
-            "  FROM test_sessions WHERE session_id = ?",
+            "SELECT o.exam_type, o.option_number, ts.started_at, ts.completed_at"
+            "  FROM test_sessions ts"
+            "  JOIN options o ON o.option_id = ts.option_id"
+            " WHERE ts.session_id = ?",
             (session_id,),
         ).fetchone()
         if session_row is None:
             raise KeyError(f"Session {session_id} not found")
 
-        answer_rows = self._conn.execute(
-            "SELECT sa.is_correct, 'A' FROM session_answers sa"
-            "  JOIN part_a_questions q ON q.question_id = sa.question_id"
-            " WHERE sa.session_id = ?"
-            " UNION ALL"
-            " SELECT sa.is_correct, 'B' FROM session_answers sa"
-            "  JOIN part_b_questions q ON q.question_id = sa.question_id"
-            " WHERE sa.session_id = ?",
-            (session_id, session_id),
-        ).fetchall()
+        answer_rows = _union_both_parts(self._conn,
+            select_a="sa.is_correct, 'A'",
+            joins="JOIN session_answers sa ON sa.question_id = q.question_id",
+            where="WHERE sa.session_id = ?",
+            params=(session_id,),
+            select_b="sa.is_correct, 'B'",
+        )
 
-        part_a_score = sum(1 for is_correct, part in answer_rows if is_correct and part == "A")
-        part_b_score = sum(1 for is_correct, part in answer_rows if is_correct and part == "B")
-        max_a = sum(1 for _, part in answer_rows if part == "A")
-        max_b = sum(1 for _, part in answer_rows if part == "B")
+        part_a_score = sum(1 for c, _ in answer_rows if c)
+        part_b_score = sum(1 for c, p in answer_rows if c and p == "B")
+        max_a = sum(1 for _, p in answer_rows if p == "A")
+        max_b = sum(1 for _, p in answer_rows if p == "B")
 
-        started = datetime.fromisoformat(session_row[3])
-        completed = datetime.fromisoformat(session_row[4])
+        exam_type = session_row[0]
+        started = datetime.fromisoformat(session_row[2])
+        completed = datetime.fromisoformat(session_row[3])
 
         return TestResult(
             session_id=session_id,
-            exam_type=session_row[2],
+            exam_type=exam_type,
             part_a_score=part_a_score,
             part_b_score=part_b_score,
             total_score=part_a_score + part_b_score,

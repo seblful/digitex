@@ -47,7 +47,9 @@ async def start_random_question(
             await message.answer(MSG_NO_TOPIC_QUESTION)
             return
 
-        year, option, exam_type = origin
+        year = origin.year
+        option = origin.option_number
+        exam_type = origin.exam_type
 
         await state.update_data(
             current_question_id=question.question_id,
@@ -76,7 +78,9 @@ async def start_random_question(
             await message.answer(MSG_NO_RANDOM_QUESTION)
             return
 
-        year, option, exam_type = origin
+        year = origin.year
+        option = origin.option_number
+        exam_type = origin.exam_type
 
         await state.update_data(
             current_question_id=question.question_id,
@@ -147,7 +151,10 @@ async def process_random_answer(
         return correct
 
     correct_answer = await with_uow(db_path, check_answer)
-    is_correct = answer.strip() == correct_answer.strip()
+    if current_part == "A":
+        is_correct = int(answer.strip()) == correct_answer
+    else:
+        is_correct = answer.strip() == correct_answer
 
     if is_correct:
         await message.answer(MSG_CORRECT_ANSWER, reply_markup=random_feedback_kb())

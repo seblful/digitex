@@ -41,23 +41,23 @@ async def show_results(
     def get_results(uow):
         result = uow.sessions.complete(session_id)
         wrong_rows = uow.sessions.get_wrong_answers(session_id)
-        subject_name, year, option_number = uow.sessions.get_session_info(session_id)
-        return result, wrong_rows, subject_name, year, option_number
+        info = uow.sessions.get_session_info(session_id)
+        return result, wrong_rows, info
 
-    result, wrong_rows, subject_name, year, option_number = await with_uow(db_path, get_results)
+    result, wrong_rows, info = await with_uow(db_path, get_results)
 
-    wrong_a = [r for r in wrong_rows if r[1] == "A"]
-    wrong_b = [r for r in wrong_rows if r[1] == "B"]
+    wrong_a = [r for r in wrong_rows if r.part == "A"]
+    wrong_b = [r for r in wrong_rows if r.part == "B"]
 
     exam_type_label = MSG_EXAM_CE if result.exam_type == "CE" else MSG_EXAM_CT
 
     lines = [
         MSG_RESULTS_HEADER,
         "",
-        MSG_RESULTS_SUBJECT.format(subject_name=subject_name),
+        MSG_RESULTS_SUBJECT.format(subject_name=info.subject_name),
         MSG_RESULTS_TYPE.format(exam_type=exam_type_label),
-        MSG_RESULTS_YEAR.format(year=year),
-        MSG_RESULTS_OPTION.format(option_number=option_number),
+        MSG_RESULTS_YEAR.format(year=info.year),
+        MSG_RESULTS_OPTION.format(option_number=info.option_number),
         "",
         MSG_RESULTS_SCORE.format(total_score=result.total_score, max_score=result.max_score),
         MSG_RESULTS_PART_A.format(part_a_score=result.part_a_score),
@@ -74,15 +74,21 @@ async def show_results(
             lines.append("")
             lines.append(MSG_RESULTS_PART_A_H)
             for row in wrong_a:
-                qnum, part, user_ans, correct_ans = row
-                lines.append(MSG_RESULTS_ERROR_ITEM.format(qnum=qnum, user_ans=user_ans, correct_ans=correct_ans))
+                lines.append(MSG_RESULTS_ERROR_ITEM.format(
+                    qnum=row.question_number,
+                    user_ans=row.student_answer,
+                    correct_ans=row.correct_answer,
+                ))
 
         if wrong_b:
             lines.append("")
             lines.append(MSG_RESULTS_PART_B_H)
             for row in wrong_b:
-                qnum, part, user_ans, correct_ans = row
-                lines.append(MSG_RESULTS_ERROR_ITEM.format(qnum=qnum, user_ans=user_ans, correct_ans=correct_ans))
+                lines.append(MSG_RESULTS_ERROR_ITEM.format(
+                    qnum=row.question_number,
+                    user_ans=row.student_answer,
+                    correct_ans=row.correct_answer,
+                ))
 
     await bot.send_message(message.chat.id, "\n".join(lines), parse_mode="HTML")
     await state.clear()

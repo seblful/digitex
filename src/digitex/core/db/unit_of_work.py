@@ -30,6 +30,7 @@ class UnitOfWork:
     def __enter__(self) -> UnitOfWork:
         self._conn = sqlite3.connect(self._db_path)
         self._conn.execute("PRAGMA foreign_keys = ON")
+        self._conn.execute("PRAGMA journal_mode=WAL")
         self.books = BookRepository(self._conn)
         self.questions = QuestionRepository(self._conn)
         self.students = StudentRepository(self._conn)

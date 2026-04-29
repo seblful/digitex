@@ -25,9 +25,7 @@ class Question(BaseModel):
 class Session(BaseModel):
     session_id: int
     student_id: int
-    book_id: int
-    option_number: int
-    exam_type: str = "CT"
+    option_id: int
     started_at: datetime
     completed_at: datetime | None = None
 
