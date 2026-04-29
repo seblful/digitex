@@ -37,9 +37,7 @@ async def start_random_question(
     if topic_name:
         def fetch(uow):
             qid, part = uow.questions.get_random_question_id_by_topic(subject_id, topic_name)
-            question = uow.questions.get(qid, part)
-            origin = uow.questions.get_question_origin(qid)
-            return question, origin
+            return uow.questions.get_full(qid, part)
 
         try:
             question, origin = await with_uow(db_path, fetch)
@@ -68,9 +66,7 @@ async def start_random_question(
 
         def fetch(uow):
             qid = uow.questions.get_random_question_id(subject_id, part, exam_type)
-            question = uow.questions.get(qid, part)
-            origin = uow.questions.get_question_origin(qid)
-            return question, origin
+            return uow.questions.get_full(qid, part)
 
         try:
             question, origin = await with_uow(db_path, fetch)

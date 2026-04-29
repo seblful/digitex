@@ -101,3 +101,4 @@ CREATE INDEX IF NOT EXISTS idx_options_book_exam ON options(book_id, exam_type);
 CREATE INDEX IF NOT EXISTS idx_options_exam_type ON options(exam_type);
 CREATE INDEX IF NOT EXISTS idx_question_topics_topic ON question_topics(topic_name);
 CREATE INDEX IF NOT EXISTS idx_session_answers_session ON session_answers(session_id);
+CREATE INDEX IF NOT EXISTS idx_session_answers_correct ON session_answers(session_id, is_correct);
