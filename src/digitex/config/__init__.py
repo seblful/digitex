@@ -3,8 +3,8 @@
 from .settings import (
     AppSettings,
     BotSettings,
-    DataSettings,
     DatabaseSettings,
+    DataSettings,
     ExtractionSettings,
     LabelStudioSettings,
     LoggingSettings,

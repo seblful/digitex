@@ -8,8 +8,8 @@ from digitex.bot.keyboards import subjects_kb
 from digitex.bot.messages import (
     MSG_EXAM_CE,
     MSG_EXAM_CT,
-    MSG_RESULTS_ERRORS,
     MSG_RESULTS_ERROR_ITEM,
+    MSG_RESULTS_ERRORS,
     MSG_RESULTS_HEADER,
     MSG_RESULTS_OPTION,
     MSG_RESULTS_PART_A,

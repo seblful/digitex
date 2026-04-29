@@ -1,7 +1,6 @@
 """Question image renderer with Telegram file_id caching."""
 
 import structlog
-
 from aiogram import Bot
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
 
