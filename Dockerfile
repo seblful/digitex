@@ -21,8 +21,6 @@ ENV PYTHONUNBUFFERED=1
 
 RUN mkdir -p data logs /app/seed
 
-VOLUME ["/app/data"]
-
 COPY scripts/docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 
