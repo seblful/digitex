@@ -18,7 +18,14 @@ RUN uv pip install --system \
 ENV PYTHONPATH=/app/src
 ENV PYTHONUNBUFFERED=1
 
-RUN mkdir -p data logs /app/seed
+RUN mkdir -p data logs /app/seed && \
+    python -c "
+import sqlite3
+conn = sqlite3.connect('/app/seed/seed.db')
+conn.executescript(open('/app/scripts/script.sql').read())
+conn.commit()
+conn.close()
+"
 
 COPY scripts/docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
