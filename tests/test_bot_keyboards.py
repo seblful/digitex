@@ -60,6 +60,7 @@ class TestPartAKeyboard:
         assert total == 5
         for row in buttons:
             for btn in row:
+                assert btn.callback_data is not None
                 assert btn.callback_data.startswith("ans:")
 
     def test_custom_num_options(self) -> None:

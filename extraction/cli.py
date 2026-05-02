@@ -8,7 +8,7 @@ from pathlib import Path
 if platform.system() == "Windows":
     import pathlib
 
-    pathlib.PosixPath = pathlib.WindowsPath  # ty: ignore[invalid-assignment]
+    pathlib.PosixPath = pathlib.WindowsPath  # type: ignore
 
 import typer
 
@@ -28,18 +28,15 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
 def extract() -> None:
     """Extract question images from all image books."""
     settings = get_settings()
-    model_path = settings.paths.home_dir / settings.extraction.model_path
     extractor = TestsExtractor(
-        model_path=model_path,
+        model_path=settings.paths.extraction_model_path,
         image_format=settings.extraction.image_format,
         question_max_width=settings.extraction.question_max_width,
         question_max_height=settings.extraction.question_max_height,
         books_dir=settings.paths.books_dir,
-        extraction_dir=settings.paths.extraction_dir
-        / settings.extraction.data_dir_name
-        / settings.extraction.output_dir_name,
+        extraction_dir=settings.paths.extraction_output_dir,
     )
-    extractor.extract(subject="all")
+    _ = extractor.extract(subject="all")
 
 
 @app.command()
@@ -48,11 +45,7 @@ def count() -> None:
     from collections import Counter
 
     settings = get_settings()
-    folder = (
-        settings.paths.extraction_dir
-        / settings.extraction.data_dir_name
-        / settings.extraction.output_dir_name
-    )
+    folder = settings.paths.extraction_output_dir
 
     if not folder.exists() or not folder.is_dir():
         typer.echo(f"Error: {folder} is not a valid directory")
@@ -68,12 +61,6 @@ def count() -> None:
             elif item.is_dir():
                 result.update(count_images(item))
         return result
-
-    def get_mode(values: list[int]) -> int:
-        if not values:
-            return 0
-        counter = Counter(values)
-        return counter.most_common(1)[0][0]
 
     def get_all_modes(values: list[int]) -> set[int]:
         if not values:
@@ -152,11 +139,7 @@ def renumber(
 ) -> None:
     """Renumber images in the extraction output folder to fill gaps (e.g., 1, 2, 4, 5 -> 1, 2, 3, 4)."""
     settings = get_settings()
-    folder = (
-        settings.paths.extraction_dir
-        / settings.extraction.data_dir_name
-        / settings.extraction.output_dir_name
-    )
+    folder = settings.paths.extraction_output_dir
 
     if not folder.exists() or not folder.is_dir():
         typer.echo(f"Error: {folder} is not a valid directory")
@@ -226,14 +209,8 @@ def add_manual(
     Example: biology/2016_3_A_20.png
     """
     settings = get_settings()
-    manual_dir = (
-        settings.paths.extraction_dir / settings.extraction.data_dir_name / "manual"
-    )
-    output_dir = (
-        settings.paths.extraction_dir
-        / settings.extraction.data_dir_name
-        / settings.extraction.output_dir_name
-    )
+    manual_dir = settings.paths.extraction_data_dir / "manual"
+    output_dir = settings.paths.extraction_output_dir
 
     extractor = ManualExtractor(
         image_format=settings.extraction.image_format,
@@ -256,8 +233,13 @@ def extract_answers(
 
     Results are saved to extraction/data/output/{subject}/{year}/answers.json
     """
-    extractor = AnswersExtractor()
-    extractor.extract(subject=subject)
+    settings = get_settings()
+    extractor = AnswersExtractor(
+        api_key=settings.mistral.api_key,
+        books_dir=settings.paths.books_dir,
+        output_dir=settings.paths.extraction_output_dir,
+    )
+    _ = extractor.extract(subject=subject)
 
 
 @app.command()
@@ -273,12 +255,7 @@ def check_answers(
     4. Reports any mismatches or missing files
     """
     settings = get_settings()
-    output_dir = (
-        settings.paths.extraction_dir
-        / settings.extraction.data_dir_name
-        / settings.extraction.output_dir_name
-        / subject
-    )
+    output_dir = settings.paths.extraction_output_dir / subject
 
     if not output_dir.exists():
         typer.echo(f"Error: {output_dir} does not exist")

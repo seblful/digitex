@@ -25,11 +25,11 @@ class TestStudent:
 
     def test_student_missing_required_fields(self) -> None:
         with pytest.raises(ValidationError):
-            Student()  # type: ignore[call-arg]
+            Student()  # type: ignore
         with pytest.raises(ValidationError):
-            Student(student_id=1, name="John")  # type: ignore[call-arg]
+            Student(student_id=1, name="John")  # type: ignore
         with pytest.raises(ValidationError):
-            Student(student_id=1, telegram_id=12345)  # type: ignore[call-arg]
+            Student(student_id=1, telegram_id=12345)  # type: ignore
 
 
 class TestQuestion:
@@ -65,7 +65,7 @@ class TestQuestion:
         with pytest.raises(ValidationError):
             Question(
                 question_id=1,
-                part="C",  # type: ignore[arg-type]
+                part="C",  # type: ignore
                 question_number=1,
                 image_data=b"bytes",
             )
@@ -111,9 +111,9 @@ class TestSession:
 
     def test_session_missing_required_fields(self) -> None:
         with pytest.raises(ValidationError):
-            Session()  # type: ignore[call-arg]
+            Session()  # type: ignore
         with pytest.raises(ValidationError):
-            Session(session_id=1)  # type: ignore[call-arg]
+            Session(session_id=1)  # type: ignore
 
 
 class TestTestResult:
@@ -155,7 +155,7 @@ class TestTestResult:
 
     def test_test_result_missing_required_fields(self) -> None:
         with pytest.raises(ValidationError):
-            TestResult(session_id=1)  # type: ignore[call-arg]
+            TestResult(session_id=1)  # type: ignore
 
 
 class TestQuestionKey:
@@ -194,7 +194,7 @@ class TestExamType:
     def test_exam_type_values(self) -> None:
         valid: ExamType = "CE"
         assert valid == "CE"
-        valid: ExamType = "CT"
+        valid = "CT"
         assert valid == "CT"
 
     def test_exam_type_usage(self) -> None:

@@ -33,6 +33,11 @@ class AnswersExtractor(BaseExtractor):
         self._output_dir = output_dir
         self._client = client or Mistral(api_key=api_key)
 
+    def _validate_prerequisites(self) -> None:
+        """Validate that books directory exists."""
+        if not self._books_dir.exists():
+            raise DirectoryNotFoundError(self._books_dir)
+
     def encode_image(self, image_path: Path) -> str:
         """Encode an image file to a data URL (base64).
 

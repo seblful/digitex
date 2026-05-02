@@ -113,22 +113,23 @@ def _process_page(
         typer.echo("No questions detected, skipping")
         return
 
+    parent_dir = output_dir
     for idx, raw in enumerate(tqdm(segments, desc="Building grids", leave=False), 1):
         grid = _build_segment_grid(raw, processor, combos, font)
-        grid_path = output_dir / f"{year}_{image_num}_{idx:02d}.png"
+        grid_path = parent_dir / f"{year}_{image_num}_{idx:02d}.png"
         grid.save(grid_path)
 
-    typer.echo(f"Saved {len(segments)} grids to {grid_path.parent}")
+    typer.echo(f"Saved {len(segments)} grids to {parent_dir}")
 
 
 @app.callback(invoke_without_command=True)
 def tune(
-    output_dir: Path = typer.Option(
-        Path("extraction/tuning"), help="Output directory for grids"
-    ),
+    output_dir: Path | None = typer.Option(None, help="Output directory for grids"),
 ) -> None:
     settings = get_settings()
-    model_path = settings.extraction.model_path
+    model_path = settings.paths.extraction_model_path
+    if output_dir is None:
+        output_dir = Path("extraction/tuning")
 
     if not model_path.exists():
         typer.echo(f"Model not found: {model_path}")

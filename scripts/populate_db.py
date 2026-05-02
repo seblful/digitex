@@ -103,7 +103,7 @@ def _populate_year(uow: UnitOfWork, subject_id: int, year_dir: Path) -> tuple[in
             )
 
             for img_file in img_files:
-                key = QuestionKey(part=part_dir.name, number=int(img_file.stem))  # type: ignore[arg-type]
+                key = QuestionKey(part=part_dir.name, number=int(img_file.stem))  # type: ignore
                 raw_answer = option_answers.get(str(key))
                 if raw_answer:
                     try:

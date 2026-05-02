@@ -52,8 +52,8 @@ class TestDataSettings:
         """Test that DataSettings has correct default values."""
         settings = DataSettings()
         assert settings.image_size == 1280
-        assert settings.data_dir_name == "data"
         assert settings.dataset_dir_name == "dataset"
+        assert settings.images_dir_name == "images"
 
     def test_custom_data_values(self) -> None:
         """Test custom data values."""
@@ -77,8 +77,6 @@ class TestExtractionSettings:
     def test_default_extraction_values(self) -> None:
         """Test that ExtractionSettings has correct default values."""
         settings = ExtractionSettings()
-        assert settings.model_path == Path("extraction/models/page.pt")
-        assert settings.output_dir_name == "output"
         assert settings.question_max_width == 2000
         assert settings.question_max_height == 2000
         assert settings.image_format == "jpg"
@@ -86,14 +84,10 @@ class TestExtractionSettings:
     def test_custom_extraction_values(self) -> None:
         """Test custom extraction values."""
         settings = ExtractionSettings(
-            model_path=Path("custom/model.pt"),
-            output_dir_name="results",
             question_max_width=1000,
             question_max_height=1500,
             image_format="png",
         )
-        assert settings.model_path == Path("custom/model.pt")
-        assert settings.output_dir_name == "results"
         assert settings.question_max_width == 1000
         assert settings.question_max_height == 1500
         assert settings.image_format == "png"
@@ -128,26 +122,26 @@ class TestLabelStudioSettings:
 class TestPathsSettings:
     """Test PathsSettings class."""
 
-    def test_home_dir(self) -> None:
-        """Test that home_dir returns current working directory."""
+    def test_root_dir(self) -> None:
+        """Test that root_dir returns current working directory."""
         settings = PathsSettings()
-        assert isinstance(settings.home_dir, Path)
-        assert settings.home_dir.exists()
+        assert isinstance(settings.root_dir, Path)
+        assert settings.root_dir.exists()
 
     def test_training_dir(self) -> None:
         """Test that training_dir is computed correctly."""
         settings = PathsSettings()
-        assert settings.training_dir == settings.home_dir / "training"
+        assert settings.training_dir == settings.root_dir / "training"
 
     def test_books_dir(self) -> None:
         """Test that books_dir is computed correctly."""
         settings = PathsSettings()
-        assert settings.books_dir == settings.home_dir / "books"
+        assert settings.books_dir == settings.root_dir / "books"
 
     def test_extraction_dir(self) -> None:
         """Test that extraction_dir is computed correctly."""
         settings = PathsSettings()
-        assert settings.extraction_dir == settings.home_dir / "extraction"
+        assert settings.extraction_dir == settings.root_dir / "extraction"
 
 
 class TestSettings:

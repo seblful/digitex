@@ -12,38 +12,38 @@ class TestImageCropperEdgeCases:
     def test_polygon_to_quad_square(self) -> None:
         """Test _polygon_to_quad with perfect square."""
         polygon = [(0, 0), (100, 0), (100, 100), (0, 100)]
-        quad = ImageCropper._polygon_to_quad(polygon)
+        quad = ImageCropper._polygon_to_quad(polygon)  # type: ignore
         assert quad.shape == (4, 2)
 
     def test_polygon_to_quad_rotated(self) -> None:
         """Test _polygon_to_quad with rotated rectangle."""
         polygon = [(10, 5), (60, 15), (50, 70), (0, 60)]
-        quad = ImageCropper._polygon_to_quad(polygon)
+        quad = ImageCropper._polygon_to_quad(polygon)  # type: ignore
         assert quad.shape == (4, 2)
 
     def test_order_quad_points_all_same(self) -> None:
         """Test _order_quad_points with all points the same (degenerate)."""
         pts = np.array([[50, 50], [50, 50], [50, 50], [50, 50]], dtype=np.float32)
-        ordered = ImageCropper._order_quad_points(pts)
+        ordered = ImageCropper._order_quad_points(pts)  # type: ignore
         assert ordered.shape == (4, 2)
 
     def test_order_quad_points_line(self) -> None:
         """Test _order_quad_points with collinear points."""
         pts = np.array([[0, 0], [50, 0], [100, 0], [150, 0]], dtype=np.float32)
-        ordered = ImageCropper._order_quad_points(pts)
+        ordered = ImageCropper._order_quad_points(pts)  # type: ignore
         assert ordered.shape == (4, 2)
 
     def test_perspective_transform_dimensions(self) -> None:
         """Test _perspective_transform calculates correct output dimensions."""
         pts = np.array([[0, 0], [100, 0], [100, 50], [0, 50]], dtype=np.float32)
-        w, h, _ = ImageCropper._perspective_transform(pts)
+        w, h, _ = ImageCropper._perspective_transform(pts)  # type: ignore
         assert w == 100
         assert h == 50
 
     def test_perspective_transform_trapezoid(self) -> None:
         """Test _perspective_transform with trapezoid input."""
         pts = np.array([[10, 0], [90, 0], [100, 50], [0, 50]], dtype=np.float32)
-        w, h, _ = ImageCropper._perspective_transform(pts)
+        w, h, _ = ImageCropper._perspective_transform(pts)  # type: ignore
         assert w >= 90
         assert h == 50
 

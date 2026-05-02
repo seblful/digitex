@@ -22,7 +22,7 @@ class TestStudent:
 
     def test_student_requires_fields(self) -> None:
         with pytest.raises(ValidationError):
-            Student()  # type: ignore[call-arg]
+            Student()  # type: ignore
 
 
 class TestQuestion:
@@ -56,7 +56,7 @@ class TestQuestion:
         with pytest.raises(ValidationError):
             Question(
                 question_id=1,
-                part="C",  # type: ignore[arg-type]
+                part="C",  # type: ignore
                 question_number=1,
                 image_data=b"data",
             )
