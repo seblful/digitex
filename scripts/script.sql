@@ -95,6 +95,17 @@ CREATE TABLE IF NOT EXISTS session_answers (
     UNIQUE (session_id, question_id)
 );
 
+-- Authorized users (registration / approval flow)
+CREATE TABLE IF NOT EXISTS authorized_users (
+    telegram_id INTEGER PRIMARY KEY,
+    full_name TEXT NOT NULL,
+    telegram_username TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    handled_at DATETIME,
+    handled_by INTEGER
+);
+
 -- Indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_books_subject_year ON books(subject_id, year_value);
 CREATE INDEX IF NOT EXISTS idx_options_book_exam ON options(book_id, exam_type);

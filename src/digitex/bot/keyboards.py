@@ -88,3 +88,15 @@ def topics_kb(topics: list[str]) -> InlineKeyboardMarkup:
         builder.add(InlineKeyboardButton(text=name, callback_data=f"topic:{i}"))
     builder.adjust(1)
     return builder.as_markup()
+
+
+def admin_registration_kb(telegram_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(
+        text="✅ Подтвердить", callback_data=f"reg:approve:{telegram_id}",
+    ))
+    builder.add(InlineKeyboardButton(
+        text="❌ Отклонить", callback_data=f"reg:reject:{telegram_id}",
+    ))
+    builder.adjust(2)
+    return builder.as_markup()

@@ -3,6 +3,10 @@
 from aiogram.fsm.state import State, StatesGroup
 
 
+class Registration(StatesGroup):
+    waiting_for_name = State()
+
+
 class Navigation(StatesGroup):
     select_subject = State()
     select_mode = State()

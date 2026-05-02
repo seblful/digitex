@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 
 from digitex.core.db.repositories import (
+    AuthorizedUserRepository,
     BookRepository,
     QuestionRepository,
     SessionRepository,
@@ -35,6 +36,7 @@ class UnitOfWork:
         self.questions = QuestionRepository(self._conn)
         self.students = StudentRepository(self._conn)
         self.sessions = SessionRepository(self._conn)
+        self.authorized_users = AuthorizedUserRepository(self._conn)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:

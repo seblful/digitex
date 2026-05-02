@@ -1,5 +1,22 @@
 """User-facing message strings."""
 
+MSG_ASK_NAME = (
+    "Добро пожаловать! Для доступа к боту нужно подтверждение администратора.\n"
+    "Пожалуйста, введите ваши имя и фамилию:"
+)
+MSG_PENDING = "Ваша заявка на рассмотрении, ожидайте подтверждения."
+MSG_REJECTED = "Ваша заявка отклонена. Отправьте /start чтобы подать заново."
+MSG_REQUEST_SENT = "Спасибо, {name}! Заявка отправлена администратору. Ожидайте подтверждения."
+MSG_ADMIN_NEW_REQUEST = (
+    "🆕 Новая заявка:\n"
+    "Имя: <b>{full_name}</b>\n"
+    "Telegram: @{username} (ID: <code>{telegram_id}</code>)"
+)
+MSG_APPROVED_USER = "✅ Вы подтверждены! Отправьте /start для начала."
+MSG_REJECTED_USER = "❌ Ваша заявка отклонена."
+MSG_APPROVED_ADMIN = "✅ Заявка {full_name} подтверждена."
+MSG_REJECTED_ADMIN = "❌ Заявка {full_name} отклонена."
+
 MSG_SUBJECT_SELECT = "Выберите предмет:"
 MSG_MODE_SELECT = "Выберите режим тестирования:"
 MSG_YEAR_SELECT = "Выберите год:"

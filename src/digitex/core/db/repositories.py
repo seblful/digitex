@@ -6,7 +6,7 @@ import sqlite3
 from datetime import datetime
 from typing import NamedTuple
 
-from digitex.bot.schemas import Question, Session, Student, TestResult
+from digitex.bot.schemas import AuthorizedUser, Question, Session, Student, TestResult
 from digitex.core.value_objects import QuestionKey
 
 # ---------------------------------------------------------------------------
@@ -570,3 +570,86 @@ class SessionRepository:
             time_spent=(completed - started).total_seconds(),
             completed_at=completed,
         )
+
+
+class AuthorizedUserRepository:
+    """Repository for authorized users and registration requests."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def get_status(self, telegram_id: int) -> str | None:
+        """Return status ('pending'/'approved'/'rejected') or None if not found."""
+        row = self._conn.execute(
+            "SELECT status FROM authorized_users WHERE telegram_id = ?",
+            (telegram_id,),
+        ).fetchone()
+        return row[0] if row else None
+
+    def create_request(
+        self,
+        telegram_id: int,
+        full_name: str,
+        telegram_username: str | None = None,
+    ) -> None:
+        self._conn.execute(
+            "INSERT OR REPLACE INTO authorized_users (telegram_id, full_name, telegram_username, status)"
+            " VALUES (?, ?, ?, 'pending')",
+            (telegram_id, full_name, telegram_username),
+        )
+
+    def approve(self, telegram_id: int, admin_id: int) -> AuthorizedUser:
+        row = self._conn.execute(
+            "UPDATE authorized_users"
+            " SET status = 'approved', handled_at = CURRENT_TIMESTAMP, handled_by = ?"
+            " WHERE telegram_id = ?"
+            " RETURNING telegram_id, full_name, telegram_username, status, created_at, handled_at, handled_by",
+            (admin_id, telegram_id),
+        ).fetchone()
+        if row is None:
+            msg = f"No registration request found for {telegram_id}"
+            raise KeyError(msg)
+        return AuthorizedUser(
+            telegram_id=row[0],
+            full_name=row[1],
+            telegram_username=row[2],
+            status=row[3],
+            created_at=datetime.fromisoformat(row[4]),
+            handled_at=datetime.fromisoformat(row[5]) if row[5] else None,
+            handled_by=row[6],
+        )
+
+    def reject(self, telegram_id: int, admin_id: int) -> AuthorizedUser:
+        row = self._conn.execute(
+            "UPDATE authorized_users"
+            " SET status = 'rejected', handled_at = CURRENT_TIMESTAMP, handled_by = ?"
+            " WHERE telegram_id = ?"
+            " RETURNING telegram_id, full_name, telegram_username, status, created_at, handled_at, handled_by",
+            (admin_id, telegram_id),
+        ).fetchone()
+        if row is None:
+            msg = f"No registration request found for {telegram_id}"
+            raise KeyError(msg)
+        return AuthorizedUser(
+            telegram_id=row[0],
+            full_name=row[1],
+            telegram_username=row[2],
+            status=row[3],
+            created_at=datetime.fromisoformat(row[4]),
+            handled_at=datetime.fromisoformat(row[5]) if row[5] else None,
+            handled_by=row[6],
+        )
+
+    def delete_request(self, telegram_id: int) -> None:
+        """Delete a request so the user can re-apply."""
+        self._conn.execute(
+            "DELETE FROM authorized_users WHERE telegram_id = ?",
+            (telegram_id,),
+        )
+
+    def is_authorized(self, telegram_id: int) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM authorized_users WHERE telegram_id = ? AND status = 'approved'",
+            (telegram_id,),
+        ).fetchone()
+        return row is not None

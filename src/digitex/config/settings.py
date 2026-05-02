@@ -125,6 +125,11 @@ class BotSettings(BaseSettings):
         default="", description="Telegram bot token from @BotFather",
     )
 
+    admin_user_id: int = Field(
+        default=0,
+        description="Telegram user ID of the bot admin who approves registrations",
+    )
+
 
 class AppSettings(BaseSettings):
     """Application settings."""
