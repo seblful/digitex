@@ -122,6 +122,7 @@ async def process_name(message: types.Message, state: FSMContext, bot: Bot) -> N
             username=username or "—",
             telegram_id=telegram_id,
         ),
+        parse_mode="HTML",
         reply_markup=admin_registration_kb(telegram_id),
     )
 

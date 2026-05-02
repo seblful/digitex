@@ -1,19 +1,18 @@
-"""Auth middleware — blocks unauthorized users."""
+"""Auth middleware — blocks unauthorized callback queries."""
 
 from aiogram import BaseMiddleware
-from aiogram.types import Message, TelegramObject
+from aiogram.types import CallbackQuery, TelegramObject
 
 from digitex.bot.database import with_uow
 from digitex.config import get_settings
 
 
 class AuthMiddleware(BaseMiddleware):
-    """Outer middleware that blocks non-authorized users.
+    """Outer middleware that blocks non-authorized users from using inline keyboards.
 
-    Only lets through:
-    - The bot admin (configured via BOT__ADMIN_USER_ID)
-    - Authorized users (status = 'approved' in DB)
-    - /start and /help messages (so unregistered users can initiate registration)
+    Unauthorized users can still send text messages (needed for registration),
+    but their callback queries are silently dropped so they can't interact
+    with inline keyboards (subject selection, answers, etc.).
     """
 
     async def __call__(
@@ -37,15 +36,16 @@ class AuthMiddleware(BaseMiddleware):
 
         # Check DB authorization
         db_path = settings.database.path
-        authorized = await with_uow(db_path, lambda uow: uow.authorized_users.is_authorized(telegram_id))
+        authorized = await with_uow(
+            db_path, lambda uow: uow.authorized_users.is_authorized(telegram_id)
+        )
         if authorized:
             await handler(event, data)
             return
 
-        # Non-authorized — only allow /start (and /help) text messages
-        if isinstance(event, Message):
-            if event.text and event.text.startswith("/"):
-                await handler(event, data)
-                return
+        # Block callbacks from unauthorized users (inline keyboard interactions)
+        if isinstance(event, CallbackQuery):
+            return
 
-        # Everything else (callbacks, other messages, etc.) — block
+        # Everything else (text messages, /start, etc.) — let through
+        await handler(event, data)
