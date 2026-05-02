@@ -7,7 +7,6 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY src/ ./src/
 COPY scripts/script.sql ./scripts/
-COPY data/development.db /app/seed/seed.db
 
 RUN uv pip install --system \
     aiogram>=3.27.0 \
