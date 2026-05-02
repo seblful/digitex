@@ -1,118 +1,142 @@
 # Deployment Guide
 
-Deploy the Digitex Telegram bot to Railway with a persistent SQLite database.
+Deploy the Digitex Telegram bot on a VPS with Docker.
 
 ## Prerequisites
 
-- GitHub repository with your code pushed
-- Railway account (<https://railway.app>)
+- A VPS (Ubuntu/Debian recommended, ~$5/mo is enough)
+- Docker and Docker Compose installed
 - Telegram bot token from [@BotFather](https://t.me/BotFather)
+- Your `seed.db` file ready
 
 ## Quick Start
 
 ```bash
-# Build and test locally
-docker build -t digitex-bot .
-docker run --rm --env-file .env digitex-bot
+# 1. Clone the repo on your VPS
+git clone <your-repo-url> /opt/digitex
+cd /opt/digitex
 
-# Push to GitHub (Railway auto-deploys from there)
-git push
+# 2. Place your seed database
+cp /path/to/your/seed.db ./seed/seed.db
+
+# 3. Create .env file
+cp .env.example .env
+# Edit .env with your BOT__TOKEN and BOT__ADMIN_USER_ID
+
+# 4. Start the bot
+docker compose up -d
+
+# 5. Check logs
+docker compose logs -f
 ```
 
-## Step by Step
+## Setup
 
-### 1. Push to GitHub
-
-Railway links directly to your repo for automatic deployments:
+### 1. Server Preparation
 
 ```bash
-git add .
-git commit -m "chore: ready for deployment"
-git push
+# Install Docker
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+# Log out and back in
+
+# Install Docker Compose plugin
+sudo apt-get install -y docker-compose-plugin
 ```
 
-### 2. Create Railway Project
+### 2. Clone and Configure
 
-1. Log in to [Railway.app](https://railway.app)
-2. Click **+ New Project** → **Deploy from GitHub repo**
-3. Select your repository
-4. The first build may fail — that's fine, you need to configure volumes and variables first
+```bash
+git clone <your-repo-url> /opt/digitex
+cd /opt/digitex
 
-### 3. Add Persistent Volume
+# Create directories for persistent data
+mkdir -p data logs seed
 
-SQLite data is wiped on every Railway deploy unless stored on a volume:
+# Place your seed database (questions, etc.)
+cp /path/to/local/development.db ./seed/seed.db
 
-1. In your project dashboard, right-click the canvas → **Volume**
-2. Set **Mount Path** to `/app/data`
-3. Connect the volume to your bot service
+# Configure environment
+cp .env.example .env
+nano .env
+```
 
-### 4. Set Environment Variables
-
-Go to **Variables** in your bot service and add:
+Required variables in `.env`:
 
 | Variable | Value | Required |
 |----------|-------|----------|
 | `BOT__TOKEN` | Your token from @BotFather | Yes |
 | `BOT__ADMIN_USER_ID` | Your Telegram user ID | Yes |
-| `DB_PATH` | `/app/data/production.db` | Yes |
 | `APP_ENVIRONMENT` | `production` | Yes |
 | `LOGGING_CONSOLE_LEVEL` | `INFO` | No |
-| `RAILWAY_RUN_UID` | `0` | Yes |
 
-`RAILWAY_RUN_UID=0` runs the container as root so it can write to the volume.
+### 3. Start the Bot
 
-### 5. Configure Start Command
+```bash
+docker compose up -d
+```
 
-Railway auto-detects the Dockerfile. No manual start command is needed.
-The entrypoint automatically creates the database schema and seeds question
-data on first boot.
+The entrypoint automatically:
+1. Checks if `/app/data/production.db` exists
+2. If not, copies `seed.db` from `/app/seed/` (or creates schema from `script.sql`)
+3. Starts the bot
 
-### 6. Redeploy
+### 4. Updates
 
-1. Railway triggers a redeploy when you save variables
-2. Wait for the status to turn green
-3. Open your bot on Telegram and send `/start`
+```bash
+cd /opt/digitex
+git pull
+docker compose build --no-cache
+docker compose up -d
+```
 
-### 7. Verify Persistence
+### 5. Manage
 
-1. Use the bot to generate some data (registration, test session)
-2. Go to **Deployments** → **Redeploy**
-3. After the bot comes back, check that your data is still there
+```bash
+# View logs
+docker compose logs -f
+
+# Stop
+docker compose down
+
+# Restart
+docker compose restart
+
+# Rebuild and restart after code changes
+docker compose build && docker compose up -d
+```
 
 ## Architecture
 
 ```
-Docker Image                    Railway Volume
-┌─────────────────┐            ┌──────────────────┐
-│ /app/seed/      │  first     │ /app/data/       │
-│   seed.db       │──deploy──▶│   production.db  │
-│                 │            │                  │
-│ /app/scripts/   │            │ (persists across │
-│   script.sql    │            │  redeploys)      │
-└─────────────────┘            └──────────────────┘
+Host filesystem              Docker Container
+┌─────────────────┐         ┌──────────────────┐
+│ ./data/         │ mount   │ /app/data/       │
+│   production.db │◀────────│   production.db  │
+│                 │         │                  │
+│ ./seed/         │ mount   │ /app/seed/       │
+│   seed.db       │◀────────│   seed.db        │
+│                 │         │                  │
+│ ./logs/         │ mount   │ /app/logs/       │
+└─────────────────┘         └──────────────────┘
 ```
 
-- **First deploy**: entrypoint copies `seed.db` (your question data) to the volume
-- **Schema fallback**: if no seed is present, creates empty tables from `script.sql`
-- **Subsequent deploys**: volume already has `production.db` — entrypoint skips init
+- **Seed**: place your `.db` file in `./seed/seed.db` before first start
+- **Data**: production database persists in `./data/`
+- **Logs**: application logs in `./logs/`
 
 ## Local Development
 
-For local development, create a `.env` file:
-
-```env
-APP_ENVIRONMENT=development
-DB_PATH=data/development.db
-BOT__TOKEN=your_test_bot_token
-BOT__ADMIN_USER_ID=your_telegram_id
-LOGGING_CONSOLE_LEVEL=DEBUG
-```
-
-Then run:
-
 ```bash
-uv run digitex-bot run
-```
+# Install deps
+uv sync
 
-The development database (`data/development.db`) is separate from the production
-database (`/app/data/production.db` on Railway). They never interfere.
+# Create .env
+cp .env.example .env
+
+# Run directly
+uv run python -m digitex.cli.bot
+
+# Or with Docker
+docker compose up
+```

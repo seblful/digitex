@@ -1,0 +1,12 @@
+services:
+  bot:
+    build: .
+    container_name: digitex-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DB_PATH=/app/data/production.db
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./seed:/app/seed
