@@ -12,22 +12,25 @@ Deploy the Digitex Telegram bot on a VPS with Docker.
 ## Quick Start
 
 ```bash
-# 1. Clone the repo on your VPS
-git clone <your-repo-url> /opt/digitex
+# 1. Copy seed database from your LOCAL machine
+scp ./data/seed.db root@45.129.186.187:/opt/digitex/data/seed.db
+
+# 2. SSH into the VPS and set up
+ssh root@45.129.186.187
+git clone https://github.com/seblful/digitex /opt/digitex
 cd /opt/digitex
 
-# 2. Place your seed database
-cp /path/to/your/seed.db ./seed/seed.db
-
-# 3. Create .env file
+# 3. Move seed into place and configure
+mkdir -p data logs
+mv /opt/digitex/data/seed.db ./data/production.db
 cp .env.example .env
-# Edit .env with your BOT__TOKEN and BOT__ADMIN_USER_ID
+nano .env
 
 # 4. Start the bot
-docker compose up -d
+docker-compose up -d
 
 # 5. Check logs
-docker compose logs -f
+docker-compose logs -f
 ```
 
 ## Setup
@@ -35,6 +38,12 @@ docker compose logs -f
 ### 1. Server Preparation
 
 ```bash
+# Update system
+sudo apt update && sudo apt upgrade -y && sudo apt autoremove -y
+
+# Install micro
+sudo apt-get install micro
+
 # Install Docker
 curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker $USER
@@ -44,99 +53,66 @@ sudo usermod -aG docker $USER
 sudo apt-get install -y docker-compose-plugin
 ```
 
-### 2. Clone and Configure
+### 2. Copy seed database from local PC
+
+```bash
+# Run this on your LOCAL machine
+scp ./data/seed.db root@45.129.186.187:/opt/digitex/data/seed.db
+```
+
+### 3. Clone and Configure
 
 ```bash
 git clone https://github.com/seblful/digitex /opt/digitex
 cd /opt/digitex
 
 # Create directories for persistent data
-mkdir -p data logs seed
+mkdir -p data logs
 
-# Place your seed database (questions, etc.)
-cp /path/to/local/development.db ./seed/seed.db
+# Move seed into place
+mv /opt/digitex/data/seed.db ./data/production.db
 
 # Configure environment
 cp .env.example .env
-nano .env
+micro .env
 ```
 
 Required variables in `.env`:
 
-| Variable | Value | Required |
-|----------|-------|----------|
-| `BOT__TOKEN` | Your token from @BotFather | Yes |
-| `BOT__ADMIN_USER_ID` | Your Telegram user ID | Yes |
-| `APP_ENVIRONMENT` | `production` | Yes |
-| `LOGGING_CONSOLE_LEVEL` | `INFO` | No |
+| Variable                | Value                      | Required |
+| ----------------------- | -------------------------- | -------- |
+| `BOT__TOKEN`            | Your token from @BotFather | Yes      |
+| `BOT__ADMIN_USER_ID`    | Your Telegram user ID      | Yes      |
+| `APP_ENVIRONMENT`       | `production`               | Yes      |
+| `LOGGING_CONSOLE_LEVEL` | `INFO`                     | No       |
 
-### 3. Start the Bot
+### 4. Start the Bot
 
 ```bash
 docker compose up -d
 ```
 
-The entrypoint automatically:
-1. Checks if `/app/data/production.db` exists
-2. If not, copies `seed.db` from `/app/seed/` (or creates schema from `script.sql`)
-3. Starts the bot
-
-### 4. Updates
+### 5. Updates
 
 ```bash
 cd /opt/digitex
 git pull
-docker compose build --no-cache
-docker compose up -d
+docker-compose build --no-cache
+docker-compose up -d
 ```
 
-### 5. Manage
+### 6. Manage
 
 ```bash
 # View logs
-docker compose logs -f
+docker-compose logs -f
 
 # Stop
-docker compose down
+docker-compose down
 
 # Restart
-docker compose restart
+docker-compose restart
 
 # Rebuild and restart after code changes
-docker compose build && docker compose up -d
-```
-
-## Architecture
-
-```
-Host filesystem              Docker Container
-┌─────────────────┐         ┌──────────────────┐
-│ ./data/         │ mount   │ /app/data/       │
-│   production.db │◀────────│   production.db  │
-│                 │         │                  │
-│ ./seed/         │ mount   │ /app/seed/       │
-│   seed.db       │◀────────│   seed.db        │
-│                 │         │                  │
-│ ./logs/         │ mount   │ /app/logs/       │
-└─────────────────┘         └──────────────────┘
-```
-
-- **Seed**: place your `.db` file in `./seed/seed.db` before first start
-- **Data**: production database persists in `./data/`
-- **Logs**: application logs in `./logs/`
-
-## Local Development
-
-```bash
-# Install deps
-uv sync
-
-# Create .env
-cp .env.example .env
-
-# Run directly
-uv run python -m digitex.cli.bot
-
-# Or with Docker
-docker compose up
+docker-compose build && docker-compose up -d
 ```
