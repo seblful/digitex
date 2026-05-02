@@ -1,13 +1,14 @@
+from __future__ import annotations
+
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
-import pypdfium2 as pdfium
 import structlog
-import torch
-from PIL import Image
 
-from digitex.core.processors import resize_image
+if TYPE_CHECKING:
+    import torch
 
 logger = structlog.get_logger()
 
@@ -84,6 +85,11 @@ def create_pdf_from_images(
     if not images:
         raise FileNotFoundError(f"No images found in {image_dir}")
 
+    import pypdfium2 as pdfium
+    from PIL import Image
+
+    from digitex.core.processors import resize_image
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     pdf = pdfium.PdfDocument.new()
 
@@ -115,6 +121,8 @@ def create_pdf_from_images(
 
 
 def get_device() -> torch.device:
+    import torch
+
     if torch.cuda.is_available():
         logger.debug("CUDA device available")
         return torch.device("cuda")
@@ -123,6 +131,8 @@ def get_device() -> torch.device:
 
 
 def get_device_count() -> int:
+    import torch
+
     return torch.cuda.device_count()
 
 

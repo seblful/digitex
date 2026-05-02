@@ -24,4 +24,4 @@ conn.close()
     fi
 fi
 
-exec python -m digitex.cli.bot run
+exec python -m digitex.cli.bot

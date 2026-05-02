@@ -3,9 +3,13 @@
 import re
 from typing import Final
 
-import pytesseract
 import structlog
 from PIL import Image
+
+try:
+    import pytesseract
+except ImportError:
+    pytesseract = None  # type: ignore[assignment]
 
 logger = structlog.get_logger()
 
@@ -42,6 +46,9 @@ class TextExtractor:
             Extracted text string.
         """
         language = lang if lang is not None else self.language
+        if pytesseract is None:
+            msg = "pytesseract is not installed. Install it with: uv add pytesseract"
+            raise ImportError(msg)
         text = pytesseract.image_to_string(image, lang=language, config=config)
         logger.debug("OCR text", text=text.strip())
         return text.strip()
