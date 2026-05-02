@@ -367,7 +367,7 @@ class QuestionRepository:
             order_by="topic_name",
             params=(subject_id,),
         )
-        return [r[0] for r in rows]
+        return list(dict.fromkeys(r[0] for r in rows))
 
     def get_random_question_id_by_topic(
         self, subject_id: int, topic_name: str
