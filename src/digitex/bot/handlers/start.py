@@ -1,6 +1,6 @@
 """Start command, registration flow, and admin approval callbacks."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from aiogram import Bot, Router, types
 from aiogram.filters import CommandStart
@@ -24,6 +24,7 @@ from digitex.bot.messages import (
 )
 from digitex.bot.states import Navigation, Registration
 from digitex.config import get_settings
+from digitex.utils import get_tz
 
 router = Router()
 
@@ -36,7 +37,8 @@ MONTHS_RU = [
 
 
 def _format_datetime(dt: datetime) -> str:
-    return f"{dt.day} {MONTHS_RU[dt.month - 1]} {dt.year} в {dt.hour:02d}:{dt.minute:02d}"
+    local = dt.replace(tzinfo=timezone.utc).astimezone(get_tz())
+    return f"{local.day} {MONTHS_RU[local.month - 1]} {local.year} в {local.hour:02d}:{local.minute:02d}"
 
 
 def _get_user_info(

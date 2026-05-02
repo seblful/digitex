@@ -1,5 +1,6 @@
 import re
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pypdfium2 as pdfium
 import structlog
@@ -127,3 +128,10 @@ def get_device_count() -> int:
 
 def get_device_indices() -> list[int]:
     return list(range(get_device_count()))
+
+
+def get_tz() -> ZoneInfo:
+    """Return the application timezone from settings."""
+    from digitex.config import get_settings
+
+    return ZoneInfo(get_settings().timezone.name)

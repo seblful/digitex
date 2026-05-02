@@ -166,6 +166,17 @@ class LoggingSettings(BaseSettings):
     )
 
 
+class TimezoneSettings(BaseSettings):
+    """Timezone configuration."""
+
+    model_config = SettingsConfigDict(env_prefix="TIMEZONE__")
+
+    name: str = Field(
+        default="Europe/Minsk",
+        description="IANA timezone name (e.g. Europe/Minsk, Europe/Moscow)",
+    )
+
+
 class PathsSettings(BaseSettings):
     """Directory path settings.
 
@@ -249,6 +260,7 @@ class Settings(BaseSettings):
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     app: AppSettings = Field(default_factory=AppSettings)
     bot: BotSettings = Field(default_factory=BotSettings)
+    timezone: TimezoneSettings = Field(default_factory=TimezoneSettings)
 
     @classmethod
     def load(cls) -> Self:
