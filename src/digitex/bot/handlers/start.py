@@ -16,6 +16,7 @@ from digitex.bot.messages import (
     MSG_ASK_NAME,
     MSG_GREETING,
     MSG_PENDING,
+    MSG_REGISTRATION_INFO,
     MSG_REJECTED,
     MSG_REJECTED_ADMIN,
     MSG_REJECTED_USER,
@@ -89,6 +90,7 @@ async def cmd_start(message: types.Message, state: FSMContext) -> None:
 
     if status is None:
         await state.set_state(Registration.waiting_for_name)
+        await message.answer(MSG_REGISTRATION_INFO, parse_mode="HTML")
         await message.answer(MSG_ASK_NAME, parse_mode="HTML")
     elif status == "pending":
         request = await with_uow(
@@ -103,9 +105,8 @@ async def cmd_start(message: types.Message, state: FSMContext) -> None:
             db_path, lambda uow: uow.authorized_users.delete_request(telegram_id)
         )
         await state.set_state(Registration.waiting_for_name)
-        await message.answer(
-            f"{MSG_REJECTED}\n\n{MSG_ASK_NAME}", parse_mode="HTML"
-        )
+        await message.answer(MSG_REGISTRATION_INFO, parse_mode="HTML")
+        await message.answer(MSG_ASK_NAME, parse_mode="HTML")
     else:
         await _normal_start(message, state)
 

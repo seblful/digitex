@@ -1,11 +1,10 @@
 """User-facing message strings."""
 
-MSG_ASK_NAME = (
+MSG_REGISTRATION_INFO = (
     "📚 <b>Digitex</b> — подготовка к ЦТ/ЦЭ\n\n"
-    "Этот бот поможет вам практиковаться в решении тестов по различным предметам.\n"
-    "Доступ предоставляется после одобрения администратором.\n\n"
-    "Пожалуйста, введите ваши имя и фамилию для отправки заявки:"
+    "Доступ предоставляется после одобрения администратором."
 )
+MSG_ASK_NAME = "Пожалуйста, введите ваши <b>имя</b> и <b>фамилию</b>:"
 MSG_PENDING = (
     "📋 <b>Статус: на рассмотрении</b>\n"
     "Отправлена: {date}\n\n"
@@ -25,7 +24,7 @@ MSG_ADMIN_NEW_REQUEST = (
     "Имя: <b>{full_name}</b>\n"
     "Telegram: @{username} (ID: <code>{telegram_id}</code>)"
 )
-MSG_APPROVED_USER = "✅ Вы подтверждены! Отправьте /start для начала."
+MSG_APPROVED_USER = "✅ Заявка подтверждена. Отправьте /start для начала."
 MSG_REJECTED_USER = "❌ Ваша заявка отклонена."
 MSG_APPROVED_ADMIN = "✅ Заявка {full_name} подтверждена."
 MSG_REJECTED_ADMIN = "❌ Заявка {full_name} отклонена."
