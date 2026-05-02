@@ -20,7 +20,9 @@ from digitex.bot.messages import (
 
 class TestMessageFormatting:
     def test_greeting_formats(self) -> None:
-        assert MSG_GREETING.format(name="User") == "Здравствуйте, User! Выберите предмет:"
+        result = MSG_GREETING.format(name="User")
+        assert "User" in result
+        assert "С возвращением" in result
 
     def test_wrong_answer_formats(self) -> None:
         result = MSG_WRONG_ANSWER.format(correct_answer="42")

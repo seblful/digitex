@@ -591,11 +591,23 @@ class AuthorizedUserRepository:
         telegram_id: int,
         full_name: str,
         telegram_username: str | None = None,
-    ) -> None:
-        self._conn.execute(
-            "INSERT OR REPLACE INTO authorized_users (telegram_id, full_name, telegram_username, status)"
-            " VALUES (?, ?, ?, 'pending')",
+    ) -> AuthorizedUser:
+        row = self._conn.execute(
+            "INSERT OR REPLACE INTO authorized_users"
+            "  (telegram_id, full_name, telegram_username, status)"
+            " VALUES (?, ?, ?, 'pending')"
+            " RETURNING telegram_id, full_name, telegram_username,"
+            "          status, created_at, handled_at, handled_by",
             (telegram_id, full_name, telegram_username),
+        ).fetchone()
+        return AuthorizedUser(
+            telegram_id=row[0],
+            full_name=row[1],
+            telegram_username=row[2],
+            status=row[3],
+            created_at=datetime.fromisoformat(row[4]),
+            handled_at=datetime.fromisoformat(row[5]) if row[5] else None,
+            handled_by=row[6],
         )
 
     def approve(self, telegram_id: int, admin_id: int) -> AuthorizedUser:
@@ -645,6 +657,26 @@ class AuthorizedUserRepository:
         self._conn.execute(
             "DELETE FROM authorized_users WHERE telegram_id = ?",
             (telegram_id,),
+        )
+
+    def get_request(self, telegram_id: int) -> AuthorizedUser | None:
+        """Return the full request record, or None if not found."""
+        row = self._conn.execute(
+            "SELECT telegram_id, full_name, telegram_username,"
+            "       status, created_at, handled_at, handled_by"
+            "  FROM authorized_users WHERE telegram_id = ?",
+            (telegram_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return AuthorizedUser(
+            telegram_id=row[0],
+            full_name=row[1],
+            telegram_username=row[2],
+            status=row[3],
+            created_at=datetime.fromisoformat(row[4]),
+            handled_at=datetime.fromisoformat(row[5]) if row[5] else None,
+            handled_by=row[6],
         )
 
     def is_authorized(self, telegram_id: int) -> bool:

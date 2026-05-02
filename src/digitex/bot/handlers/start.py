@@ -1,5 +1,7 @@
 """Start command, registration flow, and admin approval callbacks."""
 
+from datetime import datetime
+
 from aiogram import Bot, Router, types
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
@@ -25,6 +27,15 @@ from digitex.config import get_settings
 router = Router()
 
 FALLBACK_NAME = "Пользователь"
+
+MONTHS_RU = [
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+]
+
+
+def _format_datetime(dt: datetime) -> str:
+    return f"{dt.day} {MONTHS_RU[dt.month - 1]} {dt.year} в {dt.hour:02d}:{dt.minute:02d}"
 
 
 def _get_user_info(
@@ -78,15 +89,23 @@ async def cmd_start(message: types.Message, state: FSMContext) -> None:
 
     if status is None:
         await state.set_state(Registration.waiting_for_name)
-        await message.answer(MSG_ASK_NAME)
+        await message.answer(MSG_ASK_NAME, parse_mode="HTML")
     elif status == "pending":
-        await message.answer(MSG_PENDING)
+        request = await with_uow(
+            db_path, lambda uow: uow.authorized_users.get_request(telegram_id)
+        )
+        date_str = _format_datetime(request.created_at) if request else "—"
+        await message.answer(
+            MSG_PENDING.format(date=date_str), parse_mode="HTML"
+        )
     elif status == "rejected":
         await with_uow(
             db_path, lambda uow: uow.authorized_users.delete_request(telegram_id)
         )
         await state.set_state(Registration.waiting_for_name)
-        await message.answer(f"{MSG_REJECTED}\n\n{MSG_ASK_NAME}")
+        await message.answer(
+            f"{MSG_REJECTED}\n\n{MSG_ASK_NAME}", parse_mode="HTML"
+        )
     else:
         await _normal_start(message, state)
 
@@ -104,16 +123,20 @@ async def process_name(message: types.Message, state: FSMContext, bot: Bot) -> N
     db_path = settings.database.path
 
     def create(uow):
-        uow.authorized_users.create_request(
+        return uow.authorized_users.create_request(
             telegram_id=telegram_id,
             full_name=full_name,
             telegram_username=username,
         )
 
-    await with_uow(db_path, create)
+    request = await with_uow(db_path, create)
     await state.clear()
 
-    await message.answer(MSG_REQUEST_SENT.format(name=full_name))
+    date_str = _format_datetime(request.created_at)
+    await message.answer(
+        MSG_REQUEST_SENT.format(name=full_name, date=date_str),
+        parse_mode="HTML",
+    )
 
     await bot.send_message(
         settings.bot.admin_user_id,
