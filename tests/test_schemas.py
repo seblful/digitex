@@ -1,233 +1,212 @@
-"""Tests for core schemas module."""
+"""Tests for core schemas and value objects."""
 
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from digitex.core.schemas import (
-    AnswerRecord,
-    Book,
-    Option,
-    PartA,
-    PartB,
-    QuestionA,
-    QuestionB,
-    QuestionPart,
-    QuestionRef,
-    Student,
-    StudentProgress,
-    SubjectProgress,
-    TestResult,
-)
-
-
-class TestQuestionA:
-    """Test QuestionA schema."""
-
-    def test_valid_question_a(self) -> None:
-        """Test creating a valid QuestionA."""
-        q = QuestionA(number=1, image=Path("q1.png"), answer=3)
-        assert q.number == 1
-        assert q.image == Path("q1.png")
-        assert q.answer == 3
-
-    def test_answer_must_be_1_to_5(self) -> None:
-        """Test that answer must be between 1 and 5."""
-        with pytest.raises(ValidationError):
-            QuestionA(number=1, image=Path("q1.png"), answer=0)
-        with pytest.raises(ValidationError):
-            QuestionA(number=1, image=Path("q1.png"), answer=6)
-
-
-class TestQuestionB:
-    """Test QuestionB schema."""
-
-    def test_valid_question_b(self) -> None:
-        """Test creating a valid QuestionB."""
-        q = QuestionB(number=1, image=Path("q1.png"), answer="42")
-        assert q.number == 1
-        assert q.image == Path("q1.png")
-        assert q.answer == "42"
-
-
-class TestPartA:
-    """Test PartA schema."""
-
-    def test_valid_part_a(self) -> None:
-        """Test creating a valid PartA."""
-        questions = [
-            QuestionA(number=1, image=Path("q1.png"), answer=1),
-            QuestionA(number=2, image=Path("q2.png"), answer=3),
-        ]
-        part = PartA(questions=questions)
-        assert len(part.questions) == 2
-
-
-class TestPartB:
-    """Test PartB schema."""
-
-    def test_valid_part_b(self) -> None:
-        """Test creating a valid PartB."""
-        questions = [
-            QuestionB(number=1, image=Path("q1.png"), answer="10"),
-            QuestionB(number=2, image=Path("q2.png"), answer="20"),
-        ]
-        part = PartB(questions=questions)
-        assert len(part.questions) == 2
-
-
-class TestOption:
-    """Test Option schema."""
-
-    def test_valid_option(self) -> None:
-        """Test creating a valid Option."""
-        option = Option(
-            option_number=1,
-            part_a=PartA(
-                questions=[QuestionA(number=1, image=Path("q1.png"), answer=1)]
-            ),
-            part_b=PartB(
-                questions=[QuestionB(number=1, image=Path("q1.png"), answer="10")]
-            ),
-        )
-        assert option.option_number == 1
-        assert len(option.part_a.questions) == 1
-        assert len(option.part_b.questions) == 1
-
-
-class TestBook:
-    """Test Book schema."""
-
-    def test_valid_book(self) -> None:
-        """Test creating a valid Book."""
-        book = Book(
-            id=1,
-            subject="math",
-            year=2024,
-            options=[
-                Option(
-                    option_number=1,
-                    part_a=PartA(
-                        questions=[QuestionA(number=1, image=Path("q1.png"), answer=1)]
-                    ),
-                    part_b=PartB(
-                        questions=[
-                            QuestionB(number=1, image=Path("q1.png"), answer="10")
-                        ]
-                    ),
-                )
-            ],
-        )
-        assert book.id == 1
-        assert book.subject == "math"
-        assert book.year == 2024
-        assert len(book.options) == 1
+from digitex.core.schemas import Question, Session, Student, TestResult
+from digitex.core.value_objects import ExamType, QuestionKey
 
 
 class TestStudent:
     """Test Student schema."""
 
     def test_valid_student(self) -> None:
-        """Test creating a valid Student."""
-        student = Student(id=1, name="John")
-        assert student.id == 1
+        student = Student(student_id=1, telegram_id=12345, name="John")
+        assert student.student_id == 1
+        assert student.telegram_id == 12345
         assert student.name == "John"
+        assert student.username is None
+
+    def test_student_with_username(self) -> None:
+        student = Student(student_id=2, telegram_id=67890, name="Jane", username="jane_doe")
+        assert student.username == "jane_doe"
+
+    def test_student_missing_required_fields(self) -> None:
+        with pytest.raises(ValidationError):
+            Student()  # type: ignore[call-arg]
+        with pytest.raises(ValidationError):
+            Student(student_id=1, name="John")  # type: ignore[call-arg]
+        with pytest.raises(ValidationError):
+            Student(student_id=1, telegram_id=12345)  # type: ignore[call-arg]
 
 
-class TestQuestionPart:
-    """Test QuestionPart enum."""
+class TestQuestion:
+    """Test Question schema."""
 
-    def test_question_part_values(self) -> None:
-        """Test QuestionPart enum values."""
-        assert QuestionPart.A.value == "A"
-        assert QuestionPart.B.value == "B"
-
-
-class TestQuestionRef:
-    """Test QuestionRef schema."""
-
-    def test_valid_question_ref(self) -> None:
-        """Test creating a valid QuestionRef."""
-        ref = QuestionRef(
-            book_id=1,
-            option_number=2,
-            part=QuestionPart.A,
+    def test_valid_question(self) -> None:
+        q = Question(
+            question_id=1,
+            part="A",
             question_number=5,
+            image_data=b"fake_image_bytes",
         )
-        assert ref.book_id == 1
-        assert ref.option_number == 2
-        assert ref.part == QuestionPart.A
-        assert ref.question_number == 5
+        assert q.question_id == 1
+        assert q.part == "A"
+        assert q.question_number == 5
+        assert q.image_data == b"fake_image_bytes"
+        assert q.telegram_file_id is None
+        assert q.num_options == 5
 
-
-class TestAnswerRecord:
-    """Test AnswerRecord schema."""
-
-    def test_valid_answer_record(self) -> None:
-        """Test creating a valid AnswerRecord."""
-        record = AnswerRecord(
-            question_ref=QuestionRef(
-                book_id=1, option_number=1, part=QuestionPart.A, question_number=1
-            ),
-            student_answer=3,
-            correct_answer=3,
-            is_correct=True,
-            time_spent=10.5,
-            timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+    def test_question_with_optional_fields(self) -> None:
+        q = Question(
+            question_id=2,
+            part="B",
+            question_number=10,
+            image_data=b"more_bytes",
+            telegram_file_id="AgAC...",
+            num_options=4,
         )
-        assert record.is_correct is True
-        assert record.time_spent == 10.5
+        assert q.telegram_file_id == "AgAC..."
+        assert q.num_options == 4
+
+    def test_question_invalid_part(self) -> None:
+        with pytest.raises(ValidationError):
+            Question(
+                question_id=1,
+                part="C",  # type: ignore[arg-type]
+                question_number=1,
+                image_data=b"bytes",
+            )
+
+    def test_question_negative_number(self) -> None:
+        q = Question(
+            question_id=1,
+            part="A",
+            question_number=-1,
+            image_data=b"bytes",
+        )
+        assert q.question_number == -1
+
+
+class TestSession:
+    """Test Session schema."""
+
+    def test_valid_session(self) -> None:
+        now = datetime.now(timezone.utc)
+        session = Session(
+            session_id=1,
+            student_id=42,
+            option_id=3,
+            started_at=now,
+        )
+        assert session.session_id == 1
+        assert session.student_id == 42
+        assert session.option_id == 3
+        assert session.started_at == now
+        assert session.completed_at is None
+
+    def test_session_with_completed_at(self) -> None:
+        now = datetime.now(timezone.utc)
+        later = datetime.now(timezone.utc)
+        session = Session(
+            session_id=2,
+            student_id=99,
+            option_id=1,
+            started_at=now,
+            completed_at=later,
+        )
+        assert session.completed_at == later
+
+    def test_session_missing_required_fields(self) -> None:
+        with pytest.raises(ValidationError):
+            Session()  # type: ignore[call-arg]
+        with pytest.raises(ValidationError):
+            Session(session_id=1)  # type: ignore[call-arg]
 
 
 class TestTestResult:
     """Test TestResult schema."""
 
     def test_valid_test_result(self) -> None:
-        """Test creating a valid TestResult."""
+        now = datetime.now(timezone.utc)
         result = TestResult(
-            book_id=1,
-            option_number=1,
+            session_id=1,
             part_a_score=8,
             part_b_score=7,
             total_score=15,
             max_score=20,
             time_spent=1200.0,
-            completed_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
-            answers=[],
+            completed_at=now,
         )
+        assert result.session_id == 1
+        assert result.exam_type == "CT"
+        assert result.part_a_score == 8
+        assert result.part_b_score == 7
         assert result.total_score == 15
         assert result.max_score == 20
+        assert result.time_spent == 1200.0
+        assert result.completed_at == now
 
-
-class TestSubjectProgress:
-    """Test SubjectProgress schema."""
-
-    def test_valid_subject_progress(self) -> None:
-        """Test creating a valid SubjectProgress."""
-        progress = SubjectProgress(
-            subject="math",
-            tests_completed=5,
-            total_tests=10,
-            average_score=75.5,
-            total_time_spent=3600.0,
-            results=[],
+    def test_test_result_custom_exam_type(self) -> None:
+        now = datetime.now(timezone.utc)
+        result = TestResult(
+            session_id=2,
+            exam_type="CE",
+            part_a_score=10,
+            part_b_score=10,
+            total_score=20,
+            max_score=20,
+            time_spent=600.0,
+            completed_at=now,
         )
-        assert progress.subject == "math"
-        assert progress.average_score == 75.5
+        assert result.exam_type == "CE"
+
+    def test_test_result_missing_required_fields(self) -> None:
+        with pytest.raises(ValidationError):
+            TestResult(session_id=1)  # type: ignore[call-arg]
 
 
-class TestStudentProgress:
-    """Test StudentProgress schema."""
+class TestQuestionKey:
+    """Test QuestionKey value object."""
 
-    def test_valid_student_progress(self) -> None:
-        """Test creating a valid StudentProgress."""
-        progress = StudentProgress(
-            student=Student(id=1, name="John"),
-            subjects={},
-            total_tests_completed=10,
-            total_time_spent=7200.0,
+    def test_valid_question_key(self) -> None:
+        key = QuestionKey(part="A", number=1)
+        assert key.part == "A"
+        assert key.number == 1
+
+    def test_question_key_string_representation(self) -> None:
+        assert str(QuestionKey(part="A", number=1)) == "A1"
+        assert str(QuestionKey(part="B", number=12)) == "B12"
+
+    def test_question_key_parse(self) -> None:
+        key = QuestionKey.parse("B5")
+        assert key.part == "B"
+        assert key.number == 5
+
+        key = QuestionKey.parse(" a3 ")
+        assert key.part == "A"
+        assert key.number == 3
+
+    def test_question_key_parse_invalid(self) -> None:
+        with pytest.raises(ValueError, match="Invalid question key"):
+            QuestionKey.parse("")
+        with pytest.raises(ValueError, match="Invalid question key"):
+            QuestionKey.parse("C1")
+        with pytest.raises(ValueError, match="Invalid question key"):
+            QuestionKey.parse("A")
+
+
+class TestExamType:
+    """Test ExamType literal."""
+
+    def test_exam_type_values(self) -> None:
+        valid: ExamType = "CE"
+        assert valid == "CE"
+        valid: ExamType = "CT"
+        assert valid == "CT"
+
+    def test_exam_type_usage(self) -> None:
+        now = datetime.now(timezone.utc)
+        result = TestResult(
+            session_id=1,
+            exam_type="CT",
+            part_a_score=5,
+            part_b_score=5,
+            total_score=10,
+            max_score=20,
+            time_spent=300.0,
+            completed_at=now,
         )
-        assert progress.student.name == "John"
-        assert progress.total_tests_completed == 10
+        assert result.exam_type in ("CE", "CT")

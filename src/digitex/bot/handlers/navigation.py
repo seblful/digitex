@@ -207,7 +207,6 @@ async def on_option_selected(callback: types.CallbackQuery, state: FSMContext) -
     option_number = int(callback.data.split(":")[1])
     data = await state.get_data()
     book_id = data["book_id"]
-    exam_type = data.get("exam_type", "CT")
     db_path = get_settings().database.path
 
     def start_test(uow):
