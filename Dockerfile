@@ -6,7 +6,6 @@ WORKDIR /app
 
 COPY pyproject.toml ./
 COPY src/ ./src/
-COPY scripts/script.sql ./scripts/
 
 RUN uv pip install --system \
     aiogram>=3.27.0 \
@@ -18,9 +17,4 @@ RUN uv pip install --system \
 ENV PYTHONPATH=/app/src
 ENV PYTHONUNBUFFERED=1
 
-RUN mkdir -p data logs /app/seed
-
-COPY scripts/docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh
-
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["python", "-m", "digitex.cli.bot"]

@@ -47,7 +47,7 @@ sudo apt-get install -y docker-compose-plugin
 ### 2. Clone and Configure
 
 ```bash
-git clone <your-repo-url> /opt/digitex
+git clone https://github.com/seblful/digitex /opt/digitex
 cd /opt/digitex
 
 # Create directories for persistent data
