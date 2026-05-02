@@ -1,0 +1,38 @@
+# Secrets
+.env
+*.pem
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Git
+.git/
+
+# Test / lint
+.pytest_cache/
+.ruff_cache/
+.agents/
+.opencode/
+*.coverage
+htmlcov/
+
+# Data (keep only development.db as seed)
+data/production.db
+data/tests.db
+data/seed.db
+data/tests.db-shm
+data/tests.db-wal
+data/development.db-shm
+data/development.db-wal
+
+# Large files not needed at runtime
+*.pt
+logs/
+training/
+books/
+extraction/
+docs/
+drafts/

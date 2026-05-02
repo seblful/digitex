@@ -23,7 +23,7 @@ class TestDatabaseSettings:
     def test_default_database_path(self) -> None:
         """Test default database path."""
         settings = DatabaseSettings()
-        assert settings.path == "data/tests.db"
+        assert settings.path == "data/development.db"
 
     def test_custom_database_path(self) -> None:
         """Test custom database path."""

@@ -42,3 +42,7 @@ def run() -> None:
     import asyncio
 
     asyncio.run(_main())
+
+
+if __name__ == "__main__":
+    app()

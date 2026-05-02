@@ -59,7 +59,7 @@ class DatabaseSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="DB_")
 
     path: str = Field(
-        default="data/tests.db", description="Path to the SQLite database file"
+        default="data/development.db", description="Path to the SQLite database file"
     )
 
 
