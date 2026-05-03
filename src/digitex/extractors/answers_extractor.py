@@ -1,52 +1,71 @@
-"""Answers extractor using Mistral OCR API."""
+"""Answers extractor using OpenRouter vision API with structured outputs."""
 
 import base64
 import json
 import re
 from pathlib import Path
+from typing import Dict
 
 import structlog
-from mistralai.client import Mistral
+from openai import OpenAI
+from pydantic import BaseModel
 from tqdm import tqdm
 
-from digitex.core.value_objects import QuestionKey
 from digitex.extractors.base import BaseExtractor, ExtractionResult
 from digitex.extractors.exceptions import APIError, DirectoryNotFoundError
 
 logger = structlog.get_logger()
 
+CYRILLIC_TO_LATIN = str.maketrans("АВЕС", "ABEC")
+LATIN_TO_CYRILLIC = str.maketrans("ABCEHKMOPTXYF", "АВСЕНКМОРТХУГ")
+
+
+class ExamExtraction(BaseModel):
+    """Schema for multiple exam options.
+
+    Example: {"1": {"A1": "2", "B1": "ВЕРНАДСКИЙ"}, "2": {...}}
+    """
+
+    options: Dict[str, Dict[str, str]]
+
+
+OCR_SYSTEM_PROMPT = """You are an OCR assistant. Extract the answer table from exam answer sheet images.
+
+Rules:
+1. Question labels MUST use Latin letters only — A1, A2, B1, B2 (NOT Cyrillic А, В)
+2. Answers MUST use Cyrillic letters where applicable — А1Б2В5 (NOT Latin A, B, B)
+3. Digits are always the same in both scripts"""
+
+OCR_USER_PROMPT = "Extract the answer table from this exam answer sheet image."
+
 
 class AnswersExtractor(BaseExtractor):
-    """Extracts answer keys from answer sheet images via Mistral OCR."""
+    """Extracts answer keys from answer sheet images via OpenRouter vision API."""
 
     def __init__(
         self,
         api_key: str,
         books_dir: Path,
         output_dir: Path,
-        model: str = "mistral-ocr-latest",
-        client: Mistral | None = None,
+        model: str = "moonshotai/kimi-k2.6",
+        base_url: str = "https://openrouter.ai/api/v1",
+        client: OpenAI | None = None,
     ) -> None:
         self._api_key = api_key
         self._model = model
+        self._base_url = base_url
         self._books_dir = books_dir
         self._output_dir = output_dir
-        self._client = client or Mistral(api_key=api_key)
+        self._client = client or OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+        )
 
     def _validate_prerequisites(self) -> None:
-        """Validate that books directory exists."""
         if not self._books_dir.exists():
             raise DirectoryNotFoundError(self._books_dir)
 
     def encode_image(self, image_path: Path) -> str:
-        """Encode an image file to a data URL (base64).
-
-        Args:
-            image_path: Path to the image file.
-
-        Returns:
-            Data URL string (e.g. data:image/png;base64,...).
-        """
         raw = image_path.read_bytes()
         b64 = base64.b64encode(raw).decode("utf-8")
         suffix = image_path.suffix.lower()
@@ -57,172 +76,49 @@ class AnswersExtractor(BaseExtractor):
         )
         return f"data:{media_type};base64,{b64}"
 
-    def ocr(self, image_path: Path) -> str:
-        """Run OCR on an image and return extracted text as markdown.
-
-        Args:
-            image_path: Path to the image file.
-
-        Returns:
-            Extracted text as markdown.
-
-        Raises:
-            APIError: If OCR API call fails.
-        """
+    def ocr(self, image_path: Path) -> dict[str, dict[str, str]]:
         try:
             data_url = self.encode_image(image_path)
-
-            res = self._client.ocr.process(
+            completion = self._client.beta.chat.completions.parse(
                 model=self._model,
-                document={
-                    "image_url": {"url": data_url},
-                    "type": "image_url",
-                },
+                messages=[
+                    {
+                        "role": "system",
+                        "content": OCR_SYSTEM_PROMPT,
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": OCR_USER_PROMPT},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": data_url},
+                            },
+                        ],
+                    },
+                ],
+                response_format=ExamExtraction,
             )
-            if res.pages:
-                return res.pages[0].markdown or ""
-            return ""
+            extraction = completion.choices[0].message.parsed
+            if extraction:
+                return extraction.options
+            return {}
         except Exception as e:
             raise APIError(
-                service="Mistral",
+                service="OpenRouter",
                 message=f"OCR failed: {str(e)}",
                 context={"image_path": str(image_path)},
             ) from e
 
-    def _parse_markdown_table(self, markdown: str) -> list[list[str]]:
-        """Parse markdown table into list of rows.
-
-        Args:
-            markdown: Markdown text containing tables.
-
-        Returns:
-            List of rows, where each row is a list of cell values.
-        """
-        rows: list[list[str]] = []
-        lines = markdown.split("\n")
-
-        in_table = False
-        for line in lines:
-            line = line.strip()
-            if not line.startswith("|"):
-                if in_table:
-                    break
-                continue
-
-            in_table = True
-            if "|---" in line:
-                continue
-
-            cells = [cell.strip() for cell in line.split("|")]
-            if cells and (cells[0] == "" or cells[-1] == ""):
-                cells = cells[1:-1] if cells[0] == "" else cells
-                cells = cells[:-1] if cells and cells[-1] == "" else cells
-
-            if cells and any(cell for cell in cells):
-                rows.append(cells)
-
-        return rows
-
     def _normalize_label(self, label: str) -> str:
-        """Normalize question label to use only Latin A or B.
-
-        Converts Cyrillic letters (А, В) to Latin (A, B).
-
-        Args:
-            label: Question label (e.g., "А1", "В2").
-
-        Returns:
-            Normalized label with Latin letters.
-        """
-        cyrillic_to_latin = str.maketrans("АВЕС", "ABEC")
-        return label.upper().translate(cyrillic_to_latin)
+        return label.upper().translate(CYRILLIC_TO_LATIN)
 
     def _normalize_answer(self, answer: str) -> str:
-        """Normalize answer to use only Cyrillic letters or digits.
-
-        Converts Latin letters that look like Cyrillic to Cyrillic.
-
-        Args:
-            answer: Answer string (e.g., "A1Б2B5", "134").
-
-        Returns:
-            Normalized answer with Cyrillic letters.
-        """
-        latin_to_cyrillic = str.maketrans("ABCEHKMOPTXYF", "АВСЕНКМОРТХУГ")
-        return answer.translate(latin_to_cyrillic)
-
-    def _parse_answers_from_markdown(
-        self, markdown: str
-    ) -> dict[str, dict[str, str]]:
-        """Parse answer keys from OCR markdown output.
-
-        Args:
-            markdown: OCR output in markdown format with tables.
-
-        Returns:
-            Dictionary: {option: {question_label: answer}}
-        """
-        rows = self._parse_markdown_table(markdown)
-
-        if len(rows) < 2:
-            logger.warning("Not enough rows in markdown table", rows=len(rows))
-            return {}
-
-        variant_row_idx = 0
-        for i, row in enumerate(rows):
-            if any(cell.isdigit() for cell in row):
-                variant_row_idx = i
-                break
-
-        variants: list[int] = []
-        for cell in rows[variant_row_idx]:
-            if cell.isdigit() and 1 <= int(cell) <= 100:
-                variants.append(int(cell))
-
-        if not variants:
-            logger.warning("No variants found in answer sheet")
-            return {}
-
-        result: dict[str, dict[str, str]] = {}
-
-        for row in rows[variant_row_idx + 1 :]:
-            if not row:
-                continue
-
-            raw_label = row[0].strip() if row else ""
-            if not raw_label:
-                continue
-            normalized = self._normalize_label(raw_label)
-            try:
-                QuestionKey.parse(normalized)
-            except ValueError:
-                continue
-            label = normalized
-
-            for i, variant in enumerate(variants):
-                if i + 1 >= len(row):
-                    break
-
-                answer = row[i + 1].strip()
-                if answer:
-                    option = str((variant - 1) % 10 + 1)
-                    if option not in result:
-                        result[option] = {}
-                    result[option][label] = self._normalize_answer(answer)
-
-        return result
+        return answer.translate(LATIN_TO_CYRILLIC)
 
     def _sort_answers(
         self, answers: dict[str, dict[str, str]]
     ) -> dict[str, dict[str, str]]:
-        """Sort answers by option number, then by question label.
-
-        Args:
-            answers: Dictionary of {option: {question_label: answer}}.
-
-        Returns:
-            Sorted dictionary with options in order, questions sorted within each option.
-        """
         sorted_options = sorted(answers.keys(), key=lambda x: int(x))
         result: dict[str, dict[str, str]] = {}
         for option in sorted_options:
@@ -234,17 +130,6 @@ class AnswersExtractor(BaseExtractor):
         return result
 
     def _extract_year_and_part(self, image_path: Path) -> tuple[int, int]:
-        """Extract year and part number from image filename.
-
-        Args:
-            image_path: Path to the image file.
-
-        Returns:
-            Tuple of (year, part_number).
-
-        Raises:
-            ValueError: If filename doesn't match expected format.
-        """
         match = re.match(r"(\d{4})_(\d+)", image_path.stem)
         if not match:
             raise ValueError(
@@ -252,20 +137,8 @@ class AnswersExtractor(BaseExtractor):
             )
         return int(match.group(1)), int(match.group(2))
 
-    def extract(
-        self,
-        subject: str,
-    ) -> ExtractionResult:
-        """Extract answers from all answer sheet images.
-
-        Args:
-            subject: Subject name (e.g., "biology", "chemistry").
-
-        Returns:
-            ExtractionResult with statistics.
-        """
+    def extract(self, subject: str) -> ExtractionResult:
         answers_dir = self._books_dir / subject / "answers"
-
         if not answers_dir.exists():
             raise DirectoryNotFoundError(answers_dir)
 
@@ -284,55 +157,42 @@ class AnswersExtractor(BaseExtractor):
                 processed=0, warnings=["No answer images found"]
             )
 
-        results: dict[int, dict[str, dict[str, str]]] = {}
-        year_parts: dict[int, set[int]] = {}
-
-        output_base = self._output_dir
-
-        processed_count = 0
+        years_data: dict[int, dict[str, dict[str, str]]] = {}
         errors: list[str] = []
 
         for image_path in tqdm(image_files, desc=f"Extracting {subject} answers"):
             try:
-                year, part = self._extract_year_and_part(image_path)
-
-                markdown = self.ocr(image_path)
-                answers = self._parse_answers_from_markdown(markdown)
-
-                if year not in results:
-                    results[year] = {}
-                    year_parts[year] = set()
-
-                year_parts[year].add(part)
-
-                for label, option_answers in answers.items():
-                    if label not in results[year]:
-                        results[year][label] = {}
-                    results[year][label].update(option_answers)
-
-                if len(year_parts[year]) == 2:
-                    year_output_dir = output_base / subject / str(year)
-                    year_output_dir.mkdir(parents=True, exist_ok=True)
-
-                    sorted_answers = self._sort_answers(results[year])
-                    output_path = year_output_dir / "answers.json"
-                    output_path.write_text(
-                        json.dumps(sorted_answers, ensure_ascii=False, indent=2),
-                        encoding="utf-8",
+                year, _ = self._extract_year_and_part(image_path)
+                parsed = self.ocr(image_path)
+                for option, questions in parsed.items():
+                    normalized = {
+                        self._normalize_label(k): self._normalize_answer(v)
+                        for k, v in questions.items()
+                    }
+                    years_data.setdefault(year, {}).setdefault(option, {}).update(
+                        normalized
                     )
-
-                    tqdm.write(f"Saved answers for {year}")
-                    processed_count += 1
-
             except Exception as e:
-                error_msg = f"Failed to process {image_path.name}: {str(e)}"
-                logger.error(error_msg)
-                errors.append(error_msg)
+                msg = f"Failed to process {image_path.name}: {e}"
+                logger.error(msg)
+                errors.append(msg)
 
-        return ExtractionResult.failure_result(
-            errors=errors,
+        processed_count = 0
+        for year, answers in years_data.items():
+            year_dir = self._output_dir / subject / str(year)
+            year_dir.mkdir(parents=True, exist_ok=True)
+            (year_dir / "answers.json").write_text(
+                json.dumps(self._sort_answers(answers), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            processed_count += 1
+
+        if errors:
+            return ExtractionResult.failure_result(
+                errors=errors,
+                processed=processed_count,
+            )
+        return ExtractionResult.success_result(
             processed=processed_count,
-        ) if errors else ExtractionResult.success_result(
-            processed=processed_count,
-            metadata={"years_processed": len(results)},
+            metadata={"years_processed": len(years_data)},
         )

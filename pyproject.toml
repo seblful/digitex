@@ -30,7 +30,6 @@ dependencies = [
   "shapely>=2.1.2",
   "legacy-cgi>=2.6.4",
   "label-studio>=1.23.0",
-  "mistralai>=2.4.0",
   "aiogram>=3.27.0",
 ]
 

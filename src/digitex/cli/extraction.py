@@ -201,7 +201,7 @@ def extract_answers(
         str, typer.Argument(help="Subject name (e.g., biology, chemistry)")
     ],
 ) -> None:
-    """Extract answer keys from answer sheet images using Mistral OCR.
+    """Extract answer keys from answer sheet images using OpenRouter.
 
     Answer images should be placed in books/{subject}/answers/
     with filename format: YYYY_N.jpg (e.g., 2016_1.jpg, 2016_2.jpg)

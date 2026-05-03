@@ -1,6 +1,6 @@
 """Image extraction module."""
 
-from .answers_extractor import AnswersExtractor
+from .answers_extractor import AnswersExtractor, ExamExtraction
 from .base import BaseExtractor, ExtractionResult, ExtractorProtocol
 from .book_extractor import BookExtractor
 from .exceptions import (
@@ -32,6 +32,8 @@ __all__ = [
     "BaseExtractor",
     "ExtractorProtocol",
     "ExtractionResult",
+    # Schemas
+    "ExamExtraction",
     # Extractors
     "AnswersExtractor",
     "BookExtractor",

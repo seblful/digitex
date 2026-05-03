@@ -12,8 +12,8 @@ if platform.system() == "Windows":
 
 import typer
 
-from digitex.extractors import AnswersExtractor, TestsExtractor
 from digitex.config import get_settings
+from digitex.extractors import AnswersExtractor, TestsExtractor
 from digitex.extractors.manual_extractor import ManualExtractor
 from digitex.logging import setup_logging
 
@@ -226,7 +226,7 @@ def add_manual(
 def extract_answers(
     subject: str = typer.Argument(..., help="Subject name (e.g., biology, chemistry)"),
 ) -> None:
-    """Extract answer keys from answer sheet images using Mistral OCR.
+    """Extract answer keys from answer sheet images via OpenRouter vision API.
 
     Answer images should be placed in books/{subject}/answers/
     with filename format: YYYY_N.jpg (e.g., 2016_1.jpg, 2016_2.jpg)
@@ -235,7 +235,9 @@ def extract_answers(
     """
     settings = get_settings()
     extractor = AnswersExtractor(
-        api_key=settings.mistral.api_key,
+        api_key=settings.openrouter.api_key,
+        model=settings.openrouter.model,
+        base_url=settings.openrouter.base_url,
         books_dir=settings.paths.books_dir,
         output_dir=settings.paths.extraction_output_dir,
     )

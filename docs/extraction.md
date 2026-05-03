@@ -91,7 +91,7 @@ digitex-extract add-questions-manually <SUBJECT> [--dry-run]
 
 ### `extract-answers`
 
-Extract answer keys using Mistral OCR.
+Extract answer keys via OpenRouter vision API.
 
 ```bash
 digitex-extract extract-answers <SUBJECT>
@@ -99,7 +99,7 @@ digitex-extract extract-answers <SUBJECT>
 
 **Requirements:**
 
-- Set `MISTRAL_API_KEY` environment variable
+- Set `OPENROUTER_API_KEY` environment variable
 - Answer images in `books/{subject}/answers/`
 - Filename format: `YYYY_N.jpg` (e.g., `2016_1.jpg`)
 
@@ -160,9 +160,9 @@ EXTRACTION_IMAGE_FORMAT=jpg
 EXTRACTION_QUESTION_MAX_WIDTH=2000
 EXTRACTION_QUESTION_MAX_HEIGHT=2000
 
-# Mistral OCR (for answers)
-MISTRAL_API_KEY=your_api_key
-MISTRAL_OCR_MODEL=mistral-ocr-latest
+# OpenRouter (for answers)
+OPENROUTER_API_KEY=your_api_key
+OPENROUTER_MODEL=moonshotai/kimi-k2.6
 ```
 
 ## Progress Tracking
@@ -184,7 +184,7 @@ Common errors and solutions:
 | ----------------- | ------------------------------------------ |
 | Subject not found | Check subject name matches folder          |
 | No images folder  | Create `books/{subject}/images/`           |
-| API key not set   | Set `MISTRAL_API_KEY` environment variable |
+| API key not set   | Set `OPENROUTER_API_KEY` environment variable |
 | Model not found   | Check `EXTRACTION_MODEL_PATH`              |
 
 ## Best Practices

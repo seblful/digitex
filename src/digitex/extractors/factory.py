@@ -110,16 +110,17 @@ class ExtractorFactory:
         model: str | None = None,
     ) -> AnswersExtractor:
         settings = get_settings()
-        resolved_key = api_key or settings.mistral.api_key
+        resolved_key = api_key or settings.openrouter.api_key
         if not resolved_key:
             from digitex.extractors.exceptions import APIError
             raise APIError(
-                service="Mistral",
-                message="API key not set. Set MISTRAL_API_KEY environment variable.",
+                service="OpenRouter",
+                message="API key not set. Set OPENROUTER_API_KEY environment variable.",
             )
         return AnswersExtractor(
             api_key=resolved_key,
-            model=model or settings.mistral.ocr_model,
+            model=model or settings.openrouter.model,
+            base_url=settings.openrouter.base_url,
             books_dir=settings.paths.books_dir,
             output_dir=settings.paths.extraction_output_dir,
         )

@@ -14,7 +14,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
 
 def _load_env() -> None:
-    env_specific = BASE_DIR / f".env.{os.environ.get('ENVIRONMENT') or os.environ.get('APP_ENVIRONMENT', 'development')}"
+    env_specific = (
+        BASE_DIR
+        / f".env.{os.environ.get('ENVIRONMENT') or os.environ.get('APP_ENVIRONMENT', 'development')}"
+    )
     if env_specific.exists():
         load_dotenv(env_specific, override=False)
 
@@ -46,19 +49,24 @@ class ExtractionSettings(BaseSettings):
     )
 
 
-class MistralSettings(BaseSettings):
-    """Mistral API settings."""
+class OpenRouterSettings(BaseSettings):
+    """OpenRouter API settings."""
 
-    model_config = SettingsConfigDict(env_prefix="MISTRAL_", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="OPENROUTER_", extra="ignore")
 
     api_key: str = Field(
         default="",
-        description="Mistral API key for OCR services",
+        description="OpenRouter API key",
     )
 
-    ocr_model: str = Field(
-        default="mistral-ocr-latest",
-        description="Mistral OCR model name",
+    model: str = Field(
+        default="google/gemini-3-flash-preview",
+        description="Model for answer extraction via OpenRouter",
+    )
+
+    base_url: str = Field(
+        default="https://openrouter.ai/api/v1",
+        description="OpenRouter API base URL",
     )
 
 
@@ -121,7 +129,8 @@ class BotSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="BOT_", extra="ignore")
 
     token: str = Field(
-        default="", description="Telegram bot token from @BotFather",
+        default="",
+        description="Telegram bot token from @BotFather",
     )
 
     admin_user_id: int = Field(
@@ -244,7 +253,7 @@ class Settings(BaseSettings):
     data: DataSettings = Field(default_factory=DataSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)
     extraction: ExtractionSettings = Field(default_factory=ExtractionSettings)
-    mistral: MistralSettings = Field(default_factory=MistralSettings)
+    openrouter: OpenRouterSettings = Field(default_factory=OpenRouterSettings)
     label_studio: LabelStudioSettings = Field(default_factory=LabelStudioSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     app: AppSettings = Field(default_factory=AppSettings)
