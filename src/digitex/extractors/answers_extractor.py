@@ -163,10 +163,17 @@ class AnswersExtractor(BaseExtractor):
 
         years_data: dict[int, dict[str, dict[str, str]]] = {}
         errors: list[str] = []
+        skipped_years: set[int] = set()
 
         for image_path in tqdm(image_files, desc=f"Extracting {subject} answers"):
             try:
                 year, _ = self._extract_year_and_part(image_path)
+                year_dir = self._output_dir / subject / str(year)
+                if (year_dir / "answers.json").exists():
+                    if year not in skipped_years:
+                        skipped_years.add(year)
+                        logger.info("Skipping year, answers.json exists", year=year, subject=subject)
+                    continue
                 parsed = self.ocr(image_path)
                 for option, questions in parsed.items():
                     norm_option = self._normalize_option(option)
@@ -182,7 +189,7 @@ class AnswersExtractor(BaseExtractor):
                 logger.error(msg)
                 errors.append(msg)
 
-        processed_count = 0
+        processed_count = len(skipped_years)
         for year, answers in years_data.items():
             year_dir = self._output_dir / subject / str(year)
             year_dir.mkdir(parents=True, exist_ok=True)
