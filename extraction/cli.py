@@ -265,28 +265,32 @@ def check_answers(
 
     years = sorted([d.name for d in output_dir.iterdir() if d.is_dir()])
     
+    import re
+
+    has_latin = re.compile(r"[A-Za-z]")
+
     typer.echo("=" * 60)
     typer.echo(f"CHECKING ANSWERS FOR: {subject}")
     typer.echo("=" * 60)
-    
+
     total_issues = 0
-    
+
     for year in years:
         year_dir = output_dir / year
         answers_file = year_dir / "answers.json"
-        
+
         if not answers_file.exists():
             typer.echo(f"\n{year}: ✗ answers.json NOT FOUND")
             total_issues += 1
             continue
-        
+
         with open(answers_file, encoding="utf-8") as f:
             answers_data = json.load(f)
-        
+
         answer_questions = set()
         for option_data in answers_data.values():
             answer_questions.update(option_data.keys())
-        
+
         image_questions = set()
         for option_folder in year_dir.iterdir():
             if not option_folder.is_dir():
@@ -302,46 +306,72 @@ def check_answers(
                             image_questions.add(f"{part}{q_num}")
                         except ValueError:
                             pass
-        
+
         missing_in_answers = image_questions - answer_questions
         missing_in_images = answer_questions - image_questions
-        
+
         all_options_same = True
         first_option_questions = set(answers_data.get("1", {}).keys())
         for opt in answers_data:
             if set(answers_data[opt].keys()) != first_option_questions:
                 all_options_same = False
                 break
-        
+
+        # --- value validation ---
+        value_issues: list[str] = []
+        for opt, questions in answers_data.items():
+            for label, answer in questions.items():
+                if label.startswith("A"):
+                    if not (answer.isdigit() and 1 <= int(answer) <= 5):
+                        value_issues.append(
+                            f"    Вариант {opt}, {label}: "
+                            f"ответ должен быть цифрой от 1 до 5, получено {answer!r}"
+                        )
+                elif label.startswith("B"):
+                    if has_latin.search(answer):
+                        value_issues.append(
+                            f"    Вариант {opt}, {label}: "
+                            f"обнаружены латинские символы в {answer!r}"
+                        )
+
         has_mismatch = bool(missing_in_answers or missing_in_images)
+        has_value_issues = bool(value_issues)
         if has_mismatch:
             status = "❌ MISMATCH"
             total_issues += 1
         elif not all_options_same:
             status = "❌ OPTIONS DIFFER"
             total_issues += 1
+        elif has_value_issues:
+            status = "❌ INVALID VALUES"
+            total_issues += 1
         else:
             status = "✅ OK"
-        
+
         a_count = sum(1 for k in answer_questions if k.startswith("A"))
         b_count = sum(1 for k in answer_questions if k.startswith("B"))
-        
+
         typer.echo(f"\n{year}: {status}")
         typer.echo(f"  A-part: {a_count}, B-part: {b_count}")
         typer.echo(f"  Questions in images: {len(image_questions)}")
         typer.echo(f"  Questions in answers.json: {len(answer_questions)}")
-        
+
         if not all_options_same:
             different_options = [
-                opt for opt in answers_data 
+                opt
+                for opt in answers_data
                 if set(answers_data[opt].keys()) != first_option_questions
             ]
             typer.echo(f"  Options with different questions: {different_options}")
-        
+
         if missing_in_answers:
             typer.echo(f"  Missing in answers.json: {sorted(missing_in_answers)}")
         if missing_in_images:
             typer.echo(f"  Missing in images: {sorted(missing_in_images)}")
+        if value_issues:
+            typer.echo("  Value issues:")
+            for issue in value_issues:
+                typer.echo(issue)
     
     typer.echo("\n" + "=" * 60)
     if total_issues == 0:
