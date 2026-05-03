@@ -179,32 +179,22 @@ class BookRepository:
     def get_or_create_book(
         self, subject_id: int, year: int, a_num_options: int = 5
     ) -> int:
-        book_id = _get_or_create(
+        return _get_or_create(
             self._conn,
             "books",
             "book_id",
             {"subject_id": subject_id, "year_value": year},
         )
-        self._conn.execute(
-            "UPDATE books SET a_num_options = ? WHERE book_id = ? AND a_num_options != ?",
-            (a_num_options, book_id, a_num_options),
-        )
-        return book_id
 
     def get_or_create_option(
         self, book_id: int, option_number: int, exam_type: str = "CT"
     ) -> int:
-        option_id = _get_or_create(
+        return _get_or_create(
             self._conn,
             "options",
             "option_id",
             {"book_id": book_id, "option_number": option_number},
         )
-        self._conn.execute(
-            "UPDATE options SET exam_type = ? WHERE option_id = ? AND exam_type != ?",
-            (exam_type, option_id, exam_type),
-        )
-        return option_id
 
     def list_subjects(self) -> list[SubjectRow]:
         rows = self._conn.execute(
@@ -269,8 +259,11 @@ class QuestionRepository:
         self, question_id: int, part: str, image_data: bytes
     ) -> None:
         self._conn.execute(
-            "INSERT OR IGNORE INTO images (question_id, part, image_data)"
-            " VALUES (?, ?, ?)",
+            "INSERT INTO images (question_id, part, image_data)"
+            " VALUES (?, ?, ?)"
+            " ON CONFLICT (question_id, part)"
+            " DO UPDATE SET image_data = excluded.image_data"
+            " WHERE image_data != excluded.image_data",
             (question_id, part, image_data),
         )
 

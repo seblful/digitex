@@ -159,7 +159,14 @@ def _populate_topics(db_path: str, subject_id: int, subject_dir: Path) -> int:
 
                         for (option_id,) in option_rows:
                             uow._conn.execute(
-                                f"INSERT OR IGNORE INTO question_topics"
+                                f"DELETE FROM question_topics WHERE question_id IN"
+                                f" (SELECT q.question_id FROM {table} q"
+                                f"  WHERE q.option_id = ? AND q.question_number = ?)"
+                                f" AND part = ? AND topic_name = ?",
+                                (option_id, qnum, part, topic_name),
+                            )
+                            uow._conn.execute(
+                                f"INSERT INTO question_topics"
                                 f" (question_id, part, topic_name)"
                                 f" SELECT q.question_id, ?, ?"
                                 f" FROM {table} q"
