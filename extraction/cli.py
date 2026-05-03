@@ -12,7 +12,7 @@ if platform.system() == "Windows":
 
 import typer
 
-from digitex import AnswersExtractor, TestsExtractor
+from digitex.extractors import AnswersExtractor, TestsExtractor
 from digitex.config import get_settings
 from digitex.extractors.manual_extractor import ManualExtractor
 from digitex.logging import setup_logging

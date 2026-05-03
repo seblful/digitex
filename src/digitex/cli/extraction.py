@@ -1,5 +1,6 @@
 """Extraction CLI commands."""
 
+import json
 from typing import Annotated
 
 import typer
@@ -243,6 +244,7 @@ def check_answers(
     2. Questions in answers.json match the image files in option/part folders
     3. All options have the same questions (validation check)
     4. Reports any mismatches or missing files
+    5. Checks whether each option has at least one Part B answer with 'Б'
     """
     settings = get_settings()
     output_dir = settings.paths.extraction_output_dir / subject
@@ -258,6 +260,8 @@ def check_answers(
     typer.echo("=" * 60)
 
     total_issues = 0
+    total_options = 0
+    options_with_b = 0
 
     for year in years:
         year_dir = output_dir / year
@@ -269,8 +273,6 @@ def check_answers(
             continue
 
         with open(answers_file, encoding="utf-8") as f:
-            import json
-
             answers_data = json.load(f)
 
         answer_questions = set()
@@ -333,6 +335,32 @@ def check_answers(
             typer.echo(f"  Missing in answers.json: {sorted(missing_in_answers)}")
         if missing_in_images:
             typer.echo(f"  Missing in images: {sorted(missing_in_images)}")
+
+        # Part B Б check
+        year_options_with_b = 0
+        year_total_options = 0
+        for opt in sorted(answers_data, key=int):
+            part_b_answers = {
+                k: v for k, v in answers_data[opt].items() if k.startswith("B")
+            }
+            with_b = sum(1 for v in part_b_answers.values() if "Б" in v)
+            if with_b > 0:
+                year_options_with_b += 1
+            year_total_options += 1
+
+        total_options += year_total_options
+        options_with_b += year_options_with_b
+
+        if year_options_with_b == 0:
+            typer.echo(f"  Part B 'Б' check: {typer.style('NO option has Б', fg='red', bold=True)}")
+            total_issues += 1
+        elif year_options_with_b < year_total_options:
+            typer.echo(
+                f"  Part B 'Б' check: {typer.style(f'{year_options_with_b}/{year_total_options} options have Б', fg='yellow')}"
+            )
+            total_issues += 1
+        else:
+            typer.echo(f"  Part B 'Б' check: {typer.style('all options have Б', fg='green')}")
 
     typer.echo("\n" + "=" * 60)
     if total_issues == 0:

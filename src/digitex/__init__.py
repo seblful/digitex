@@ -6,7 +6,6 @@ import importlib
 from typing import Any
 
 _MODULES: dict[str, str] = {
-    "AnswersExtractor": ".extractors",
     "BaseExtractor": ".extractors",
     "BookExtractor": ".extractors",
     "ExtractionResult": ".extractors",
@@ -19,7 +18,6 @@ _MODULES: dict[str, str] = {
     "PageExtractor": ".extractors",
     "Predictor": ".ml",
     "TaskPredictor": ".label_studio",
-    "TestsExtractor": ".extractors",
     "Trainer": ".ml",
 }
 

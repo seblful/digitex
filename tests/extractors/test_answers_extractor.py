@@ -52,7 +52,7 @@ class TestAnswersExtractor:
 | A1 | 2 | 2 | 1 | 4 | 4 |
 | A2 | 3 | 4 | 1 | 3 | 3 |
 """
-        result = extractor._parse_answers_from_markdown(markdown, part=1)
+        result = extractor._parse_answers_from_markdown(markdown)
         assert "1" in result
         assert result["1"]["A1"] == "2"
         assert result["1"]["A2"] == "3"
@@ -67,7 +67,7 @@ class TestAnswersExtractor:
 | B1 | 134 | 123 | 125 | 134 | 124 |
 | B2 | А1Б1В5 | А2Б2В5 | А5Б5В1 | А5Б5В2 | А2Б1В1 |
 """
-        result = extractor._parse_answers_from_markdown(markdown, part=1)
+        result = extractor._parse_answers_from_markdown(markdown)
         assert "1" in result
         assert result["1"]["B1"] == "134"
         assert result["1"]["B2"] == "А1Б1В5"
@@ -94,7 +94,7 @@ class TestAnswersExtractor:
 | --- | --- | --- | --- | --- | --- |
 | A1 | 1 | 2 | 3 | 4 | 1 |
 """
-        result = extractor._parse_answers_from_markdown(markdown, part=2)
+        result = extractor._parse_answers_from_markdown(markdown)
         assert "6" in result
         assert result["6"]["A1"] == "1"
         assert result["7"]["A1"] == "2"
@@ -102,13 +102,13 @@ class TestAnswersExtractor:
 
     def test_parse_answers_empty(self, extractor: AnswersExtractor) -> None:
         """Test parsing empty markdown returns empty dict."""
-        result = extractor._parse_answers_from_markdown("", part=1)
+        result = extractor._parse_answers_from_markdown("")
         assert result == {}
 
     def test_parse_answers_no_table(self, extractor: AnswersExtractor) -> None:
         """Test parsing markdown without table returns empty dict."""
         markdown = "Just some text without tables"
-        result = extractor._parse_answers_from_markdown(markdown, part=1)
+        result = extractor._parse_answers_from_markdown(markdown)
         assert result == {}
 
     def test_sort_answers(self, extractor: AnswersExtractor) -> None:

@@ -148,17 +148,16 @@ class AnswersExtractor(BaseExtractor):
         Returns:
             Normalized answer with Cyrillic letters.
         """
-        latin_to_cyrillic = str.maketrans("ABCEHKMOPTXY", "АВСЕНКМОРТХУ")
+        latin_to_cyrillic = str.maketrans("ABCEHKMOPTXYF", "АВСЕНКМОРТХУГ")
         return answer.translate(latin_to_cyrillic)
 
     def _parse_answers_from_markdown(
-        self, markdown: str, part: int
+        self, markdown: str
     ) -> dict[str, dict[str, str]]:
         """Parse answer keys from OCR markdown output.
 
         Args:
             markdown: OCR output in markdown format with tables.
-            part: Part number (1 or 2) to determine variant mapping.
 
         Returns:
             Dictionary: {option: {question_label: answer}}
@@ -298,7 +297,7 @@ class AnswersExtractor(BaseExtractor):
                 year, part = self._extract_year_and_part(image_path)
 
                 markdown = self.ocr(image_path)
-                answers = self._parse_answers_from_markdown(markdown, part)
+                answers = self._parse_answers_from_markdown(markdown)
 
                 if year not in results:
                     results[year] = {}
