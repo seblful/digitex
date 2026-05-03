@@ -23,7 +23,7 @@ cd /opt/digitex
 # 3. Move seed into place and configure
 mkdir -p data logs
 mv /opt/digitex/data/seed.db ./data/production.db
-cp .env.example .env
+cp .env.production .env
 nano .env
 
 # 4. Start the bot
@@ -73,18 +73,17 @@ mkdir -p data logs
 mv /opt/digitex/data/seed.db ./data/production.db
 
 # Configure environment
-cp .env.example .env
+cp .env.production .env
 micro .env
 ```
 
 Required variables in `.env`:
 
-| Variable                | Value                      | Required |
-| ----------------------- | -------------------------- | -------- |
-| `BOT__TOKEN`            | Your token from @BotFather | Yes      |
-| `BOT__ADMIN_USER_ID`    | Your Telegram user ID      | Yes      |
-| `APP_ENVIRONMENT`       | `production`               | Yes      |
-| `LOGGING_CONSOLE_LEVEL` | `INFO`                     | No       |
+| Variable              | Value                      | Required |
+| --------------------- | -------------------------- | -------- |
+| `BOT_TOKEN`           | Your token from @BotFather | Yes      |
+| `BOT_ADMIN_USER_ID`   | Your Telegram user ID      | Yes      |
+| `LOGGING_CONSOLE_LEVEL` | `INFO`                   | No       |
 
 ### 4. Start the Bot
 

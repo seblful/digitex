@@ -1,18 +1,32 @@
 """Application settings using Pydantic for configuration management."""
 
+import os
 from functools import cached_property
 from pathlib import Path
 from threading import Lock
 from typing import Self
 
+from dotenv import load_dotenv
 from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
+
+
+def _load_env() -> None:
+    env_specific = BASE_DIR / f".env.{os.environ.get('ENVIRONMENT') or os.environ.get('APP_ENVIRONMENT', 'development')}"
+    if env_specific.exists():
+        load_dotenv(env_specific, override=False)
+
+    env_file = BASE_DIR / ".env"
+    if env_file.exists():
+        load_dotenv(env_file, override=False)
 
 
 class ExtractionSettings(BaseSettings):
     """Image extraction settings."""
 
-    model_config = SettingsConfigDict(env_prefix="EXTRACTION_")
+    model_config = SettingsConfigDict(env_prefix="EXTRACTION_", extra="ignore")
 
     question_max_width: int = Field(
         default=2000,
@@ -35,12 +49,7 @@ class ExtractionSettings(BaseSettings):
 class MistralSettings(BaseSettings):
     """Mistral API settings."""
 
-    model_config = SettingsConfigDict(
-        env_prefix="MISTRAL_",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    model_config = SettingsConfigDict(env_prefix="MISTRAL_", extra="ignore")
 
     api_key: str = Field(
         default="",
@@ -56,7 +65,7 @@ class MistralSettings(BaseSettings):
 class DatabaseSettings(BaseSettings):
     """Database connection settings."""
 
-    model_config = SettingsConfigDict(env_prefix="DB_")
+    model_config = SettingsConfigDict(env_prefix="DB_", extra="ignore")
 
     path: str = Field(
         default="data/development.db", description="Path to the SQLite database file"
@@ -66,7 +75,7 @@ class DatabaseSettings(BaseSettings):
 class TrainingSettings(BaseSettings):
     """YOLO model training parameters."""
 
-    model_config = SettingsConfigDict(env_prefix="TRAIN_")
+    model_config = SettingsConfigDict(env_prefix="TRAIN_", extra="ignore")
 
     runs_dir_name: str = Field(
         default="runs", description="Subdirectory name for training runs"
@@ -76,7 +85,7 @@ class TrainingSettings(BaseSettings):
 class DataSettings(BaseSettings):
     """Data configuration for training."""
 
-    model_config = SettingsConfigDict(env_prefix="DATA_")
+    model_config = SettingsConfigDict(env_prefix="DATA_", extra="ignore")
 
     dataset_dir_name: str = Field(
         default="dataset", description="Subdirectory name for datasets"
@@ -97,12 +106,7 @@ class DataSettings(BaseSettings):
 class LabelStudioSettings(BaseSettings):
     """Label Studio connection settings."""
 
-    model_config = SettingsConfigDict(
-        env_prefix="LABEL_STUDIO_",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    model_config = SettingsConfigDict(env_prefix="LABEL_STUDIO_", extra="ignore")
 
     url: str = Field(
         default="http://localhost:8080", description="Label Studio server URL"
@@ -114,12 +118,7 @@ class LabelStudioSettings(BaseSettings):
 class BotSettings(BaseSettings):
     """Telegram bot settings."""
 
-    model_config = SettingsConfigDict(
-        env_prefix="BOT__",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    model_config = SettingsConfigDict(env_prefix="BOT_", extra="ignore")
 
     token: str = Field(
         default="", description="Telegram bot token from @BotFather",
@@ -134,7 +133,7 @@ class BotSettings(BaseSettings):
 class AppSettings(BaseSettings):
     """Application settings."""
 
-    model_config = SettingsConfigDict(env_prefix="APP_")
+    model_config = SettingsConfigDict(env_prefix="APP_", extra="ignore")
 
     environment: str = Field(
         default="development",
@@ -145,12 +144,7 @@ class AppSettings(BaseSettings):
 class LoggingSettings(BaseSettings):
     """Logging configuration settings."""
 
-    model_config = SettingsConfigDict(
-        env_prefix="LOGGING_",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    model_config = SettingsConfigDict(env_prefix="LOGGING_", extra="ignore")
 
     file_level: str = Field(
         default="DEBUG",
@@ -169,7 +163,7 @@ class LoggingSettings(BaseSettings):
 class TimezoneSettings(BaseSettings):
     """Timezone configuration."""
 
-    model_config = SettingsConfigDict(env_prefix="TIMEZONE__")
+    model_config = SettingsConfigDict(env_prefix="TIMEZONE_", extra="ignore")
 
     name: str = Field(
         default="Europe/Minsk",
@@ -184,7 +178,7 @@ class PathsSettings(BaseSettings):
     overridden via the PATH_ROOT_DIR environment variable.
     """
 
-    model_config = SettingsConfigDict(env_prefix="PATH_")
+    model_config = SettingsConfigDict(env_prefix="PATH_", extra="ignore")
 
     root_dir: Path = Field(default_factory=Path.cwd)
 
@@ -243,12 +237,7 @@ class PathsSettings(BaseSettings):
 class Settings(BaseSettings):
     """Main settings class that composes all settings categories."""
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        env_ignore_empty=True,
-        extra="ignore",
-    )
+    model_config = SettingsConfigDict(extra="ignore")
 
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     training: TrainingSettings = Field(default_factory=TrainingSettings)
@@ -264,7 +253,7 @@ class Settings(BaseSettings):
 
     @classmethod
     def load(cls) -> Self:
-        """Load settings from environment and default values."""
+        _load_env()
         return cls()
 
 
@@ -273,7 +262,6 @@ _settings_lock = Lock()
 
 
 def get_settings() -> Settings:
-    """Get the singleton settings instance."""
     global _settings
 
     if _settings is None:

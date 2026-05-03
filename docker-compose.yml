@@ -5,6 +5,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      - ENVIRONMENT=production
       - DB_PATH=/app/data/production.db
     volumes:
       - ./data:/app/data

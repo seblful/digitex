@@ -18,7 +18,7 @@ def main() -> None:
     token = settings.bot.token
 
     if not token:
-        logger.error("BOT__TOKEN is not set")
+        logger.error("BOT_TOKEN is not set")
         return
 
     dispatcher = create_dispatcher()

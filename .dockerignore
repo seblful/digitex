@@ -1,5 +1,7 @@
 # Secrets
 .env
+.env.development
+.env.production
 *.pem
 
 # Python artifacts

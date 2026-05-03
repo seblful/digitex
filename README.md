@@ -57,9 +57,10 @@ The bot allows students to take centralized tests via Telegram:
 ### Bot Setup
 
 1. Get a bot token from [@BotFather](https://t.me/BotFather)
-2. Add to `.env`:
+2. Add to `.env` (or `.env.development`):
    ```
-   BOT__TOKEN=your_bot_token_here
+   BOT_TOKEN=your_bot_token_here
+   BOT_ADMIN_USER_ID=your_telegram_user_id
    ```
 3. Populate the database:
    ```bash
@@ -72,34 +73,26 @@ The bot allows students to take centralized tests via Telegram:
 
 ## Configuration
 
-This project uses Pydantic Settings for configuration management. Settings can be customized through:
+This project uses Pydantic Settings with environment-specific `.env` files:
 
-1. **Environment Variables**: Create a `.env` file (see `.env.example` for reference)
-2. **Direct Modification**: Defaults in `src/digitex/config/settings.py`
+```
+.env                  # Base/shared variables (gitignored)
+.env.development      # Development overrides (gitignored)
+.env.production       # Production overrides (gitignored)
+.env.example          # Reference template (committed)
+```
 
-### Settings Categories
+Set `ENVIRONMENT` or `APP_ENVIRONMENT` to switch:
 
-- **ExtractionSettings**: Image extraction parameters (model path, output format, image dimensions)
-- **DatabaseSettings**: Database connection settings
-- **TrainingSettings**: YOLO training parameters (epochs, batch size, image size, etc.)
-- **PathsSettings**: Directory paths for data, models, and datasets
-- **BotSettings**: Telegram bot token
+```bash
+# Development (default)
+digitex-bot run
 
-### Environment Variables
+# Production
+ENVIRONMENT=production digitex-bot run
+```
 
-Key environment variables include:
-
-- `BOT__TOKEN`: Telegram bot token from @BotFather
-- `EXTRACTION_MODEL_PATH`: Path to the YOLO segmentation model (default: extraction/models/page.pt)
-- `EXTRACTION_BOOKS_DIR`: Source books directory (default: books)
-- `EXTRACTION_EXTRACTION_DIR`: Output directory (default: extraction/output)
-- `EXTRACTION_QUESTION_MAX_WIDTH`: Maximum width for extracted questions (default: 2000)
-- `EXTRACTION_QUESTION_MAX_HEIGHT`: Maximum height for extracted questions (default: 2000)
-- `EXTRACTION_IMAGE_FORMAT`: Output image format (default: jpg)
-- `TRAIN_NUM_EPOCHS`: Training epochs (default: 100)
-- `TRAIN_BATCH_SIZE`: Training batch size (default: 4)
-- `TRAIN_IMAGE_SIZE`: Training image size (default: 640)
-- `DB_PATH`: Database file path (default: data/tests.db)
+See `.env.example` for all available variables and their defaults.
 
 ## Setup
 
