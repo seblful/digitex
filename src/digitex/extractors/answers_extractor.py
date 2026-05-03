@@ -116,6 +116,10 @@ class AnswersExtractor(BaseExtractor):
     def _normalize_answer(self, answer: str) -> str:
         return answer.translate(LATIN_TO_CYRILLIC)
 
+    @staticmethod
+    def _normalize_option(option: str) -> str:
+        return str((int(option) - 1) % 10 + 1)
+
     def _sort_answers(
         self, answers: dict[str, dict[str, str]]
     ) -> dict[str, dict[str, str]]:
@@ -165,13 +169,14 @@ class AnswersExtractor(BaseExtractor):
                 year, _ = self._extract_year_and_part(image_path)
                 parsed = self.ocr(image_path)
                 for option, questions in parsed.items():
+                    norm_option = self._normalize_option(option)
                     normalized = {
                         self._normalize_label(k): self._normalize_answer(v)
                         for k, v in questions.items()
                     }
-                    years_data.setdefault(year, {}).setdefault(option, {}).update(
-                        normalized
-                    )
+                    years_data.setdefault(year, {}).setdefault(
+                        norm_option, {}
+                    ).update(normalized)
             except Exception as e:
                 msg = f"Failed to process {image_path.name}: {e}"
                 logger.error(msg)

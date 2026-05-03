@@ -43,6 +43,17 @@ class TestAnswersExtractor:
         assert extractor._normalize_answer("134") == "134"
         assert extractor._normalize_answer("А1Б1В5") == "А1Б1В5"
 
+    def test_normalize_option(self, extractor: AnswersExtractor) -> None:
+        """Test option normalization (11-20 -> 1-10, 31-40 -> 1-10)."""
+        assert extractor._normalize_option("11") == "1"
+        assert extractor._normalize_option("12") == "2"
+        assert extractor._normalize_option("20") == "10"
+        assert extractor._normalize_option("31") == "1"
+        assert extractor._normalize_option("32") == "2"
+        assert extractor._normalize_option("40") == "10"
+        assert extractor._normalize_option("1") == "1"
+        assert extractor._normalize_option("10") == "10"
+
     def test_sort_answers(self, extractor: AnswersExtractor) -> None:
         """Test answer sorting by option number."""
         answers = {
