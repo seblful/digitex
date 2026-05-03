@@ -57,20 +57,17 @@ sudo apt-get install -y docker-compose-plugin
 
 ```bash
 # Run this on your LOCAL machine
-scp ./data/seed.db root@45.129.186.187:/opt/digitex/data/seed.db
+scp ./data/seed.db root@45.129.186.187:/opt/digitex/data/production.db
 ```
 
 ### 3. Clone and Configure
 
 ```bash
-git clone https://github.com/seblful/digitex /opt/digitex
+git clone https://github.com/seblful/digitex.git /opt/digitex
 cd /opt/digitex
 
 # Create directories for persistent data
 mkdir -p data logs
-
-# Move seed into place
-mv /opt/digitex/data/seed.db ./data/production.db
 
 # Configure environment
 cp .env.production .env
@@ -79,11 +76,11 @@ micro .env
 
 Required variables in `.env`:
 
-| Variable              | Value                      | Required |
-| --------------------- | -------------------------- | -------- |
-| `BOT_TOKEN`           | Your token from @BotFather | Yes      |
-| `BOT_ADMIN_USER_ID`   | Your Telegram user ID      | Yes      |
-| `LOGGING_CONSOLE_LEVEL` | `INFO`                   | No       |
+| Variable                | Value                      | Required |
+| ----------------------- | -------------------------- | -------- |
+| `BOT_TOKEN`             | Your token from @BotFather | Yes      |
+| `BOT_ADMIN_USER_ID`     | Your Telegram user ID      | Yes      |
+| `LOGGING_CONSOLE_LEVEL` | `INFO`                     | No       |
 
 ### 4. Start the Bot
 
@@ -96,8 +93,8 @@ docker compose up -d
 ```bash
 cd /opt/digitex
 git pull
-docker-compose build --no-cache
-docker-compose up -d
+docker compose build --no-cache
+docker compose up -d
 ```
 
 ### 6. Manage
