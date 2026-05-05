@@ -78,7 +78,8 @@ async def _record_and_advance(
         if part == "A":
             is_correct = int(answer.strip()) == correct
         else:
-            is_correct = answer.strip() == correct
+            correct_options = [opt.strip() for opt in correct.split("/")]
+            is_correct = answer.strip() in correct_options
         uow.sessions.record_answer(
             session_id=session_id,
             question_id=question_id,
