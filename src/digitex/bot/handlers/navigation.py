@@ -40,8 +40,11 @@ async def on_subject_selected(callback: types.CallbackQuery, state: FSMContext) 
         return
 
     subject_id = int(callback.data.split(":")[1])
+    data = await state.get_data()
+    student_id = data.get("student_id")
+    await state.clear()
+    await state.update_data(subject_id=subject_id, student_id=student_id)
     await callback.message.edit_text(MSG_MODE_SELECT, reply_markup=mode_kb())
-    await state.update_data(subject_id=subject_id)
     await state.set_state(Navigation.select_mode)
     await callback.answer()
 

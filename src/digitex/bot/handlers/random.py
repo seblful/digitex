@@ -150,7 +150,8 @@ async def process_random_answer(
     if current_part == "A":
         is_correct = int(answer.strip()) == correct_answer
     else:
-        is_correct = answer.strip() == correct_answer
+        correct_options = [opt.strip() for opt in correct_answer.split("/")]
+        is_correct = answer.strip() in correct_options
 
     if is_correct:
         await message.answer(MSG_CORRECT_ANSWER, reply_markup=random_feedback_kb())
