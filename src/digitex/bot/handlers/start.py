@@ -68,6 +68,7 @@ async def _normal_start(message: types.Message, state: FSMContext) -> None:
 
     student, subjects = await with_uow(db_path, register)
     user_name = message.from_user.full_name if message.from_user else FALLBACK_NAME
+    await state.clear()
     await state.update_data(student_id=student.student_id)
     await message.answer(
         MSG_GREETING.format(name=user_name),
