@@ -2,9 +2,10 @@
 
 from pathlib import Path
 
-from digitex.config import get_settings
+from digitex.config import Settings
 from digitex.extractors.answers_extractor import AnswersExtractor
 from digitex.extractors.book_extractor import BookExtractor
+from digitex.extractors.conflict_resolution import ConflictResolutionStrategy
 from digitex.extractors.exceptions import APIError, ModelNotFoundError
 from digitex.extractors.manual_extractor import ManualExtractor
 from digitex.extractors.page_extractor import PageExtractor
@@ -18,17 +19,19 @@ class ExtractorFactory:
     failures surface at construction time rather than mid-extraction.
     """
 
-    @staticmethod
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+
     def _resolve_image_params(
-        settings,
+        self,
         image_format: str | None,
         question_max_width: int | None,
         question_max_height: int | None,
     ) -> tuple[str, int, int]:
         return (
-            image_format or settings.extraction.image_format,
-            question_max_width or settings.extraction.question_max_width,
-            question_max_height or settings.extraction.question_max_height,
+            image_format or self._settings.extraction.image_format,
+            question_max_width or self._settings.extraction.question_max_width,
+            question_max_height or self._settings.extraction.question_max_height,
         )
 
     @staticmethod
@@ -37,50 +40,59 @@ class ExtractorFactory:
             raise ModelNotFoundError(path)
         return path
 
-    @staticmethod
     def create_page_extractor(
+        self,
         model_path: Path | None = None,
         image_format: str | None = None,
         question_max_width: int | None = None,
         question_max_height: int | None = None,
+        conflict_strategy: ConflictResolutionStrategy | None = None,
     ) -> PageExtractor:
-        settings = get_settings()
-        fmt, max_w, max_h = ExtractorFactory._resolve_image_params(
-            settings, image_format, question_max_width, question_max_height
+        fmt, max_w, max_h = self._resolve_image_params(
+            image_format, question_max_width, question_max_height
         )
-        resolved = ExtractorFactory._require_model(
-            model_path or settings.paths.extraction_model_path
+        resolved = self._require_model(
+            model_path or self._settings.paths.extraction_model_path
         )
         return PageExtractor(
             model_path=resolved,
             image_format=fmt,
             question_max_width=max_w,
             question_max_height=max_h,
+            conflict_strategy=conflict_strategy,
         )
 
-    @staticmethod
     def create_book_extractor(
+        self,
         model_path: Path | None = None,
         image_format: str | None = None,
         question_max_width: int | None = None,
         question_max_height: int | None = None,
+        conflict_strategy: ConflictResolutionStrategy | None = None,
     ) -> BookExtractor:
-        settings = get_settings()
-        fmt, max_w, max_h = ExtractorFactory._resolve_image_params(
-            settings, image_format, question_max_width, question_max_height
+        fmt, max_w, max_h = self._resolve_image_params(
+            image_format, question_max_width, question_max_height
         )
-        resolved = ExtractorFactory._require_model(
-            model_path or settings.paths.extraction_model_path
+        resolved = self._require_model(
+            model_path or self._settings.paths.extraction_model_path
+        )
+        page_extractor = PageExtractor(
+            model_path=resolved,
+            image_format=fmt,
+            question_max_width=max_w,
+            question_max_height=max_h,
+            conflict_strategy=conflict_strategy,
         )
         return BookExtractor(
             model_path=resolved,
             image_format=fmt,
             question_max_width=max_w,
             question_max_height=max_h,
+            page_extractor=page_extractor,
         )
 
-    @staticmethod
     def create_tests_extractor(
+        self,
         model_path: Path | None = None,
         image_format: str | None = None,
         question_max_width: int | None = None,
@@ -88,49 +100,46 @@ class ExtractorFactory:
         books_dir: Path | None = None,
         extraction_dir: Path | None = None,
     ) -> TestsExtractor:
-        settings = get_settings()
-        fmt, max_w, max_h = ExtractorFactory._resolve_image_params(
-            settings, image_format, question_max_width, question_max_height
+        fmt, max_w, max_h = self._resolve_image_params(
+            image_format, question_max_width, question_max_height
         )
-        resolved = ExtractorFactory._require_model(
-            model_path or settings.paths.extraction_model_path
+        resolved = self._require_model(
+            model_path or self._settings.paths.extraction_model_path
         )
         return TestsExtractor(
             model_path=resolved,
             image_format=fmt,
             question_max_width=max_w,
             question_max_height=max_h,
-            books_dir=books_dir or settings.paths.books_dir,
-            extraction_dir=extraction_dir or settings.paths.extraction_output_dir,
+            books_dir=books_dir or self._settings.paths.books_dir,
+            extraction_dir=extraction_dir or self._settings.paths.extraction_output_dir,
         )
 
-    @staticmethod
     def create_manual_extractor(
+        self,
         image_format: str | None = None,
         question_max_width: int | None = None,
         question_max_height: int | None = None,
         manual_dir: Path | None = None,
         output_dir: Path | None = None,
     ) -> ManualExtractor:
-        settings = get_settings()
-        fmt, max_w, max_h = ExtractorFactory._resolve_image_params(
-            settings, image_format, question_max_width, question_max_height
+        fmt, max_w, max_h = self._resolve_image_params(
+            image_format, question_max_width, question_max_height
         )
         return ManualExtractor(
             image_format=fmt,
             question_max_width=max_w,
             question_max_height=max_h,
-            manual_dir=manual_dir or settings.paths.extraction_manual_dir,
-            output_dir=output_dir or settings.paths.extraction_output_dir,
+            manual_dir=manual_dir or self._settings.paths.extraction_manual_dir,
+            output_dir=output_dir or self._settings.paths.extraction_output_dir,
         )
 
-    @staticmethod
     def create_answers_extractor(
+        self,
         api_key: str | None = None,
         model: str | None = None,
     ) -> AnswersExtractor:
-        settings = get_settings()
-        resolved_key = api_key or settings.openrouter.api_key
+        resolved_key = api_key or self._settings.openrouter.api_key
         if not resolved_key:
             raise APIError(
                 service="OpenRouter",
@@ -138,8 +147,8 @@ class ExtractorFactory:
             )
         return AnswersExtractor(
             api_key=resolved_key,
-            model=model or settings.openrouter.model,
-            base_url=settings.openrouter.base_url,
-            books_dir=settings.paths.books_dir,
-            output_dir=settings.paths.extraction_output_dir,
+            model=model or self._settings.openrouter.model,
+            base_url=self._settings.openrouter.base_url,
+            books_dir=self._settings.paths.books_dir,
+            output_dir=self._settings.paths.extraction_output_dir,
         )

@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any
 
 
 @dataclass
@@ -58,22 +58,6 @@ class ExtractionResult:
             warnings=self.warnings + other.warnings,
             metadata={**self.metadata, **other.metadata},
         )
-
-
-class ExtractorProtocol(Protocol):
-    """Protocol defining the interface for all extractors."""
-
-    def extract(self, *args: Any, **kwargs: Any) -> ExtractionResult:
-        """Run extraction and return results."""
-        ...
-
-    def validate(self) -> bool:
-        """Validate prerequisites for extraction.
-
-        Returns:
-            True if all prerequisites are met, False otherwise.
-        """
-        ...
 
 
 class BaseExtractor(ABC):

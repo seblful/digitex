@@ -32,13 +32,14 @@ def extract_questions(
 
     SUBJECT is the name of the subject folder in the books directory.
     """
-    extractor = ExtractorFactory.create_tests_extractor()
+    extractor = ExtractorFactory(get_settings()).create_tests_extractor()
     result = extractor.extract(subject=subject)
 
     if result.success:
         typer.echo(
             typer.style(
-                f"✓ Extraction completed: {result.processed} processed, {result.skipped} skipped (subject: {subject})",
+                f"✓ Extraction completed: {result.processed} processed,"
+                f" {result.skipped} skipped (subject: {subject})",
                 fg="green",
             )
         )
@@ -54,7 +55,7 @@ def extract_questions(
 
 
 @app.command(name="count-questions")
-def count_questions(
+def count_questions(  # noqa: PLR0912
     subject: Annotated[
         str, typer.Argument(help="Subject name to count (e.g., biology, chemistry)")
     ],
@@ -115,7 +116,8 @@ def count_questions(
 
     total_images, total_folders = count_total_images(folder)
     typer.echo(
-        f"\nTotal: {total_images} images in {total_folders} folders (subject: {subject})"
+        f"\nTotal: {total_images} images in {total_folders} folders"
+        f" (subject: {subject})"
     )
 
 
@@ -168,7 +170,9 @@ def add_questions_manually(
         typer.echo(f"Error: Manual directory '{subject}' not found", err=True)
         raise typer.Exit(code=1)
 
-    extractor = ExtractorFactory.create_manual_extractor(manual_dir=manual_dir)
+    extractor = ExtractorFactory(settings).create_manual_extractor(
+        manual_dir=manual_dir
+    )
     result = extractor.process_all(dry_run=dry_run)
 
     if result.success:
@@ -210,13 +214,14 @@ def extract_answers(
 
     Results are saved to extraction/data/output/{subject}/{year}/answers.json
     """
-    extractor = ExtractorFactory.create_answers_extractor()
+    extractor = ExtractorFactory(get_settings()).create_answers_extractor()
     result = extractor.extract(subject=subject)
 
     if result.success:
         typer.echo(
             typer.style(
-                f"✓ Extracted answers for {result.metadata.get('years_processed', 0)} years",
+                f"✓ Extracted answers for"
+                f" {result.metadata.get('years_processed', 0)} years",
                 fg="green",
             )
         )
@@ -234,7 +239,7 @@ def extract_answers(
 
 
 @app.command(name="check-answers")
-def check_answers(
+def check_answers(  # noqa: PLR0912, PLR0915
     subject: Annotated[
         str, typer.Argument(help="Subject name (e.g., biology, chemistry)")
     ],
@@ -274,7 +279,7 @@ def check_answers(
             total_issues += 1
             continue
 
-        with open(answers_file, encoding="utf-8") as f:
+        with answers_file.open(encoding="utf-8") as f:
             answers_data = json.load(f)
 
         answer_questions = set()
@@ -354,19 +359,17 @@ def check_answers(
         options_with_b += year_options_with_b
 
         if year_options_with_b == 0:
-            typer.echo(
-                f"  Part B 'Б' check: {typer.style('NO option has Б', fg='red', bold=True)}"
-            )
+            styled = typer.style("NO option has Б", fg="red", bold=True)
+            typer.echo(f"  Part B 'Б' check: {styled}")
             total_issues += 1
         elif year_options_with_b < year_total_options:
-            typer.echo(
-                f"  Part B 'Б' check: {typer.style(f'{year_options_with_b}/{year_total_options} options have Б', fg='yellow')}"
-            )
+            ratio = f"{year_options_with_b}/{year_total_options} options have Б"
+            styled = typer.style(ratio, fg="yellow")
+            typer.echo(f"  Part B 'Б' check: {styled}")
             total_issues += 1
         else:
-            typer.echo(
-                f"  Part B 'Б' check: {typer.style('all options have Б', fg='green')}"
-            )
+            styled = typer.style("all options have Б", fg="green")
+            typer.echo(f"  Part B 'Б' check: {styled}")
 
     typer.echo("\n" + "=" * 60)
     if total_issues == 0:

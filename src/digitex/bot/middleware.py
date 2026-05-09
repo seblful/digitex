@@ -4,7 +4,6 @@ from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, TelegramObject
 
 from digitex.bot.database import with_uow
-from digitex.config import get_settings
 
 
 class AuthMiddleware(BaseMiddleware):
@@ -14,6 +13,10 @@ class AuthMiddleware(BaseMiddleware):
     but their callback queries are silently dropped so they can't interact
     with inline keyboards (subject selection, answers, etc.).
     """
+
+    def __init__(self, admin_user_id: int, db_path: str) -> None:
+        self._admin_user_id = admin_user_id
+        self._db_path = db_path
 
     async def __call__(
         self,
@@ -26,18 +29,16 @@ class AuthMiddleware(BaseMiddleware):
             await handler(event, data)
             return
 
-        settings = get_settings()
         telegram_id = user.id
 
         # Admin always passes
-        if telegram_id == settings.bot.admin_user_id:
+        if telegram_id == self._admin_user_id:
             await handler(event, data)
             return
 
         # Check DB authorization
-        db_path = settings.database.path
         authorized = await with_uow(
-            db_path, lambda uow: uow.authorized_users.is_authorized(telegram_id)
+            self._db_path, lambda uow: uow.authorized_users.is_authorized(telegram_id)
         )
         if authorized:
             await handler(event, data)

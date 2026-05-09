@@ -1,9 +1,12 @@
 """Conflict resolution strategies for PageExtractor."""
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
 from PIL import Image
+
+Prompter = Callable[[str], str]
 
 
 class ConflictResolutionStrategy(Protocol):
@@ -35,10 +38,10 @@ class AutoConflictResolution:
 
     def resolve(
         self,
-        new_image: Image.Image,
-        existing_path: Path,
+        _new_image: Image.Image,
+        _existing_path: Path,
         current_option: int,
-        source_image_name: str,
+        _source_image_name: str,
     ) -> int:
         """Return current option without user interaction."""
         return current_option
@@ -47,10 +50,13 @@ class AutoConflictResolution:
 class InteractiveConflictResolution:
     """Interactive conflict resolution that prompts the user."""
 
+    def __init__(self, prompter: Prompter = input) -> None:
+        self._prompter = prompter
+
     def resolve(
         self,
         new_image: Image.Image,
-        existing_path: Path,
+        _existing_path: Path,
         current_option: int,
         source_image_name: str,
     ) -> int:
@@ -60,7 +66,7 @@ class InteractiveConflictResolution:
         print(f"Current option: {current_option}")
 
         while True:
-            user_input = input(
+            user_input = self._prompter(
                 f"Enter correct option number (current: {current_option}): "
             ).strip()
             if user_input.isdigit():

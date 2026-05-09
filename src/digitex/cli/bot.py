@@ -21,8 +21,10 @@ def main() -> None:
         logger.error("BOT_TOKEN is not set")
         return
 
-    dispatcher = create_dispatcher()
     db_path = str(settings.database.path)
+    admin_user_id = settings.bot.admin_user_id
+
+    dispatcher = create_dispatcher(admin_user_id=admin_user_id, db_path=db_path)
 
     async def _main() -> None:
         from aiogram import Bot
@@ -38,7 +40,9 @@ def main() -> None:
             ]
         )
         logger.info("Starting bot polling...")
-        await dispatcher.start_polling(bot, db_path=db_path)
+        await dispatcher.start_polling(
+            bot, db_path=db_path, admin_user_id=admin_user_id
+        )
 
     asyncio.run(_main())
 

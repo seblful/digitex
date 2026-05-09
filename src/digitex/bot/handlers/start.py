@@ -23,7 +23,6 @@ from digitex.bot.messages import (
     MSG_REQUEST_SENT,
 )
 from digitex.bot.states import Navigation, Registration
-from digitex.config import get_settings
 from digitex.utils import get_tz
 
 router = Router()
@@ -86,11 +85,12 @@ async def _normal_start(
 
 
 @router.message(CommandStart())
-async def cmd_start(message: types.Message, state: FSMContext, db_path: str) -> None:
-    settings = get_settings()
+async def cmd_start(
+    message: types.Message, state: FSMContext, db_path: str, admin_user_id: int
+) -> None:
     telegram_id, _name, _username = _get_user_info(message)
 
-    if telegram_id == settings.bot.admin_user_id:
+    if telegram_id == admin_user_id:
         await _normal_start(message, state, db_path)
         return
 
@@ -121,9 +121,12 @@ async def cmd_start(message: types.Message, state: FSMContext, db_path: str) -> 
 
 @router.message(Registration.waiting_for_name)
 async def process_name(
-    message: types.Message, state: FSMContext, bot: Bot, db_path: str
+    message: types.Message,
+    state: FSMContext,
+    bot: Bot,
+    db_path: str,
+    admin_user_id: int,
 ) -> None:
-    settings = get_settings()
     telegram_id, _, username = _get_user_info(message)
     full_name = (message.text or "").strip()
 
@@ -148,7 +151,7 @@ async def process_name(
     )
 
     await bot.send_message(
-        settings.bot.admin_user_id,
+        admin_user_id,
         MSG_ADMIN_NEW_REQUEST.format(
             full_name=full_name,
             username=username or "—",
@@ -161,11 +164,9 @@ async def process_name(
 
 @router.callback_query(lambda c: c.data and c.data.startswith("reg:"))
 async def handle_reg_callback(
-    callback: types.CallbackQuery, bot: Bot, db_path: str
+    callback: types.CallbackQuery, bot: Bot, db_path: str, admin_user_id: int
 ) -> None:
-    settings = get_settings()
-
-    if callback.from_user.id != settings.bot.admin_user_id:
+    if callback.from_user.id != admin_user_id:
         await callback.answer(
             "Только администратор может выполнять это действие.", show_alert=True
         )

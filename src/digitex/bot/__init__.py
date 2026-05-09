@@ -11,10 +11,11 @@ from digitex.bot.handlers.testing import router as testing_router
 from digitex.bot.middleware import AuthMiddleware
 
 
-def create_dispatcher() -> Dispatcher:
+def create_dispatcher(admin_user_id: int, db_path: str) -> Dispatcher:
     dp = Dispatcher()
-    dp.message.outer_middleware(AuthMiddleware())
-    dp.callback_query.outer_middleware(AuthMiddleware())
+    auth = AuthMiddleware(admin_user_id=admin_user_id, db_path=db_path)
+    dp.message.outer_middleware(auth)
+    dp.callback_query.outer_middleware(auth)
     dp.include_routers(
         start_router,
         commands_router,

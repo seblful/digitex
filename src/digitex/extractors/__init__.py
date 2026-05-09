@@ -1,7 +1,7 @@
 """Image extraction module."""
 
 from .answers_extractor import AnswersExtractor, ExamExtraction
-from .base import BaseExtractor, ExtractionResult, ExtractorProtocol
+from .base import BaseExtractor, ExtractionResult
 from .book_extractor import BookExtractor
 from .exceptions import (
     APIError,
@@ -28,37 +28,36 @@ from .utils import (
 )
 
 __all__ = [
-    # Base classes
-    "BaseExtractor",
-    "ExtractorProtocol",
-    "ExtractionResult",
-    # Schemas
-    "ExamExtraction",
-    # Extractors
-    "AnswersExtractor",
-    "BookExtractor",
-    "ManualExtractor",
-    "PageExtractor",
-    "TestsExtractor",
-    # Factory
-    "ExtractorFactory",
-    # Progress tracking
-    "ProgressTracker",
-    "JSONProgressTracker",
-    # Exceptions
-    "ExtractionError",
-    "DirectoryNotFoundError",
-    "InvalidFilenameError",
-    "ConflictResolutionError",
-    "ExtractionValidationError",
-    "ModelNotFoundError",
-    "APIError",
     # Utilities
     "IMAGE_EXTENSIONS",
-    "find_image_files",
+    "APIError",
+    # Extractors
+    "AnswersExtractor",
+    # Base classes
+    "BaseExtractor",
+    "BookExtractor",
+    "ConflictResolutionError",
+    "DirectoryNotFoundError",
+    # Schemas
+    "ExamExtraction",
+    # Exceptions
+    "ExtractionError",
+    "ExtractionResult",
+    "ExtractionValidationError",
+    # Factory
+    "ExtractorFactory",
+    "InvalidFilenameError",
+    "JSONProgressTracker",
+    "ManualExtractor",
+    "ModelNotFoundError",
+    "PageExtractor",
+    # Progress tracking
+    "ProgressTracker",
+    "TestsExtractor",
     "count_images_by_hierarchy",
     "count_total_images",
+    "find_image_files",
     "get_mode_values",
-    "renumber_folder_sequentially",
     "renumber_directory_tree",
+    "renumber_folder_sequentially",
 ]
