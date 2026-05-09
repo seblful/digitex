@@ -7,6 +7,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message as TgMessage
 
+from digitex.bot.constants import FALLBACK_NAME
 from digitex.bot.database import with_uow
 from digitex.bot.keyboards import admin_registration_kb, subjects_kb
 from digitex.bot.messages import (
@@ -26,8 +27,6 @@ from digitex.config import get_settings
 from digitex.utils import get_tz
 
 router = Router()
-
-FALLBACK_NAME = "Пользователь"
 
 MONTHS_RU = [
     "января",

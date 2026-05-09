@@ -2,7 +2,7 @@
 
 import time
 
-from aiogram import F, Router, types
+from aiogram import Bot, F, Router, types
 from aiogram.fsm.context import FSMContext
 
 from digitex.bot.database import with_uow
@@ -19,7 +19,7 @@ router = Router()
 async def send_current_question(
     message: types.Message,
     state: FSMContext,
-    bot,
+    bot: Bot,
     db_path: str,
 ) -> None:
     data = await state.get_data()
@@ -66,7 +66,7 @@ async def send_current_question(
 async def _record_and_advance(
     message: types.Message,
     state: FSMContext,
-    bot,
+    bot: Bot,
     answer: str,
     db_path: str,
 ) -> None:

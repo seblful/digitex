@@ -2,7 +2,7 @@
 
 import time
 
-from aiogram import F, Router, types
+from aiogram import Bot, F, Router, types
 from aiogram.fsm.context import FSMContext
 
 from digitex.bot.database import with_uow
@@ -48,7 +48,7 @@ def _fetch_by_part(uow, subject_id: int, part: str, exam_type: str | None):
 async def start_random_question(
     message: types.Message,
     state: FSMContext,
-    bot,
+    bot: Bot,
     db_path: str,
 ) -> None:
     data = await state.get_data()

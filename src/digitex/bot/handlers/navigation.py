@@ -3,6 +3,7 @@
 from aiogram import F, Router, types
 from aiogram.fsm.context import FSMContext
 
+from digitex.bot.constants import FALLBACK_NAME
 from digitex.bot.database import with_uow
 from digitex.bot.handlers.random import start_random_question
 from digitex.bot.handlers.testing import send_current_question
@@ -60,49 +61,46 @@ async def on_mode_selected(
     data = await state.get_data()
     subject_id = data["subject_id"]
 
-    if mode == "standard":
-
-        def fetch_years(uow):
-            return uow.books.list_years(subject_id)
-
-        years = await with_uow(db_path, fetch_years)
-        if not years:
-
-            def list_subjects(uow):
-                return uow.books.list_subjects()
-
-            subjects = await with_uow(db_path, list_subjects)
-            await callback.message.edit_text(
-                MSG_NO_YEARS,
-                reply_markup=subjects_kb(subjects),
+    match mode:
+        case "standard":
+            years = await with_uow(
+                db_path, lambda uow: uow.books.list_years(subject_id)
             )
-            await state.set_state(Navigation.select_subject)
-            await callback.answer()
-            return
+            if not years:
+                subjects = await with_uow(
+                    db_path, lambda uow: uow.books.list_subjects()
+                )
+                await callback.message.edit_text(
+                    MSG_NO_YEARS,
+                    reply_markup=subjects_kb(subjects),
+                )
+                await state.set_state(Navigation.select_subject)
+                await callback.answer()
+                return
+            await callback.message.edit_text(
+                MSG_YEAR_SELECT, reply_markup=years_kb(years)
+            )
+            await state.set_state(Navigation.select_year)
 
-        await callback.message.edit_text(MSG_YEAR_SELECT, reply_markup=years_kb(years))
-        await state.set_state(Navigation.select_year)
-    elif mode == "random":
-        await callback.message.edit_text(
-            MSG_EXAM_TYPE_SELECT, reply_markup=exam_type_kb()
-        )
-        await state.set_state(Navigation.select_random_exam_type)
-    elif mode == "topics":
+        case "random":
+            await callback.message.edit_text(
+                MSG_EXAM_TYPE_SELECT, reply_markup=exam_type_kb()
+            )
+            await state.set_state(Navigation.select_random_exam_type)
 
-        def fetch_topics(uow):
-            return uow.questions.get_topics_for_subject(subject_id)
-
-        topics = await with_uow(db_path, fetch_topics)
-        if not topics:
-            await callback.message.edit_text(MSG_NO_TOPICS)
-            await callback.answer()
-            return
-
-        await callback.message.edit_text(
-            MSG_TOPIC_SELECT, reply_markup=topics_kb(topics)
-        )
-        await state.update_data(topic_names=topics)
-        await state.set_state(Navigation.select_topic)
+        case "topics":
+            topics = await with_uow(
+                db_path, lambda uow: uow.questions.get_topics_for_subject(subject_id)
+            )
+            if not topics:
+                await callback.message.edit_text(MSG_NO_TOPICS)
+                await callback.answer()
+                return
+            await callback.message.edit_text(
+                MSG_TOPIC_SELECT, reply_markup=topics_kb(topics)
+            )
+            await state.update_data(topic_names=topics)
+            await state.set_state(Navigation.select_topic)
 
     await callback.answer()
 
@@ -239,7 +237,7 @@ async def on_option_selected(
             name = (
                 callback.from_user.full_name
                 if callback.from_user and callback.from_user.full_name
-                else "Пользователь"
+                else FALLBACK_NAME
             )
             username = callback.from_user.username if callback.from_user else None
             student = uow.students.get_or_create(

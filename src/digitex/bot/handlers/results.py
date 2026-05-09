@@ -1,7 +1,10 @@
 """Test results and mistake review."""
 
-from aiogram import Router, types
-from aiogram.fsm.context import FSMContext
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from aiogram import Bot, Router, types
 
 from digitex.bot.database import with_uow
 from digitex.bot.keyboards import subjects_kb
@@ -25,30 +28,23 @@ from digitex.bot.messages import (
 )
 from digitex.bot.states import Navigation
 
+if TYPE_CHECKING:
+    from aiogram.fsm.context import FSMContext
+
+    from digitex.core.db.repositories import SessionInfo, WrongAnswer
+    from digitex.core.schemas import TestResult
+
 router = Router()
 
 
-async def show_results(
-    message: types.Message,
-    state: FSMContext,
-    bot,
-    db_path: str,
-) -> None:
-    data = await state.get_data()
-    session_id: int = data["session_id"]
-
-    def get_results(uow):
-        result = uow.sessions.complete(session_id)
-        wrong_rows = uow.sessions.get_wrong_answers(session_id)
-        info = uow.sessions.get_session_info(session_id)
-        return result, wrong_rows, info
-
-    result, wrong_rows, info = await with_uow(db_path, get_results)
-
+def _format_result_lines(
+    result: TestResult,
+    wrong_rows: list[WrongAnswer],
+    info: SessionInfo,
+) -> list[str]:
+    exam_type_label = MSG_EXAM_CE if result.exam_type == "CE" else MSG_EXAM_CT
     wrong_a = [r for r in wrong_rows if r.part == "A"]
     wrong_b = [r for r in wrong_rows if r.part == "B"]
-
-    exam_type_label = MSG_EXAM_CE if result.exam_type == "CE" else MSG_EXAM_CT
 
     lines = [
         MSG_RESULTS_HEADER,
@@ -95,7 +91,28 @@ async def show_results(
                     )
                 )
 
-    await bot.send_message(message.chat.id, "\n".join(lines), parse_mode="HTML")
+    return lines
+
+
+async def show_results(
+    message: types.Message,
+    state: FSMContext,
+    bot: Bot,
+    db_path: str,
+) -> None:
+    data = await state.get_data()
+    session_id: int = data["session_id"]
+
+    def get_results(uow):
+        result = uow.sessions.complete(session_id)
+        wrong_rows = uow.sessions.get_wrong_answers(session_id)
+        info = uow.sessions.get_session_info(session_id)
+        return result, wrong_rows, info
+
+    result, wrong_rows, info = await with_uow(db_path, get_results)
+
+    text = "\n".join(_format_result_lines(result, wrong_rows, info))
+    await bot.send_message(message.chat.id, text, parse_mode="HTML")
     await state.clear()
     await state.set_state(Navigation.select_subject)
 
