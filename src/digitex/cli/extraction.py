@@ -29,7 +29,7 @@ def extract_questions(
     ],
 ) -> None:
     """Extract question images from a specific subject.
-    
+
     SUBJECT is the name of the subject folder in the books directory.
     """
     extractor = ExtractorFactory.create_tests_extractor()
@@ -114,7 +114,9 @@ def count_questions(
                 typer.echo(label)
 
     total_images, total_folders = count_total_images(folder)
-    typer.echo(f"\nTotal: {total_images} images in {total_folders} folders (subject: {subject})")
+    typer.echo(
+        f"\nTotal: {total_images} images in {total_folders} folders (subject: {subject})"
+    )
 
 
 @app.command(name="renumber-questions")
@@ -161,11 +163,11 @@ def add_questions_manually(
     """
     settings = get_settings()
     manual_dir = settings.paths.extraction_manual_dir / subject
-    
+
     if not manual_dir.exists():
         typer.echo(f"Error: Manual directory '{subject}' not found", err=True)
         raise typer.Exit(code=1)
-    
+
     extractor = ExtractorFactory.create_manual_extractor(manual_dir=manual_dir)
     result = extractor.process_all(dry_run=dry_run)
 
@@ -352,7 +354,9 @@ def check_answers(
         options_with_b += year_options_with_b
 
         if year_options_with_b == 0:
-            typer.echo(f"  Part B 'Б' check: {typer.style('NO option has Б', fg='red', bold=True)}")
+            typer.echo(
+                f"  Part B 'Б' check: {typer.style('NO option has Б', fg='red', bold=True)}"
+            )
             total_issues += 1
         elif year_options_with_b < year_total_options:
             typer.echo(
@@ -360,7 +364,9 @@ def check_answers(
             )
             total_issues += 1
         else:
-            typer.echo(f"  Part B 'Б' check: {typer.style('all options have Б', fg='green')}")
+            typer.echo(
+                f"  Part B 'Б' check: {typer.style('all options have Б', fg='green')}"
+            )
 
     typer.echo("\n" + "=" * 60)
     if total_issues == 0:

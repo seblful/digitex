@@ -268,9 +268,9 @@ def test_crop_and_save_uses_image_format(tmp_path: Path) -> None:
     with patch.object(SegmentProcessor, "process") as mock_process:
         mock_process.return_value = PILImage.new("RGB", (180, 180), color="white")
         extractor._crop_and_save(
-            image, 
-            polygon, 
-            output_path, 
+            image,
+            polygon,
+            output_path,
             current_option=1,
             source_image_name="test.jpg",
             output_dir=tmp_path,

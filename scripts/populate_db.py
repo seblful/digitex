@@ -107,12 +107,16 @@ def _populate_year(uow: UnitOfWork, subject_id: int, year_dir: Path) -> tuple[in
                 raw_answer = option_answers.get(str(key))
                 if raw_answer:
                     try:
-                        question_id = uow.questions.get_or_create(option_id, key, raw_answer)
+                        question_id = uow.questions.get_or_create(
+                            option_id, key, raw_answer
+                        )
                         answers_loaded += 1
                     except ValueError as e:
                         tqdm.write(f"  Warning: {e} (skipped)")
                         fallback = "1" if key.part == "A" else ""
-                        question_id = uow.questions.get_or_create(option_id, key, fallback)
+                        question_id = uow.questions.get_or_create(
+                            option_id, key, fallback
+                        )
                 else:
                     fallback = "1" if key.part == "A" else ""
                     question_id = uow.questions.get_or_create(option_id, key, fallback)
@@ -155,7 +159,9 @@ def _populate_topics(db_path: str, subject_id: int, subject_dir: Path) -> int:
                     for key in keys:
                         part = key[0]
                         qnum = int(key[1:])
-                        table = "part_a_questions" if part == "A" else "part_b_questions"
+                        table = (
+                            "part_a_questions" if part == "A" else "part_b_questions"
+                        )
 
                         for (option_id,) in option_rows:
                             uow._conn.execute(
@@ -174,9 +180,7 @@ def _populate_topics(db_path: str, subject_id: int, subject_dir: Path) -> int:
                                 (part, topic_name, option_id, qnum),
                             )
 
-        count = uow._conn.execute(
-            "SELECT COUNT(*) FROM question_topics"
-        ).fetchone()[0]
+        count = uow._conn.execute("SELECT COUNT(*) FROM question_topics").fetchone()[0]
 
     return count
 

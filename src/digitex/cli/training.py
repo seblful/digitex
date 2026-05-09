@@ -19,8 +19,12 @@ def _data_dir(data_type_dir_name: str):
 
 @app.command(name="create-dataset")
 def create_dataset(
-    data_type_dir_name: str = typer.Argument(..., help="Data type subdirectory name (e.g. page)"),
-    train_split: float = typer.Option(0.8, "--train-split", help="Fraction of data used for training"),
+    data_type_dir_name: str = typer.Argument(
+        ..., help="Data type subdirectory name (e.g. page)"
+    ),
+    train_split: float = typer.Option(
+        0.8, "--train-split", help="Fraction of data used for training"
+    ),
 ) -> None:
     """Convert Label Studio annotations into a YOLO training dataset."""
     from digitex.ml.yolo.dataset import DatasetCreator
@@ -32,7 +36,12 @@ def create_dataset(
     dataset_dir = data_dir / s.data.dataset_dir_name
 
     if not annotations_file.exists():
-        typer.echo(typer.style(f"Error: annotations file not found: {annotations_file}", fg="red"), err=True)
+        typer.echo(
+            typer.style(
+                f"Error: annotations file not found: {annotations_file}", fg="red"
+            ),
+            err=True,
+        )
         raise typer.Exit(code=1)
 
     creator = DatasetCreator(
@@ -76,7 +85,9 @@ def add_images(
 
 @app.command(name="select-random-pages")
 def select_random_pages(
-    num_images: int = typer.Option(100, "--num-images", help="Number of page images to sample"),
+    num_images: int = typer.Option(
+        100, "--num-images", help="Number of page images to sample"
+    ),
 ) -> None:
     """Randomly sample page images from the books directory for training."""
     from digitex.creators import PageDataCreator
@@ -89,7 +100,11 @@ def select_random_pages(
         output_dir=page_train_dir,
         num_images=num_images,
     )
-    typer.echo(typer.style(f"✓ Selected {num_images} random pages into {page_train_dir}", fg="green"))
+    typer.echo(
+        typer.style(
+            f"✓ Selected {num_images} random pages into {page_train_dir}", fg="green"
+        )
+    )
 
 
 @app.command(name="train")
@@ -109,11 +124,19 @@ def train(
     val_config_path = configs_dir / f"{config}_val.yaml"
 
     if not train_config_path.exists():
-        typer.echo(typer.style(f"Error: train config not found: {train_config_path}", fg="red"), err=True)
+        typer.echo(
+            typer.style(
+                f"Error: train config not found: {train_config_path}", fg="red"
+            ),
+            err=True,
+        )
         raise typer.Exit(code=1)
 
     if not val_config_path.exists():
-        typer.echo(typer.style(f"Error: val config not found: {val_config_path}", fg="red"), err=True)
+        typer.echo(
+            typer.style(f"Error: val config not found: {val_config_path}", fg="red"),
+            err=True,
+        )
         raise typer.Exit(code=1)
 
     logger.info("Starting YOLO training", train_config=str(train_config_path))
@@ -128,14 +151,18 @@ def train(
         typer.echo(typer.style("✓ Training and validation completed", fg="green"))
     except Exception as e:
         logger.error("Training failed", error=str(e))
-        typer.echo(typer.style(f"✗ Training failed: {e}", fg="red", bold=True), err=True)
+        typer.echo(
+            typer.style(f"✗ Training failed: {e}", fg="red", bold=True), err=True
+        )
         raise typer.Exit(code=1)
 
 
 @app.command(name="ls-predict")
 def ls_predict(
     project_id: int = typer.Option(..., "--project-id", help="Label Studio project ID"),
-    model_path: str = typer.Option(..., "--model-path", help="Path to trained YOLO model (.pt file)"),
+    model_path: str = typer.Option(
+        ..., "--model-path", help="Path to trained YOLO model (.pt file)"
+    ),
 ) -> None:
     """Run model predictions on Label Studio tasks for a project."""
     from digitex.label_studio import TaskPredictor
@@ -148,7 +175,9 @@ def ls_predict(
     )
 
     count = predictor.predict_tasks(project_id)
-    typer.echo(typer.style(f"✓ Predicted {count} tasks in project {project_id}", fg="green"))
+    typer.echo(
+        typer.style(f"✓ Predicted {count} tasks in project {project_id}", fg="green")
+    )
 
 
 if __name__ == "__main__":

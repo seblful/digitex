@@ -39,14 +39,14 @@ class TestManualExtractorFilename:
     def test_parse_invalid_part(self, extractor: ManualExtractor) -> None:
         """Test that invalid part raises InvalidFilenameError."""
         from digitex.extractors.exceptions import InvalidFilenameError
-        
+
         with pytest.raises(InvalidFilenameError, match="Invalid filename format"):
             extractor._parse_filename(Path("2016_3_C_20.png"))
 
     def test_parse_missing_question(self, extractor: ManualExtractor) -> None:
         """Test that missing question number raises InvalidFilenameError."""
         from digitex.extractors.exceptions import InvalidFilenameError
-        
+
         with pytest.raises(InvalidFilenameError, match="Invalid filename format"):
             extractor._parse_filename(Path("2016_3_A_.png"))
 

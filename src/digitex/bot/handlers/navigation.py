@@ -61,11 +61,13 @@ async def on_mode_selected(callback: types.CallbackQuery, state: FSMContext) -> 
     db_path = get_settings().database.path
 
     if mode == "standard":
+
         def fetch_years(uow):
             return uow.books.list_years(subject_id)
 
         years = await with_uow(db_path, fetch_years)
         if not years:
+
             def list_subjects(uow):
                 return uow.books.list_subjects()
 
@@ -81,9 +83,12 @@ async def on_mode_selected(callback: types.CallbackQuery, state: FSMContext) -> 
         await callback.message.edit_text(MSG_YEAR_SELECT, reply_markup=years_kb(years))
         await state.set_state(Navigation.select_year)
     elif mode == "random":
-        await callback.message.edit_text(MSG_EXAM_TYPE_SELECT, reply_markup=exam_type_kb())
+        await callback.message.edit_text(
+            MSG_EXAM_TYPE_SELECT, reply_markup=exam_type_kb()
+        )
         await state.set_state(Navigation.select_random_exam_type)
     elif mode == "topics":
+
         def fetch_topics(uow):
             return uow.questions.get_topics_for_subject(subject_id)
 
@@ -93,7 +98,9 @@ async def on_mode_selected(callback: types.CallbackQuery, state: FSMContext) -> 
             await callback.answer()
             return
 
-        await callback.message.edit_text(MSG_TOPIC_SELECT, reply_markup=topics_kb(topics))
+        await callback.message.edit_text(
+            MSG_TOPIC_SELECT, reply_markup=topics_kb(topics)
+        )
         await state.update_data(topic_names=topics)
         await state.set_state(Navigation.select_topic)
 
@@ -115,8 +122,12 @@ async def on_topic_selected(callback: types.CallbackQuery, state: FSMContext) ->
     await callback.answer()
 
 
-@router.callback_query(Navigation.select_random_exam_type, F.data.startswith("exam_type:"))
-async def on_random_exam_type_selected(callback: types.CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(
+    Navigation.select_random_exam_type, F.data.startswith("exam_type:")
+)
+async def on_random_exam_type_selected(
+    callback: types.CallbackQuery, state: FSMContext
+) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
         return
@@ -129,7 +140,9 @@ async def on_random_exam_type_selected(callback: types.CallbackQuery, state: FSM
 
 
 @router.callback_query(Navigation.select_random_part, F.data.startswith("random_part:"))
-async def on_random_part_selected(callback: types.CallbackQuery, state: FSMContext) -> None:
+async def on_random_part_selected(
+    callback: types.CallbackQuery, state: FSMContext
+) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
         return
@@ -163,7 +176,9 @@ async def on_year_selected(callback: types.CallbackQuery, state: FSMContext) -> 
 
 
 @router.callback_query(Navigation.select_exam_type, F.data.startswith("exam_type:"))
-async def on_exam_type_selected(callback: types.CallbackQuery, state: FSMContext) -> None:
+async def on_exam_type_selected(
+    callback: types.CallbackQuery, state: FSMContext
+) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
         return
@@ -216,7 +231,11 @@ async def on_option_selected(callback: types.CallbackQuery, state: FSMContext) -
         student_id = data.get("student_id")
         if student_id is None:
             telegram_id = callback.from_user.id if callback.from_user else 0
-            name = callback.from_user.full_name if callback.from_user and callback.from_user.full_name else "Пользователь"
+            name = (
+                callback.from_user.full_name
+                if callback.from_user and callback.from_user.full_name
+                else "Пользователь"
+            )
             username = callback.from_user.username if callback.from_user else None
             student = uow.students.get_or_create(
                 telegram_id=telegram_id,

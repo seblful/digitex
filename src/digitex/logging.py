@@ -27,7 +27,9 @@ def setup_logging(
 
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    file_handler = RotatingFileHandler(file_path, maxBytes=10_485_760, backupCount=3, encoding="utf-8")
+    file_handler = RotatingFileHandler(
+        file_path, maxBytes=10_485_760, backupCount=3, encoding="utf-8"
+    )
     file_handler.setLevel(getattr(logging, f_level))
 
     console_handler = logging.StreamHandler(sys.stderr)

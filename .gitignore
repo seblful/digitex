@@ -25,6 +25,7 @@ yolo*.pt
 opencode.json
 .opencode/
 docs/superpowers
+graphify-out/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -35,8 +35,11 @@ async def start_random_question(
     db_path = get_settings().database.path
 
     if topic_name:
+
         def fetch(uow):
-            qid, part = uow.questions.get_random_question_id_by_topic(subject_id, topic_name)
+            qid, part = uow.questions.get_random_question_id_by_topic(
+                subject_id, topic_name
+            )
             return uow.questions.get_full(qid, part)
 
         try:
@@ -85,7 +88,9 @@ async def start_random_question(
         )
 
         exam_type_label = MSG_EXAM_CE if exam_type == "CE" else MSG_EXAM_CT
-        caption = f"<tg-spoiler>{exam_type_label} {year} год, вариант {option}</tg-spoiler>"
+        caption = (
+            f"<tg-spoiler>{exam_type_label} {year} год, вариант {option}</tg-spoiler>"
+        )
 
     if question.part == "A":
         await send_question(

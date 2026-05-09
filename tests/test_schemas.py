@@ -20,7 +20,9 @@ class TestStudent:
         assert student.username is None
 
     def test_student_with_username(self) -> None:
-        student = Student(student_id=2, telegram_id=67890, name="Jane", username="jane_doe")
+        student = Student(
+            student_id=2, telegram_id=67890, name="Jane", username="jane_doe"
+        )
         assert student.username == "jane_doe"
 
     def test_student_missing_required_fields(self) -> None:

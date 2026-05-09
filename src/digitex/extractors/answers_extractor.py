@@ -172,7 +172,11 @@ class AnswersExtractor(BaseExtractor):
                 if (year_dir / "answers.json").exists():
                     if year not in skipped_years:
                         skipped_years.add(year)
-                        logger.info("Skipping year, answers.json exists", year=year, subject=subject)
+                        logger.info(
+                            "Skipping year, answers.json exists",
+                            year=year,
+                            subject=subject,
+                        )
                     continue
                 parsed = self.ocr(image_path)
                 for option, questions in parsed.items():
@@ -181,9 +185,9 @@ class AnswersExtractor(BaseExtractor):
                         self._normalize_label(k): self._normalize_answer(v)
                         for k, v in questions.items()
                     }
-                    years_data.setdefault(year, {}).setdefault(
-                        norm_option, {}
-                    ).update(normalized)
+                    years_data.setdefault(year, {}).setdefault(norm_option, {}).update(
+                        normalized
+                    )
             except Exception as e:
                 msg = f"Failed to process {image_path.name}: {e}"
                 logger.error(msg)

@@ -378,7 +378,7 @@ class TestTestsExtractor:
         """Test extract returns error when subject not found."""
         books_dir = tmp_path / "books"
         books_dir.mkdir()
-        
+
         extractor = TestsExtractor(
             model_path=Path("model.pt"),
             image_format="jpg",
@@ -397,7 +397,7 @@ class TestTestsExtractor:
         books_dir.mkdir()
         subject_dir = books_dir / "math"
         subject_dir.mkdir()
-        
+
         extractor = TestsExtractor(
             model_path=Path("model.pt"),
             image_format="jpg",
@@ -417,7 +417,7 @@ class TestTestsExtractor:
         subject_dir = books_dir / "math"
         images_dir = subject_dir / "images"
         images_dir.mkdir(parents=True)
-        
+
         extractor = TestsExtractor(
             model_path=Path("model.pt"),
             image_format="jpg",
@@ -465,7 +465,6 @@ class TestTestsExtractor:
             mock_extract.assert_not_called()
             assert result.skipped == 1
             assert result.processed == 0
-
 
 
 class TestExtractionResult:

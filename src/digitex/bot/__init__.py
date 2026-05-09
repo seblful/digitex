@@ -24,4 +24,3 @@ def create_dispatcher() -> Dispatcher:
         results_router,
     )
     return dp
-

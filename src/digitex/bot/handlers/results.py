@@ -59,7 +59,9 @@ async def show_results(
         MSG_RESULTS_YEAR.format(year=info.year),
         MSG_RESULTS_OPTION.format(option_number=info.option_number),
         "",
-        MSG_RESULTS_SCORE.format(total_score=result.total_score, max_score=result.max_score),
+        MSG_RESULTS_SCORE.format(
+            total_score=result.total_score, max_score=result.max_score
+        ),
         MSG_RESULTS_PART_A.format(part_a_score=result.part_a_score),
         MSG_RESULTS_PART_B.format(part_b_score=result.part_b_score),
         "",
@@ -74,21 +76,25 @@ async def show_results(
             lines.append("")
             lines.append(MSG_RESULTS_PART_A_H)
             for row in wrong_a:
-                lines.append(MSG_RESULTS_ERROR_ITEM.format(
-                    qnum=row.question_number,
-                    user_ans=row.student_answer,
-                    correct_ans=row.correct_answer,
-                ))
+                lines.append(
+                    MSG_RESULTS_ERROR_ITEM.format(
+                        qnum=row.question_number,
+                        user_ans=row.student_answer,
+                        correct_ans=row.correct_answer,
+                    )
+                )
 
         if wrong_b:
             lines.append("")
             lines.append(MSG_RESULTS_PART_B_H)
             for row in wrong_b:
-                lines.append(MSG_RESULTS_ERROR_ITEM.format(
-                    qnum=row.question_number,
-                    user_ans=row.student_answer,
-                    correct_ans=row.correct_answer,
-                ))
+                lines.append(
+                    MSG_RESULTS_ERROR_ITEM.format(
+                        qnum=row.question_number,
+                        user_ans=row.student_answer,
+                        correct_ans=row.correct_answer,
+                    )
+                )
 
     await bot.send_message(message.chat.id, "\n".join(lines), parse_mode="HTML")
     await state.clear()

@@ -260,9 +260,7 @@ class ManualExtractor(BaseExtractor):
             ExtractionResult with statistics.
         """
         if not self.manual_dir or not self.manual_dir.exists():
-            logger.warning(
-                "Manual directory does not exist", path=str(self.manual_dir)
-            )
+            logger.warning("Manual directory does not exist", path=str(self.manual_dir))
             return ExtractionResult.success_result(
                 processed=0, warnings=["Manual directory does not exist"]
             )

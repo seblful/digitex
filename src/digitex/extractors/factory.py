@@ -113,6 +113,7 @@ class ExtractorFactory:
         resolved_key = api_key or settings.openrouter.api_key
         if not resolved_key:
             from digitex.extractors.exceptions import APIError
+
             raise APIError(
                 service="OpenRouter",
                 message="API key not set. Set OPENROUTER_API_KEY environment variable.",

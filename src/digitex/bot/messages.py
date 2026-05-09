@@ -49,7 +49,9 @@ MSG_NO_TOPIC_QUESTION = "Не удалось найти вопрос по это
 MSG_CORRECT_ANSWER = "✅ Правильно!"
 MSG_WRONG_ANSWER = "❌ Неправильно!\nПравильный ответ: <b>{correct_answer}</b>"
 
-MSG_RANDOM_FINISH = "Режим случайных вопросов завершен. Используйте /start для начала заново."
+MSG_RANDOM_FINISH = (
+    "Режим случайных вопросов завершен. Используйте /start для начала заново."
+)
 
 MSG_RESULTS_HEADER = "📊 <b>Тестирование завершено</b>"
 MSG_RESULTS_SUBJECT = "<b>Предмет:</b> {subject_name}"

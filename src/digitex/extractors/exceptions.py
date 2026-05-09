@@ -42,7 +42,9 @@ class ConflictResolutionError(ExtractionError):
         context: dict | None = None,
     ) -> None:
         message = f"Cannot resolve conflict for {file_path}: {reason}"
-        super().__init__(message, context={**(context or {}), "file_path": str(file_path)})
+        super().__init__(
+            message, context={**(context or {}), "file_path": str(file_path)}
+        )
 
 
 class ExtractionValidationError(ExtractionError):
@@ -56,14 +58,14 @@ class ModelNotFoundError(ExtractionError, FileNotFoundError):
 
     def __init__(self, model_path: Path | str, context: dict | None = None) -> None:
         message = f"Model file not found: {model_path}"
-        super().__init__(message, context={**(context or {}), "model_path": str(model_path)})
+        super().__init__(
+            message, context={**(context or {}), "model_path": str(model_path)}
+        )
 
 
 class APIError(ExtractionError):
     """Raised when an external API call fails."""
 
-    def __init__(
-        self, service: str, message: str, context: dict | None = None
-    ) -> None:
+    def __init__(self, service: str, message: str, context: dict | None = None) -> None:
         full_message = f"{service} API error: {message}"
         super().__init__(full_message, context={**(context or {}), "service": service})

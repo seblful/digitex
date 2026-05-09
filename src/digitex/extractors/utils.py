@@ -96,6 +96,7 @@ def count_subject_images(
     Returns:
         Nested dictionary: {year: {option: {part: count}}}
     """
+
     def count_in_folder(folder: Path) -> int:
         return sum(
             1
@@ -167,9 +168,7 @@ def renumber_folder_sequentially(
                 num = int(f.stem)
                 images.append((num, f))
             except ValueError:
-                logger.warning(
-                    "Skipping file with non-numeric name", file_path=str(f)
-                )
+                logger.warning("Skipping file with non-numeric name", file_path=str(f))
 
     if not images:
         return []

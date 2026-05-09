@@ -266,7 +266,7 @@ def check_answers(
     import json
 
     years = sorted([d.name for d in output_dir.iterdir() if d.is_dir()])
-    
+
     import re
 
     has_latin = re.compile(r"[A-Za-z]")
@@ -374,7 +374,7 @@ def check_answers(
             typer.echo("  Value issues:")
             for issue in value_issues:
                 typer.echo(issue)
-    
+
     typer.echo("\n" + "=" * 60)
     if total_issues == 0:
         typer.echo("RESULT: All years match ✅")

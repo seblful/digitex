@@ -30,10 +30,12 @@ def main() -> None:
         from digitex.bot.messages import CMD_HELP_DESC, CMD_START_DESC
 
         bot = Bot(token=token)
-        await bot.set_my_commands([
-            BotCommand(command="start", description=CMD_START_DESC),
-            BotCommand(command="help", description=CMD_HELP_DESC),
-        ])
+        await bot.set_my_commands(
+            [
+                BotCommand(command="start", description=CMD_START_DESC),
+                BotCommand(command="help", description=CMD_HELP_DESC),
+            ]
+        )
         logger.info("Starting bot polling...")
         await dispatcher.start_polling(bot)
 

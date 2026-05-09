@@ -17,7 +17,6 @@ from digitex.bot.messages import (
     MSG_GREETING,
     MSG_PENDING,
     MSG_REGISTRATION_INFO,
-    MSG_REJECTED,
     MSG_REJECTED_ADMIN,
     MSG_REJECTED_USER,
     MSG_REQUEST_SENT,
@@ -31,8 +30,18 @@ router = Router()
 FALLBACK_NAME = "Пользователь"
 
 MONTHS_RU = [
-    "января", "февраля", "марта", "апреля", "мая", "июня",
-    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+    "января",
+    "февраля",
+    "марта",
+    "апреля",
+    "мая",
+    "июня",
+    "июля",
+    "августа",
+    "сентября",
+    "октября",
+    "ноября",
+    "декабря",
 ]
 
 
@@ -100,9 +109,7 @@ async def cmd_start(message: types.Message, state: FSMContext) -> None:
             db_path, lambda uow: uow.authorized_users.get_request(telegram_id)
         )
         date_str = _format_datetime(request.created_at) if request else "—"
-        await message.answer(
-            MSG_PENDING.format(date=date_str), parse_mode="HTML"
-        )
+        await message.answer(MSG_PENDING.format(date=date_str), parse_mode="HTML")
     elif status == "rejected":
         await with_uow(
             db_path, lambda uow: uow.authorized_users.delete_request(telegram_id)
@@ -183,6 +190,7 @@ async def handle_reg_callback(callback: types.CallbackQuery, bot: Bot) -> None:
     db_path = settings.database.path
 
     if action == "approve":
+
         def approve(uow):
             return uow.authorized_users.approve(target_id, callback.from_user.id)
 
@@ -194,6 +202,7 @@ async def handle_reg_callback(callback: types.CallbackQuery, bot: Bot) -> None:
             MSG_APPROVED_ADMIN.format(full_name=user_record.full_name)
         )
     elif action == "reject":
+
         def reject(uow):
             return uow.authorized_users.reject(target_id, callback.from_user.id)
 

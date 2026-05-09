@@ -13,7 +13,9 @@ class Converter:
         return polygon
 
     @staticmethod
-    def polygon_to_point(polygon: np.ndarray, img_width: int, img_height: int) -> list[float]:
+    def polygon_to_point(
+        polygon: np.ndarray, img_width: int, img_height: int
+    ) -> list[float]:
         point = polygon / np.array((img_width, img_height))
         point = point.flatten().tolist()
 

@@ -1,6 +1,5 @@
 """Tests for bot message format strings."""
 
-
 from digitex.bot.messages import (
     MSG_CORRECT_ANSWER,
     MSG_GREETING,

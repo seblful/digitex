@@ -36,7 +36,11 @@ def years_kb(years: list[int]) -> InlineKeyboardMarkup:
 def options_kb(options: list[int]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for opt in options:
-        builder.add(InlineKeyboardButton(text=f"{MSG_OPTION_PREFIX} {opt}", callback_data=f"opt:{opt}"))
+        builder.add(
+            InlineKeyboardButton(
+                text=f"{MSG_OPTION_PREFIX} {opt}", callback_data=f"opt:{opt}"
+            )
+        )
     builder.adjust(2)
     return builder.as_markup()
 
@@ -51,7 +55,9 @@ def part_a_kb(num_options: int = 5) -> InlineKeyboardMarkup:
 
 def mode_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text=MSG_KB_STANDARD, callback_data="mode:standard"))
+    builder.add(
+        InlineKeyboardButton(text=MSG_KB_STANDARD, callback_data="mode:standard")
+    )
     builder.add(InlineKeyboardButton(text=MSG_KB_RANDOM, callback_data="mode:random"))
     builder.add(InlineKeyboardButton(text=MSG_KB_TOPICS, callback_data="mode:topics"))
     builder.adjust(1)
@@ -92,11 +98,17 @@ def topics_kb(topics: list[str]) -> InlineKeyboardMarkup:
 
 def admin_registration_kb(telegram_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(
-        text="✅ Подтвердить", callback_data=f"reg:approve:{telegram_id}",
-    ))
-    builder.add(InlineKeyboardButton(
-        text="❌ Отклонить", callback_data=f"reg:reject:{telegram_id}",
-    ))
+    builder.add(
+        InlineKeyboardButton(
+            text="✅ Подтвердить",
+            callback_data=f"reg:approve:{telegram_id}",
+        )
+    )
+    builder.add(
+        InlineKeyboardButton(
+            text="❌ Отклонить",
+            callback_data=f"reg:reject:{telegram_id}",
+        )
+    )
     builder.adjust(2)
     return builder.as_markup()

@@ -147,7 +147,9 @@ def _union_both_parts(
     union = (
         base.format(select=select_a, table="part_a_questions", joins=joins, where=where)
         + " UNION ALL "
-        + base.format(select=select_b, table="part_b_questions", joins=joins_b, where=where)
+        + base.format(
+            select=select_b, table="part_b_questions", joins=joins_b, where=where
+        )
     )
     # SQLite requires a subquery wrapper for ORDER BY / LIMIT on compound
     # SELECTs when the ordering expression is not a result-set column.
@@ -255,9 +257,7 @@ class QuestionRepository:
         ).fetchone()
         return row[0]
 
-    def insert_image(
-        self, question_id: int, part: str, image_data: bytes
-    ) -> None:
+    def insert_image(self, question_id: int, part: str, image_data: bytes) -> None:
         self._conn.execute(
             "INSERT INTO images (question_id, part, image_data)"
             " VALUES (?, ?, ?)"
@@ -267,9 +267,7 @@ class QuestionRepository:
             (question_id, part, image_data),
         )
 
-    def cache_file_id(
-        self, question_id: int, part: str, telegram_file_id: str
-    ) -> None:
+    def cache_file_id(self, question_id: int, part: str, telegram_file_id: str) -> None:
         self._conn.execute(
             "UPDATE images SET telegram_file_id = ? WHERE question_id = ? AND part = ?",
             (telegram_file_id, question_id, part),
@@ -346,13 +344,12 @@ class QuestionRepository:
             params,
         ).fetchone()
         if row is None:
-            raise KeyError(
-                f"No {part} questions found for subject {subject_id}"
-            )
+            raise KeyError(f"No {part} questions found for subject {subject_id}")
         return row[0]
 
     def get_topics_for_subject(self, subject_id: int) -> list[str]:
-        rows = _union_both_parts(self._conn,
+        rows = _union_both_parts(
+            self._conn,
             select_a="DISTINCT qt.topic_name",
             joins="JOIN question_topics qt ON qt.question_id = q.question_id AND qt.part = 'A'",
             joins_b="JOIN question_topics qt ON qt.question_id = q.question_id AND qt.part = 'B'",
@@ -365,7 +362,8 @@ class QuestionRepository:
     def get_random_question_id_by_topic(
         self, subject_id: int, topic_name: str
     ) -> tuple[int, str]:
-        rows = _union_both_parts(self._conn,
+        rows = _union_both_parts(
+            self._conn,
             select_a="qt.question_id, qt.part",
             joins=(
                 "JOIN question_topics qt"
@@ -388,7 +386,8 @@ class QuestionRepository:
 
     def get_question_origin(self, question_id: int) -> QuestionOrigin:
         """Return (year, option_number, exam_type) for a question."""
-        rows = _union_both_parts(self._conn,
+        rows = _union_both_parts(
+            self._conn,
             select_a="b.year_value, o.option_number, o.exam_type",
             where="WHERE q.question_id = ?",
             params=(question_id,),
@@ -508,7 +507,8 @@ class SessionRepository:
         return SessionInfo(row[0], row[1], row[2])
 
     def get_wrong_answers(self, session_id: int) -> list[WrongAnswer]:
-        rows = _union_both_parts(self._conn,
+        rows = _union_both_parts(
+            self._conn,
             select_a="q.question_number, 'A', sa.student_answer, q.answer",
             joins="JOIN session_answers sa ON sa.question_id = q.question_id",
             where="WHERE sa.session_id = ? AND sa.is_correct = 0",

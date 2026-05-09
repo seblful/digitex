@@ -49,6 +49,7 @@ class TestWithUow:
             return await with_uow(db_path, callback)
 
         import asyncio
+
         result = asyncio.run(run_test())
         assert result == 42
 

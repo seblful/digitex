@@ -104,7 +104,9 @@ class PageDataCreator:
                 continue
             valid_paths.append(img_path)
 
-        saved, skipped_exist = self._save_images(valid_paths, output_dir, "Adding images")
+        saved, skipped_exist = self._save_images(
+            valid_paths, output_dir, "Adding images"
+        )
         logger.info(
             "Done",
             processed=saved,

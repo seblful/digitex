@@ -25,6 +25,7 @@ def resize_image(image: Image.Image, max_width: int, max_height: int) -> Image.I
 
 # --- segment processing ---
 
+
 def remove_color(
     img: np.ndarray,
     saturation_threshold: int = DEFAULT_SATURATION_THRESHOLD,
@@ -117,6 +118,7 @@ def add_white_background(img: np.ndarray) -> np.ndarray:
 
 # --- image cropping helpers ---
 
+
 def _rotate(img: np.ndarray, angle: float) -> np.ndarray:
     h, w = img.shape[:2]
     rad = math.radians(angle)
@@ -173,9 +175,7 @@ def _perspective_transform(pts: np.ndarray) -> tuple[int, int, np.ndarray]:
         int(np.linalg.norm(pts[1] - pts[2])),
         int(np.linalg.norm(pts[3] - pts[0])),
     )
-    dst = np.array(
-        [[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]], dtype=np.float32
-    )
+    dst = np.array([[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]], dtype=np.float32)
     return w, h, cv2.getPerspectiveTransform(pts, dst)
 
 
@@ -198,6 +198,7 @@ def _prepare_for_skew_detection(img: np.ndarray) -> np.ndarray:
 
 
 # --- public classes ---
+
 
 class ImageCropper:
     """Processor for image cropping operations using perspective transformations."""
