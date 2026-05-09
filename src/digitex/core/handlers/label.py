@@ -1,7 +1,6 @@
 """Label handling utilities."""
 
 from pathlib import Path
-from typing import Tuple
 
 import structlog
 
@@ -13,9 +12,9 @@ class LabelHandler:
 
     @staticmethod
     def _read_points(label_path: str | Path) -> dict[int, list[list[float]]]:
-        points_dict: dict[int, list[list[float]]] = dict()
+        points_dict: dict[int, list[list[float]]] = {}
 
-        with open(label_path, "r") as f:
+        with Path(label_path).open() as f:
             for line in f:
                 data = line.strip().split()
                 if not data:
@@ -70,7 +69,7 @@ class LabelHandler:
     def get_random_label(
         image_name: str,
         labels_dir: str | Path,
-    ) -> Tuple[str | None, str | None]:
+    ) -> tuple[str | None, str | None]:
         """Get the label file path for a given image.
 
         Args:
@@ -112,12 +111,10 @@ class LabelHandler:
         if len(points) % 2 != 0:
             raise ValueError("Points list must contain an even number of values")
 
-        point_pairs = list(zip(points[::2], points[1::2]))
-        abs_points = [
-            (int(x * image_width), int(y * image_height)) for x, y in point_pairs
+        return [
+            (int(x * image_width), int(y * image_height))
+            for x, y in zip(points[::2], points[1::2], strict=False)
         ]
-
-        return abs_points
 
     def get_points(
         self,

@@ -50,23 +50,23 @@ uv run python scripts/populate_db.py
 The bot allows students to take centralized tests via Telegram:
 
 1. **Start** — `/start` to register and select a subject
-2. **Navigate** — Choose subject → year → option number
-3. **Test** — Answer Part A (multiple choice 1-5) and Part B (text) questions
-4. **Results** — Get instant score and mistake review
+1. **Navigate** — Choose subject → year → option number
+1. **Test** — Answer Part A (multiple choice 1-5) and Part B (text) questions
+1. **Results** — Get instant score and mistake review
 
 ### Bot Setup
 
 1. Get a bot token from [@BotFather](https://t.me/BotFather)
-2. Add to `.env` (or `.env.development`):
+1. Add to `.env` (or `.env.development`):
    ```
    BOT_TOKEN=your_bot_token_here
    BOT_ADMIN_USER_ID=your_telegram_user_id
    ```
-3. Populate the database:
+1. Populate the database:
    ```bash
    uv run python scripts/populate_db.py
    ```
-4. Run the bot:
+1. Run the bot:
    ```bash
    digitex-bot run
    ```

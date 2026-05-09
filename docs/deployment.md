@@ -76,11 +76,11 @@ micro .env
 
 Required variables in `.env`:
 
-| Variable                | Value                      | Required |
+| Variable | Value | Required |
 | ----------------------- | -------------------------- | -------- |
-| `BOT_TOKEN`             | Your token from @BotFather | Yes      |
-| `BOT_ADMIN_USER_ID`     | Your Telegram user ID      | Yes      |
-| `LOGGING_CONSOLE_LEVEL` | `INFO`                     | No       |
+| `BOT_TOKEN` | Your token from @BotFather | Yes |
+| `BOT_ADMIN_USER_ID` | Your Telegram user ID | Yes |
+| `LOGGING_CONSOLE_LEVEL` | `INFO` | No |
 
 ### 4. Start the Bot
 

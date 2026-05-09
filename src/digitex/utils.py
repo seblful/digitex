@@ -112,7 +112,7 @@ def create_pdf_from_images(
             page.insert_obj(pdf_image)
             page.gen_content()
             bitmap.close()
-        except (FileNotFoundError, IOError) as e:
+        except (OSError, FileNotFoundError) as e:
             logger.warning("Failed to process image", image_path=image_path, error=e)
             continue
 

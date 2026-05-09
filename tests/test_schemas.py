@@ -1,6 +1,6 @@
 """Tests for core schemas and value objects."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -86,7 +86,7 @@ class TestSession:
     """Test Session schema."""
 
     def test_valid_session(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         session = Session(
             session_id=1,
             student_id=42,
@@ -100,8 +100,8 @@ class TestSession:
         assert session.completed_at is None
 
     def test_session_with_completed_at(self) -> None:
-        now = datetime.now(timezone.utc)
-        later = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
+        later = datetime.now(UTC)
         session = Session(
             session_id=2,
             student_id=99,
@@ -122,7 +122,7 @@ class TestTestResult:
     """Test TestResult schema."""
 
     def test_valid_test_result(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result = TestResult(
             session_id=1,
             part_a_score=8,
@@ -142,7 +142,7 @@ class TestTestResult:
         assert result.completed_at == now
 
     def test_test_result_custom_exam_type(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result = TestResult(
             session_id=2,
             exam_type="CE",
@@ -200,7 +200,7 @@ class TestExamType:
         assert valid == "CT"
 
     def test_exam_type_usage(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result = TestResult(
             session_id=1,
             exam_type="CT",

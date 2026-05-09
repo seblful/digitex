@@ -1,6 +1,6 @@
 """Start command, registration flow, and admin approval callbacks."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from aiogram import Bot, Router, types
 from aiogram.filters import CommandStart
@@ -46,8 +46,9 @@ MONTHS_RU = [
 
 
 def _format_datetime(dt: datetime) -> str:
-    local = dt.replace(tzinfo=timezone.utc).astimezone(get_tz())
-    return f"{local.day} {MONTHS_RU[local.month - 1]} {local.year} в {local.hour:02d}:{local.minute:02d}"
+    local = dt.replace(tzinfo=UTC).astimezone(get_tz())
+    time_str = f"{local.hour:02d}:{local.minute:02d}"
+    return f"{local.day} {MONTHS_RU[local.month - 1]} {local.year} в {time_str}"
 
 
 def _get_user_info(
@@ -89,7 +90,7 @@ async def _normal_start(message: types.Message, state: FSMContext) -> None:
 @router.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext) -> None:
     settings = get_settings()
-    telegram_id, name, username = _get_user_info(message)
+    telegram_id, _name, _username = _get_user_info(message)
     db_path = settings.database.path
 
     if telegram_id == settings.bot.admin_user_id:

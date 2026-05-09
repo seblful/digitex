@@ -121,11 +121,13 @@ digitex-extract count-questions biology
 ## Directory Locations
 
 **Manual Input:** `extraction/data/manual/<subject>/`
+
 - Place your manually cropped `.png` files here
 - Files are processed and moved to output
 - Source files are deleted after processing
 
 **Output:** `extraction/data/output/<subject>/<year>/<option>/<part>/`
+
 - Processed images saved here
 - Format: `<question_number>.jpg`
 

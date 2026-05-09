@@ -4,7 +4,6 @@ import base64
 import json
 import re
 from pathlib import Path
-from typing import Dict
 
 import structlog
 from openai import OpenAI
@@ -16,7 +15,7 @@ from digitex.extractors.exceptions import APIError, DirectoryNotFoundError
 
 logger = structlog.get_logger()
 
-CYRILLIC_TO_LATIN = str.maketrans("АВЕС", "ABEC")
+CYRILLIC_TO_LATIN = str.maketrans("АВЕС", "ABEC")  # noqa: RUF001
 LATIN_TO_CYRILLIC = str.maketrans("ABCEHKMOPTXYF", "АВСЕНКМОРТХУГ")
 
 
@@ -26,15 +25,17 @@ class ExamExtraction(BaseModel):
     Example: {"1": {"A1": "2", "B1": "ВЕРНАДСКИЙ"}, "2": {...}}
     """
 
-    options: Dict[str, Dict[str, str]]
+    options: dict[str, dict[str, str]]
 
 
-OCR_SYSTEM_PROMPT = """You are an OCR assistant. Extract the answer table from exam answer sheet images.
-
-Rules:
-1. Question labels MUST use Latin letters only — A1, A2, B1, B2 (NOT Cyrillic А, В)
-2. Answers MUST use Cyrillic letters where applicable — А1Б2В5 (NOT Latin A, B, B)
-3. Digits are always the same in both scripts"""
+OCR_SYSTEM_PROMPT = (
+    "You are an OCR assistant. "
+    "Extract the answer table from exam answer sheet images.\n\n"
+    "Rules:\n"
+    "1. Question labels MUST use Latin letters only — A1, A2, B1, B2 (NOT Cyrillic)\n"
+    "2. Answers MUST use Cyrillic letters where applicable (NOT Latin A, B)\n"
+    "3. Digits are always the same in both scripts"
+)
 
 OCR_USER_PROMPT = "Extract the answer table from this exam answer sheet image."
 
@@ -106,7 +107,7 @@ class AnswersExtractor(BaseExtractor):
         except Exception as e:
             raise APIError(
                 service="OpenRouter",
-                message=f"OCR failed: {str(e)}",
+                message=f"OCR failed: {e!s}",
                 context={"image_path": str(image_path)},
             ) from e
 
@@ -123,7 +124,7 @@ class AnswersExtractor(BaseExtractor):
     def _sort_answers(
         self, answers: dict[str, dict[str, str]]
     ) -> dict[str, dict[str, str]]:
-        sorted_options = sorted(answers.keys(), key=lambda x: int(x))
+        sorted_options = sorted(answers.keys(), key=int)
         result: dict[str, dict[str, str]] = {}
         for option in sorted_options:
             sorted_labels = sorted(
@@ -137,7 +138,8 @@ class AnswersExtractor(BaseExtractor):
         match = re.match(r"(\d{4})_(\d+)", image_path.stem)
         if not match:
             raise ValueError(
-                f"Invalid filename format: {image_path.name}. Expected format: YYYY_N.jpg"
+                f"Invalid filename format: {image_path.name}. "
+                "Expected format: YYYY_N.jpg"
             )
         return int(match.group(1)), int(match.group(2))
 

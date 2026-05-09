@@ -104,6 +104,7 @@ uv run python -m training.cli train --config page
 **Configuration:**
 
 All training parameters are managed in `training/configs/<config>.yaml`:
+
 - `model`: Model architecture (e.g., `yolo26m-seg.yaml`)
 - `data`: Path to dataset YAML (e.g., `training/data/page/dataset/data.yaml`)
 - `epochs`: Number of training epochs

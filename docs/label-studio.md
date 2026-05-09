@@ -46,10 +46,10 @@ uv run python -m training.cli ls-predict --project-id 1 --model-path extraction/
 **How it works:**
 
 1. Fetches all tasks where `is_labeled=False`
-2. Reads the image from local disk (via task URI)
-3. Runs YOLO segmentation model
-4. Uploads polygon predictions immediately per task
-5. Skips tasks with missing files or failed predictions
+1. Reads the image from local disk (via task URI)
+1. Runs YOLO segmentation model
+1. Uploads polygon predictions immediately per task
+1. Skips tasks with missing files or failed predictions
 
 **Requirements:**
 

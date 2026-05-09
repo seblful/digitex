@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-from .schemas import Question, Session, Student, TestResult  # noqa: F401
+from .schemas import Question, Session, Student, TestResult
 
 _MODULES: dict[str, str] = {
     "TextExtractor": ".ocr",
@@ -20,4 +20,4 @@ def __getattr__(name: str) -> Any:
     raise AttributeError(msg)
 
 
-__all__ = ["TextExtractor", "Question", "Session", "Student", "TestResult"]
+__all__ = ["Question", "Session", "Student", "TestResult", "TextExtractor"]

@@ -26,10 +26,8 @@ class FileProcessor:
             FileNotFoundError: If the file does not exist.
             IOError: If the file cannot be read.
         """
-        with open(txt_path, "r", encoding="utf-8") as txt_file:
-            content = txt_file.readlines()
-
-        return content
+        with Path(txt_path).open(encoding="utf-8") as txt_file:
+            return txt_file.readlines()
 
     @staticmethod
     def write_txt(txt_path: str | Path, lines: list[str]) -> None:
@@ -42,7 +40,7 @@ class FileProcessor:
         Raises:
             IOError: If the file cannot be written.
         """
-        with open(txt_path, "w", encoding="utf-8") as txt_file:
+        with Path(txt_path).open("w", encoding="utf-8") as txt_file:
             txt_file.writelines(lines)
 
     @staticmethod
@@ -59,10 +57,8 @@ class FileProcessor:
             FileNotFoundError: If the file does not exist.
             json.JSONDecodeError: If the file contains invalid JSON.
         """
-        with open(json_path, "r", encoding="utf-8") as json_file:
-            json_dict = json.load(json_file)
-
-        return json_dict
+        with Path(json_path).open(encoding="utf-8") as json_file:
+            return json.load(json_file)
 
     @staticmethod
     def write_json(
@@ -81,7 +77,7 @@ class FileProcessor:
             IOError: If the file cannot be written.
             TypeError: If the data is not JSON serializable.
         """
-        with open(json_path, "w", encoding="utf-8") as json_file:
+        with Path(json_path).open("w", encoding="utf-8") as json_file:
             json.dump(json_dict, json_file, indent=indent, ensure_ascii=False)
 
     @staticmethod
@@ -100,7 +96,7 @@ class FileProcessor:
         Raises:
             IOError: If the file cannot be written.
         """
-        with open(yaml_path, "w", encoding="utf-8") as yaml_file:
+        with Path(yaml_path).open("w", encoding="utf-8") as yaml_file:
             if comment:
                 yaml_file.write(comment)
             yaml.dump(data, yaml_file, default_flow_style=False, allow_unicode=True)

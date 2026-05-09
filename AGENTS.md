@@ -2,21 +2,21 @@
 
 **All AI agents must strictly adhere to these rules.**
 
----
+______________________________________________________________________
 
 ## Dependencies & Package Manager
 
 - **Python**: `3.13`
 - **Package Manager**: [uv](https://docs.astral.sh/uv/) — **never** use `pip` or `venv`
 
-| Command                  | Purpose                   |
+| Command | Purpose |
 | :----------------------- | :------------------------ |
-| `uv add <package>`       | Add production dependency |
-| `uv add --dev <package>` | Add dev dependency        |
-| `uv sync`                | Lock dependencies         |
-| `uv run <cmd>`           | Run commands              |
+| `uv add <package>` | Add production dependency |
+| `uv add --dev <package>` | Add dev dependency |
+| `uv sync` | Lock dependencies |
+| `uv run <cmd>` | Run commands |
 
----
+______________________________________________________________________
 
 ## Code Standards
 
@@ -64,12 +64,12 @@ Follow **PEP 8**. Simplicity is key—avoid over-engineering.
 
 ### Data Classes vs Pydantic
 
-| Use Case                    | Choice                             | Reason                           |
+| Use Case | Choice | Reason |
 | :-------------------------- | :--------------------------------- | :------------------------------- |
-| Configuration from env vars | `BaseSettings`                     | Built-in env var loading         |
-| Simple data containers      | `pydantic.dataclass`               | Validation with dataclass syntax |
-| External data validation    | `BaseModel`                        | Runtime validation               |
-| Immutable DTOs              | `@pydantic.dataclass(frozen=True)` | Immutability                     |
+| Configuration from env vars | `BaseSettings` | Built-in env var loading |
+| Simple data containers | `pydantic.dataclass` | Validation with dataclass syntax |
+| External data validation | `BaseModel` | Runtime validation |
+| Immutable DTOs | `@pydantic.dataclass(frozen=True)` | Immutability |
 
 **Best Practices:**
 
@@ -104,7 +104,7 @@ Follow **PEP 8**. Simplicity is key—avoid over-engineering.
 - Use `typing.Protocol` for structural typing (duck typing)
 - Mark methods with `@abstractmethod` when requiring implementation
 
----
+______________________________________________________________________
 
 ## Testing
 
@@ -116,7 +116,7 @@ Follow **PEP 8**. Simplicity is key—avoid over-engineering.
 
 Run tests with: `uv run pytest`
 
----
+______________________________________________________________________
 
 ## Security & Safety
 
@@ -125,7 +125,7 @@ Run tests with: `uv run pytest`
 - **.cursorignore:** Respect ignored paths. Don't insist on indexing `.env*`, `.ssh/`, `secrets/`.
 - **MCP:** Prefer read-only access. Avoid broad tokens or full admin scopes.
 
----
+______________________________________________________________________
 
 ## Git Workflow
 
@@ -149,17 +149,17 @@ uv run pre-commit install
 
 ### Types
 
-| Type       | Purpose                                |
+| Type | Purpose |
 | :--------- | :------------------------------------- |
-| `feat`     | New feature                            |
-| `fix`      | Bug fix                                |
+| `feat` | New feature |
+| `fix` | Bug fix |
 | `refactor` | Code change without feature/bug change |
-| `test`     | Test updates                           |
-| `docs`     | Documentation only                     |
-| `chore`    | Routine tasks, dependency updates      |
+| `test` | Test updates |
+| `docs` | Documentation only |
+| `chore` | Routine tasks, dependency updates |
 
 ### AI-Generated Code
 
 - Mark AI-generated or AI-assisted commits with `Co-authored-by: Cursor/opencode/Claude Code`
 
----
+______________________________________________________________________

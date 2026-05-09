@@ -41,9 +41,9 @@ digitex-extract extract-questions <SUBJECT>
 **Process:**
 
 1. Reads images from `books/{subject}/images/{year}/`
-2. Uses YOLO model to detect questions, options, and parts
-3. Crops and saves to `extraction/data/output/{subject}/{year}/{option}/{part}/`
-4. Tracks progress in `extraction/data/progress.json`
+1. Uses YOLO model to detect questions, options, and parts
+1. Crops and saves to `extraction/data/output/{subject}/{year}/{option}/{part}/`
+1. Tracks progress in `extraction/data/progress.json`
 
 ### `count-questions`
 
@@ -54,6 +54,7 @@ digitex-extract count-questions <SUBJECT>
 ```
 
 **Arguments:**
+
 - `<SUBJECT>` - Subject name (e.g., `biology`, `chemistry`)
 
 ### `renumber-questions`
@@ -65,9 +66,11 @@ digitex-extract renumber-questions <SUBJECT> [--dry-run]
 ```
 
 **Arguments:**
+
 - `<SUBJECT>` - Subject name (e.g., `biology`, `chemistry`)
 
 **Options:**
+
 - `--dry-run` - Preview changes without applying (default: true)
 
 ### `add-questions-manually`
@@ -79,14 +82,17 @@ digitex-extract add-questions-manually <SUBJECT> [--dry-run]
 ```
 
 **Arguments:**
+
 - `<SUBJECT>` - Subject name (e.g., `biology`, `chemistry`)
 
 **Manual Image Format:**
+
 - Place in: `extraction/data/manual/{subject}/`
 - Filename: `YYYY_OPTION_PART_QUESTION.png`
 - Example: `biology/2016_3_A_20.png`
 
 **Options:**
+
 - `--dry-run` - Preview changes without applying
 
 ### `extract-answers`
@@ -180,17 +186,17 @@ Progress is automatically tracked in `extraction/data/progress.json`:
 
 Common errors and solutions:
 
-| Error             | Solution                                   |
+| Error | Solution |
 | ----------------- | ------------------------------------------ |
-| Subject not found | Check subject name matches folder          |
-| No images folder  | Create `books/{subject}/images/`           |
-| API key not set   | Set `OPENROUTER_API_KEY` environment variable |
-| Model not found   | Check `EXTRACTION_MODEL_PATH`              |
+| Subject not found | Check subject name matches folder |
+| No images folder | Create `books/{subject}/images/` |
+| API key not set | Set `OPENROUTER_API_KEY` environment variable |
+| Model not found | Check `EXTRACTION_MODEL_PATH` |
 
 ## Best Practices
 
 1. **Always use `--dry-run`** first with renumber/manual commands
-2. **Check progress** before re-running extraction
-3. **Validate answers** with `check-answers` after extraction
-4. **Backup data** before bulk operations
-5. **Use subject filtering** to process one subject at a time
+1. **Check progress** before re-running extraction
+1. **Validate answers** with `check-answers` after extraction
+1. **Backup data** before bulk operations
+1. **Use subject filtering** to process one subject at a time

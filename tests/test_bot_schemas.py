@@ -1,6 +1,6 @@
 """Tests for bot Pydantic schemas."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -64,7 +64,7 @@ class TestQuestion:
 
 class TestSession:
     def test_valid_session(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         session = Session(
             session_id=1,
             student_id=1,
@@ -76,7 +76,7 @@ class TestSession:
         assert session.completed_at is None
 
     def test_session_with_completed_at(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         session = Session(
             session_id=1,
             student_id=1,
@@ -89,7 +89,7 @@ class TestSession:
 
 class TestTestResult:
     def test_valid_result(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result = TestResult(
             session_id=1,
             part_a_score=5,
