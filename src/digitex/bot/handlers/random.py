@@ -19,113 +19,112 @@ from digitex.bot.messages import (
 )
 from digitex.bot.renderer import send_question
 from digitex.bot.states import RandomTesting
-from digitex.config import get_settings
+from digitex.core.answer import check_answer
 
 router = Router()
+
+
+def _build_caption(origin, topic_name: str | None) -> str:
+    exam_label = MSG_EXAM_CE if origin.exam_type == "CE" else MSG_EXAM_CT
+    spoiler = (
+        f"<tg-spoiler>{exam_label} {origin.year} год,"
+        f" вариант {origin.option_number}</tg-spoiler>"
+    )
+    if topic_name:
+        return f"Тема: {topic_name}\n{spoiler}"
+    return spoiler
+
+
+def _fetch_by_topic(uow, subject_id: int, topic_name: str):
+    qid, part = uow.questions.get_random_question_id_by_topic(subject_id, topic_name)
+    return uow.questions.get_full(qid, part)
+
+
+def _fetch_by_part(uow, subject_id: int, part: str, exam_type: str | None):
+    qid = uow.questions.get_random_question_id(subject_id, part, exam_type)
+    return uow.questions.get_full(qid, part)
 
 
 async def start_random_question(
     message: types.Message,
     state: FSMContext,
     bot,
+    db_path: str,
 ) -> None:
     data = await state.get_data()
     subject_id = data["subject_id"]
     topic_name = data.get("topic_name")
-    db_path = get_settings().database.path
 
     if topic_name:
-
-        def fetch(uow):
-            qid, part = uow.questions.get_random_question_id_by_topic(
-                subject_id, topic_name
-            )
-            return uow.questions.get_full(qid, part)
-
         try:
-            question, origin = await with_uow(db_path, fetch)
+            question, origin = await with_uow(
+                db_path, lambda uow: _fetch_by_topic(uow, subject_id, topic_name)
+            )
         except KeyError:
             await message.answer(MSG_NO_TOPIC_QUESTION)
             return
-
-        year = origin.year
-        option = origin.option_number
-        exam_type = origin.exam_type
-
-        await state.update_data(
-            current_question_id=question.question_id,
-            current_part=question.part,
-            question_start_time=time.time(),
-        )
-
-        exam_type_label = MSG_EXAM_CE if exam_type == "CE" else MSG_EXAM_CT
-        caption = (
-            f"Тема: {topic_name}\n"
-            f"<tg-spoiler>{exam_type_label} {year} год, вариант {option}</tg-spoiler>"
-        )
     else:
         part = data["random_part"]
         exam_type = data.get("exam_type")
-
-        def fetch(uow):
-            qid = uow.questions.get_random_question_id(subject_id, part, exam_type)
-            return uow.questions.get_full(qid, part)
-
         try:
-            question, origin = await with_uow(db_path, fetch)
+            question, origin = await with_uow(
+                db_path, lambda uow: _fetch_by_part(uow, subject_id, part, exam_type)
+            )
         except KeyError:
             await message.answer(MSG_NO_RANDOM_QUESTION)
             return
 
-        year = origin.year
-        option = origin.option_number
-        exam_type = origin.exam_type
+    await state.update_data(
+        current_question_id=question.question_id,
+        current_part=question.part,
+        question_start_time=time.time(),
+    )
 
-        await state.update_data(
-            current_question_id=question.question_id,
-            current_part=question.part,
-            question_start_time=time.time(),
-        )
-
-        exam_type_label = MSG_EXAM_CE if exam_type == "CE" else MSG_EXAM_CT
-        caption = (
-            f"<tg-spoiler>{exam_type_label} {year} год, вариант {option}</tg-spoiler>"
-        )
+    caption = _build_caption(origin, topic_name)
 
     if question.part == "A":
-        await send_question(
+        new_file_id = await send_question(
             bot,
             message.chat.id,
             question,
-            db_path,
             reply_markup=part_a_kb(question.num_options),
             caption=caption,
             parse_mode="HTML",
         )
     else:
-        await send_question(
-            bot, message.chat.id, question, db_path, caption=caption, parse_mode="HTML"
+        new_file_id = await send_question(
+            bot, message.chat.id, question, caption=caption, parse_mode="HTML"
         )
         await message.answer(MSG_ENTER_ANSWER)
+
+    if new_file_id:
+        qid, qpart = question.question_id, question.part
+
+        def cache(uow):
+            uow.questions.cache_file_id(qid, qpart, new_file_id)
+
+        await with_uow(db_path, cache)
 
     await state.set_state(RandomTesting.answering)
 
 
 @router.callback_query(RandomTesting.answering, F.data.startswith("ans:"))
 async def on_random_part_a_answer(
-    callback: types.CallbackQuery, state: FSMContext
+    callback: types.CallbackQuery, state: FSMContext, db_path: str
 ) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
         return
 
     answer = callback.data.split(":")[1]
-    await process_random_answer(callback.message, state, callback.bot, answer)
+    await process_random_answer(callback.message, state, answer, db_path)
     await callback.answer()
 
 
 @router.message(RandomTesting.answering)
-async def on_random_part_b_answer(message: types.Message, state: FSMContext) -> None:
+async def on_random_part_b_answer(
+    message: types.Message, state: FSMContext, db_path: str
+) -> None:
     if not message.text:
         return
 
@@ -133,30 +132,24 @@ async def on_random_part_b_answer(message: types.Message, state: FSMContext) -> 
     if data.get("current_part") != "B":
         return
 
-    await process_random_answer(message, state, message.bot, message.text)
+    await process_random_answer(message, state, message.text, db_path)
 
 
 async def process_random_answer(
     message: types.Message,
     state: FSMContext,
-    bot,
     answer: str,
+    db_path: str,
 ) -> None:
     data = await state.get_data()
     question_id = data["current_question_id"]
     current_part = data["current_part"]
-    db_path = get_settings().database.path
 
-    def check_answer(uow):
-        correct = uow.questions.get_correct_answer(question_id, current_part)
-        return correct
+    def get_correct(uow):
+        return uow.questions.get_correct_answer(question_id, current_part)
 
-    correct_answer = await with_uow(db_path, check_answer)
-    if current_part == "A":
-        is_correct = int(answer.strip()) == correct_answer
-    else:
-        correct_options = [opt.strip() for opt in correct_answer.split("/")]
-        is_correct = answer.strip() in correct_options
+    correct_answer = await with_uow(db_path, get_correct)
+    is_correct = check_answer(current_part, answer, correct_answer)
 
     if is_correct:
         await message.answer(MSG_CORRECT_ANSWER, reply_markup=random_feedback_kb())
@@ -170,11 +163,13 @@ async def process_random_answer(
 
 
 @router.callback_query(RandomTesting.feedback, F.data == "random:next")
-async def on_random_next(callback: types.CallbackQuery, state: FSMContext) -> None:
+async def on_random_next(
+    callback: types.CallbackQuery, state: FSMContext, db_path: str
+) -> None:
     if not callback.message or not isinstance(callback.message, types.Message):
         await callback.answer("Ошибка: сообщение недоступно")
         return
-    await start_random_question(callback.message, state, callback.bot)
+    await start_random_question(callback.message, state, callback.bot, db_path)
     await callback.answer()
 
 

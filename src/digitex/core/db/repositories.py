@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import datetime
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
-from digitex.bot.schemas import AuthorizedUser, Question, Session, Student, TestResult
-from digitex.core.value_objects import QuestionKey
+from digitex.bot.schemas import AuthorizedUser
+from digitex.core.schemas import Question, Session, Student, TestResult
+
+if TYPE_CHECKING:
+    import sqlite3
+
+    from digitex.core.value_objects import QuestionKey
 
 # ---------------------------------------------------------------------------
 # Row types — lightweight containers for query results
@@ -179,7 +183,10 @@ class BookRepository:
         return _get_or_create(self._conn, "subjects", "subject_id", {"name": name})
 
     def get_or_create_book(
-        self, subject_id: int, year: int, a_num_options: int = 5
+        self,
+        subject_id: int,
+        year: int,
+        a_num_options: int = 5,  # noqa: ARG002
     ) -> int:
         return _get_or_create(
             self._conn,
@@ -189,7 +196,10 @@ class BookRepository:
         )
 
     def get_or_create_option(
-        self, book_id: int, option_number: int, exam_type: str = "CT"
+        self,
+        book_id: int,
+        option_number: int,
+        exam_type: str = "CT",  # noqa: ARG002
     ) -> int:
         return _get_or_create(
             self._conn,
@@ -206,7 +216,8 @@ class BookRepository:
 
     def list_years(self, subject_id: int) -> list[int]:
         rows = self._conn.execute(
-            "SELECT year_value FROM books WHERE subject_id = ? ORDER BY year_value DESC",
+            "SELECT year_value FROM books"
+            " WHERE subject_id = ? ORDER BY year_value DESC",
             (subject_id,),
         ).fetchall()
         return [r[0] for r in rows]
@@ -351,8 +362,14 @@ class QuestionRepository:
         rows = _union_both_parts(
             self._conn,
             select_a="DISTINCT qt.topic_name",
-            joins="JOIN question_topics qt ON qt.question_id = q.question_id AND qt.part = 'A'",
-            joins_b="JOIN question_topics qt ON qt.question_id = q.question_id AND qt.part = 'B'",
+            joins=(
+                "JOIN question_topics qt"
+                " ON qt.question_id = q.question_id AND qt.part = 'A'"
+            ),
+            joins_b=(
+                "JOIN question_topics qt"
+                " ON qt.question_id = q.question_id AND qt.part = 'B'"
+            ),
             where="WHERE b.subject_id = ?",
             order_by="topic_name",
             params=(subject_id,),
@@ -608,7 +625,8 @@ class AuthorizedUserRepository:
             "UPDATE authorized_users"
             " SET status = 'approved', handled_at = CURRENT_TIMESTAMP, handled_by = ?"
             " WHERE telegram_id = ?"
-            " RETURNING telegram_id, full_name, telegram_username, status, created_at, handled_at, handled_by",
+            " RETURNING telegram_id, full_name, telegram_username,"
+            "          status, created_at, handled_at, handled_by",
             (admin_id, telegram_id),
         ).fetchone()
         if row is None:
@@ -629,7 +647,8 @@ class AuthorizedUserRepository:
             "UPDATE authorized_users"
             " SET status = 'rejected', handled_at = CURRENT_TIMESTAMP, handled_by = ?"
             " WHERE telegram_id = ?"
-            " RETURNING telegram_id, full_name, telegram_username, status, created_at, handled_at, handled_by",
+            " RETURNING telegram_id, full_name, telegram_username,"
+            "          status, created_at, handled_at, handled_by",
             (admin_id, telegram_id),
         ).fetchone()
         if row is None:
@@ -674,7 +693,8 @@ class AuthorizedUserRepository:
 
     def is_authorized(self, telegram_id: int) -> bool:
         row = self._conn.execute(
-            "SELECT 1 FROM authorized_users WHERE telegram_id = ? AND status = 'approved'",
+            "SELECT 1 FROM authorized_users"
+            " WHERE telegram_id = ? AND status = 'approved'",
             (telegram_id,),
         ).fetchone()
         return row is not None

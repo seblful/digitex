@@ -24,7 +24,6 @@ from digitex.bot.messages import (
     MSG_RESULTS_YEAR,
 )
 from digitex.bot.states import Navigation
-from digitex.config import get_settings
 
 router = Router()
 
@@ -33,10 +32,10 @@ async def show_results(
     message: types.Message,
     state: FSMContext,
     bot,
+    db_path: str,
 ) -> None:
     data = await state.get_data()
     session_id: int = data["session_id"]
-    db_path = get_settings().database.path
 
     def get_results(uow):
         result = uow.sessions.complete(session_id)

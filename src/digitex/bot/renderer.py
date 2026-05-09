@@ -1,11 +1,10 @@
-"""Question image renderer with Telegram file_id caching."""
+"""Question image renderer."""
 
 import structlog
 from aiogram import Bot
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
 
-from digitex.bot.database import with_uow
-from digitex.bot.schemas import Question
+from digitex.core.schemas import Question
 
 logger = structlog.get_logger()
 
@@ -14,12 +13,15 @@ async def send_question(
     bot: Bot,
     chat_id: int,
     question: Question,
-    db_path: str,
     reply_markup: InlineKeyboardMarkup | None = None,
     caption: str | None = None,
     parse_mode: str | None = None,
-) -> None:
-    """Send a question image with optional inline keyboard, caching the Telegram file_id."""
+) -> str | None:
+    """Send a question image; return the new Telegram file_id when uploaded fresh.
+
+    Returns None when the cached file_id was reused or when no photo appeared
+    in the response. The caller is responsible for persisting any returned file_id.
+    """
     if question.telegram_file_id:
         await bot.send_photo(
             chat_id=chat_id,
@@ -28,7 +30,7 @@ async def send_question(
             parse_mode=parse_mode,
             reply_markup=reply_markup,
         )
-        return
+        return None
 
     msg = await bot.send_photo(
         chat_id=chat_id,
@@ -41,15 +43,10 @@ async def send_question(
         reply_markup=reply_markup,
     )
     if msg.photo:
-        file_id = msg.photo[-1].file_id
-
-        def cache(uow):
-            uow.questions.cache_file_id(question.question_id, question.part, file_id)
-
-        await with_uow(db_path, cache)
-    else:
-        logger.warning(
-            "No photo in response for question",
-            question_id=question.question_id,
-            part=question.part,
-        )
+        return msg.photo[-1].file_id
+    logger.warning(
+        "No photo in response for question",
+        question_id=question.question_id,
+        part=question.part,
+    )
+    return None

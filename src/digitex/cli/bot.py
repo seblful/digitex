@@ -22,6 +22,7 @@ def main() -> None:
         return
 
     dispatcher = create_dispatcher()
+    db_path = str(settings.database.path)
 
     async def _main() -> None:
         from aiogram import Bot
@@ -37,7 +38,7 @@ def main() -> None:
             ]
         )
         logger.info("Starting bot polling...")
-        await dispatcher.start_polling(bot)
+        await dispatcher.start_polling(bot, db_path=db_path)
 
     asyncio.run(_main())
 

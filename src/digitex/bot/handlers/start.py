@@ -60,10 +60,9 @@ def _get_user_info(
     return 0, FALLBACK_NAME, None
 
 
-async def _normal_start(message: types.Message, state: FSMContext) -> None:
-    settings = get_settings()
-    db_path = settings.database.path
-
+async def _normal_start(
+    message: types.Message, state: FSMContext, db_path: str
+) -> None:
     def register(uow):
         telegram_id = message.from_user.id if message.from_user else 0
         name = message.from_user.full_name if message.from_user else FALLBACK_NAME
@@ -88,13 +87,12 @@ async def _normal_start(message: types.Message, state: FSMContext) -> None:
 
 
 @router.message(CommandStart())
-async def cmd_start(message: types.Message, state: FSMContext) -> None:
+async def cmd_start(message: types.Message, state: FSMContext, db_path: str) -> None:
     settings = get_settings()
     telegram_id, _name, _username = _get_user_info(message)
-    db_path = settings.database.path
 
     if telegram_id == settings.bot.admin_user_id:
-        await _normal_start(message, state)
+        await _normal_start(message, state, db_path)
         return
 
     status = await with_uow(
@@ -119,11 +117,13 @@ async def cmd_start(message: types.Message, state: FSMContext) -> None:
         await message.answer(MSG_REGISTRATION_INFO, parse_mode="HTML")
         await message.answer(MSG_ASK_NAME, parse_mode="HTML")
     else:
-        await _normal_start(message, state)
+        await _normal_start(message, state, db_path)
 
 
 @router.message(Registration.waiting_for_name)
-async def process_name(message: types.Message, state: FSMContext, bot: Bot) -> None:
+async def process_name(
+    message: types.Message, state: FSMContext, bot: Bot, db_path: str
+) -> None:
     settings = get_settings()
     telegram_id, _, username = _get_user_info(message)
     full_name = (message.text or "").strip()
@@ -131,8 +131,6 @@ async def process_name(message: types.Message, state: FSMContext, bot: Bot) -> N
     if not full_name:
         await message.answer("Пожалуйста, введите ваши имя и фамилию:")
         return
-
-    db_path = settings.database.path
 
     def create(uow):
         return uow.authorized_users.create_request(
@@ -163,7 +161,9 @@ async def process_name(message: types.Message, state: FSMContext, bot: Bot) -> N
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("reg:"))
-async def handle_reg_callback(callback: types.CallbackQuery, bot: Bot) -> None:
+async def handle_reg_callback(
+    callback: types.CallbackQuery, bot: Bot, db_path: str
+) -> None:
     settings = get_settings()
 
     if callback.from_user.id != settings.bot.admin_user_id:
@@ -187,8 +187,6 @@ async def handle_reg_callback(callback: types.CallbackQuery, bot: Bot) -> None:
     except ValueError:
         await callback.answer("Некорректный ID пользователя.")
         return
-
-    db_path = settings.database.path
 
     if action == "approve":
 

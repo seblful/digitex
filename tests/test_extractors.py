@@ -9,7 +9,11 @@ from PIL import Image
 from digitex.extractors.base import ExtractionResult
 from digitex.extractors.book_extractor import BookExtractor
 from digitex.extractors.exceptions import DirectoryNotFoundError
-from digitex.extractors.page_extractor import OCR_LANGUAGE, PageExtractor
+from digitex.extractors.page_extractor import (
+    OCR_LANGUAGE,
+    PageExtractionState,
+    PageExtractor,
+)
 from digitex.extractors.tests_extractor import PROGRESS_FILE, TestsExtractor
 
 
@@ -65,7 +69,9 @@ class TestBookExtractor:
 
         img = Image.new("RGB", (100, 100), color="white")
         mock_image_open.return_value = img
-        mock_page_extract.return_value = (1, "A", 1)
+        mock_page_extract.return_value = PageExtractionState(
+            option=1, part="A", question=1
+        )
 
         extractor = BookExtractor(
             model_path=Path("model.pt"),
@@ -234,7 +240,7 @@ class TestPageExtractor:
             question_max_width=2000,
             question_max_height=2000,
         )
-        mock_extract_text.return_value = "Часть А"
+        mock_extract_text.return_value = "Часть A"
         image = Image.new("RGB", (100, 100), color="white")
         polygon = [(10, 10), (50, 10), (50, 50), (10, 50)]
 
@@ -313,7 +319,7 @@ class TestPageExtractor:
             extractor._detect(image)
 
     def test_detect_returns_sorted_detections(self) -> None:
-        """Test _detect returns detections sorted by position (top-to-bottom, left-to-right)."""
+        """Test _detect returns detections sorted by position."""
         extractor = PageExtractor(
             model_path=Path("model.pt"),
             image_format="jpg",

@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
+from digitex.core.answer import check_answer
 from digitex.core.schemas import Question, Session, Student, TestResult
 from digitex.core.value_objects import ExamType, QuestionKey
 
@@ -212,3 +213,31 @@ class TestExamType:
             completed_at=now,
         )
         assert result.exam_type in ("CE", "CT")
+
+
+class TestCheckAnswer:
+    """Test check_answer pure function."""
+
+    def test_part_a_correct(self) -> None:
+        assert check_answer("A", "3", 3) is True
+
+    def test_part_a_wrong(self) -> None:
+        assert check_answer("A", "2", 3) is False
+
+    def test_part_a_strips_whitespace(self) -> None:
+        assert check_answer("A", " 3 ", 3) is True
+
+    def test_part_b_single_correct(self) -> None:
+        assert check_answer("B", "ANS", "ANS") is True
+
+    def test_part_b_multi_correct_first(self) -> None:
+        assert check_answer("B", "ANS1", "ANS1/ANS2") is True
+
+    def test_part_b_multi_correct_second(self) -> None:
+        assert check_answer("B", "ANS2", "ANS1/ANS2") is True
+
+    def test_part_b_wrong(self) -> None:
+        assert check_answer("B", "WRONG", "ANS1/ANS2") is False
+
+    def test_part_b_strips_whitespace(self) -> None:
+        assert check_answer("B", " ANS1 ", "ANS1 / ANS2") is True

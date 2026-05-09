@@ -8,7 +8,7 @@ from aiogram.types import Chat, Message, User
 
 from digitex.bot.database import with_uow
 from digitex.bot.renderer import send_question
-from digitex.bot.schemas import Question
+from digitex.core.schemas import Question
 
 
 def _make_message(
@@ -65,13 +65,14 @@ class TestSendQuestion:
             image_data=b"fake",
             telegram_file_id="cached_file_id",
         )
-        await send_question(bot, 1, question, "fake.db")
+        result = await send_question(bot, 1, question)
         bot.send_photo.assert_called_once()
         call_kwargs = bot.send_photo.call_args.kwargs
         assert call_kwargs["photo"] == "cached_file_id"
+        assert result is None
 
     @pytest.mark.asyncio
-    async def test_uploads_and_caches_when_no_file_id(self) -> None:
+    async def test_uploads_and_returns_file_id_when_not_cached(self) -> None:
         bot = AsyncMock()
         photo_msg = MagicMock()
         photo_msg.photo = [MagicMock(file_id="new_file_id")]
@@ -85,10 +86,9 @@ class TestSendQuestion:
             telegram_file_id=None,
         )
 
-        with patch("digitex.bot.renderer.with_uow", new_callable=AsyncMock) as mock_uow:
-            await send_question(bot, 1, question, "fake.db")
-            assert bot.send_photo.call_count == 1
-            mock_uow.assert_called_once()
+        result = await send_question(bot, 1, question)
+        assert bot.send_photo.call_count == 1
+        assert result == "new_file_id"
 
     @pytest.mark.asyncio
     async def test_logs_warning_when_no_photo_in_response(self) -> None:
@@ -105,7 +105,7 @@ class TestSendQuestion:
             telegram_file_id=None,
         )
 
-        with patch("digitex.bot.renderer.with_uow", new_callable=AsyncMock):
-            with patch("digitex.bot.renderer.logger") as mock_logger:
-                await send_question(bot, 1, question, "fake.db")
-                mock_logger.warning.assert_called_once()
+        with patch("digitex.bot.renderer.logger") as mock_logger:
+            result = await send_question(bot, 1, question)
+            mock_logger.warning.assert_called_once()
+            assert result is None

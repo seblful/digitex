@@ -28,7 +28,6 @@ from digitex.bot.messages import (
     MSG_YEAR_SELECT,
 )
 from digitex.bot.states import Navigation, Testing
-from digitex.config import get_settings
 
 router = Router()
 
@@ -50,7 +49,9 @@ async def on_subject_selected(callback: types.CallbackQuery, state: FSMContext) 
 
 
 @router.callback_query(Navigation.select_mode, F.data.startswith("mode:"))
-async def on_mode_selected(callback: types.CallbackQuery, state: FSMContext) -> None:
+async def on_mode_selected(
+    callback: types.CallbackQuery, state: FSMContext, db_path: str
+) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
         return
@@ -58,7 +59,6 @@ async def on_mode_selected(callback: types.CallbackQuery, state: FSMContext) -> 
     mode = callback.data.split(":")[1]
     data = await state.get_data()
     subject_id = data["subject_id"]
-    db_path = get_settings().database.path
 
     if mode == "standard":
 
@@ -108,7 +108,9 @@ async def on_mode_selected(callback: types.CallbackQuery, state: FSMContext) -> 
 
 
 @router.callback_query(Navigation.select_topic, F.data.startswith("topic:"))
-async def on_topic_selected(callback: types.CallbackQuery, state: FSMContext) -> None:
+async def on_topic_selected(
+    callback: types.CallbackQuery, state: FSMContext, db_path: str
+) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
         return
@@ -118,7 +120,7 @@ async def on_topic_selected(callback: types.CallbackQuery, state: FSMContext) ->
     topic_name = data["topic_names"][idx]
     await state.update_data(topic_name=topic_name)
 
-    await start_random_question(callback.message, state, callback.bot)
+    await start_random_question(callback.message, state, callback.bot, db_path)
     await callback.answer()
 
 
@@ -141,7 +143,7 @@ async def on_random_exam_type_selected(
 
 @router.callback_query(Navigation.select_random_part, F.data.startswith("random_part:"))
 async def on_random_part_selected(
-    callback: types.CallbackQuery, state: FSMContext
+    callback: types.CallbackQuery, state: FSMContext, db_path: str
 ) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
@@ -150,12 +152,14 @@ async def on_random_part_selected(
     part = callback.data.split(":")[1]
     await state.update_data(random_part=part)
 
-    await start_random_question(callback.message, state, callback.bot)
+    await start_random_question(callback.message, state, callback.bot, db_path)
     await callback.answer()
 
 
 @router.callback_query(Navigation.select_year, F.data.startswith("year:"))
-async def on_year_selected(callback: types.CallbackQuery, state: FSMContext) -> None:
+async def on_year_selected(
+    callback: types.CallbackQuery, state: FSMContext, db_path: str
+) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
         return
@@ -170,14 +174,14 @@ async def on_year_selected(callback: types.CallbackQuery, state: FSMContext) -> 
         )
         await state.set_state(Navigation.select_exam_type)
     else:
-        await _show_options_for_exam_type(callback.message, state, year, "CT")
+        await _show_options_for_exam_type(callback.message, state, year, "CT", db_path)
 
     await callback.answer()
 
 
 @router.callback_query(Navigation.select_exam_type, F.data.startswith("exam_type:"))
 async def on_exam_type_selected(
-    callback: types.CallbackQuery, state: FSMContext
+    callback: types.CallbackQuery, state: FSMContext, db_path: str
 ) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
@@ -186,7 +190,7 @@ async def on_exam_type_selected(
     exam_type = callback.data.split(":")[1]
     data = await state.get_data()
     year = data["year"]
-    await _show_options_for_exam_type(callback.message, state, year, exam_type)
+    await _show_options_for_exam_type(callback.message, state, year, exam_type, db_path)
     await callback.answer()
 
 
@@ -195,10 +199,10 @@ async def _show_options_for_exam_type(
     state: FSMContext,
     year: int,
     exam_type: str,
+    db_path: str,
 ) -> None:
     data = await state.get_data()
     subject_id = data["subject_id"]
-    db_path = get_settings().database.path
 
     def fetch_options(uow):
         book_id = uow.books.get_or_create_book(subject_id, year)
@@ -217,7 +221,9 @@ async def _show_options_for_exam_type(
 
 
 @router.callback_query(Navigation.select_option, F.data.startswith("opt:"))
-async def on_option_selected(callback: types.CallbackQuery, state: FSMContext) -> None:
+async def on_option_selected(
+    callback: types.CallbackQuery, state: FSMContext, db_path: str
+) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
         return
@@ -225,7 +231,6 @@ async def on_option_selected(callback: types.CallbackQuery, state: FSMContext) -
     option_number = int(callback.data.split(":")[1])
     data = await state.get_data()
     book_id = data["book_id"]
-    db_path = get_settings().database.path
 
     def start_test(uow):
         student_id = data.get("student_id")
@@ -259,4 +264,4 @@ async def on_option_selected(callback: types.CallbackQuery, state: FSMContext) -
     await state.set_state(Testing.answering)
     await callback.answer()
 
-    await send_current_question(callback.message, state, callback.bot)
+    await send_current_question(callback.message, state, callback.bot, db_path)

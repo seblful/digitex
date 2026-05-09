@@ -5,13 +5,18 @@ from pathlib import Path
 from digitex.config import get_settings
 from digitex.extractors.answers_extractor import AnswersExtractor
 from digitex.extractors.book_extractor import BookExtractor
+from digitex.extractors.exceptions import APIError, ModelNotFoundError
 from digitex.extractors.manual_extractor import ManualExtractor
 from digitex.extractors.page_extractor import PageExtractor
 from digitex.extractors.tests_extractor import TestsExtractor
 
 
 class ExtractorFactory:
-    """Factory for creating configured extractor instances."""
+    """Factory for creating configured extractor instances.
+
+    Validates that required files and keys exist before constructing, so
+    failures surface at construction time rather than mid-extraction.
+    """
 
     @staticmethod
     def _resolve_image_params(
@@ -27,6 +32,12 @@ class ExtractorFactory:
         )
 
     @staticmethod
+    def _require_model(path: Path) -> Path:
+        if not path.exists():
+            raise ModelNotFoundError(path)
+        return path
+
+    @staticmethod
     def create_page_extractor(
         model_path: Path | None = None,
         image_format: str | None = None,
@@ -37,8 +48,11 @@ class ExtractorFactory:
         fmt, max_w, max_h = ExtractorFactory._resolve_image_params(
             settings, image_format, question_max_width, question_max_height
         )
+        resolved = ExtractorFactory._require_model(
+            model_path or settings.paths.extraction_model_path
+        )
         return PageExtractor(
-            model_path=model_path or settings.paths.extraction_model_path,
+            model_path=resolved,
             image_format=fmt,
             question_max_width=max_w,
             question_max_height=max_h,
@@ -55,8 +69,11 @@ class ExtractorFactory:
         fmt, max_w, max_h = ExtractorFactory._resolve_image_params(
             settings, image_format, question_max_width, question_max_height
         )
+        resolved = ExtractorFactory._require_model(
+            model_path or settings.paths.extraction_model_path
+        )
         return BookExtractor(
-            model_path=model_path or settings.paths.extraction_model_path,
+            model_path=resolved,
             image_format=fmt,
             question_max_width=max_w,
             question_max_height=max_h,
@@ -75,8 +92,11 @@ class ExtractorFactory:
         fmt, max_w, max_h = ExtractorFactory._resolve_image_params(
             settings, image_format, question_max_width, question_max_height
         )
+        resolved = ExtractorFactory._require_model(
+            model_path or settings.paths.extraction_model_path
+        )
         return TestsExtractor(
-            model_path=model_path or settings.paths.extraction_model_path,
+            model_path=resolved,
             image_format=fmt,
             question_max_width=max_w,
             question_max_height=max_h,
@@ -112,8 +132,6 @@ class ExtractorFactory:
         settings = get_settings()
         resolved_key = api_key or settings.openrouter.api_key
         if not resolved_key:
-            from digitex.extractors.exceptions import APIError
-
             raise APIError(
                 service="OpenRouter",
                 message="API key not set. Set OPENROUTER_API_KEY environment variable.",

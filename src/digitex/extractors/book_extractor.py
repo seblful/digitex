@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 from digitex.extractors.base import BaseExtractor, ExtractionResult
 from digitex.extractors.exceptions import DirectoryNotFoundError
-from digitex.extractors.page_extractor import PageExtractor
+from digitex.extractors.page_extractor import PageExtractionState, PageExtractor
 from digitex.utils import _natural_sort_key
 
 logger = structlog.get_logger()
@@ -25,15 +25,6 @@ class BookExtractor(BaseExtractor):
         question_max_height: int = 2000,
         page_extractor: PageExtractor | None = None,
     ) -> None:
-        """Initialize the book extractor.
-
-        Args:
-            model_path: Path to YOLO model file.
-            image_format: Output image format.
-            question_max_width: Maximum width for extracted questions.
-            question_max_height: Maximum height for extracted questions.
-            page_extractor: Optional pre-configured PageExtractor (dependency injection).
-        """
         self.model_path = model_path
         self.image_format = image_format
         self.question_max_width = question_max_width
@@ -47,7 +38,6 @@ class BookExtractor(BaseExtractor):
         )
 
     def _validate_prerequisites(self) -> None:
-        """Validate prerequisites (deferred to extract method)."""
         pass
 
     def extract(
@@ -86,9 +76,7 @@ class BookExtractor(BaseExtractor):
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        option_counter = 0
-        part_letter = ""
-        question_counter = 0
+        state = PageExtractionState()
         processed_count = 0
 
         for image_path in tqdm(
@@ -96,15 +84,8 @@ class BookExtractor(BaseExtractor):
         ):
             try:
                 image = Image.open(image_path)
-                option_counter, part_letter, question_counter = (
-                    self._page_extractor.extract(
-                        image,
-                        output_dir,
-                        option_counter,
-                        part_letter,
-                        question_counter,
-                        image_path.name,
-                    )
+                state = self._page_extractor.extract(
+                    image, output_dir, state, image_path.name
                 )
                 processed_count += 1
             except Exception as e:
