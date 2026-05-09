@@ -27,6 +27,26 @@ opencode.json
 docs/superpowers
 graphify-out/
 
+# Claude Code local settings (contains secrets/proxy credentials)
+.claude/settings.local.json
+
+# Secrets
+secrets/
+credentials/
+
+# Logs
+logs/
+*.log
+
+# Ruff
+.ruff_cache/
+
+# Pre-commit
+.pre-commit-cache/
+
+# Docs
+site/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
