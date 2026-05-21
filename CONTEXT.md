@@ -56,9 +56,12 @@ ______________________________________________________________________
 
 ## Infrastructure terms
 
-- **UnitOfWork (UoW)** — a single SQLite connection + transaction boundary.
-  All DB writes go through a UoW. The sync `UnitOfWork` is wrapped by
-  `bot.database.with_uow` for async callers.
+- **UnitOfWork (UoW)** — an async context manager that borrows one connection
+  from the application's `AsyncConnectionPool` (psycopg 3) and wraps it in a
+  single transaction. Every DB write goes through a UoW. Handlers acquire the
+  pool from aiogram's `workflow_data` (injected by `cli/bot.py`).
+- **Schema migrations** — Alembic, hand-written raw SQL (no ORM, no
+  autogenerate). The `digitex-db` CLI is the entry point.
 - **Repository** — the only layer that touches raw SQL. One per aggregate
   (`QuestionRepository`, `StudentRepository`, `SessionRepository`,
   `AuthorizedUserRepository`, `BookRepository`).

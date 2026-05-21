@@ -32,6 +32,9 @@ dependencies = [
   "label-studio>=1.23.0",
   "aiogram>=3.27.0",
   "graphifyy>=0.7.11",
+  "psycopg[binary,pool]>=3.2",
+  "alembic>=1.13",
+  "python-dotenv>=1.0",
 ]
 
 
@@ -60,6 +63,7 @@ dev = [
     "ty>=0.0.28",
     "mdformat>=1.0.0",
     "pre-commit>=4.0.0",
+    "testcontainers[postgres]>=4.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -69,6 +73,7 @@ packages = ["src/digitex"]
 digitex-extract = "digitex.cli.extraction:app"
 digitex-train = "digitex.cli.training:app"
 digitex-bot = "digitex.cli.bot:app"
+digitex-db = "digitex.cli.db:app"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

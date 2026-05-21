@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 
 from digitex.config.settings import (
     DatabaseSettings,
@@ -20,15 +21,29 @@ from digitex.config.settings import (
 class TestDatabaseSettings:
     """Test DatabaseSettings class."""
 
-    def test_default_database_path(self) -> None:
-        """Test default database path."""
+    def test_default_dsn(self) -> None:
+        """Default DSN points at the conventional local Postgres."""
         settings = DatabaseSettings()
-        assert settings.path == "data/development.db"
+        assert str(settings.dsn).startswith("postgresql://")
+        assert "localhost" in str(settings.dsn)
 
-    def test_custom_database_path(self) -> None:
-        """Test custom database path."""
-        settings = DatabaseSettings(path="custom/path.db")
-        assert settings.path == "custom/path.db"
+    def test_custom_dsn(self) -> None:
+        settings = DatabaseSettings(
+            dsn="postgresql://u:p@db.example:5432/x"  # type: ignore[arg-type]
+        )
+        assert str(settings.dsn).startswith("postgresql://")
+        assert "db.example" in str(settings.dsn)
+
+    def test_conninfo_appends_sslmode(self) -> None:
+        settings = DatabaseSettings(sslmode="require")
+        assert "sslmode=require" in settings.conninfo
+
+    def test_server_options_includes_timeouts(self) -> None:
+        settings = DatabaseSettings(
+            statement_timeout_ms=1234, idle_in_transaction_timeout_ms=5678
+        )
+        assert "statement_timeout=1234" in settings.server_options
+        assert "idle_in_transaction_session_timeout=5678" in settings.server_options
 
 
 class TestTrainingSettings:
@@ -67,7 +82,7 @@ class TestDataSettings:
 
     def test_image_size_not_multiple_of_32(self) -> None:
         """Test that image_size not multiple of 32 raises validation error."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             DataSettings(image_size=500)
 
 
@@ -94,10 +109,10 @@ class TestExtractionSettings:
 
     def test_positive_validation(self) -> None:
         """Test that positive validation works for dimensions."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ExtractionSettings(question_max_width=0)
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ExtractionSettings(question_max_height=0)
 
 
@@ -162,11 +177,14 @@ class TestSettings:
         settings = Settings.load()
         assert isinstance(settings, Settings)
 
-    @patch.dict("os.environ", {"DB_PATH": "custom/db.sqlite"})
+    @patch.dict(
+        "os.environ",
+        {"DATABASE_URL": "postgresql://u:p@example.test:5432/d"},
+    )
     def test_environment_variable_loading(self) -> None:
-        """Test that settings can be loaded from environment variables."""
+        """DATABASE_URL feeds DatabaseSettings.dsn."""
         settings = Settings.load()
-        assert settings.database.path == "custom/db.sqlite"
+        assert "example.test" in str(settings.database.dsn)
 
 
 class TestGetSettings:

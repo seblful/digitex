@@ -1,17 +1,43 @@
-"""Repository classes — the only layer that touches raw SQL."""
+"""Repository classes — the only layer that touches raw SQL.
+
+All methods are ``async`` and run against an ``AsyncConnection`` borrowed from
+the application's :class:`psycopg_pool.AsyncConnectionPool`. The pool's default
+``row_factory`` is ``dict_row``, so every fetched row is a ``dict[str, Any]``.
+
+Why two question tables. ``part_a_questions`` has an integer answer
+(1..5); ``part_b_questions`` has a free-form text answer. Keeping them split
+preserves the type-safety of ``answer``. The price is a small amount of
+union/dispatch logic — see :data:`_PART_TABLES` and :func:`_union_both_parts`.
+"""
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import TYPE_CHECKING, NamedTuple
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 from digitex.bot.schemas import AuthorizedUser
 from digitex.core.schemas import Question, Session, Student, TestResult
 
 if TYPE_CHECKING:
-    import sqlite3
+    from psycopg import AsyncConnection
 
     from digitex.core.value_objects import QuestionKey
+
+
+Part = Literal["A", "B"]
+
+# Whitelist of safe table names for f-string interpolation. Any code that
+# substitutes a Part into a SQL string MUST go through ``_part_table()``.
+_PART_TABLES = MappingProxyType({"A": "part_a_questions", "B": "part_b_questions"})
+
+
+def _part_table(part: str) -> str:
+    """Return the SQL table name for the given part, or raise."""
+    try:
+        return _PART_TABLES[part]
+    except KeyError as e:
+        raise ValueError(f"Unknown part {part!r}; expected 'A' or 'B'") from e
+
 
 # ---------------------------------------------------------------------------
 # Row types — lightweight containers for query results
@@ -46,78 +72,64 @@ class QuestionOrigin(NamedTuple):
 # Question query fragments
 # ---------------------------------------------------------------------------
 
-_QUESTION_BASE_A = (
-    "SELECT q.question_id, 'A' AS part, q.question_number, b.a_num_options,"
-    "       i.image_data, i.telegram_file_id"
-    "  FROM part_a_questions q"
-    "  JOIN options o ON q.option_id = o.option_id"
-    "  JOIN books b ON o.book_id = b.book_id"
-    "  LEFT JOIN images i ON i.question_id = q.question_id AND i.part = 'A'"
-)
 
-_QUESTION_BASE_B = (
-    "SELECT q.question_id, 'B' AS part, q.question_number, b.a_num_options,"
-    "       i.image_data, i.telegram_file_id"
-    "  FROM part_b_questions q"
-    "  JOIN options o ON q.option_id = o.option_id"
-    "  JOIN books b ON o.book_id = b.book_id"
-    "  LEFT JOIN images i ON i.question_id = q.question_id AND i.part = 'B'"
-)
-
-_QUESTION_FULL_A = (
-    "SELECT q.question_id, 'A' AS part, q.question_number, b.a_num_options,"
-    "       i.image_data, i.telegram_file_id,"
-    "       b.year_value, o.option_number, o.exam_type"
-    "  FROM part_a_questions q"
-    "  JOIN options o ON q.option_id = o.option_id"
-    "  JOIN books b ON o.book_id = b.book_id"
-    "  LEFT JOIN images i ON i.question_id = q.question_id AND i.part = 'A'"
-)
-
-_QUESTION_FULL_B = (
-    "SELECT q.question_id, 'B' AS part, q.question_number, b.a_num_options,"
-    "       i.image_data, i.telegram_file_id,"
-    "       b.year_value, o.option_number, o.exam_type"
-    "  FROM part_b_questions q"
-    "  JOIN options o ON q.option_id = o.option_id"
-    "  JOIN books b ON o.book_id = b.book_id"
-    "  LEFT JOIN images i ON i.question_id = q.question_id AND i.part = 'B'"
-)
+def _question_base(part: Part) -> str:
+    table = _part_table(part)
+    return (
+        f"SELECT q.question_id, '{part}' AS part, q.question_number,"
+        " b.a_num_options, i.image_data, i.telegram_file_id"
+        f"  FROM {table} q"
+        "  JOIN options o ON q.option_id = o.option_id"
+        "  JOIN books b ON o.book_id = b.book_id"
+        f"  LEFT JOIN images i ON i.question_id = q.question_id AND i.part = '{part}'"
+    )
 
 
-def _get_or_create(
-    conn: sqlite3.Connection,
+def _question_full(part: Part) -> str:
+    table = _part_table(part)
+    return (
+        f"SELECT q.question_id, '{part}' AS part, q.question_number,"
+        " b.a_num_options, i.image_data, i.telegram_file_id,"
+        " b.year_value, o.option_number, o.exam_type"
+        f"  FROM {table} q"
+        "  JOIN options o ON q.option_id = o.option_id"
+        "  JOIN books b ON o.book_id = b.book_id"
+        f"  LEFT JOIN images i ON i.question_id = q.question_id AND i.part = '{part}'"
+    )
+
+
+async def _get_or_create(
+    conn: AsyncConnection,
     table: str,
     id_col: str,
-    where: dict,
+    where: dict[str, Any],
 ) -> int:
-    """Insert or get an existing row, returning its id.
+    """Insert or fetch a row, returning its id, in one round-trip.
 
-    Uses ``ON CONFLICT … DO UPDATE … RETURNING`` so only one round-trip is
-    needed (SQLite ≥ 3.35).
+    Uses ``ON CONFLICT … DO UPDATE`` so a row is always returned by the
+    ``RETURNING`` clause (``DO NOTHING`` would suppress the row on conflict).
+    The update is a no-op (re-assigning the conflict columns to themselves).
     """
     cols = list(where.keys())
     values = list(where.values())
-    placeholders = ", ".join(["?"] * len(cols))
+    placeholders = ", ".join(["%s"] * len(cols))
     col_list = ", ".join(cols)
     conflict_cols = ", ".join(cols)
-    row = conn.execute(
+    # Re-assign the conflict columns to themselves so RETURNING always fires.
+    update_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols)
+    cur = await conn.execute(
         f"INSERT INTO {table} ({col_list}) VALUES ({placeholders})"
-        f" ON CONFLICT ({conflict_cols}) DO NOTHING"
+        f" ON CONFLICT ({conflict_cols}) DO UPDATE SET {update_clause}"
         f" RETURNING {id_col}",
         values,
-    ).fetchone()
-    if row is not None:
-        return row[0]
-    row = conn.execute(
-        f"SELECT {id_col} FROM {table} WHERE {' AND '.join(f'{c} = ?' for c in cols)}",
-        values,
-    ).fetchone()
-    return row[0]
+    )
+    row = await cur.fetchone()
+    assert row is not None
+    return row[id_col]
 
 
-def _union_both_parts(
-    conn: sqlite3.Connection,
+async def _union_both_parts(
+    conn: AsyncConnection,
     select_a: str,
     joins: str = "",
     where: str = "",
@@ -126,14 +138,16 @@ def _union_both_parts(
     params: tuple = (),
     select_b: str | None = None,
     joins_b: str | None = None,
-) -> list:
-    """Execute a UNION-ALL query across ``part_a_*`` / ``part_b_*``.
+) -> list[dict[str, Any]]:
+    """Run a UNION-ALL query across both ``part_*_questions`` tables.
 
-    The template always includes the standard ``JOIN options o …`` and
-    ``JOIN books b`` so that ``o.*`` and ``b.*`` columns are available.
+    The standard ``JOIN options o`` and ``JOIN books b`` are always added so
+    ``o.*`` / ``b.*`` are available. *select_b* / *joins_b* override the first
+    half when the two halves differ (e.g. a hard-coded ``'A'`` vs ``'B'`` part
+    literal).
 
-    *select_b* / *joins_b* override the first-half values when the two
-    halves differ (e.g. a hard-coded part literal ``'A'`` vs ``'B'``).
+    Both halves share the same parameter list — *params* is duplicated when
+    bound, so each ``%s`` placeholder in *where* should appear in both halves.
     """
     if select_b is None:
         select_b = select_a
@@ -149,23 +163,21 @@ def _union_both_parts(
         " {where}"
     )
     union = (
-        base.format(select=select_a, table="part_a_questions", joins=joins, where=where)
+        base.format(select=select_a, table=_part_table("A"), joins=joins, where=where)
         + " UNION ALL "
         + base.format(
-            select=select_b, table="part_b_questions", joins=joins_b, where=where
+            select=select_b, table=_part_table("B"), joins=joins_b, where=where
         )
     )
-    # SQLite requires a subquery wrapper for ORDER BY / LIMIT on compound
-    # SELECTs when the ordering expression is not a result-set column.
+    sql = union
     if order_by or limit:
-        sql = f"SELECT * FROM ({union})"
+        sql = f"SELECT * FROM ({union}) u"
         if order_by:
             sql += f" ORDER BY {order_by}"
         if limit:
             sql += f" LIMIT {limit}"
-    else:
-        sql = union
-    return conn.execute(sql, params + params).fetchall()
+    cur = await conn.execute(sql, params + params)
+    return await cur.fetchall()
 
 
 # ---------------------------------------------------------------------------
@@ -174,192 +186,233 @@ def _union_both_parts(
 
 
 class BookRepository:
-    """Write-side repository for loading extraction data into the DB."""
+    """Reads/writes for subjects, books, and options."""
 
-    def __init__(self, conn: sqlite3.Connection) -> None:
+    def __init__(self, conn: AsyncConnection) -> None:
         self._conn = conn
 
-    def get_or_create_subject(self, name: str) -> int:
-        return _get_or_create(self._conn, "subjects", "subject_id", {"name": name})
+    async def get_or_create_subject(self, name: str) -> int:
+        return await _get_or_create(
+            self._conn, "subjects", "subject_id", {"name": name}
+        )
 
-    def get_or_create_book(
+    async def get_or_create_book(
         self,
         subject_id: int,
         year: int,
-        a_num_options: int = 5,  # noqa: ARG002
+        a_num_options: int = 5,  # noqa: ARG002 — kept for callsite compatibility
     ) -> int:
-        return _get_or_create(
+        return await _get_or_create(
             self._conn,
             "books",
             "book_id",
             {"subject_id": subject_id, "year_value": year},
         )
 
-    def get_or_create_option(
+    async def get_or_create_option(
         self,
         book_id: int,
         option_number: int,
-        exam_type: str = "CT",  # noqa: ARG002
+        exam_type: str = "CT",  # noqa: ARG002 — see get_or_create_book
     ) -> int:
-        return _get_or_create(
+        return await _get_or_create(
             self._conn,
             "options",
             "option_id",
             {"book_id": book_id, "option_number": option_number},
         )
 
-    def list_subjects(self) -> list[SubjectRow]:
-        rows = self._conn.execute(
+    async def list_subjects(self) -> list[SubjectRow]:
+        cur = await self._conn.execute(
             "SELECT subject_id, name FROM subjects ORDER BY name"
-        ).fetchall()
-        return [SubjectRow(r[0], r[1]) for r in rows]
+        )
+        rows = await cur.fetchall()
+        return [SubjectRow(r["subject_id"], r["name"]) for r in rows]
 
-    def list_years(self, subject_id: int) -> list[int]:
-        rows = self._conn.execute(
+    async def list_years(self, subject_id: int) -> list[int]:
+        cur = await self._conn.execute(
             "SELECT year_value FROM books"
-            " WHERE subject_id = ? ORDER BY year_value DESC",
+            " WHERE subject_id = %s ORDER BY year_value DESC",
             (subject_id,),
-        ).fetchall()
-        return [r[0] for r in rows]
+        )
+        rows = await cur.fetchall()
+        return [r["year_value"] for r in rows]
 
-    def list_options(self, book_id: int, exam_type: str) -> list[int]:
-        rows = self._conn.execute(
+    async def list_options(self, book_id: int, exam_type: str) -> list[int]:
+        cur = await self._conn.execute(
             "SELECT option_number FROM options"
-            " WHERE book_id = ? AND exam_type = ? ORDER BY option_number",
+            " WHERE book_id = %s AND exam_type = %s ORDER BY option_number",
             (book_id, exam_type),
-        ).fetchall()
-        return [r[0] for r in rows]
+        )
+        rows = await cur.fetchall()
+        return [r["option_number"] for r in rows]
 
-    def get_option_id(self, book_id: int, option_number: int) -> int:
-        row = self._conn.execute(
-            "SELECT option_id FROM options WHERE book_id = ? AND option_number = ?",
+    async def get_option_id(self, book_id: int, option_number: int) -> int:
+        cur = await self._conn.execute(
+            "SELECT option_id FROM options WHERE book_id = %s AND option_number = %s",
             (book_id, option_number),
-        ).fetchone()
+        )
+        row = await cur.fetchone()
         if row is None:
             raise KeyError(f"Option {option_number} not found for book {book_id}")
-        return row[0]
+        return row["option_id"]
 
 
 class QuestionRepository:
-    """Repository for questions, images, and answers."""
+    """Repository for questions, images, answers, and topic mappings."""
 
-    def __init__(self, conn: sqlite3.Connection) -> None:
+    def __init__(self, conn: AsyncConnection) -> None:
         self._conn = conn
 
-    # -- CRUD ------------------------------------------------------------------
+    # -- CRUD ----------------------------------------------------------------
 
-    def get_or_create(self, option_id: int, key: QuestionKey, answer: str) -> int:
+    async def get_or_create(self, option_id: int, key: QuestionKey, answer: str) -> int:
         if key.part == "A":
             if not answer.isdigit():
                 raise ValueError(f"Part A answer must be a digit, got {answer!r}")
             answer_val: int | str = int(answer)
-            table = "part_a_questions"
         else:
             answer_val = answer
-            table = "part_b_questions"
+        table = _part_table(key.part)
 
-        row = self._conn.execute(
+        cur = await self._conn.execute(
             f"INSERT INTO {table} (option_id, question_number, answer)"
-            " VALUES (?, ?, ?)"
+            " VALUES (%s, %s, %s)"
             " ON CONFLICT (option_id, question_number)"
-            " DO UPDATE SET answer = excluded.answer"
+            " DO UPDATE SET answer = EXCLUDED.answer"
             " RETURNING question_id",
             (option_id, key.number, answer_val),
-        ).fetchone()
-        return row[0]
+        )
+        row = await cur.fetchone()
+        assert row is not None
+        return row["question_id"]
 
-    def insert_image(self, question_id: int, part: str, image_data: bytes) -> None:
-        self._conn.execute(
+    async def insert_image(
+        self, question_id: int, part: str, image_data: bytes
+    ) -> None:
+        # Skip the write if the BYTEA payload hasn't changed; this avoids
+        # rewriting multi-MB rows during idempotent re-runs.
+        await self._conn.execute(
             "INSERT INTO images (question_id, part, image_data)"
-            " VALUES (?, ?, ?)"
+            " VALUES (%s, %s, %s)"
             " ON CONFLICT (question_id, part)"
-            " DO UPDATE SET image_data = excluded.image_data"
-            " WHERE image_data != excluded.image_data",
+            " DO UPDATE SET image_data = EXCLUDED.image_data"
+            " WHERE images.image_data IS DISTINCT FROM EXCLUDED.image_data",
             (question_id, part, image_data),
         )
 
-    def cache_file_id(self, question_id: int, part: str, telegram_file_id: str) -> None:
-        self._conn.execute(
-            "UPDATE images SET telegram_file_id = ? WHERE question_id = ? AND part = ?",
+    async def cache_file_id(
+        self, question_id: int, part: str, telegram_file_id: str
+    ) -> None:
+        await self._conn.execute(
+            "UPDATE images SET telegram_file_id = %s"
+            " WHERE question_id = %s AND part = %s",
             (telegram_file_id, question_id, part),
         )
 
-    # -- queries ---------------------------------------------------------------
+    # -- topic mappings (used by populate_db.py) -----------------------------
 
-    def get(self, question_id: int, part: str) -> Question:
-        base = _QUESTION_BASE_A if part == "A" else _QUESTION_BASE_B
-        row = self._conn.execute(
-            base + " WHERE q.question_id = ?",
-            (question_id,),
-        ).fetchone()
-        if row is None:
-            raise KeyError(f"Question {question_id} not found")
-        return Question(
-            question_id=row[0],
-            part=row[1],
-            question_number=row[2],
-            num_options=row[3],
-            image_data=row[4],
-            telegram_file_id=row[5],
+    async def delete_topic(
+        self,
+        option_id: int,
+        question_number: int,
+        part: str,
+        topic_name: str,
+    ) -> None:
+        table = _part_table(part)
+        await self._conn.execute(
+            "DELETE FROM question_topics"
+            " WHERE part = %s AND topic_name = %s AND question_id IN"
+            f" (SELECT q.question_id FROM {table} q"
+            "  WHERE q.option_id = %s AND q.question_number = %s)",
+            (part, topic_name, option_id, question_number),
         )
 
-    def list_for_option(self, option_id: int, part: str) -> list[Question]:
-        base = _QUESTION_BASE_A if part == "A" else _QUESTION_BASE_B
-        rows = self._conn.execute(
-            base + " WHERE q.option_id = ? ORDER BY q.question_number",
-            (option_id,),
-        ).fetchall()
-        return [
-            Question(
-                question_id=r[0],
-                part=r[1],
-                question_number=r[2],
-                num_options=r[3],
-                image_data=r[4],
-                telegram_file_id=r[5],
-            )
-            for r in rows
-        ]
+    async def upsert_topic(
+        self,
+        option_id: int,
+        question_number: int,
+        part: str,
+        topic_name: str,
+    ) -> None:
+        table = _part_table(part)
+        await self._conn.execute(
+            "INSERT INTO question_topics (question_id, part, topic_name)"
+            f" SELECT q.question_id, %s, %s FROM {table} q"
+            "  WHERE q.option_id = %s AND q.question_number = %s"
+            " ON CONFLICT (question_id, part, topic_name) DO NOTHING",
+            (part, topic_name, option_id, question_number),
+        )
 
-    def get_correct_answer(self, question_id: int, part: str) -> int | str:
+    async def count_topics(self) -> int:
+        cur = await self._conn.execute("SELECT COUNT(*) AS n FROM question_topics")
+        row = await cur.fetchone()
+        assert row is not None
+        return row["n"]
+
+    # -- queries -------------------------------------------------------------
+
+    async def get(self, question_id: int, part: str) -> Question:
+        base = _question_base(_validate_part(part))
+        cur = await self._conn.execute(
+            base + " WHERE q.question_id = %s", (question_id,)
+        )
+        row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"Question {question_id} not found")
+        return _row_to_question(row)
+
+    async def list_for_option(self, option_id: int, part: str) -> list[Question]:
+        base = _question_base(_validate_part(part))
+        cur = await self._conn.execute(
+            base + " WHERE q.option_id = %s ORDER BY q.question_number",
+            (option_id,),
+        )
+        rows = await cur.fetchall()
+        return [_row_to_question(r) for r in rows]
+
+    async def get_correct_answer(self, question_id: int, part: str) -> int | str:
         """Return the correct answer for a question.
 
-        Part A answers are *integers* (option index); Part B answers are
-        free-form *strings*.
+        Part A answers are integers (option index); Part B are free-form text.
         """
-        table = "part_a_questions" if part == "A" else "part_b_questions"
-        row = self._conn.execute(
-            f"SELECT answer FROM {table} WHERE question_id = ?",
+        table = _part_table(part)
+        cur = await self._conn.execute(
+            f"SELECT answer FROM {table} WHERE question_id = %s",
             (question_id,),
-        ).fetchone()
+        )
+        row = await cur.fetchone()
         if row is None:
             raise KeyError(f"No answer for question {question_id}")
-        return int(row[0]) if part == "A" else str(row[0])
+        return int(row["answer"]) if part == "A" else str(row["answer"])
 
-    def get_random_question_id(
-        self, subject_id: int, part: str, exam_type: str | None = None
+    async def get_random_question_id(
+        self,
+        subject_id: int,
+        part: str,
+        exam_type: str | None = None,
     ) -> int:
-        """Pick a random question for the given subject / part / exam type."""
-        table = "part_a_questions" if part == "A" else "part_b_questions"
-        where = "b.subject_id = ?"
-        params: list = [subject_id]
+        table = _part_table(part)
+        params: list[Any] = [subject_id]
+        where = "b.subject_id = %s"
         if exam_type:
-            where += " AND o.exam_type = ?"
+            where += " AND o.exam_type = %s"
             params.append(exam_type)
-        row = self._conn.execute(
+        cur = await self._conn.execute(
             f"SELECT q.question_id FROM {table} q"
             " JOIN options o ON q.option_id = o.option_id"
-            f" JOIN books b ON o.book_id = b.book_id"
+            " JOIN books b ON o.book_id = b.book_id"
             f" WHERE {where}"
             " ORDER BY RANDOM() LIMIT 1",
             params,
-        ).fetchone()
+        )
+        row = await cur.fetchone()
         if row is None:
             raise KeyError(f"No {part} questions found for subject {subject_id}")
-        return row[0]
+        return row["question_id"]
 
-    def get_topics_for_subject(self, subject_id: int) -> list[str]:
-        rows = _union_both_parts(
+    async def get_topics_for_subject(self, subject_id: int) -> list[str]:
+        rows = await _union_both_parts(
             self._conn,
             select_a="DISTINCT qt.topic_name",
             joins=(
@@ -370,16 +423,16 @@ class QuestionRepository:
                 "JOIN question_topics qt"
                 " ON qt.question_id = q.question_id AND qt.part = 'B'"
             ),
-            where="WHERE b.subject_id = ?",
+            where="WHERE b.subject_id = %s",
             order_by="topic_name",
             params=(subject_id,),
         )
-        return list(dict.fromkeys(r[0] for r in rows))
+        return list(dict.fromkeys(r["topic_name"] for r in rows))
 
-    def get_random_question_id_by_topic(
+    async def get_random_question_id_by_topic(
         self, subject_id: int, topic_name: str
     ) -> tuple[int, str]:
-        rows = _union_both_parts(
+        rows = await _union_both_parts(
             self._conn,
             select_a="qt.question_id, qt.part",
             joins=(
@@ -390,7 +443,7 @@ class QuestionRepository:
                 "JOIN question_topics qt"
                 " ON qt.question_id = q.question_id AND qt.part = 'B'"
             ),
-            where="WHERE b.subject_id = ? AND qt.topic_name = ?",
+            where="WHERE b.subject_id = %s AND qt.topic_name = %s",
             order_by="RANDOM()",
             limit="1",
             params=(subject_id, topic_name),
@@ -399,94 +452,93 @@ class QuestionRepository:
             raise KeyError(
                 f"No questions found for topic {topic_name!r} in subject {subject_id}"
             )
-        return rows[0][0], rows[0][1]
+        return rows[0]["question_id"], rows[0]["part"]
 
-    def get_question_origin(self, question_id: int) -> QuestionOrigin:
-        """Return (year, option_number, exam_type) for a question."""
-        rows = _union_both_parts(
+    async def get_question_origin(self, question_id: int) -> QuestionOrigin:
+        rows = await _union_both_parts(
             self._conn,
             select_a="b.year_value, o.option_number, o.exam_type",
-            where="WHERE q.question_id = ?",
+            where="WHERE q.question_id = %s",
             params=(question_id,),
         )
         if not rows:
             raise KeyError(f"Origin not found for question {question_id}")
-        return QuestionOrigin(*rows[0])
+        r = rows[0]
+        return QuestionOrigin(r["year_value"], r["option_number"], r["exam_type"])
 
-    def get_full(self, question_id: int, part: str) -> tuple[Question, QuestionOrigin]:
-        """Return question with origin metadata in a single query."""
-        base = _QUESTION_FULL_A if part == "A" else _QUESTION_FULL_B
-        row = self._conn.execute(
-            base + " WHERE q.question_id = ?",
-            (question_id,),
-        ).fetchone()
+    async def get_full(
+        self, question_id: int, part: str
+    ) -> tuple[Question, QuestionOrigin]:
+        base = _question_full(_validate_part(part))
+        cur = await self._conn.execute(
+            base + " WHERE q.question_id = %s", (question_id,)
+        )
+        row = await cur.fetchone()
         if row is None:
             raise KeyError(f"Question {question_id} not found")
-        question = Question(
-            question_id=row[0],
-            part=row[1],
-            question_number=row[2],
-            num_options=row[3],
-            image_data=row[4],
-            telegram_file_id=row[5],
-        )
+        question = _row_to_question(row)
         origin = QuestionOrigin(
-            year=row[6],
-            option_number=row[7],
-            exam_type=row[8],
+            year=row["year_value"],
+            option_number=row["option_number"],
+            exam_type=row["exam_type"],
         )
         return question, origin
 
 
 class StudentRepository:
-    """Repository for Telegram users."""
+    """Repository for Telegram users (students)."""
 
-    def __init__(self, conn: sqlite3.Connection) -> None:
+    def __init__(self, conn: AsyncConnection) -> None:
         self._conn = conn
 
-    def get_or_create(
+    async def get_or_create(
         self, telegram_id: int, name: str, username: str | None = None
     ) -> Student:
-        self._conn.execute(
-            "INSERT OR IGNORE INTO students (telegram_id, name, username)"
-            " VALUES (?, ?, ?)",
+        # One round-trip get-or-create: if the row exists, RETURNING fires via
+        # the no-op DO UPDATE; if it doesn't, the INSERT fires. The row's
+        # original ``created_at`` is preserved because we don't touch it.
+        cur = await self._conn.execute(
+            "INSERT INTO students (telegram_id, name, username)"
+            " VALUES (%s, %s, %s)"
+            " ON CONFLICT (telegram_id)"
+            " DO UPDATE SET name = EXCLUDED.name, username = EXCLUDED.username"
+            " RETURNING student_id, telegram_id, name, username",
             (telegram_id, name, username),
         )
-        row = self._conn.execute(
-            "SELECT student_id, telegram_id, name, username"
-            "  FROM students WHERE telegram_id = ?",
-            (telegram_id,),
-        ).fetchone()
+        row = await cur.fetchone()
+        assert row is not None
         return Student(
-            student_id=row[0],
-            telegram_id=row[1],
-            name=row[2],
-            username=row[3],
+            student_id=row["student_id"],
+            telegram_id=row["telegram_id"],
+            name=row["name"],
+            username=row["username"],
         )
 
 
 class SessionRepository:
     """Repository for test sessions and per-question answers."""
 
-    def __init__(self, conn: sqlite3.Connection) -> None:
+    def __init__(self, conn: AsyncConnection) -> None:
         self._conn = conn
 
-    def create(self, student_id: int, option_id: int) -> Session:
-        row = self._conn.execute(
+    async def create(self, student_id: int, option_id: int) -> Session:
+        cur = await self._conn.execute(
             "INSERT INTO test_sessions (student_id, option_id)"
-            " VALUES (?, ?)"
+            " VALUES (%s, %s)"
             " RETURNING session_id, student_id, option_id, started_at, completed_at",
             (student_id, option_id),
-        ).fetchone()
+        )
+        row = await cur.fetchone()
+        assert row is not None
         return Session(
-            session_id=row[0],
-            student_id=row[1],
-            option_id=row[2],
-            started_at=row[3],
-            completed_at=row[4],
+            session_id=row["session_id"],
+            student_id=row["student_id"],
+            option_id=row["option_id"],
+            started_at=row["started_at"],
+            completed_at=row["completed_at"],
         )
 
-    def record_answer(
+    async def record_answer(
         self,
         session_id: int,
         question_id: int,
@@ -494,207 +546,239 @@ class SessionRepository:
         is_correct: bool,
         time_spent: float,
     ) -> None:
-        self._conn.execute(
-            "INSERT OR IGNORE INTO session_answers"
+        await self._conn.execute(
+            "INSERT INTO session_answers"
             "  (session_id, question_id, student_answer, is_correct, time_spent)"
-            "  VALUES (?, ?, ?, ?, ?)",
-            (session_id, question_id, student_answer, int(is_correct), time_spent),
+            " VALUES (%s, %s, %s, %s, %s)"
+            " ON CONFLICT (session_id, question_id) DO NOTHING",
+            (session_id, question_id, student_answer, is_correct, time_spent),
         )
 
-    def complete(self, session_id: int) -> TestResult:
-        self._conn.execute(
-            "UPDATE test_sessions SET completed_at = CURRENT_TIMESTAMP"
-            " WHERE session_id = ?",
+    async def complete(self, session_id: int) -> TestResult:
+        await self._conn.execute(
+            "UPDATE test_sessions SET completed_at = NOW() WHERE session_id = %s",
             (session_id,),
         )
-        return self.get_result(session_id)
+        return await self.get_result(session_id)
 
-    def get_session_info(self, session_id: int) -> SessionInfo:
-        row = self._conn.execute(
-            "SELECT s.name, b.year_value, o.option_number"
+    async def get_session_info(self, session_id: int) -> SessionInfo:
+        cur = await self._conn.execute(
+            "SELECT s.name AS subject_name, b.year_value, o.option_number"
             "  FROM test_sessions ts"
             "  JOIN options o ON o.option_id = ts.option_id"
             "  JOIN books b ON b.book_id = o.book_id"
             "  JOIN subjects s ON s.subject_id = b.subject_id"
-            " WHERE ts.session_id = ?",
+            " WHERE ts.session_id = %s",
             (session_id,),
-        ).fetchone()
+        )
+        row = await cur.fetchone()
         if row is None:
             raise KeyError(f"Session {session_id} not found")
-        return SessionInfo(row[0], row[1], row[2])
+        return SessionInfo(row["subject_name"], row["year_value"], row["option_number"])
 
-    def get_wrong_answers(self, session_id: int) -> list[WrongAnswer]:
-        rows = _union_both_parts(
+    async def get_wrong_answers(self, session_id: int) -> list[WrongAnswer]:
+        rows = await _union_both_parts(
             self._conn,
-            select_a="q.question_number, 'A', sa.student_answer, q.answer",
+            select_a=(
+                "q.question_number AS question_number, 'A' AS part,"
+                " sa.student_answer AS student_answer, q.answer::text AS correct_answer"
+            ),
+            select_b=(
+                "q.question_number AS question_number, 'B' AS part,"
+                " sa.student_answer AS student_answer, q.answer AS correct_answer"
+            ),
             joins="JOIN session_answers sa ON sa.question_id = q.question_id",
-            where="WHERE sa.session_id = ? AND sa.is_correct = 0",
-            order_by="2, 1",
+            where="WHERE sa.session_id = %s AND sa.is_correct = FALSE",
+            order_by="part, question_number",
             params=(session_id,),
-            select_b="q.question_number, 'B', sa.student_answer, q.answer",
         )
-        return [WrongAnswer(*r) for r in rows]
+        return [
+            WrongAnswer(
+                question_number=r["question_number"],
+                part=r["part"],
+                student_answer=r["student_answer"],
+                correct_answer=r["correct_answer"],
+            )
+            for r in rows
+        ]
 
-    def get_result(self, session_id: int) -> TestResult:
-        session_row = self._conn.execute(
+    async def get_result(self, session_id: int) -> TestResult:
+        cur = await self._conn.execute(
             "SELECT o.exam_type, o.option_number, ts.started_at, ts.completed_at"
             "  FROM test_sessions ts"
             "  JOIN options o ON o.option_id = ts.option_id"
-            " WHERE ts.session_id = ?",
+            " WHERE ts.session_id = %s",
             (session_id,),
-        ).fetchone()
+        )
+        session_row = await cur.fetchone()
         if session_row is None:
             raise KeyError(f"Session {session_id} not found")
 
-        part_a = self._conn.execute(
-            "SELECT SUM(sa.is_correct), COUNT(*)"
+        cur_a = await self._conn.execute(
+            "SELECT COUNT(*) FILTER (WHERE sa.is_correct) AS correct,"
+            "       COUNT(*) AS total"
             "  FROM session_answers sa"
             "  JOIN part_a_questions q ON sa.question_id = q.question_id"
-            " WHERE sa.session_id = ?",
+            " WHERE sa.session_id = %s",
             (session_id,),
-        ).fetchone()
-        part_b = self._conn.execute(
-            "SELECT SUM(sa.is_correct), COUNT(*)"
+        )
+        part_a = await cur_a.fetchone()
+
+        cur_b = await self._conn.execute(
+            "SELECT COUNT(*) FILTER (WHERE sa.is_correct) AS correct,"
+            "       COUNT(*) AS total"
             "  FROM session_answers sa"
             "  JOIN part_b_questions q ON sa.question_id = q.question_id"
-            " WHERE sa.session_id = ?",
+            " WHERE sa.session_id = %s",
             (session_id,),
-        ).fetchone()
+        )
+        part_b = await cur_b.fetchone()
+        assert part_a is not None
+        assert part_b is not None
 
-        part_a_score = part_a[0] or 0
-        part_b_score = part_b[0] or 0
-        max_a = part_a[1]
-        max_b = part_b[1]
-
-        exam_type = session_row[0]
-        started = datetime.fromisoformat(session_row[2])
-        completed = datetime.fromisoformat(session_row[3])
-
+        started = session_row["started_at"]
+        completed = session_row["completed_at"]
         return TestResult(
             session_id=session_id,
-            exam_type=exam_type,
-            part_a_score=part_a_score,
-            part_b_score=part_b_score,
-            total_score=part_a_score + part_b_score,
-            max_score=max_a + max_b,
+            exam_type=session_row["exam_type"],
+            part_a_score=part_a["correct"],
+            part_b_score=part_b["correct"],
+            total_score=part_a["correct"] + part_b["correct"],
+            max_score=part_a["total"] + part_b["total"],
             time_spent=(completed - started).total_seconds(),
             completed_at=completed,
         )
 
 
 class AuthorizedUserRepository:
-    """Repository for authorized users and registration requests."""
+    """Repository for the registration / approval workflow."""
 
-    def __init__(self, conn: sqlite3.Connection) -> None:
+    def __init__(self, conn: AsyncConnection) -> None:
         self._conn = conn
 
-    def get_status(self, telegram_id: int) -> str | None:
-        """Return status ('pending'/'approved'/'rejected') or None if not found."""
-        row = self._conn.execute(
-            "SELECT status FROM authorized_users WHERE telegram_id = ?",
+    async def get_status(self, telegram_id: int) -> str | None:
+        cur = await self._conn.execute(
+            "SELECT status FROM authorized_users WHERE telegram_id = %s",
             (telegram_id,),
-        ).fetchone()
-        return row[0] if row else None
+        )
+        row = await cur.fetchone()
+        return row["status"] if row else None
 
-    def create_request(
+    async def create_request(
         self,
         telegram_id: int,
         full_name: str,
         telegram_username: str | None = None,
     ) -> AuthorizedUser:
-        row = self._conn.execute(
-            "INSERT OR REPLACE INTO authorized_users"
-            "  (telegram_id, full_name, telegram_username, status)"
-            " VALUES (?, ?, ?, 'pending')"
+        # Re-applying preserves the original ``created_at`` and clears the
+        # handled_at / handled_by fields from any previous decision.
+        cur = await self._conn.execute(
+            "INSERT INTO authorized_users"
+            " (telegram_id, full_name, telegram_username, status)"
+            " VALUES (%s, %s, %s, 'pending')"
+            " ON CONFLICT (telegram_id) DO UPDATE SET"
+            "   full_name = EXCLUDED.full_name,"
+            "   telegram_username = EXCLUDED.telegram_username,"
+            "   status = 'pending',"
+            "   handled_at = NULL,"
+            "   handled_by = NULL"
             " RETURNING telegram_id, full_name, telegram_username,"
             "          status, created_at, handled_at, handled_by",
             (telegram_id, full_name, telegram_username),
-        ).fetchone()
-        return AuthorizedUser(
-            telegram_id=row[0],
-            full_name=row[1],
-            telegram_username=row[2],
-            status=row[3],
-            created_at=datetime.fromisoformat(row[4]),
-            handled_at=datetime.fromisoformat(row[5]) if row[5] else None,
-            handled_by=row[6],
         )
+        row = await cur.fetchone()
+        assert row is not None
+        return _row_to_authorized_user(row)
 
-    def approve(self, telegram_id: int, admin_id: int) -> AuthorizedUser:
-        row = self._conn.execute(
+    async def approve(self, telegram_id: int, admin_id: int) -> AuthorizedUser:
+        return await self._set_status(telegram_id, admin_id, "approved")
+
+    async def reject(self, telegram_id: int, admin_id: int) -> AuthorizedUser:
+        return await self._set_status(telegram_id, admin_id, "rejected")
+
+    async def _set_status(
+        self, telegram_id: int, admin_id: int, status: str
+    ) -> AuthorizedUser:
+        cur = await self._conn.execute(
             "UPDATE authorized_users"
-            " SET status = 'approved', handled_at = CURRENT_TIMESTAMP, handled_by = ?"
-            " WHERE telegram_id = ?"
+            " SET status = %s, handled_at = NOW(), handled_by = %s"
+            " WHERE telegram_id = %s"
             " RETURNING telegram_id, full_name, telegram_username,"
             "          status, created_at, handled_at, handled_by",
-            (admin_id, telegram_id),
-        ).fetchone()
-        if row is None:
-            msg = f"No registration request found for {telegram_id}"
-            raise KeyError(msg)
-        return AuthorizedUser(
-            telegram_id=row[0],
-            full_name=row[1],
-            telegram_username=row[2],
-            status=row[3],
-            created_at=datetime.fromisoformat(row[4]),
-            handled_at=datetime.fromisoformat(row[5]) if row[5] else None,
-            handled_by=row[6],
+            (status, admin_id, telegram_id),
         )
-
-    def reject(self, telegram_id: int, admin_id: int) -> AuthorizedUser:
-        row = self._conn.execute(
-            "UPDATE authorized_users"
-            " SET status = 'rejected', handled_at = CURRENT_TIMESTAMP, handled_by = ?"
-            " WHERE telegram_id = ?"
-            " RETURNING telegram_id, full_name, telegram_username,"
-            "          status, created_at, handled_at, handled_by",
-            (admin_id, telegram_id),
-        ).fetchone()
+        row = await cur.fetchone()
         if row is None:
-            msg = f"No registration request found for {telegram_id}"
-            raise KeyError(msg)
-        return AuthorizedUser(
-            telegram_id=row[0],
-            full_name=row[1],
-            telegram_username=row[2],
-            status=row[3],
-            created_at=datetime.fromisoformat(row[4]),
-            handled_at=datetime.fromisoformat(row[5]) if row[5] else None,
-            handled_by=row[6],
-        )
+            raise KeyError(f"No registration request found for {telegram_id}")
+        return _row_to_authorized_user(row)
 
-    def delete_request(self, telegram_id: int) -> None:
-        """Delete a request so the user can re-apply."""
-        self._conn.execute(
-            "DELETE FROM authorized_users WHERE telegram_id = ?",
+    async def delete_request(self, telegram_id: int) -> None:
+        await self._conn.execute(
+            "DELETE FROM authorized_users WHERE telegram_id = %s",
             (telegram_id,),
         )
 
-    def get_request(self, telegram_id: int) -> AuthorizedUser | None:
-        """Return the full request record, or None if not found."""
-        row = self._conn.execute(
+    async def get_request(self, telegram_id: int) -> AuthorizedUser | None:
+        cur = await self._conn.execute(
             "SELECT telegram_id, full_name, telegram_username,"
             "       status, created_at, handled_at, handled_by"
-            "  FROM authorized_users WHERE telegram_id = ?",
+            "  FROM authorized_users WHERE telegram_id = %s",
             (telegram_id,),
-        ).fetchone()
-        if row is None:
-            return None
-        return AuthorizedUser(
-            telegram_id=row[0],
-            full_name=row[1],
-            telegram_username=row[2],
-            status=row[3],
-            created_at=datetime.fromisoformat(row[4]),
-            handled_at=datetime.fromisoformat(row[5]) if row[5] else None,
-            handled_by=row[6],
         )
+        row = await cur.fetchone()
+        return _row_to_authorized_user(row) if row else None
 
-    def is_authorized(self, telegram_id: int) -> bool:
-        row = self._conn.execute(
+    async def is_authorized(self, telegram_id: int) -> bool:
+        cur = await self._conn.execute(
             "SELECT 1 FROM authorized_users"
-            " WHERE telegram_id = ? AND status = 'approved'",
+            " WHERE telegram_id = %s AND status = 'approved'",
             (telegram_id,),
-        ).fetchone()
-        return row is not None
+        )
+        return await cur.fetchone() is not None
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _validate_part(part: str) -> Part:
+    if part not in _PART_TABLES:
+        raise ValueError(f"Unknown part {part!r}; expected 'A' or 'B'")
+    return part  # type: ignore[return-value]
+
+
+def _row_to_question(row: dict[str, Any]) -> Question:
+    return Question(
+        question_id=row["question_id"],
+        part=row["part"],
+        question_number=row["question_number"],
+        num_options=row["a_num_options"],
+        image_data=bytes(row["image_data"]) if row["image_data"] is not None else b"",
+        telegram_file_id=row["telegram_file_id"],
+    )
+
+
+def _row_to_authorized_user(row: dict[str, Any]) -> AuthorizedUser:
+    return AuthorizedUser(
+        telegram_id=row["telegram_id"],
+        full_name=row["full_name"],
+        telegram_username=row["telegram_username"],
+        status=row["status"],
+        created_at=row["created_at"],
+        handled_at=row["handled_at"],
+        handled_by=row["handled_by"],
+    )
+
+
+__all__ = [
+    "AuthorizedUserRepository",
+    "BookRepository",
+    "QuestionOrigin",
+    "QuestionRepository",
+    "SessionInfo",
+    "SessionRepository",
+    "StudentRepository",
+    "SubjectRow",
+    "WrongAnswer",
+]

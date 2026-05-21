@@ -1,14 +1,14 @@
 """Start command, registration flow, and admin approval callbacks."""
 
-from datetime import UTC, datetime
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from aiogram import Bot, Router, types
 from aiogram.filters import CommandStart
-from aiogram.fsm.context import FSMContext
 from aiogram.types import Message as TgMessage
 
 from digitex.bot.constants import FALLBACK_NAME
-from digitex.bot.database import with_uow
 from digitex.bot.keyboards import admin_registration_kb, subjects_kb
 from digitex.bot.messages import (
     MSG_ADMIN_NEW_REQUEST,
@@ -23,7 +23,14 @@ from digitex.bot.messages import (
     MSG_REQUEST_SENT,
 )
 from digitex.bot.states import Navigation, Registration
+from digitex.core.db import UnitOfWork
 from digitex.utils import get_tz
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from aiogram.fsm.context import FSMContext
+    from psycopg_pool import AsyncConnectionPool
 
 router = Router()
 
@@ -44,7 +51,7 @@ MONTHS_RU = [
 
 
 def _format_datetime(dt: datetime) -> str:
-    local = dt.replace(tzinfo=UTC).astimezone(get_tz())
+    local = dt.astimezone(get_tz())
     time_str = f"{local.hour:02d}:{local.minute:02d}"
     return f"{local.day} {MONTHS_RU[local.month - 1]} {local.year} в {time_str}"
 
@@ -59,21 +66,20 @@ def _get_user_info(
 
 
 async def _normal_start(
-    message: types.Message, state: FSMContext, db_path: str
+    message: types.Message, state: FSMContext, pool: AsyncConnectionPool
 ) -> None:
-    def register(uow):
-        telegram_id = message.from_user.id if message.from_user else 0
-        name = message.from_user.full_name if message.from_user else FALLBACK_NAME
-        username = message.from_user.username if message.from_user else None
-        student = uow.students.get_or_create(
+    telegram_id = message.from_user.id if message.from_user else 0
+    name = message.from_user.full_name if message.from_user else FALLBACK_NAME
+    username = message.from_user.username if message.from_user else None
+
+    async with UnitOfWork(pool) as uow:
+        student = await uow.students.get_or_create(
             telegram_id=telegram_id,
             name=name,
             username=username,
         )
-        subjects = uow.books.list_subjects()
-        return student, subjects
+        subjects = await uow.books.list_subjects()
 
-    student, subjects = await with_uow(db_path, register)
     user_name = message.from_user.full_name if message.from_user else FALLBACK_NAME
     await state.clear()
     await state.update_data(student_id=student.student_id)
@@ -86,37 +92,37 @@ async def _normal_start(
 
 @router.message(CommandStart())
 async def cmd_start(
-    message: types.Message, state: FSMContext, db_path: str, admin_user_id: int
+    message: types.Message,
+    state: FSMContext,
+    pool: AsyncConnectionPool,
+    admin_user_id: int,
 ) -> None:
     telegram_id, _name, _username = _get_user_info(message)
 
     if telegram_id == admin_user_id:
-        await _normal_start(message, state, db_path)
+        await _normal_start(message, state, pool)
         return
 
-    status = await with_uow(
-        db_path, lambda uow: uow.authorized_users.get_status(telegram_id)
-    )
+    async with UnitOfWork(pool) as uow:
+        status = await uow.authorized_users.get_status(telegram_id)
 
     if status is None:
         await state.set_state(Registration.waiting_for_name)
         await message.answer(MSG_REGISTRATION_INFO, parse_mode="HTML")
         await message.answer(MSG_ASK_NAME, parse_mode="HTML")
     elif status == "pending":
-        request = await with_uow(
-            db_path, lambda uow: uow.authorized_users.get_request(telegram_id)
-        )
+        async with UnitOfWork(pool) as uow:
+            request = await uow.authorized_users.get_request(telegram_id)
         date_str = _format_datetime(request.created_at) if request else "—"
         await message.answer(MSG_PENDING.format(date=date_str), parse_mode="HTML")
     elif status == "rejected":
-        await with_uow(
-            db_path, lambda uow: uow.authorized_users.delete_request(telegram_id)
-        )
+        async with UnitOfWork(pool) as uow:
+            await uow.authorized_users.delete_request(telegram_id)
         await state.set_state(Registration.waiting_for_name)
         await message.answer(MSG_REGISTRATION_INFO, parse_mode="HTML")
         await message.answer(MSG_ASK_NAME, parse_mode="HTML")
     else:
-        await _normal_start(message, state, db_path)
+        await _normal_start(message, state, pool)
 
 
 @router.message(Registration.waiting_for_name)
@@ -124,7 +130,7 @@ async def process_name(
     message: types.Message,
     state: FSMContext,
     bot: Bot,
-    db_path: str,
+    pool: AsyncConnectionPool,
     admin_user_id: int,
 ) -> None:
     telegram_id, _, username = _get_user_info(message)
@@ -134,14 +140,12 @@ async def process_name(
         await message.answer("Пожалуйста, введите ваши имя и фамилию:")
         return
 
-    def create(uow):
-        return uow.authorized_users.create_request(
+    async with UnitOfWork(pool) as uow:
+        request = await uow.authorized_users.create_request(
             telegram_id=telegram_id,
             full_name=full_name,
             telegram_username=username,
         )
-
-    request = await with_uow(db_path, create)
     await state.clear()
 
     date_str = _format_datetime(request.created_at)
@@ -164,7 +168,10 @@ async def process_name(
 
 @router.callback_query(lambda c: c.data and c.data.startswith("reg:"))
 async def handle_reg_callback(
-    callback: types.CallbackQuery, bot: Bot, db_path: str, admin_user_id: int
+    callback: types.CallbackQuery,
+    bot: Bot,
+    pool: AsyncConnectionPool,
+    admin_user_id: int,
 ) -> None:
     if callback.from_user.id != admin_user_id:
         await callback.answer(
@@ -189,11 +196,10 @@ async def handle_reg_callback(
         return
 
     if action == "approve":
-
-        def approve(uow):
-            return uow.authorized_users.approve(target_id, callback.from_user.id)
-
-        user_record = await with_uow(db_path, approve)
+        async with UnitOfWork(pool) as uow:
+            user_record = await uow.authorized_users.approve(
+                target_id, callback.from_user.id
+            )
         await bot.send_message(target_id, MSG_APPROVED_USER)
         if isinstance(callback.message, TgMessage):
             await callback.message.edit_reply_markup(reply_markup=None)
@@ -201,11 +207,10 @@ async def handle_reg_callback(
             MSG_APPROVED_ADMIN.format(full_name=user_record.full_name)
         )
     elif action == "reject":
-
-        def reject(uow):
-            return uow.authorized_users.reject(target_id, callback.from_user.id)
-
-        user_record = await with_uow(db_path, reject)
+        async with UnitOfWork(pool) as uow:
+            user_record = await uow.authorized_users.reject(
+                target_id, callback.from_user.id
+            )
         await bot.send_message(target_id, MSG_REJECTED_USER)
         if isinstance(callback.message, TgMessage):
             await callback.message.edit_reply_markup(reply_markup=None)

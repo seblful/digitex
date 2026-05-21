@@ -1,10 +1,12 @@
 """Subject → Year → Option selection callbacks."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from aiogram import F, Router, types
-from aiogram.fsm.context import FSMContext
 
 from digitex.bot.constants import FALLBACK_NAME
-from digitex.bot.database import with_uow
 from digitex.bot.handlers.random import start_random_question
 from digitex.bot.handlers.testing import send_current_question
 from digitex.bot.keyboards import (
@@ -29,6 +31,11 @@ from digitex.bot.messages import (
     MSG_YEAR_SELECT,
 )
 from digitex.bot.states import Navigation, Testing
+from digitex.core.db import UnitOfWork
+
+if TYPE_CHECKING:
+    from aiogram.fsm.context import FSMContext
+    from psycopg_pool import AsyncConnectionPool
 
 router = Router()
 
@@ -51,7 +58,7 @@ async def on_subject_selected(callback: types.CallbackQuery, state: FSMContext) 
 
 @router.callback_query(Navigation.select_mode, F.data.startswith("mode:"))
 async def on_mode_selected(
-    callback: types.CallbackQuery, state: FSMContext, db_path: str
+    callback: types.CallbackQuery, state: FSMContext, pool: AsyncConnectionPool
 ) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
@@ -63,13 +70,11 @@ async def on_mode_selected(
 
     match mode:
         case "standard":
-            years = await with_uow(
-                db_path, lambda uow: uow.books.list_years(subject_id)
-            )
+            async with UnitOfWork(pool) as uow:
+                years = await uow.books.list_years(subject_id)
             if not years:
-                subjects = await with_uow(
-                    db_path, lambda uow: uow.books.list_subjects()
-                )
+                async with UnitOfWork(pool) as uow:
+                    subjects = await uow.books.list_subjects()
                 await callback.message.edit_text(
                     MSG_NO_YEARS,
                     reply_markup=subjects_kb(subjects),
@@ -89,9 +94,8 @@ async def on_mode_selected(
             await state.set_state(Navigation.select_random_exam_type)
 
         case "topics":
-            topics = await with_uow(
-                db_path, lambda uow: uow.questions.get_topics_for_subject(subject_id)
-            )
+            async with UnitOfWork(pool) as uow:
+                topics = await uow.questions.get_topics_for_subject(subject_id)
             if not topics:
                 await callback.message.edit_text(MSG_NO_TOPICS)
                 await callback.answer()
@@ -107,7 +111,7 @@ async def on_mode_selected(
 
 @router.callback_query(Navigation.select_topic, F.data.startswith("topic:"))
 async def on_topic_selected(
-    callback: types.CallbackQuery, state: FSMContext, db_path: str
+    callback: types.CallbackQuery, state: FSMContext, pool: AsyncConnectionPool
 ) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
@@ -118,7 +122,7 @@ async def on_topic_selected(
     topic_name = data["topic_names"][idx]
     await state.update_data(topic_name=topic_name)
 
-    await start_random_question(callback.message, state, callback.bot, db_path)
+    await start_random_question(callback.message, state, callback.bot, pool)
     await callback.answer()
 
 
@@ -141,7 +145,7 @@ async def on_random_exam_type_selected(
 
 @router.callback_query(Navigation.select_random_part, F.data.startswith("random_part:"))
 async def on_random_part_selected(
-    callback: types.CallbackQuery, state: FSMContext, db_path: str
+    callback: types.CallbackQuery, state: FSMContext, pool: AsyncConnectionPool
 ) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
@@ -150,13 +154,13 @@ async def on_random_part_selected(
     part = callback.data.split(":")[1]
     await state.update_data(random_part=part)
 
-    await start_random_question(callback.message, state, callback.bot, db_path)
+    await start_random_question(callback.message, state, callback.bot, pool)
     await callback.answer()
 
 
 @router.callback_query(Navigation.select_year, F.data.startswith("year:"))
 async def on_year_selected(
-    callback: types.CallbackQuery, state: FSMContext, db_path: str
+    callback: types.CallbackQuery, state: FSMContext, pool: AsyncConnectionPool
 ) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
@@ -172,14 +176,14 @@ async def on_year_selected(
         )
         await state.set_state(Navigation.select_exam_type)
     else:
-        await _show_options_for_exam_type(callback.message, state, year, "CT", db_path)
+        await _show_options_for_exam_type(callback.message, state, year, "CT", pool)
 
     await callback.answer()
 
 
 @router.callback_query(Navigation.select_exam_type, F.data.startswith("exam_type:"))
 async def on_exam_type_selected(
-    callback: types.CallbackQuery, state: FSMContext, db_path: str
+    callback: types.CallbackQuery, state: FSMContext, pool: AsyncConnectionPool
 ) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
@@ -188,7 +192,7 @@ async def on_exam_type_selected(
     exam_type = callback.data.split(":")[1]
     data = await state.get_data()
     year = data["year"]
-    await _show_options_for_exam_type(callback.message, state, year, exam_type, db_path)
+    await _show_options_for_exam_type(callback.message, state, year, exam_type, pool)
     await callback.answer()
 
 
@@ -197,17 +201,15 @@ async def _show_options_for_exam_type(
     state: FSMContext,
     year: int,
     exam_type: str,
-    db_path: str,
+    pool: AsyncConnectionPool,
 ) -> None:
     data = await state.get_data()
     subject_id = data["subject_id"]
 
-    def fetch_options(uow):
-        book_id = uow.books.get_or_create_book(subject_id, year)
-        options = uow.books.list_options(book_id, exam_type)
-        return book_id, options
+    async with UnitOfWork(pool) as uow:
+        book_id = await uow.books.get_or_create_book(subject_id, year)
+        options = await uow.books.list_options(book_id, exam_type)
 
-    book_id, options = await with_uow(db_path, fetch_options)
     if not options:
         await message.edit_text(MSG_NO_OPTIONS.format(exam_type=exam_type))
         await state.set_state(Navigation.select_year)
@@ -220,7 +222,7 @@ async def _show_options_for_exam_type(
 
 @router.callback_query(Navigation.select_option, F.data.startswith("opt:"))
 async def on_option_selected(
-    callback: types.CallbackQuery, state: FSMContext, db_path: str
+    callback: types.CallbackQuery, state: FSMContext, pool: AsyncConnectionPool
 ) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
@@ -229,9 +231,9 @@ async def on_option_selected(
     option_number = int(callback.data.split(":")[1])
     data = await state.get_data()
     book_id = data["book_id"]
+    student_id = data.get("student_id")
 
-    def start_test(uow):
-        student_id = data.get("student_id")
+    async with UnitOfWork(pool) as uow:
         if student_id is None:
             telegram_id = callback.from_user.id if callback.from_user else 0
             name = (
@@ -240,19 +242,19 @@ async def on_option_selected(
                 else FALLBACK_NAME
             )
             username = callback.from_user.username if callback.from_user else None
-            student = uow.students.get_or_create(
+            student = await uow.students.get_or_create(
                 telegram_id=telegram_id,
                 name=name,
                 username=username,
             )
             student_id = student.student_id
-        option_id = uow.books.get_option_id(book_id, option_number)
-        session = uow.sessions.create(student_id, option_id)
-        qs = uow.questions.list_for_option(option_id, "A")
-        qs += uow.questions.list_for_option(option_id, "B")
-        return session.session_id, [(q.question_id, q.part) for q in qs]
+        option_id = await uow.books.get_option_id(book_id, option_number)
+        session = await uow.sessions.create(student_id, option_id)
+        qs = await uow.questions.list_for_option(option_id, "A")
+        qs += await uow.questions.list_for_option(option_id, "B")
+        question_ids = [(q.question_id, q.part) for q in qs]
+        session_id = session.session_id
 
-    session_id, question_ids = await with_uow(db_path, start_test)
     await callback.message.edit_text(MSG_START_TESTING)
     await state.update_data(
         session_id=session_id,
@@ -262,4 +264,4 @@ async def on_option_selected(
     await state.set_state(Testing.answering)
     await callback.answer()
 
-    await send_current_question(callback.message, state, callback.bot, db_path)
+    await send_current_question(callback.message, state, callback.bot, pool)

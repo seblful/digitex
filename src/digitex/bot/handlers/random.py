@@ -1,12 +1,13 @@
 """Handler for random question mode."""
 
+from __future__ import annotations
+
 import time
+from typing import TYPE_CHECKING
 
 from aiogram import Bot, F, Router, types
-from aiogram.fsm.context import FSMContext
 
 from digitex.bot.answer_flow import ask_question
-from digitex.bot.database import with_uow
 from digitex.bot.keyboards import random_feedback_kb
 from digitex.bot.messages import (
     MSG_CORRECT_ANSWER,
@@ -19,6 +20,11 @@ from digitex.bot.messages import (
 )
 from digitex.bot.states import RandomTesting
 from digitex.core.answer import check_answer
+from digitex.core.db import UnitOfWork
+
+if TYPE_CHECKING:
+    from aiogram.fsm.context import FSMContext
+    from psycopg_pool import AsyncConnectionPool
 
 router = Router()
 
@@ -34,44 +40,35 @@ def _build_caption(origin, topic_name: str | None) -> str:
     return spoiler
 
 
-def _fetch_by_topic(uow, subject_id: int, topic_name: str):
-    qid, part = uow.questions.get_random_question_id_by_topic(subject_id, topic_name)
-    return uow.questions.get_full(qid, part)
-
-
-def _fetch_by_part(uow, subject_id: int, part: str, exam_type: str | None):
-    qid = uow.questions.get_random_question_id(subject_id, part, exam_type)
-    return uow.questions.get_full(qid, part)
-
-
 async def start_random_question(
     message: types.Message,
     state: FSMContext,
     bot: Bot,
-    db_path: str,
+    pool: AsyncConnectionPool,
 ) -> None:
     data = await state.get_data()
     subject_id = data["subject_id"]
     topic_name = data.get("topic_name")
 
-    if topic_name:
-        try:
-            question, origin = await with_uow(
-                db_path, lambda uow: _fetch_by_topic(uow, subject_id, topic_name)
-            )
-        except KeyError:
+    try:
+        async with UnitOfWork(pool) as uow:
+            if topic_name:
+                qid, part = await uow.questions.get_random_question_id_by_topic(
+                    subject_id, topic_name
+                )
+            else:
+                part = data["random_part"]
+                exam_type = data.get("exam_type")
+                qid = await uow.questions.get_random_question_id(
+                    subject_id, part, exam_type
+                )
+            question, origin = await uow.questions.get_full(qid, part)
+    except KeyError:
+        if topic_name:
             await message.answer(MSG_NO_TOPIC_QUESTION)
-            return
-    else:
-        part = data["random_part"]
-        exam_type = data.get("exam_type")
-        try:
-            question, origin = await with_uow(
-                db_path, lambda uow: _fetch_by_part(uow, subject_id, part, exam_type)
-            )
-        except KeyError:
+        else:
             await message.answer(MSG_NO_RANDOM_QUESTION)
-            return
+        return
 
     await state.update_data(
         current_question_id=question.question_id,
@@ -80,28 +77,26 @@ async def start_random_question(
     )
 
     caption = _build_caption(origin, topic_name)
-    await ask_question(
-        bot, message, question, db_path, caption=caption, parse_mode="HTML"
-    )
+    await ask_question(bot, message, question, pool, caption=caption, parse_mode="HTML")
     await state.set_state(RandomTesting.answering)
 
 
 @router.callback_query(RandomTesting.answering, F.data.startswith("ans:"))
 async def on_random_part_a_answer(
-    callback: types.CallbackQuery, state: FSMContext, db_path: str
+    callback: types.CallbackQuery, state: FSMContext, pool: AsyncConnectionPool
 ) -> None:
     if not callback.data or not isinstance(callback.message, types.Message):
         await callback.answer()
         return
 
     answer = callback.data.split(":")[1]
-    await process_random_answer(callback.message, state, answer, db_path)
+    await process_random_answer(callback.message, state, answer, pool)
     await callback.answer()
 
 
 @router.message(RandomTesting.answering)
 async def on_random_part_b_answer(
-    message: types.Message, state: FSMContext, db_path: str
+    message: types.Message, state: FSMContext, pool: AsyncConnectionPool
 ) -> None:
     if not message.text:
         return
@@ -110,23 +105,23 @@ async def on_random_part_b_answer(
     if data.get("current_part") != "B":
         return
 
-    await process_random_answer(message, state, message.text, db_path)
+    await process_random_answer(message, state, message.text, pool)
 
 
 async def process_random_answer(
     message: types.Message,
     state: FSMContext,
     answer: str,
-    db_path: str,
+    pool: AsyncConnectionPool,
 ) -> None:
     data = await state.get_data()
     question_id = data["current_question_id"]
     current_part = data["current_part"]
 
-    def get_correct(uow):
-        return uow.questions.get_correct_answer(question_id, current_part)
-
-    correct_answer = await with_uow(db_path, get_correct)
+    async with UnitOfWork(pool) as uow:
+        correct_answer = await uow.questions.get_correct_answer(
+            question_id, current_part
+        )
     is_correct = check_answer(current_part, answer, correct_answer)
 
     if is_correct:
@@ -142,12 +137,12 @@ async def process_random_answer(
 
 @router.callback_query(RandomTesting.feedback, F.data == "random:next")
 async def on_random_next(
-    callback: types.CallbackQuery, state: FSMContext, db_path: str
+    callback: types.CallbackQuery, state: FSMContext, pool: AsyncConnectionPool
 ) -> None:
     if not callback.message or not isinstance(callback.message, types.Message):
         await callback.answer("Ошибка: сообщение недоступно")
         return
-    await start_random_question(callback.message, state, callback.bot, db_path)
+    await start_random_question(callback.message, state, callback.bot, pool)
     await callback.answer()
 
 

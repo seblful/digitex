@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from aiogram import Bot, Router, types
 
-from digitex.bot.database import with_uow
 from digitex.bot.keyboards import subjects_kb
 from digitex.bot.messages import (
     MSG_EXAM_CE,
@@ -27,9 +26,11 @@ from digitex.bot.messages import (
     MSG_RESULTS_YEAR,
 )
 from digitex.bot.states import Navigation
+from digitex.core.db import UnitOfWork
 
 if TYPE_CHECKING:
     from aiogram.fsm.context import FSMContext
+    from psycopg_pool import AsyncConnectionPool
 
     from digitex.core.db.repositories import SessionInfo, WrongAnswer
     from digitex.core.schemas import TestResult
@@ -98,28 +99,23 @@ async def show_results(
     message: types.Message,
     state: FSMContext,
     bot: Bot,
-    db_path: str,
+    pool: AsyncConnectionPool,
 ) -> None:
     data = await state.get_data()
     session_id: int = data["session_id"]
 
-    def get_results(uow):
-        result = uow.sessions.complete(session_id)
-        wrong_rows = uow.sessions.get_wrong_answers(session_id)
-        info = uow.sessions.get_session_info(session_id)
-        return result, wrong_rows, info
-
-    result, wrong_rows, info = await with_uow(db_path, get_results)
+    async with UnitOfWork(pool) as uow:
+        result = await uow.sessions.complete(session_id)
+        wrong_rows = await uow.sessions.get_wrong_answers(session_id)
+        info = await uow.sessions.get_session_info(session_id)
 
     text = "\n".join(_format_result_lines(result, wrong_rows, info))
     await bot.send_message(message.chat.id, text, parse_mode="HTML")
     await state.clear()
     await state.set_state(Navigation.select_subject)
 
-    def list_subjects(uow):
-        return uow.books.list_subjects()
-
-    subjects = await with_uow(db_path, list_subjects)
+    async with UnitOfWork(pool) as uow:
+        subjects = await uow.books.list_subjects()
     await bot.send_message(
         message.chat.id,
         MSG_RESULTS_RETRY,

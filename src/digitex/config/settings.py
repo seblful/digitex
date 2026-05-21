@@ -4,20 +4,20 @@ import os
 from functools import cached_property
 from pathlib import Path
 from threading import Lock
-from typing import Self
+from typing import Literal, Self
 
 from dotenv import load_dotenv
-from pydantic import Field, computed_field
+from pydantic import AliasChoices, Field, PostgresDsn, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
 
 def _load_env() -> None:
-    env_specific = (
-        BASE_DIR
-        / f".env.{os.environ.get('ENVIRONMENT') or os.environ.get('APP_ENVIRONMENT', 'development')}"
+    env_name = os.environ.get("ENVIRONMENT") or os.environ.get(
+        "APP_ENVIRONMENT", "development"
     )
+    env_specific = BASE_DIR / f".env.{env_name}"
     if env_specific.exists():
         load_dotenv(env_specific, override=False)
 
@@ -71,13 +71,59 @@ class OpenRouterSettings(BaseSettings):
 
 
 class DatabaseSettings(BaseSettings):
-    """Database connection settings."""
+    """PostgreSQL connection settings.
+
+    The DSN is read from the ``DATABASE_URL`` env var (12-factor convention)
+    or ``DB_DSN`` as a fallback.
+    """
 
     model_config = SettingsConfigDict(env_prefix="DB_", extra="ignore")
 
-    path: str = Field(
-        default="data/development.db", description="Path to the SQLite database file"
+    dsn: PostgresDsn = Field(
+        default=PostgresDsn("postgresql://digitex:digitex@localhost:5432/digitex"),
+        validation_alias=AliasChoices("DB_DSN", "DATABASE_URL"),
+        description="PostgreSQL connection string.",
     )
+    pool_min_size: int = Field(default=2, ge=1)
+    pool_max_size: int = Field(default=10, ge=1)
+    pool_timeout: float = Field(default=10.0, gt=0)
+    statement_timeout_ms: int = Field(
+        default=5000,
+        ge=0,
+        description="Server-side statement timeout in milliseconds.",
+    )
+    idle_in_transaction_timeout_ms: int = Field(
+        default=10000,
+        ge=0,
+        description="Server-side idle-in-transaction timeout in milliseconds.",
+    )
+    sslmode: (
+        Literal["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]
+        | None
+    ) = Field(
+        default=None,
+        description="If set, appended to the DSN as ?sslmode=...",
+    )
+
+    @computed_field
+    @property
+    def conninfo(self) -> str:
+        """DSN as a libpq conninfo string suitable for psycopg/AsyncConnectionPool."""
+        dsn_str = str(self.dsn)
+        if self.sslmode is None:
+            return dsn_str
+        sep = "&" if "?" in dsn_str else "?"
+        return f"{dsn_str}{sep}sslmode={self.sslmode}"
+
+    @computed_field
+    @property
+    def server_options(self) -> str:
+        """Libpq ``options`` parameter setting statement + idle-in-tx timeouts."""
+        idle_ms = self.idle_in_transaction_timeout_ms
+        return (
+            f"-c statement_timeout={self.statement_timeout_ms}"
+            f" -c idle_in_transaction_session_timeout={idle_ms}"
+        )
 
 
 class TrainingSettings(BaseSettings):
@@ -271,7 +317,7 @@ _settings_lock = Lock()
 
 
 def get_settings() -> Settings:
-    global _settings
+    global _settings  # noqa: PLW0603 — module-level cache is the intended pattern
 
     if _settings is None:
         with _settings_lock:

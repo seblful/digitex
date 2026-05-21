@@ -1,13 +1,11 @@
 """Tests for bot handlers."""
 
-import sqlite3
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from aiogram.types import Chat, Message, User
 
-from digitex.bot.database import with_uow
 from digitex.bot.handlers.results import _format_result_lines
 from digitex.bot.renderer import send_question
 from digitex.core.db.repositories import SessionInfo, WrongAnswer
@@ -84,30 +82,6 @@ class TestFormatResultLines:
         )
         text = "\n".join(lines)
         assert "ЦТ" in text or "CT" in text
-
-
-class TestWithUow:
-    def test_runs_callback_in_executor(self) -> None:
-        db_path = ":memory:"
-
-        def init_db():
-            conn = sqlite3.connect(db_path)
-            conn.execute("CREATE TABLE IF NOT EXISTS test (id INTEGER)")
-            conn.commit()
-            conn.close()
-
-        init_db()
-
-        async def run_test() -> int:
-            def callback(uow):
-                return 42
-
-            return await with_uow(db_path, callback)
-
-        import asyncio
-
-        result = asyncio.run(run_test())
-        assert result == 42
 
 
 class TestSendQuestion:

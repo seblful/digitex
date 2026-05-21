@@ -1,25 +1,32 @@
-"""Populate database from extraction output. Initializes DB automatically if needed.
+"""Populate the database from extraction output.
 
-Idempotent — safe to re-run.
+Runs ``alembic upgrade head`` before populating so the schema is always at the
+latest revision. Idempotent — safe to re-run.
 
-Usage:
-    python scripts/populate_db.py              # all subjects
-    python scripts/populate_db.py biology      # single subject
+Usage::
+
+    uv run python scripts/populate_db.py              # all subjects
+    uv run python scripts/populate_db.py biology      # single subject
 """
 
+from __future__ import annotations
+
+import asyncio
 import json
-import sqlite3
 import sys
 from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from tqdm import tqdm
 
 from digitex.config import get_settings
-from digitex.core.db import UnitOfWork
+from digitex.core.db import UnitOfWork, pool_lifespan
 from digitex.core.value_objects import QuestionKey
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
-SQL_SCRIPT_PATH = Path("scripts/script.sql")
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 SUBJECT_NAMES = {
     "biology": "Биология",
@@ -37,22 +44,15 @@ def get_subject_name(subject: str) -> str:
     return SUBJECT_NAMES.get(subject.lower(), subject.capitalize())
 
 
-def init_db(db_path: str) -> None:
-    db_file = Path(db_path)
-    db_file.parent.mkdir(parents=True, exist_ok=True)
-    sql = SQL_SCRIPT_PATH.read_text(encoding="utf-8")
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.executescript(sql)
-        conn.commit()
-        if not db_file.exists() or db_file.stat().st_size == 0:
-            print(f"Initialized database at {db_path}")
-    finally:
-        conn.close()
+def _alembic_upgrade() -> None:
+    cfg = Config(str(_PROJECT_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(_PROJECT_ROOT / "migrations"))
+    command.upgrade(cfg, "head")
 
 
-def _populate_year(uow: UnitOfWork, subject_id: int, year_dir: Path) -> tuple[int, int]:
-    """Returns (questions_loaded, answers_loaded)."""
+async def _populate_year(  # noqa: PLR0912 — linear ETL pipeline; branches reflect the directory layout
+    uow: UnitOfWork, subject_id: int, year_dir: Path
+) -> tuple[int, int]:
     year = int(year_dir.name)
 
     answers: dict[str, dict[str, str]] = {}
@@ -62,16 +62,15 @@ def _populate_year(uow: UnitOfWork, subject_id: int, year_dir: Path) -> tuple[in
     else:
         tqdm.write(f"  Warning: no answers.json in {year_dir}")
 
-    # Compute a_num_options for the year (max Part A answer across all options)
     a_num_options = 0
-    for option, q_answers in answers.items():
+    for q_answers in answers.values():
         for label, answer in q_answers.items():
             if label.startswith("A") and answer.isdigit():
                 a_num_options = max(a_num_options, int(answer))
     if a_num_options == 0:
         a_num_options = 5
 
-    book_id = uow.books.get_or_create_book(subject_id, year, a_num_options)
+    book_id = await uow.books.get_or_create_book(subject_id, year, a_num_options)
 
     questions_loaded = 0
     answers_loaded = 0
@@ -84,7 +83,9 @@ def _populate_year(uow: UnitOfWork, subject_id: int, year_dir: Path) -> tuple[in
     for option_dir in option_dirs:
         option_number = int(option_dir.name)
         exam_type = "CE" if year >= 2023 and option_number <= 5 else "CT"
-        option_id = uow.books.get_or_create_option(book_id, option_number, exam_type)
+        option_id = await uow.books.get_or_create_option(
+            book_id, option_number, exam_type
+        )
         option_answers = answers.get(str(option_number), {})
 
         for part_dir in sorted(option_dir.iterdir()):
@@ -103,89 +104,66 @@ def _populate_year(uow: UnitOfWork, subject_id: int, year_dir: Path) -> tuple[in
             )
 
             for img_file in img_files:
-                key = QuestionKey(part=part_dir.name, number=int(img_file.stem))  # type: ignore
+                key = QuestionKey(part=part_dir.name, number=int(img_file.stem))  # type: ignore[arg-type]
                 raw_answer = option_answers.get(str(key))
                 if raw_answer:
                     try:
-                        question_id = uow.questions.get_or_create(
+                        question_id = await uow.questions.get_or_create(
                             option_id, key, raw_answer
                         )
                         answers_loaded += 1
                     except ValueError as e:
                         tqdm.write(f"  Warning: {e} (skipped)")
                         fallback = "1" if key.part == "A" else ""
-                        question_id = uow.questions.get_or_create(
+                        question_id = await uow.questions.get_or_create(
                             option_id, key, fallback
                         )
                 else:
                     fallback = "1" if key.part == "A" else ""
-                    question_id = uow.questions.get_or_create(option_id, key, fallback)
-                uow.questions.insert_image(question_id, key.part, img_file.read_bytes())
+                    question_id = await uow.questions.get_or_create(
+                        option_id, key, fallback
+                    )
+                await uow.questions.insert_image(
+                    question_id, key.part, img_file.read_bytes()
+                )
                 questions_loaded += 1
 
     return questions_loaded, answers_loaded
 
 
-def _populate_topics(db_path: str, subject_id: int, subject_dir: Path) -> int:
-    """Populate question_topics table from topic_to_year.json. Returns count of mappings."""
+async def _populate_topics(pool, subject_id: int, subject_dir: Path) -> int:
+    """Populate question_topics from topic_to_year.json. Returns mapping count."""
     topics_file = subject_dir / "topic_to_year.json"
     if not topics_file.exists():
         print(f"  No topic_to_year.json in {subject_dir}, skipping topics")
         return 0
 
     topics_data = json.loads(topics_file.read_text(encoding="utf-8"))
-    count = 0
 
-    with UnitOfWork(db_path) as uow:
+    async with UnitOfWork(pool) as uow:
         for topic_name, years in tqdm(topics_data.items(), desc="topics"):
             for year_str, exam_types in years.items():
                 year = int(year_str)
+                book_id = await uow.books.get_or_create_book(subject_id, year)
                 for exam_type, keys in exam_types.items():
-                    book_row = uow._conn.execute(
-                        "SELECT book_id FROM books WHERE subject_id = ? AND year_value = ?",
-                        (subject_id, year),
-                    ).fetchone()
-                    if not book_row:
-                        tqdm.write(f"    Warning: no book for year {year}")
-                        continue
-
-                    book_id = book_row[0]
-                    option_rows = uow._conn.execute(
-                        "SELECT option_id FROM options"
-                        " WHERE book_id = ? AND exam_type = ?",
-                        (book_id, exam_type),
-                    ).fetchall()
-
+                    option_numbers = await uow.books.list_options(book_id, exam_type)
                     for key in keys:
                         part = key[0]
                         qnum = int(key[1:])
-                        table = (
-                            "part_a_questions" if part == "A" else "part_b_questions"
-                        )
-
-                        for (option_id,) in option_rows:
-                            uow._conn.execute(
-                                f"DELETE FROM question_topics WHERE question_id IN"
-                                f" (SELECT q.question_id FROM {table} q"
-                                f"  WHERE q.option_id = ? AND q.question_number = ?)"
-                                f" AND part = ? AND topic_name = ?",
-                                (option_id, qnum, part, topic_name),
+                        for option_number in option_numbers:
+                            option_id = await uow.books.get_option_id(
+                                book_id, option_number
                             )
-                            uow._conn.execute(
-                                f"INSERT INTO question_topics"
-                                f" (question_id, part, topic_name)"
-                                f" SELECT q.question_id, ?, ?"
-                                f" FROM {table} q"
-                                f" WHERE q.option_id = ? AND q.question_number = ?",
-                                (part, topic_name, option_id, qnum),
+                            await uow.questions.delete_topic(
+                                option_id, qnum, part, topic_name
                             )
+                            await uow.questions.upsert_topic(
+                                option_id, qnum, part, topic_name
+                            )
+        return await uow.questions.count_topics()
 
-        count = uow._conn.execute("SELECT COUNT(*) FROM question_topics").fetchone()[0]
 
-    return count
-
-
-def populate_subject(db_path: str, output_dir: Path, subject: str) -> None:
+async def populate_subject(pool, output_dir: Path, subject: str) -> None:
     subject_dir = output_dir / subject
     if not subject_dir.exists():
         print(f"Not found: {subject_dir}")
@@ -201,41 +179,45 @@ def populate_subject(db_path: str, output_dir: Path, subject: str) -> None:
 
     print(f"\n{subject} — {len(year_dirs)} year(s)")
 
-    with UnitOfWork(db_path) as uow:
-        subject_id = uow.books.get_or_create_subject(get_subject_name(subject))
+    async with UnitOfWork(pool) as uow:
+        subject_id = await uow.books.get_or_create_subject(get_subject_name(subject))
 
     for year_dir in tqdm(year_dirs, desc=subject):
-        with UnitOfWork(db_path) as uow:
-            questions, answers = _populate_year(uow, subject_id, year_dir)
+        async with UnitOfWork(pool) as uow:
+            questions, answers = await _populate_year(uow, subject_id, year_dir)
         tqdm.write(f"  {year_dir.name}: {questions} questions, {answers} answers")
 
-    topic_count = _populate_topics(db_path, subject_id, subject_dir)
+    topic_count = await _populate_topics(pool, subject_id, subject_dir)
     if topic_count:
         print(f"  {topic_count} topic mappings loaded")
 
 
-def main() -> None:
+async def _amain() -> None:
+    _alembic_upgrade()
+
     settings = get_settings()
     output_dir = settings.paths.extraction_output_dir
-    db_path = settings.database.path
 
     if not output_dir.exists():
         print(f"Extraction output not found: {output_dir}")
         sys.exit(1)
 
-    init_db(db_path)
-
-    if len(sys.argv) > 1:
-        populate_subject(db_path, output_dir, sys.argv[1])
-    else:
-        subjects = sorted(d.name for d in output_dir.iterdir() if d.is_dir())
-        if not subjects:
-            print("No subjects found in extraction output.")
-            sys.exit(0)
-        for subject in subjects:
-            populate_subject(db_path, output_dir, subject)
+    async with pool_lifespan(settings.database) as pool:
+        if len(sys.argv) > 1:
+            await populate_subject(pool, output_dir, sys.argv[1])
+        else:
+            subjects = sorted(d.name for d in output_dir.iterdir() if d.is_dir())
+            if not subjects:
+                print("No subjects found in extraction output.")
+                sys.exit(0)
+            for subject in subjects:
+                await populate_subject(pool, output_dir, subject)
 
     print("\nDone.")
+
+
+def main() -> None:
+    asyncio.run(_amain())
 
 
 if __name__ == "__main__":

@@ -30,7 +30,7 @@ async def ask_question(
     bot: Bot,
     message: types.Message,
     question: Question,
-    db_path: str,
+    pool: AsyncConnectionPool,
     *,
     caption: str | None = None,
     parse_mode: str | None = None,

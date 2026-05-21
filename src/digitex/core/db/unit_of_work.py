@@ -1,8 +1,15 @@
-"""Unit of Work — manages a single DB connection and transaction."""
+"""Async Unit of Work — one pool connection, one transaction, five repositories.
+
+Usage::
+
+    async with UnitOfWork(pool) as uow:
+        subject_id = await uow.books.get_or_create_subject("biology")
+        book_id = await uow.books.get_or_create_book(subject_id, 2016)
+"""
 
 from __future__ import annotations
 
-import sqlite3
+from typing import TYPE_CHECKING, Any
 
 from digitex.core.db.repositories import (
     AuthorizedUserRepository,
@@ -12,38 +19,52 @@ from digitex.core.db.repositories import (
     StudentRepository,
 )
 
+if TYPE_CHECKING:
+    from psycopg import AsyncConnection
+    from psycopg_pool import AsyncConnectionPool
+
 
 class UnitOfWork:
-    """Context manager that wraps a DB transaction.
+    """Async context manager that wraps a single transaction.
 
-    Commits on clean exit, rolls back on exception.
-
-    Usage::
-
-        with UnitOfWork(db_path) as uow:
-            subject_id = uow.books.get_or_create_subject("biology")
-            book_id = uow.books.get_or_create_book(subject_id, 2016)
+    psycopg's ``conn.transaction()`` block commits on clean exit and rolls back
+    on exception — we delegate transaction lifecycle to it rather than calling
+    ``commit()`` / ``rollback()`` manually.
     """
 
-    def __init__(self, db_path: str) -> None:
-        self._db_path = db_path
+    books: BookRepository
+    questions: QuestionRepository
+    students: StudentRepository
+    sessions: SessionRepository
+    authorized_users: AuthorizedUserRepository
 
-    def __enter__(self) -> UnitOfWork:
-        self._conn = sqlite3.connect(self._db_path)
-        self._conn.execute("PRAGMA foreign_keys = ON")
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self.books = BookRepository(self._conn)
-        self.questions = QuestionRepository(self._conn)
-        self.students = StudentRepository(self._conn)
-        self.sessions = SessionRepository(self._conn)
-        self.authorized_users = AuthorizedUserRepository(self._conn)
+    def __init__(self, pool: AsyncConnectionPool) -> None:
+        self._pool = pool
+        self._conn_cm: Any = None
+        self._tx_cm: Any = None
+        self._conn: AsyncConnection | None = None
+
+    async def __aenter__(self) -> UnitOfWork:
+        conn_cm = self._pool.connection()
+        conn = await conn_cm.__aenter__()
+        try:
+            tx_cm = conn.transaction()
+            await tx_cm.__aenter__()
+        except BaseException:
+            await conn_cm.__aexit__(None, None, None)
+            raise
+        self._conn_cm = conn_cm
+        self._tx_cm = tx_cm
+        self._conn = conn
+        self.books = BookRepository(conn)
+        self.questions = QuestionRepository(conn)
+        self.students = StudentRepository(conn)
+        self.sessions = SessionRepository(conn)
+        self.authorized_users = AuthorizedUserRepository(conn)
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         try:
-            if exc_type:
-                self._conn.rollback()
-            else:
-                self._conn.commit()
+            await self._tx_cm.__aexit__(exc_type, exc_val, exc_tb)
         finally:
-            self._conn.close()
+            await self._conn_cm.__aexit__(exc_type, exc_val, exc_tb)

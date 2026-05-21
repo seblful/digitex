@@ -6,20 +6,27 @@ Handler modules stay focused on their FSM transitions; the rendering recipe
 lives here.
 """
 
-from aiogram import Bot, types
+from __future__ import annotations
 
-from digitex.bot.database import with_uow
+from typing import TYPE_CHECKING
+
 from digitex.bot.keyboards import part_a_kb
 from digitex.bot.messages import MSG_ENTER_ANSWER
 from digitex.bot.renderer import send_question
-from digitex.core.schemas import Question
+from digitex.core.db import UnitOfWork
+
+if TYPE_CHECKING:
+    from aiogram import Bot, types
+    from psycopg_pool import AsyncConnectionPool
+
+    from digitex.core.schemas import Question
 
 
 async def ask_question(
     bot: Bot,
     message: types.Message,
     question: Question,
-    db_path: str,
+    pool: AsyncConnectionPool,
     *,
     caption: str | None = None,
     parse_mode: str | None = None,
@@ -50,9 +57,7 @@ async def ask_question(
         await message.answer(MSG_ENTER_ANSWER)
 
     if new_file_id:
-        qid, qpart = question.question_id, question.part
-
-        def cache(uow):
-            uow.questions.cache_file_id(qid, qpart, new_file_id)
-
-        await with_uow(db_path, cache)
+        async with UnitOfWork(pool) as uow:
+            await uow.questions.cache_file_id(
+                question.question_id, question.part, new_file_id
+            )

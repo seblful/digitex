@@ -7,30 +7,34 @@ Deploy the Digitex Telegram bot on a VPS with Docker.
 - A VPS (Ubuntu/Debian recommended, ~$5/mo is enough)
 - Docker and Docker Compose installed
 - Telegram bot token from [@BotFather](https://t.me/BotFather)
-- Your `seed.db` file ready
+- Extraction output (`extraction/data/output/`) on your local machine, ready
+  to seed the production database
 
 ## Quick Start
 
 ```bash
-# 1. Copy seed database from your LOCAL machine
-scp ./data/seed.db root@45.129.186.187:/opt/digitex/data/seed.db
-
-# 2. SSH into the VPS and set up
+# 1. SSH into the VPS and clone
 ssh root@45.129.186.187
 git clone https://github.com/seblful/digitex /opt/digitex
 cd /opt/digitex
 
-# 3. Move seed into place and configure
-mkdir -p data logs
-mv /opt/digitex/data/seed.db ./data/production.db
+# 2. Configure environment
+mkdir -p logs
 cp .env.production .env
-nano .env
+nano .env  # set BOT_TOKEN, BOT_ADMIN_USER_ID, DATABASE_URL, DB_SSLMODE
 
-# 4. Start the bot
-docker-compose up -d
+# 3. Start Postgres + bot (postgres is in docker-compose.yml)
+docker compose up -d postgres
 
-# 5. Check logs
-docker-compose logs -f
+# 4. Apply schema and seed data
+docker compose run --rm bot uv run digitex-db upgrade
+docker compose run --rm bot uv run python scripts/populate_db.py
+
+# 5. Start the bot
+docker compose up -d bot
+
+# 6. Check logs
+docker compose logs -f bot
 ```
 
 ## Setup
@@ -53,23 +57,14 @@ sudo usermod -aG docker $USER
 sudo apt-get install -y docker-compose-plugin
 ```
 
-### 2. Copy seed database from local PC
-
-```bash
-# Run this on your LOCAL machine
-scp ./data/seed.db root@45.129.186.187:/opt/digitex/data/production.db
-```
-
-### 3. Clone and Configure
+### 2. Clone and Configure
 
 ```bash
 git clone https://github.com/seblful/digitex.git /opt/digitex
 cd /opt/digitex
 
-# Create directories for persistent data
-mkdir -p data logs
+mkdir -p logs
 
-# Configure environment
 cp .env.production .env
 micro .env
 ```
@@ -77,15 +72,25 @@ micro .env
 Required variables in `.env`:
 
 | Variable | Value | Required |
-| ----------------------- | -------------------------- | -------- |
+| ----------------------- | --------------------------------------------------- | -------- |
 | `BOT_TOKEN` | Your token from @BotFather | Yes |
 | `BOT_ADMIN_USER_ID` | Your Telegram user ID | Yes |
+| `DATABASE_URL` | `postgresql://digitex:<password>@postgres:5432/digitex` | Yes |
+| `DB_SSLMODE` | `disable` (in-cluster) or `require` (external DB) | Yes |
 | `LOGGING_CONSOLE_LEVEL` | `INFO` | No |
+
+### 3. Apply schema and seed data
+
+```bash
+docker compose up -d postgres
+docker compose run --rm bot uv run digitex-db upgrade
+docker compose run --rm bot uv run python scripts/populate_db.py
+```
 
 ### 4. Start the Bot
 
 ```bash
-docker compose up -d
+docker compose up -d bot
 ```
 
 ### 5. Updates

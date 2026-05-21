@@ -1,11 +1,14 @@
 """Bot entrypoint."""
 
+from __future__ import annotations
+
 import asyncio
 
 import structlog
 
 from digitex.bot import create_dispatcher
 from digitex.config import get_settings
+from digitex.core.db import pool_lifespan
 from digitex.logging import setup_logging
 
 setup_logging()
@@ -21,10 +24,7 @@ def main() -> None:
         logger.error("BOT_TOKEN is not set")
         return
 
-    db_path = str(settings.database.path)
     admin_user_id = settings.bot.admin_user_id
-
-    dispatcher = create_dispatcher(admin_user_id=admin_user_id, db_path=db_path)
 
     async def _main() -> None:
         from aiogram import Bot
@@ -32,19 +32,30 @@ def main() -> None:
 
         from digitex.bot.messages import CMD_HELP_DESC, CMD_START_DESC
 
-        bot = Bot(token=token)
-        await bot.set_my_commands(
-            [
-                BotCommand(command="start", description=CMD_START_DESC),
-                BotCommand(command="help", description=CMD_HELP_DESC),
-            ]
-        )
-        logger.info("Starting bot polling...")
-        await dispatcher.start_polling(
-            bot, db_path=db_path, admin_user_id=admin_user_id
+        # Log only the safe parts of the DSN — never the full string.
+        logger.info(
+            "Opening DB pool",
+            host=settings.database.dsn.host,
+            db=settings.database.dsn.path,
         )
 
+        async with pool_lifespan(settings.database) as pool:
+            bot = Bot(token=token)
+            await bot.set_my_commands(
+                [
+                    BotCommand(command="start", description=CMD_START_DESC),
+                    BotCommand(command="help", description=CMD_HELP_DESC),
+                ]
+            )
+            dispatcher = create_dispatcher(admin_user_id=admin_user_id, pool=pool)
+            logger.info("Starting bot polling...")
+            await dispatcher.start_polling(bot, pool=pool, admin_user_id=admin_user_id)
+
     asyncio.run(_main())
+
+
+# typer-compatible app object for the project script entry point.
+app = main
 
 
 if __name__ == "__main__":

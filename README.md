@@ -15,7 +15,8 @@ digitex/
 │   └── cli/                  # CLI entry points
 ├── extraction/               # Legacy extraction scripts
 ├── training/                 # ML training workflow
-├── scripts/                  # DB schema and population scripts
+├── migrations/               # Alembic schema migrations
+├── scripts/                  # DB population scripts
 ├── tests/                    # Test suite
 └── AGENTS.md                 # AI agent instructions
 ```
@@ -41,6 +42,9 @@ digitex-train train
 # Start Telegram bot
 digitex-bot run
 
+# Manage schema migrations
+uv run digitex-db upgrade
+
 # Populate database from extraction output
 uv run python scripts/populate_db.py
 ```
@@ -61,8 +65,14 @@ The bot allows students to take centralized tests via Telegram:
    ```
    BOT_TOKEN=your_bot_token_here
    BOT_ADMIN_USER_ID=your_telegram_user_id
+   DATABASE_URL=postgresql://digitex:digitex@localhost:5432/digitex
    ```
-1. Populate the database:
+1. Start PostgreSQL:
+   ```bash
+   docker compose up -d postgres
+   ```
+1. Run migrations + populate the database (the script applies the schema and
+   loads extraction output in one go):
    ```bash
    uv run python scripts/populate_db.py
    ```
@@ -70,6 +80,13 @@ The bot allows students to take centralized tests via Telegram:
    ```bash
    digitex-bot run
    ```
+
+### Database
+
+PostgreSQL 17 with psycopg 3 (async) + connection pool, Alembic migrations.
+See [docs/database.md](docs/database.md) for the full guide: local setup,
+deploying alongside the bot on a single VPS, SSH-tunnel access from your
+PC, backups, and hardening.
 
 ## Configuration
 
