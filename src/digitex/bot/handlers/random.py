@@ -5,11 +5,11 @@ import time
 from aiogram import Bot, F, Router, types
 from aiogram.fsm.context import FSMContext
 
+from digitex.bot.answer_flow import ask_question
 from digitex.bot.database import with_uow
-from digitex.bot.keyboards import part_a_kb, random_feedback_kb
+from digitex.bot.keyboards import random_feedback_kb
 from digitex.bot.messages import (
     MSG_CORRECT_ANSWER,
-    MSG_ENTER_ANSWER,
     MSG_EXAM_CE,
     MSG_EXAM_CT,
     MSG_NO_RANDOM_QUESTION,
@@ -17,7 +17,6 @@ from digitex.bot.messages import (
     MSG_RANDOM_FINISH,
     MSG_WRONG_ANSWER,
 )
-from digitex.bot.renderer import send_question
 from digitex.bot.states import RandomTesting
 from digitex.core.answer import check_answer
 
@@ -81,30 +80,9 @@ async def start_random_question(
     )
 
     caption = _build_caption(origin, topic_name)
-
-    if question.part == "A":
-        new_file_id = await send_question(
-            bot,
-            message.chat.id,
-            question,
-            reply_markup=part_a_kb(question.num_options),
-            caption=caption,
-            parse_mode="HTML",
-        )
-    else:
-        new_file_id = await send_question(
-            bot, message.chat.id, question, caption=caption, parse_mode="HTML"
-        )
-        await message.answer(MSG_ENTER_ANSWER)
-
-    if new_file_id:
-        qid, qpart = question.question_id, question.part
-
-        def cache(uow):
-            uow.questions.cache_file_id(qid, qpart, new_file_id)
-
-        await with_uow(db_path, cache)
-
+    await ask_question(
+        bot, message, question, db_path, caption=caption, parse_mode="HTML"
+    )
     await state.set_state(RandomTesting.answering)
 
 

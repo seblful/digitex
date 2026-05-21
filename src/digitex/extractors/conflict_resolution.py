@@ -1,76 +1,48 @@
-"""Conflict resolution strategies for PageExtractor."""
+"""Resolving conflicts when an extracted question collides with an existing file.
+
+A `ConflictResolver` is just a callable that, given a `Conflict`, returns the
+option number the new image actually belongs under. The default resolver keeps
+the current option (no interaction); `prompt_user` shows the image and asks.
+"""
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
 
 from PIL import Image
 
 Prompter = Callable[[str], str]
 
 
-class ConflictResolutionStrategy(Protocol):
-    """Protocol for conflict resolution strategies."""
+@dataclass
+class Conflict:
+    """An extracted question colliding with an already-saved file."""
 
-    def resolve(
-        self,
-        new_image: Image.Image,
-        existing_path: Path,
-        current_option: int,
-        source_image_name: str,
-    ) -> int:
-        """Resolve a file conflict.
-
-        Args:
-            new_image: The new image that would be saved.
-            existing_path: Path of the existing file.
-            current_option: Current option number.
-            source_image_name: Name of the source image file.
-
-        Returns:
-            The correct option number.
-        """
-        ...
+    new_image: Image.Image
+    existing_path: Path
+    current_option: int
+    source_image_name: str
 
 
-class AutoConflictResolution:
-    """Automatic conflict resolution that keeps the current option."""
-
-    def resolve(
-        self,
-        _new_image: Image.Image,
-        _existing_path: Path,
-        current_option: int,
-        _source_image_name: str,
-    ) -> int:
-        """Return current option without user interaction."""
-        return current_option
+ConflictResolver = Callable[[Conflict], int]
 
 
-class InteractiveConflictResolution:
-    """Interactive conflict resolution that prompts the user."""
+def keep_current_option(conflict: Conflict) -> int:
+    """Default resolver: trust the current option counter, no user interaction."""
+    return conflict.current_option
 
-    def __init__(self, prompter: Prompter = input) -> None:
-        self._prompter = prompter
 
-    def resolve(
-        self,
-        new_image: Image.Image,
-        _existing_path: Path,
-        current_option: int,
-        source_image_name: str,
-    ) -> int:
-        """Show image and prompt user for correct option."""
-        new_image.show()
-        print(f"Image: {source_image_name}")
-        print(f"Current option: {current_option}")
-
-        while True:
-            user_input = self._prompter(
-                f"Enter correct option number (current: {current_option}): "
-            ).strip()
-            if user_input.isdigit():
-                option = int(user_input)
-                if 1 <= option <= 10:
-                    return option
-            print("Please enter a number between 1 and 10")
+def prompt_user(conflict: Conflict, *, prompter: Prompter = input) -> int:
+    """Interactive resolver: show the image and ask which option it belongs to."""
+    conflict.new_image.show()
+    print(f"Image: {conflict.source_image_name}")
+    print(f"Current option: {conflict.current_option}")
+    while True:
+        user_input = prompter(
+            f"Enter correct option number (current: {conflict.current_option}): "
+        ).strip()
+        if user_input.isdigit():
+            option = int(user_input)
+            if 1 <= option <= 10:
+                return option
+        print("Please enter a number between 1 and 10")

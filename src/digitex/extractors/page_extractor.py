@@ -13,8 +13,9 @@ from digitex.core.processors import (
     resize_image,
 )
 from digitex.extractors.conflict_resolution import (
-    AutoConflictResolution,
-    ConflictResolutionStrategy,
+    Conflict,
+    ConflictResolver,
+    keep_current_option,
 )
 from digitex.ml.predictors import (
     SegmentationPredictionResult,
@@ -79,7 +80,7 @@ class PageExtractor:
         segment_processor: SegmentProcessor | None = None,
         image_cropper: ImageCropper | None = None,
         text_extractor: TextExtractor | None = None,
-        conflict_strategy: ConflictResolutionStrategy | None = None,
+        on_conflict: ConflictResolver | None = None,
     ) -> None:
         self.model_path = model_path
         self.image_format = image_format
@@ -90,7 +91,7 @@ class PageExtractor:
         self._segment_processor = segment_processor or SegmentProcessor()
         self._image_cropper = image_cropper or ImageCropper()
         self._text_extractor = text_extractor or TextExtractor(language=OCR_LANGUAGE)
-        self._conflict_strategy = conflict_strategy or AutoConflictResolution()
+        self._on_conflict = on_conflict or keep_current_option
 
     @property
     def predictor(self) -> YOLO_SegmentationPredictor:
@@ -148,11 +149,13 @@ class PageExtractor:
         output_dir: Path,
     ) -> int:
         """Handle case when output file already exists. Returns resolved option."""
-        resolved_option = self._conflict_strategy.resolve(
-            new_image=new_image,
-            existing_path=output_path,
-            current_option=current_option,
-            source_image_name=source_image_name,
+        resolved_option = self._on_conflict(
+            Conflict(
+                new_image=new_image,
+                existing_path=output_path,
+                current_option=current_option,
+                source_image_name=source_image_name,
+            )
         )
 
         if resolved_option != current_option:

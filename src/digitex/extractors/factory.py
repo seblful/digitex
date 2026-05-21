@@ -5,7 +5,7 @@ from pathlib import Path
 from digitex.config import Settings
 from digitex.extractors.answers_extractor import AnswersExtractor
 from digitex.extractors.book_extractor import BookExtractor
-from digitex.extractors.conflict_resolution import ConflictResolutionStrategy
+from digitex.extractors.conflict_resolution import ConflictResolver
 from digitex.extractors.exceptions import APIError, ModelNotFoundError
 from digitex.extractors.manual_extractor import ManualExtractor
 from digitex.extractors.page_extractor import PageExtractor
@@ -46,7 +46,7 @@ class ExtractorFactory:
         image_format: str | None = None,
         question_max_width: int | None = None,
         question_max_height: int | None = None,
-        conflict_strategy: ConflictResolutionStrategy | None = None,
+        on_conflict: ConflictResolver | None = None,
     ) -> PageExtractor:
         fmt, max_w, max_h = self._resolve_image_params(
             image_format, question_max_width, question_max_height
@@ -59,7 +59,7 @@ class ExtractorFactory:
             image_format=fmt,
             question_max_width=max_w,
             question_max_height=max_h,
-            conflict_strategy=conflict_strategy,
+            on_conflict=on_conflict,
         )
 
     def create_book_extractor(
@@ -68,7 +68,7 @@ class ExtractorFactory:
         image_format: str | None = None,
         question_max_width: int | None = None,
         question_max_height: int | None = None,
-        conflict_strategy: ConflictResolutionStrategy | None = None,
+        on_conflict: ConflictResolver | None = None,
     ) -> BookExtractor:
         fmt, max_w, max_h = self._resolve_image_params(
             image_format, question_max_width, question_max_height
@@ -81,7 +81,7 @@ class ExtractorFactory:
             image_format=fmt,
             question_max_width=max_w,
             question_max_height=max_h,
-            conflict_strategy=conflict_strategy,
+            on_conflict=on_conflict,
         )
         return BookExtractor(
             model_path=resolved,

@@ -5,11 +5,9 @@ import time
 from aiogram import Bot, F, Router, types
 from aiogram.fsm.context import FSMContext
 
+from digitex.bot.answer_flow import ask_question
 from digitex.bot.database import with_uow
 from digitex.bot.handlers.results import show_results
-from digitex.bot.keyboards import part_a_kb
-from digitex.bot.messages import MSG_ENTER_ANSWER
-from digitex.bot.renderer import send_question
 from digitex.bot.states import Testing
 from digitex.core.answer import check_answer
 
@@ -43,24 +41,7 @@ async def send_current_question(
         waiting_for_answer=True,
     )
 
-    if part == "A":
-        new_file_id = await send_question(
-            bot,
-            message.chat.id,
-            question,
-            reply_markup=part_a_kb(question.num_options),
-        )
-    else:
-        new_file_id = await send_question(bot, message.chat.id, question)
-        await message.answer(MSG_ENTER_ANSWER)
-
-    if new_file_id:
-        qid, qpart = question.question_id, question.part
-
-        def cache(uow):
-            uow.questions.cache_file_id(qid, qpart, new_file_id)
-
-        await with_uow(db_path, cache)
+    await ask_question(bot, message, question, db_path)
 
 
 async def _record_and_advance(
