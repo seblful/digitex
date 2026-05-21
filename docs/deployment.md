@@ -21,14 +21,13 @@ cd /opt/digitex
 # 2. Configure environment
 mkdir -p logs
 cp .env.production .env
-nano .env  # set BOT_TOKEN, BOT_ADMIN_USER_ID, DATABASE_URL, DB_SSLMODE
+nano .env  # set BOT_TOKEN, BOT_ADMIN_USER_ID, POSTGRES_PASSWORD, DATABASE_URL, DB_SSLMODE
 
-# 3. Start Postgres + bot (postgres is in docker-compose.yml)
+# 3. Start Postgres
 docker compose up -d postgres
 
-# 4. Apply schema and seed data
+# 4. Apply schema (data load happens separately — see step 3 below)
 docker compose run --rm bot uv run digitex-db upgrade
-docker compose run --rm bot uv run python scripts/populate_db.py
 
 # 5. Start the bot
 docker compose up -d bot
@@ -75,17 +74,33 @@ Required variables in `.env`:
 | ----------------------- | --------------------------------------------------- | -------- |
 | `BOT_TOKEN` | Your token from @BotFather | Yes |
 | `BOT_ADMIN_USER_ID` | Your Telegram user ID | Yes |
-| `DATABASE_URL` | `postgresql://digitex:<password>@postgres:5432/digitex` | Yes |
+| `POSTGRES_PASSWORD` | Strong password (e.g. `openssl rand -base64 24`) — read by the postgres container | Yes |
+| `DATABASE_URL` | `postgresql://digitex:<password>@postgres:5432/digitex` (must match `POSTGRES_PASSWORD`) | Yes |
 | `DB_SSLMODE` | `disable` (in-cluster) or `require` (external DB) | Yes |
 | `LOGGING_CONSOLE_LEVEL` | `INFO` | No |
+
+See [database.md](database.md) for the full DB setup story — password
+generation, SSH-tunnel access from your PC, and backups.
 
 ### 3. Apply schema and seed data
 
 ```bash
 docker compose up -d postgres
 docker compose run --rm bot uv run digitex-db upgrade
-docker compose run --rm bot uv run python scripts/populate_db.py
 ```
+
+For the initial data load, `populate_db.py` reads from
+`extraction/data/output/` — this directory is not part of the production
+image. Two ways to get data in:
+
+- **Run `populate_db.py` locally** against the VPS DB through the SSH
+  tunnel (see [database.md](database.md)); the bot container only needs
+  the schema (which `digitex-db upgrade` already applied).
+- **Or** add a temporary bind-mount of `./extraction:/app/extraction:ro`
+  to the `bot` service in `docker-compose.yml`, `scp` your extraction
+  output to the VPS, then
+  `docker compose run --rm bot uv run python scripts/populate_db.py`.
+  Remove the mount afterwards.
 
 ### 4. Start the Bot
 
