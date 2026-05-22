@@ -62,10 +62,6 @@ class AnswersExtractor(BaseExtractor):
             base_url=base_url,
         )
 
-    def _validate_prerequisites(self) -> None:
-        if not self._books_dir.exists():
-            raise DirectoryNotFoundError(self._books_dir)
-
     def encode_image(self, image_path: Path) -> str:
         raw = image_path.read_bytes()
         b64 = base64.b64encode(raw).decode("utf-8")

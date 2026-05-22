@@ -42,7 +42,7 @@ class Trainer:
         Returns:
             Config dictionary.
         """
-        with open(self.train_config_path) as f:
+        with self.train_config_path.open() as f:
             return yaml.safe_load(f)
 
     @property
@@ -66,7 +66,7 @@ class Trainer:
                 logger.info("Loaded model", model_path=model_path)
 
             except Exception as e:
-                raise RuntimeError(f"Failed to load YOLO model: {e}")
+                raise RuntimeError(f"Failed to load YOLO model: {e}") from e
 
         return self._model  # type: ignore[return-value]
 

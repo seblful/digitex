@@ -2,16 +2,22 @@
 
 A `ConflictResolver` is just a callable that, given a `Conflict`, returns the
 option number the new image actually belongs under. The default resolver keeps
-the current option (no interaction); `prompt_user` shows the image and asks.
+the current option (no interaction).
+
+Per ADR 0002, the shape is a one-line type alias rather than a Protocol. Add
+another resolver as a free function whenever a second real adapter shows up.
 """
+
+from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from PIL import Image
+if TYPE_CHECKING:
+    from pathlib import Path
 
-Prompter = Callable[[str], str]
+    from PIL import Image
 
 
 @dataclass
@@ -30,19 +36,3 @@ ConflictResolver = Callable[[Conflict], int]
 def keep_current_option(conflict: Conflict) -> int:
     """Default resolver: trust the current option counter, no user interaction."""
     return conflict.current_option
-
-
-def prompt_user(conflict: Conflict, *, prompter: Prompter = input) -> int:
-    """Interactive resolver: show the image and ask which option it belongs to."""
-    conflict.new_image.show()
-    print(f"Image: {conflict.source_image_name}")
-    print(f"Current option: {conflict.current_option}")
-    while True:
-        user_input = prompter(
-            f"Enter correct option number (current: {conflict.current_option}): "
-        ).strip()
-        if user_input.isdigit():
-            option = int(user_input)
-            if 1 <= option <= 10:
-                return option
-        print("Please enter a number between 1 and 10")

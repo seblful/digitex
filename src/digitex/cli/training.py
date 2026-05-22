@@ -1,20 +1,23 @@
 """Training CLI commands."""
 
+from pathlib import Path
+
 import structlog
 import typer
 
 from digitex.config import get_settings
 from digitex.logging import setup_logging
 
-setup_logging()
+# Per ADR 0001 — resolve settings once at the CLI boundary.
+_settings = get_settings()
+setup_logging(_settings)
 
 app = typer.Typer(help="YOLO model training for document segmentation.")
 logger = structlog.get_logger()
 
 
-def _data_dir(data_type_dir_name: str):
-    s = get_settings()
-    return s.paths.training_data_dir / data_type_dir_name
+def _data_dir(data_type_dir_name: str) -> Path:
+    return _settings.paths.training_data_dir / data_type_dir_name
 
 
 @app.command(name="create-dataset")
@@ -29,11 +32,10 @@ def create_dataset(
     """Convert Label Studio annotations into a YOLO training dataset."""
     from digitex.ml.yolo.dataset import DatasetCreator
 
-    s = get_settings()
     data_dir = _data_dir(data_type_dir_name)
     annotations_file = data_dir / "annotations.json"
-    images_dir = data_dir / s.data.images_dir_name
-    dataset_dir = data_dir / s.data.dataset_dir_name
+    images_dir = data_dir / _settings.data.images_dir_name
+    dataset_dir = data_dir / _settings.data.dataset_dir_name
 
     if not annotations_file.exists():
         typer.echo(
@@ -63,7 +65,6 @@ def add_images(
     """Add images listed in images.txt to training data."""
     from digitex.creators import PageDataCreator
 
-    s = get_settings()
     data_dir = _data_dir(data_type_dir_name)
     paths_file = data_dir / "images.txt"
 
@@ -75,8 +76,8 @@ def add_images(
         typer.echo("images.txt is empty.")
         raise typer.Exit(code=0)
 
-    output_dir = data_dir / s.data.images_dir_name
-    PageDataCreator(image_size=s.data.image_size).add_from_file(
+    output_dir = data_dir / _settings.data.images_dir_name
+    PageDataCreator(image_size=_settings.data.image_size).add_from_file(
         paths_file=paths_file,
         output_dir=output_dir,
     )
@@ -92,11 +93,10 @@ def select_random_pages(
     """Randomly sample page images from the books directory for training."""
     from digitex.creators import PageDataCreator
 
-    s = get_settings()
-    page_train_dir = _data_dir("page") / s.data.images_dir_name
+    page_train_dir = _data_dir("page") / _settings.data.images_dir_name
 
-    PageDataCreator(image_size=s.data.image_size).create(
-        books_dir=s.paths.books_dir,
+    PageDataCreator(image_size=_settings.data.image_size).create(
+        books_dir=_settings.paths.books_dir,
         output_dir=page_train_dir,
         num_images=num_images,
     )
@@ -118,8 +118,7 @@ def train(
     """Train and validate a YOLO segmentation model."""
     from digitex.ml.yolo import Trainer
 
-    s = get_settings()
-    configs_dir = s.paths.training_configs_dir
+    configs_dir = _settings.paths.training_configs_dir
     train_config_path = configs_dir / f"{config}_train.yaml"
     val_config_path = configs_dir / f"{config}_val.yaml"
 
@@ -154,7 +153,7 @@ def train(
         typer.echo(
             typer.style(f"✗ Training failed: {e}", fg="red", bold=True), err=True
         )
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
 
 @app.command(name="ls-predict")
@@ -167,11 +166,10 @@ def ls_predict(
     """Run model predictions on Label Studio tasks for a project."""
     from digitex.label_studio import TaskPredictor
 
-    s = get_settings()
     predictor = TaskPredictor(
         model_path=model_path,
-        url=s.label_studio.url,
-        api_key=s.label_studio.api_key,
+        url=_settings.label_studio.url,
+        api_key=_settings.label_studio.api_key,
     )
 
     count = predictor.predict_tasks(project_id)

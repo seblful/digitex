@@ -59,7 +59,9 @@ class YOLO_SegmentationPredictor(Predictor):
                 self._model = YOLO(model_str, verbose=False)
                 logger.info("Model loaded successfully", model_path=self.model_path)
             except Exception as e:
-                raise RuntimeError(f"Failed to load model from {self.model_path}: {e}")
+                raise RuntimeError(
+                    f"Failed to load model from {self.model_path}: {e}"
+                ) from e
 
         return self._model
 
@@ -116,12 +118,11 @@ class YOLO_SegmentationPredictor(Predictor):
         boxes_list = [boxes[i] for i in range(len(boxes))]
         masks_list = [mask_data[i] for i in range(len(mask_data))]
 
-        for box, polygon in zip(boxes_list, masks_list):
+        for box, raw_polygon in zip(boxes_list, masks_list, strict=False):
             try:
-                polygon = polygon * np.array([img_width, img_height])
-                polygon = polygon.astype(np.int32)
-                polygon = polygon.tolist()
-                polygon = [tuple(points) for points in polygon]
+                scaled = raw_polygon * np.array([img_width, img_height])
+                int_points = scaled.astype(np.int32).tolist()
+                polygon: list[tuple[int, int]] = [tuple(p) for p in int_points]
 
                 if self.simplify:
                     polygon = self._simplify_polygon(polygon)
@@ -134,11 +135,9 @@ class YOLO_SegmentationPredictor(Predictor):
                 logger.warning("Failed to process prediction", error=e)
                 continue
 
-        result = SegmentationPredictionResult(
+        return SegmentationPredictionResult(
             ids=ids, polygons=polygons, id2label=self.model.names
         )
-
-        return result
 
     def _simplify_polygon(
         self,
@@ -191,6 +190,4 @@ class YOLO_SegmentationPredictor(Predictor):
             agnostic_nms=agnostic_nms,
             verbose=verbose,
         )
-        result = self.create_result(preds, img_width, img_height)
-
-        return result
+        return self.create_result(preds, img_width, img_height)

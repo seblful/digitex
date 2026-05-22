@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from digitex.bot.schemas import Question, Session, Student, TestResult
+from digitex.core.domain import Question, Session, Student, TestResult
 
 
 class TestStudent:

@@ -1,4 +1,6 @@
-"""Base classes and protocols for extractors."""
+"""Base extractor and shared result type."""
+
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -23,7 +25,7 @@ class ExtractionResult:
         skipped: int = 0,
         warnings: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> "ExtractionResult":
+    ) -> ExtractionResult:
         """Create a successful extraction result."""
         return cls(
             success=True,
@@ -39,7 +41,7 @@ class ExtractionResult:
         errors: list[str],
         processed: int = 0,
         warnings: list[str] | None = None,
-    ) -> "ExtractionResult":
+    ) -> ExtractionResult:
         """Create a failed extraction result."""
         return cls(
             success=False,
@@ -48,7 +50,7 @@ class ExtractionResult:
             warnings=warnings or [],
         )
 
-    def merge(self, other: "ExtractionResult") -> "ExtractionResult":
+    def merge(self, other: ExtractionResult) -> ExtractionResult:
         """Merge two extraction results."""
         return ExtractionResult(
             success=self.success and other.success,
@@ -61,34 +63,15 @@ class ExtractionResult:
 
 
 class BaseExtractor(ABC):
-    """Abstract base class for all extractors."""
+    """Abstract base for all extractors.
+
+    Concrete extractors override :meth:`extract`. Each extractor's ``extract``
+    signature is genuinely different (PageExtractor takes a single PIL image,
+    BookExtractor takes an image dir, TestsExtractor takes a subject name),
+    so a single template ``extract()`` would be a misleading shape — the
+    abstract method takes ``*args, **kwargs`` and each subclass tightens it.
+    """
 
     @abstractmethod
     def extract(self, *args: Any, **kwargs: Any) -> ExtractionResult:
-        """Run extraction and return results.
-
-        Returns:
-            ExtractionResult with success status and statistics.
-        """
-        pass
-
-    def validate(self) -> bool:
-        """Validate prerequisites for extraction.
-
-        Returns:
-            True if all prerequisites are met, False otherwise.
-        """
-        try:
-            self._validate_prerequisites()
-            return True
-        except Exception:
-            return False
-
-    @abstractmethod
-    def _validate_prerequisites(self) -> None:
-        """Validate that all prerequisites are met.
-
-        Raises:
-            Exception: If any prerequisite is not met.
-        """
-        pass
+        """Run extraction and return results."""

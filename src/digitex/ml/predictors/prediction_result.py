@@ -61,7 +61,7 @@ class SegmentationPredictionResult(PredictionResult):
         """
         id_to_polygons: dict[int, list[list[tuple[int, int]]]] = {}
 
-        for idx, polygon in zip(self.ids, self.polygons):
+        for idx, polygon in zip(self.ids, self.polygons, strict=False):
             if idx not in id_to_polygons:
                 id_to_polygons[idx] = []
             id_to_polygons[idx].append(polygon)

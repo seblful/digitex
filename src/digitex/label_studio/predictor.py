@@ -66,7 +66,7 @@ class TaskPredictor:
             List of Label Studio result dicts with polygon labels.
         """
         ls_results = []
-        for class_id, polygon in zip(result.ids, result.polygons):
+        for class_id, polygon in zip(result.ids, result.polygons, strict=False):
             points = [[x / img_width * 100, y / img_height * 100] for x, y in polygon]
             label_name = self.classes.get(class_id, str(class_id))
             ls_results.append(

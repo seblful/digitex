@@ -93,8 +93,8 @@ class PageDataCreator:
 
         valid_paths: list[Path] = []
         skipped_missing = 0
-        for line in lines:
-            line = line.strip()
+        for raw_line in lines:
+            line = raw_line.strip()
             if not line:
                 continue
             img_path = Path(line)

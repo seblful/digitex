@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-from .schemas import Question, Session, Student, TestResult
+from .domain import Question, Session, Student, TestResult
 
 _MODULES: dict[str, str] = {
     "TextExtractor": ".ocr",

@@ -4,9 +4,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from aiogram import F, Router, types
+from aiogram import Router, types
 
+from digitex.bot import fsm_data
+from digitex.bot.callbacks import (
+    ExamTypeCB,
+    ModeCB,
+    OptionCB,
+    RandomPartCB,
+    SubjectCB,
+    TopicCB,
+    YearCB,
+)
 from digitex.bot.constants import FALLBACK_NAME
+from digitex.bot.fsm_data import NavigationState, TestingState
 from digitex.bot.handlers.random import start_random_question
 from digitex.bot.handlers.testing import send_current_question
 from digitex.bot.keyboards import (
@@ -37,51 +48,63 @@ if TYPE_CHECKING:
     from aiogram.fsm.context import FSMContext
     from psycopg_pool import AsyncConnectionPool
 
+    from digitex.core.domain import ExamType
+
 router = Router()
 
 
-@router.callback_query(Navigation.select_subject, F.data.startswith("subj:"))
-async def on_subject_selected(callback: types.CallbackQuery, state: FSMContext) -> None:
-    if not callback.data or not isinstance(callback.message, types.Message):
+@router.callback_query(Navigation.select_subject, SubjectCB.filter())
+async def on_subject_selected(
+    callback: types.CallbackQuery,
+    callback_data: SubjectCB,
+    state: FSMContext,
+) -> None:
+    if not isinstance(callback.message, types.Message):
         await callback.answer()
         return
 
-    subject_id = int(callback.data.split(":")[1])
-    data = await state.get_data()
-    student_id = data.get("student_id")
+    nav = await fsm_data.load(state, NavigationState)
+    student_id = nav.student_id
     await state.clear()
-    await state.update_data(subject_id=subject_id, student_id=student_id)
+    await fsm_data.save(
+        state,
+        NavigationState(subject_id=callback_data.subject_id, student_id=student_id),
+    )
     await callback.message.edit_text(MSG_MODE_SELECT, reply_markup=mode_kb())
     await state.set_state(Navigation.select_mode)
     await callback.answer()
 
 
-@router.callback_query(Navigation.select_mode, F.data.startswith("mode:"))
+@router.callback_query(Navigation.select_mode, ModeCB.filter())
 async def on_mode_selected(
-    callback: types.CallbackQuery, state: FSMContext, pool: AsyncConnectionPool
+    callback: types.CallbackQuery,
+    callback_data: ModeCB,
+    state: FSMContext,
+    pool: AsyncConnectionPool,
 ) -> None:
-    if not callback.data or not isinstance(callback.message, types.Message):
+    if not isinstance(callback.message, types.Message):
         await callback.answer()
         return
 
-    mode = callback.data.split(":")[1]
-    data = await state.get_data()
-    subject_id = data["subject_id"]
+    nav = await fsm_data.load(state, NavigationState)
+    if nav.subject_id is None:
+        await callback.answer()
+        return
+    subject_id = nav.subject_id
 
-    match mode:
+    match callback_data.mode:
         case "standard":
             async with UnitOfWork(pool) as uow:
                 years = await uow.books.list_years(subject_id)
-            if not years:
-                async with UnitOfWork(pool) as uow:
+                if not years:
                     subjects = await uow.books.list_subjects()
-                await callback.message.edit_text(
-                    MSG_NO_YEARS,
-                    reply_markup=subjects_kb(subjects),
-                )
-                await state.set_state(Navigation.select_subject)
-                await callback.answer()
-                return
+                    await callback.message.edit_text(
+                        MSG_NO_YEARS,
+                        reply_markup=subjects_kb(subjects),
+                    )
+                    await state.set_state(Navigation.select_subject)
+                    await callback.answer()
+                    return
             await callback.message.edit_text(
                 MSG_YEAR_SELECT, reply_markup=years_kb(years)
             )
@@ -103,71 +126,80 @@ async def on_mode_selected(
             await callback.message.edit_text(
                 MSG_TOPIC_SELECT, reply_markup=topics_kb(topics)
             )
-            await state.update_data(topic_names=topics)
+            await fsm_data.merge(state, topic_names=topics)
             await state.set_state(Navigation.select_topic)
 
     await callback.answer()
 
 
-@router.callback_query(Navigation.select_topic, F.data.startswith("topic:"))
+@router.callback_query(Navigation.select_topic, TopicCB.filter())
 async def on_topic_selected(
-    callback: types.CallbackQuery, state: FSMContext, pool: AsyncConnectionPool
+    callback: types.CallbackQuery,
+    callback_data: TopicCB,
+    state: FSMContext,
+    pool: AsyncConnectionPool,
 ) -> None:
-    if not callback.data or not isinstance(callback.message, types.Message):
+    if not isinstance(callback.message, types.Message):
         await callback.answer()
         return
 
-    idx = int(callback.data.split(":")[1])
-    data = await state.get_data()
-    topic_name = data["topic_names"][idx]
-    await state.update_data(topic_name=topic_name)
+    nav = await fsm_data.load(state, NavigationState)
+    if not nav.topic_names:
+        await callback.answer()
+        return
+    topic_name = nav.topic_names[callback_data.index]
+    await fsm_data.merge(state, topic_name=topic_name)
 
     await start_random_question(callback.message, state, callback.bot, pool)
     await callback.answer()
 
 
-@router.callback_query(
-    Navigation.select_random_exam_type, F.data.startswith("exam_type:")
-)
+@router.callback_query(Navigation.select_random_exam_type, ExamTypeCB.filter())
 async def on_random_exam_type_selected(
-    callback: types.CallbackQuery, state: FSMContext
+    callback: types.CallbackQuery,
+    callback_data: ExamTypeCB,
+    state: FSMContext,
 ) -> None:
-    if not callback.data or not isinstance(callback.message, types.Message):
+    if not isinstance(callback.message, types.Message):
         await callback.answer()
         return
 
-    exam_type = callback.data.split(":")[1]
-    await state.update_data(exam_type=exam_type)
+    await fsm_data.merge(state, exam_type=callback_data.exam_type)
     await callback.message.edit_text(MSG_PART_SELECT, reply_markup=random_part_kb())
     await state.set_state(Navigation.select_random_part)
     await callback.answer()
 
 
-@router.callback_query(Navigation.select_random_part, F.data.startswith("random_part:"))
+@router.callback_query(Navigation.select_random_part, RandomPartCB.filter())
 async def on_random_part_selected(
-    callback: types.CallbackQuery, state: FSMContext, pool: AsyncConnectionPool
+    callback: types.CallbackQuery,
+    callback_data: RandomPartCB,
+    state: FSMContext,
+    pool: AsyncConnectionPool,
 ) -> None:
-    if not callback.data or not isinstance(callback.message, types.Message):
+    if not isinstance(callback.message, types.Message):
         await callback.answer()
         return
 
-    part = callback.data.split(":")[1]
-    await state.update_data(random_part=part)
+    await fsm_data.merge(state, random_part=callback_data.part)
 
     await start_random_question(callback.message, state, callback.bot, pool)
     await callback.answer()
 
 
-@router.callback_query(Navigation.select_year, F.data.startswith("year:"))
+@router.callback_query(Navigation.select_year, YearCB.filter())
 async def on_year_selected(
-    callback: types.CallbackQuery, state: FSMContext, pool: AsyncConnectionPool
+    callback: types.CallbackQuery,
+    callback_data: YearCB,
+    state: FSMContext,
+    pool: AsyncConnectionPool,
 ) -> None:
-    if not callback.data or not isinstance(callback.message, types.Message):
+    if not isinstance(callback.message, types.Message):
         await callback.answer()
         return
 
-    year = int(callback.data.split(":")[1])
-    await state.update_data(year=year)
+    year = callback_data.year
+    await fsm_data.merge(state, year=year)
 
     if year >= 2023:
         await callback.message.edit_text(
@@ -181,18 +213,24 @@ async def on_year_selected(
     await callback.answer()
 
 
-@router.callback_query(Navigation.select_exam_type, F.data.startswith("exam_type:"))
+@router.callback_query(Navigation.select_exam_type, ExamTypeCB.filter())
 async def on_exam_type_selected(
-    callback: types.CallbackQuery, state: FSMContext, pool: AsyncConnectionPool
+    callback: types.CallbackQuery,
+    callback_data: ExamTypeCB,
+    state: FSMContext,
+    pool: AsyncConnectionPool,
 ) -> None:
-    if not callback.data or not isinstance(callback.message, types.Message):
+    if not isinstance(callback.message, types.Message):
         await callback.answer()
         return
 
-    exam_type = callback.data.split(":")[1]
-    data = await state.get_data()
-    year = data["year"]
-    await _show_options_for_exam_type(callback.message, state, year, exam_type, pool)
+    nav = await fsm_data.load(state, NavigationState)
+    if nav.year is None:
+        await callback.answer()
+        return
+    await _show_options_for_exam_type(
+        callback.message, state, nav.year, callback_data.exam_type, pool
+    )
     await callback.answer()
 
 
@@ -200,14 +238,15 @@ async def _show_options_for_exam_type(
     message: types.Message,
     state: FSMContext,
     year: int,
-    exam_type: str,
+    exam_type: ExamType,
     pool: AsyncConnectionPool,
 ) -> None:
-    data = await state.get_data()
-    subject_id = data["subject_id"]
+    nav = await fsm_data.load(state, NavigationState)
+    if nav.subject_id is None:
+        return
 
     async with UnitOfWork(pool) as uow:
-        book_id = await uow.books.get_or_create_book(subject_id, year)
+        book_id = await uow.books.get_or_create_book(nav.subject_id, year)
         options = await uow.books.list_options(book_id, exam_type)
 
     if not options:
@@ -216,22 +255,27 @@ async def _show_options_for_exam_type(
         return
 
     await message.edit_text(MSG_OPTION_SELECT, reply_markup=options_kb(options))
-    await state.update_data(book_id=book_id, exam_type=exam_type)
+    await fsm_data.merge(state, book_id=book_id, exam_type=exam_type)
     await state.set_state(Navigation.select_option)
 
 
-@router.callback_query(Navigation.select_option, F.data.startswith("opt:"))
+@router.callback_query(Navigation.select_option, OptionCB.filter())
 async def on_option_selected(
-    callback: types.CallbackQuery, state: FSMContext, pool: AsyncConnectionPool
+    callback: types.CallbackQuery,
+    callback_data: OptionCB,
+    state: FSMContext,
+    pool: AsyncConnectionPool,
 ) -> None:
-    if not callback.data or not isinstance(callback.message, types.Message):
+    if not isinstance(callback.message, types.Message):
         await callback.answer()
         return
 
-    option_number = int(callback.data.split(":")[1])
-    data = await state.get_data()
-    book_id = data["book_id"]
-    student_id = data.get("student_id")
+    nav = await fsm_data.load(state, NavigationState)
+    if nav.book_id is None:
+        await callback.answer()
+        return
+    book_id = nav.book_id
+    student_id = nav.student_id
 
     async with UnitOfWork(pool) as uow:
         if student_id is None:
@@ -248,7 +292,7 @@ async def on_option_selected(
                 username=username,
             )
             student_id = student.student_id
-        option_id = await uow.books.get_option_id(book_id, option_number)
+        option_id = await uow.books.get_option_id(book_id, callback_data.option)
         session = await uow.sessions.create(student_id, option_id)
         qs = await uow.questions.list_for_option(option_id, "A")
         qs += await uow.questions.list_for_option(option_id, "B")
@@ -256,10 +300,14 @@ async def on_option_selected(
         session_id = session.session_id
 
     await callback.message.edit_text(MSG_START_TESTING)
-    await state.update_data(
-        session_id=session_id,
-        question_ids=question_ids,
-        current_index=0,
+    await fsm_data.save(
+        state,
+        TestingState(
+            student_id=student_id,
+            session_id=session_id,
+            question_ids=question_ids,
+            current_index=0,
+        ),
     )
     await state.set_state(Testing.answering)
     await callback.answer()

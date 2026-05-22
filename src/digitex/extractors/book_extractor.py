@@ -1,6 +1,8 @@
 """Book extractor for extracting question images from image files."""
 
-from pathlib import Path
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import structlog
 from PIL import Image
@@ -10,6 +12,11 @@ from digitex.extractors.base import BaseExtractor, ExtractionResult
 from digitex.extractors.exceptions import DirectoryNotFoundError
 from digitex.extractors.page_extractor import PageExtractionState, PageExtractor
 from digitex.utils import _natural_sort_key
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from digitex.extractors.conflict_resolution import ConflictResolver
 
 logger = structlog.get_logger()
 
@@ -24,6 +31,7 @@ class BookExtractor(BaseExtractor):
         question_max_width: int = 2000,
         question_max_height: int = 2000,
         page_extractor: PageExtractor | None = None,
+        on_conflict: ConflictResolver | None = None,
     ) -> None:
         self.model_path = model_path
         self.image_format = image_format
@@ -35,10 +43,8 @@ class BookExtractor(BaseExtractor):
             image_format=image_format,
             question_max_width=question_max_width,
             question_max_height=question_max_height,
+            on_conflict=on_conflict,
         )
-
-    def _validate_prerequisites(self) -> None:
-        pass
 
     def extract(
         self,
@@ -47,12 +53,9 @@ class BookExtractor(BaseExtractor):
     ) -> ExtractionResult:
         """Extract question images from a directory of images.
 
-        Args:
-            image_dir: Directory containing page images.
-            output_dir: Output directory for extracted questions.
-
-        Returns:
-            ExtractionResult with statistics.
+        Failed page reads are counted as ``failed`` in the result metadata
+        and surfaced as errors — the caller can decide whether one bad page
+        invalidates the whole book.
         """
         from digitex.utils import IMAGE_EXTENSIONS
 
@@ -78,6 +81,7 @@ class BookExtractor(BaseExtractor):
 
         state = PageExtractionState()
         processed_count = 0
+        errors: list[str] = []
 
         for image_path in tqdm(
             images, desc=f"Processing {image_dir.name}", leave=False
@@ -89,16 +93,22 @@ class BookExtractor(BaseExtractor):
                 )
                 processed_count += 1
             except Exception as e:
-                logger.error(
-                    "Failed to process image",
-                    image_path=str(image_path),
-                    error=str(e),
-                )
+                msg = f"Failed to process {image_path.name}: {e}"
+                logger.error(msg, image_path=str(image_path))
+                errors.append(msg)
 
         logger.info(
             "Extracted images from book",
             output_dir=str(output_dir),
             processed=processed_count,
+            failed=len(errors),
         )
 
+        if errors:
+            return ExtractionResult(
+                success=True,  # partial success — caller can inspect errors
+                processed=processed_count,
+                errors=errors,
+                metadata={"failed": len(errors)},
+            )
         return ExtractionResult.success_result(processed=processed_count)

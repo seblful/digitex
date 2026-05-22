@@ -76,19 +76,12 @@ class ExtractorFactory:
         resolved = self._require_model(
             model_path or self._settings.paths.extraction_model_path
         )
-        page_extractor = PageExtractor(
-            model_path=resolved,
-            image_format=fmt,
-            question_max_width=max_w,
-            question_max_height=max_h,
-            on_conflict=on_conflict,
-        )
         return BookExtractor(
             model_path=resolved,
             image_format=fmt,
             question_max_width=max_w,
             question_max_height=max_h,
-            page_extractor=page_extractor,
+            on_conflict=on_conflict,
         )
 
     def create_tests_extractor(
@@ -99,6 +92,7 @@ class ExtractorFactory:
         question_max_height: int | None = None,
         books_dir: Path | None = None,
         extraction_dir: Path | None = None,
+        on_conflict: ConflictResolver | None = None,
     ) -> TestsExtractor:
         fmt, max_w, max_h = self._resolve_image_params(
             image_format, question_max_width, question_max_height
@@ -113,6 +107,7 @@ class ExtractorFactory:
             question_max_height=max_h,
             books_dir=books_dir or self._settings.paths.books_dir,
             extraction_dir=extraction_dir or self._settings.paths.extraction_output_dir,
+            on_conflict=on_conflict,
         )
 
     def create_manual_extractor(

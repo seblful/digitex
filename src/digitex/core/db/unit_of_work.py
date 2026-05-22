@@ -1,4 +1,7 @@
-"""Async Unit of Work — one pool connection, one transaction, five repositories.
+"""Async Unit of Work — one pool connection, one transaction, the repos.
+
+Repositories are wired up from the :data:`REPOSITORIES` registry, so adding a
+new aggregate doesn't require editing this file.
 
 Usage::
 
@@ -12,6 +15,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from digitex.core.db.repositories import (
+    REPOSITORIES,
     AuthorizedUserRepository,
     BookRepository,
     QuestionRepository,
@@ -32,6 +36,8 @@ class UnitOfWork:
     ``commit()`` / ``rollback()`` manually.
     """
 
+    # Typed attributes for editor/Pyright/ty completion. Values are assigned in
+    # ``__aenter__`` via the REPOSITORIES registry.
     books: BookRepository
     questions: QuestionRepository
     students: StudentRepository
@@ -56,11 +62,8 @@ class UnitOfWork:
         self._conn_cm = conn_cm
         self._tx_cm = tx_cm
         self._conn = conn
-        self.books = BookRepository(conn)
-        self.questions = QuestionRepository(conn)
-        self.students = StudentRepository(conn)
-        self.sessions = SessionRepository(conn)
-        self.authorized_users = AuthorizedUserRepository(conn)
+        for attr, repo_cls in REPOSITORIES.items():
+            setattr(self, attr, repo_cls(conn))
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:

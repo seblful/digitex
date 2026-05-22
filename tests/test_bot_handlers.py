@@ -9,7 +9,7 @@ from aiogram.types import Chat, Message, User
 from digitex.bot.handlers.results import _format_result_lines
 from digitex.bot.renderer import send_question
 from digitex.core.db.repositories import SessionInfo, WrongAnswer
-from digitex.core.schemas import Question, TestResult
+from digitex.core.domain import Question, TestResult
 
 
 def _make_message(

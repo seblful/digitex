@@ -26,8 +26,8 @@ ConflictResolver = Callable[[Conflict], int]
 ```
 
 where `Conflict` is a small dataclass carrying `new_image`, `existing_path`,
-`current_option`, and `source_image_name`. Two module-level functions —
-`keep_current_option` (default) and `prompt_user` — satisfy the alias.
+`current_option`, and `source_image_name`. One module-level function —
+`keep_current_option` (default) — satisfies the alias.
 
 `PageExtractor.__init__` takes `on_conflict: ConflictResolver | None = None`
 and defaults to `keep_current_option`. The factory passes `on_conflict`
@@ -38,9 +38,6 @@ through unchanged.
 - The seam is now a one-line type alias; no Protocol class, no abstract
   method.
 - Adding a new resolver is one function, not a class with one method.
-- A caller wanting a parameterized resolver (e.g. a custom prompter) uses
-  `functools.partial(prompt_user, prompter=my_prompter)` instead of
-  subclassing.
 - `Conflict` is a dataclass, so resolvers can pattern-match its fields if
   needed; callers can mock by passing any callable.
 
@@ -54,6 +51,7 @@ then the callable is the right shape.
 
 ## Status of `InteractiveConflictResolution`
 
-The interactive resolver survives as `prompt_user` for notebook use. If it
-gains no callers within the codebase by the next architecture pass, it is a
-deletion candidate too.
+`prompt_user` was deleted at the architecture pass that followed this ADR —
+no callers ever materialized. If interactive resolution becomes a real
+requirement again, add the function back; the alias and `Conflict` dataclass
+remain ready for it.

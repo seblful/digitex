@@ -50,11 +50,6 @@ class ManualExtractor(BaseExtractor):
         self.output_dir = output_dir
         self._segment_processor = segment_processor or SegmentProcessor()
 
-    def _validate_prerequisites(self) -> None:
-        """Validate that manual directory exists."""
-        if self.manual_dir and not self.manual_dir.exists():
-            raise FileNotFoundError(f"Manual directory not found: {self.manual_dir}")
-
     def _parse_filename(self, file_path: Path) -> tuple[int, int, str, int]:
         """Parse manual image filename into components.
 
@@ -114,8 +109,7 @@ class ManualExtractor(BaseExtractor):
                 image = Image.fromarray(img_array, mode="RGBA")
 
         cropped = resize_image(image, self.question_max_width, self.question_max_height)
-        processed = self._segment_processor.process(cropped)
-        return processed
+        return self._segment_processor.process(cropped)
 
     def _get_existing_images(self, target_dir: Path) -> list[tuple[int, Path]]:
         """Get existing images in directory sorted by question number.

@@ -4,7 +4,7 @@ import structlog
 from aiogram import Bot
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
 
-from digitex.core.schemas import Question
+from digitex.core.domain import Question
 
 logger = structlog.get_logger()
 

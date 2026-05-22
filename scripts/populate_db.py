@@ -22,7 +22,7 @@ from tqdm import tqdm
 
 from digitex.config import get_settings
 from digitex.core.db import UnitOfWork, pool_lifespan
-from digitex.core.value_objects import QuestionKey
+from digitex.core.domain import QuestionKey
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 

@@ -81,7 +81,7 @@ class DatabaseSettings(BaseSettings):
 
     dsn: PostgresDsn = Field(
         default=PostgresDsn("postgresql://digitex:digitex@localhost:5432/digitex"),
-        validation_alias=AliasChoices("DB_DSN", "DATABASE_URL"),
+        validation_alias=AliasChoices("dsn", "DB_DSN", "DATABASE_URL"),
         description="PostgreSQL connection string.",
     )
     pool_min_size: int = Field(default=2, ge=1)

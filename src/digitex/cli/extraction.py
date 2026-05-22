@@ -1,6 +1,5 @@
 """Extraction CLI commands."""
 
-import json
 from typing import Annotated
 
 import typer
@@ -14,12 +13,17 @@ from digitex.extractors.utils import (
     renumber_directory_tree,
 )
 from digitex.logging import setup_logging
+from digitex.services.answer_validator import (
+    AnswerValidator,
+    ValidationReport,
+    YearReport,
+)
 
-setup_logging()
+# Per ADR 0001 — resolve settings once at the CLI boundary and pass them down.
+_settings = get_settings()
+setup_logging(_settings)
 
 app = typer.Typer(help="Extraction commands for processing test books.")
-
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
 
 
 @app.command(name="extract-questions")
@@ -32,7 +36,7 @@ def extract_questions(
 
     SUBJECT is the name of the subject folder in the books directory.
     """
-    extractor = ExtractorFactory(get_settings()).create_tests_extractor()
+    extractor = ExtractorFactory(_settings).create_tests_extractor()
     result = extractor.extract(subject=subject)
 
     if result.success:
@@ -61,8 +65,7 @@ def count_questions(  # noqa: PLR0912
     ],
 ) -> None:
     """Count images in a specific subject's extraction output."""
-    settings = get_settings()
-    folder = settings.paths.extraction_output_dir / subject
+    folder = _settings.paths.extraction_output_dir / subject
 
     if not folder.exists() or not folder.is_dir():
         typer.echo(f"Error: Subject '{subject}' not found", err=True)
@@ -131,8 +134,7 @@ def renumber_questions(
     ] = True,
 ) -> None:
     """Renumber images in a specific subject's extraction output to fill gaps."""
-    settings = get_settings()
-    folder = settings.paths.extraction_output_dir / subject
+    folder = _settings.paths.extraction_output_dir / subject
 
     if not folder.exists() or not folder.is_dir():
         typer.echo(f"Error: Subject '{subject}' not found", err=True)
@@ -163,14 +165,13 @@ def add_questions_manually(
     with filename format: YYYY_OPTION_PART_QUESTION.png
     Example: biology/2016_3_A_20.png
     """
-    settings = get_settings()
-    manual_dir = settings.paths.extraction_manual_dir / subject
+    manual_dir = _settings.paths.extraction_manual_dir / subject
 
     if not manual_dir.exists():
         typer.echo(f"Error: Manual directory '{subject}' not found", err=True)
         raise typer.Exit(code=1)
 
-    extractor = ExtractorFactory(settings).create_manual_extractor(
+    extractor = ExtractorFactory(_settings).create_manual_extractor(
         manual_dir=manual_dir
     )
     result = extractor.process_all(dry_run=dry_run)
@@ -214,7 +215,7 @@ def extract_answers(
 
     Results are saved to extraction/data/output/{subject}/{year}/answers.json
     """
-    extractor = ExtractorFactory(get_settings()).create_answers_extractor()
+    extractor = ExtractorFactory(_settings).create_answers_extractor()
     result = extractor.extract(subject=subject)
 
     if result.success:
@@ -238,145 +239,75 @@ def extract_answers(
         raise typer.Exit(code=1)
 
 
+def _render_year_report(year: YearReport) -> None:
+    """Emit the colored year-level rendering of a validation outcome."""
+    if not year.answers_file_present:
+        typer.echo(f"\n{year.year}: ✗ answers.json NOT FOUND")
+        return
+
+    if year.has_mismatch:
+        status = "❌ MISMATCH"
+    elif year.options_differ:
+        status = "❌ OPTIONS DIFFER"
+    else:
+        status = "✅ OK"
+
+    typer.echo(f"\n{year.year}: {status}")
+    typer.echo(f"  A-part: {year.a_count}, B-part: {year.b_count}")
+    typer.echo(f"  Questions in images: {year.image_question_count}")
+    typer.echo(f"  Questions in answers.json: {year.answer_question_count}")
+
+    if year.options_differ:
+        typer.echo(
+            "  Options with different questions:"
+            f" {year.options_with_differing_questions}"
+        )
+    if year.missing_in_answers:
+        typer.echo(f"  Missing in answers.json: {year.missing_in_answers}")
+    if year.missing_in_images:
+        typer.echo(f"  Missing in images: {year.missing_in_images}")
+
+    if year.options_with_b == 0:
+        styled = typer.style("NO option has Б", fg="red", bold=True)
+    elif year.options_with_b < year.total_options:
+        ratio = f"{year.options_with_b}/{year.total_options} options have Б"
+        styled = typer.style(ratio, fg="yellow")
+    else:
+        styled = typer.style("all options have Б", fg="green")
+    typer.echo(f"  Part B 'Б' check: {styled}")
+
+
+def _render_validation_report(report: ValidationReport) -> None:
+    typer.echo("=" * 60)
+    typer.echo(f"CHECKING ANSWERS FOR: {report.subject}")
+    typer.echo("=" * 60)
+
+    for year in report.years:
+        _render_year_report(year)
+
+    typer.echo("\n" + "=" * 60)
+    if report.total_issues == 0:
+        typer.echo("RESULT: All years match ✅")
+    else:
+        typer.echo(f"RESULT: {report.total_issues} issue(s) found ❌")
+    typer.echo("=" * 60)
+
+
 @app.command(name="check-answers")
-def check_answers(  # noqa: PLR0912, PLR0915
+def check_answers(
     subject: Annotated[
         str, typer.Argument(help="Subject name (e.g., biology, chemistry)")
     ],
 ) -> None:
-    """Check that answers.json files correspond to extracted question images.
+    """Check that answers.json files correspond to extracted question images."""
+    validator = AnswerValidator(_settings.paths.extraction_output_dir)
+    try:
+        report = validator.validate(subject)
+    except FileNotFoundError as exc:
+        typer.echo(f"Error: {exc} does not exist", err=True)
+        raise typer.Exit(code=1) from None
 
-    Verifies that:
-    1. Each year has an answers.json file
-    2. Questions in answers.json match the image files in option/part folders
-    3. All options have the same questions (validation check)
-    4. Reports any mismatches or missing files
-    5. Checks whether each option has at least one Part B answer with 'Б'
-    """
-    settings = get_settings()
-    output_dir = settings.paths.extraction_output_dir / subject
-
-    if not output_dir.exists():
-        typer.echo(f"Error: {output_dir} does not exist", err=True)
-        raise typer.Exit(code=1)
-
-    years = sorted([d.name for d in output_dir.iterdir() if d.is_dir()])
-
-    typer.echo("=" * 60)
-    typer.echo(f"CHECKING ANSWERS FOR: {subject}")
-    typer.echo("=" * 60)
-
-    total_issues = 0
-    total_options = 0
-    options_with_b = 0
-
-    for year in years:
-        year_dir = output_dir / year
-        answers_file = year_dir / "answers.json"
-
-        if not answers_file.exists():
-            typer.echo(f"\n{year}: ✗ answers.json NOT FOUND")
-            total_issues += 1
-            continue
-
-        with answers_file.open(encoding="utf-8") as f:
-            answers_data = json.load(f)
-
-        answer_questions = set()
-        for option_data in answers_data.values():
-            answer_questions.update(option_data.keys())
-
-        image_questions = set()
-        for option_folder in year_dir.iterdir():
-            if not option_folder.is_dir():
-                continue
-            for part_folder in option_folder.iterdir():
-                if not part_folder.is_dir():
-                    continue
-                for img_file in part_folder.iterdir():
-                    if img_file.suffix.lower() in IMAGE_EXTENSIONS:
-                        try:
-                            q_num = int(img_file.stem)
-                            part = part_folder.name.upper()
-                            image_questions.add(f"{part}{q_num}")
-                        except ValueError:
-                            pass
-
-        missing_in_answers = image_questions - answer_questions
-        missing_in_images = answer_questions - image_questions
-
-        all_options_same = True
-        first_option_questions = set(answers_data.get("1", {}).keys())
-        for opt in answers_data:
-            if set(answers_data[opt].keys()) != first_option_questions:
-                all_options_same = False
-                break
-
-        has_mismatch = bool(missing_in_answers or missing_in_images)
-        if has_mismatch:
-            status = "❌ MISMATCH"
-            total_issues += 1
-        elif not all_options_same:
-            status = "❌ OPTIONS DIFFER"
-            total_issues += 1
-        else:
-            status = "✅ OK"
-
-        a_count = sum(1 for k in answer_questions if k.startswith("A"))
-        b_count = sum(1 for k in answer_questions if k.startswith("B"))
-
-        typer.echo(f"\n{year}: {status}")
-        typer.echo(f"  A-part: {a_count}, B-part: {b_count}")
-        typer.echo(f"  Questions in images: {len(image_questions)}")
-        typer.echo(f"  Questions in answers.json: {len(answer_questions)}")
-
-        if not all_options_same:
-            different_options = [
-                opt
-                for opt in answers_data
-                if set(answers_data[opt].keys()) != first_option_questions
-            ]
-            typer.echo(f"  Options with different questions: {different_options}")
-
-        if missing_in_answers:
-            typer.echo(f"  Missing in answers.json: {sorted(missing_in_answers)}")
-        if missing_in_images:
-            typer.echo(f"  Missing in images: {sorted(missing_in_images)}")
-
-        # Part B Б check
-        year_options_with_b = 0
-        year_total_options = 0
-        for opt in sorted(answers_data, key=int):
-            part_b_answers = {
-                k: v for k, v in answers_data[opt].items() if k.startswith("B")
-            }
-            with_b = sum(1 for v in part_b_answers.values() if "Б" in v)
-            if with_b > 0:
-                year_options_with_b += 1
-            year_total_options += 1
-
-        total_options += year_total_options
-        options_with_b += year_options_with_b
-
-        if year_options_with_b == 0:
-            styled = typer.style("NO option has Б", fg="red", bold=True)
-            typer.echo(f"  Part B 'Б' check: {styled}")
-            total_issues += 1
-        elif year_options_with_b < year_total_options:
-            ratio = f"{year_options_with_b}/{year_total_options} options have Б"
-            styled = typer.style(ratio, fg="yellow")
-            typer.echo(f"  Part B 'Б' check: {styled}")
-            total_issues += 1
-        else:
-            styled = typer.style("all options have Б", fg="green")
-            typer.echo(f"  Part B 'Б' check: {styled}")
-
-    typer.echo("\n" + "=" * 60)
-    if total_issues == 0:
-        typer.echo("RESULT: All years match ✅")
-    else:
-        typer.echo(f"RESULT: {total_issues} issue(s) found ❌")
-    typer.echo("=" * 60)
+    _render_validation_report(report)
 
 
 if __name__ == "__main__":

@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
 
     from digitex.core.db.repositories import SessionInfo, WrongAnswer
-    from digitex.core.schemas import TestResult
+    from digitex.core.domain import TestResult
 
 router = Router()
 

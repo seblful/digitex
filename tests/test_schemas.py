@@ -6,8 +6,14 @@ import pytest
 from pydantic import ValidationError
 
 from digitex.core.answer import check_answer
-from digitex.core.schemas import Question, Session, Student, TestResult
-from digitex.core.value_objects import ExamType, QuestionKey
+from digitex.core.domain import (
+    ExamType,
+    Question,
+    QuestionKey,
+    Session,
+    Student,
+    TestResult,
+)
 
 
 class TestStudent:

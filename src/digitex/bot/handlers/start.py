@@ -8,6 +8,7 @@ from aiogram import Bot, Router, types
 from aiogram.filters import CommandStart
 from aiogram.types import Message as TgMessage
 
+from digitex.bot.callbacks import RegistrationCB
 from digitex.bot.constants import FALLBACK_NAME
 from digitex.bot.keyboards import admin_registration_kb, subjects_kb
 from digitex.bot.messages import (
@@ -68,9 +69,7 @@ def _get_user_info(
 async def _normal_start(
     message: types.Message, state: FSMContext, pool: AsyncConnectionPool
 ) -> None:
-    telegram_id = message.from_user.id if message.from_user else 0
-    name = message.from_user.full_name if message.from_user else FALLBACK_NAME
-    username = message.from_user.username if message.from_user else None
+    telegram_id, name, username = _get_user_info(message)
 
     async with UnitOfWork(pool) as uow:
         student = await uow.students.get_or_create(
@@ -80,11 +79,10 @@ async def _normal_start(
         )
         subjects = await uow.books.list_subjects()
 
-    user_name = message.from_user.full_name if message.from_user else FALLBACK_NAME
     await state.clear()
     await state.update_data(student_id=student.student_id)
     await message.answer(
-        MSG_GREETING.format(name=user_name),
+        MSG_GREETING.format(name=name),
         reply_markup=subjects_kb(subjects),
     )
     await state.set_state(Navigation.select_subject)
@@ -166,9 +164,10 @@ async def process_name(
     )
 
 
-@router.callback_query(lambda c: c.data and c.data.startswith("reg:"))
+@router.callback_query(RegistrationCB.filter())
 async def handle_reg_callback(
     callback: types.CallbackQuery,
+    callback_data: RegistrationCB,
     bot: Bot,
     pool: AsyncConnectionPool,
     admin_user_id: int,
@@ -179,43 +178,22 @@ async def handle_reg_callback(
         )
         return
 
-    if not callback.data:
-        await callback.answer("Некорректные данные.")
-        return
-
-    parts = callback.data.split(":")
-    if len(parts) != 3:
-        await callback.answer("Некорректные данные.")
-        return
-
-    action = parts[1]
-    try:
-        target_id = int(parts[2])
-    except ValueError:
-        await callback.answer("Некорректный ID пользователя.")
-        return
-
-    if action == "approve":
-        async with UnitOfWork(pool) as uow:
+    target_id = callback_data.telegram_id
+    async with UnitOfWork(pool) as uow:
+        if callback_data.action == "approve":
             user_record = await uow.authorized_users.approve(
                 target_id, callback.from_user.id
             )
-        await bot.send_message(target_id, MSG_APPROVED_USER)
-        if isinstance(callback.message, TgMessage):
-            await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.answer(
-            MSG_APPROVED_ADMIN.format(full_name=user_record.full_name)
-        )
-    elif action == "reject":
-        async with UnitOfWork(pool) as uow:
+            user_message = MSG_APPROVED_USER
+            admin_reply = MSG_APPROVED_ADMIN.format(full_name=user_record.full_name)
+        else:
             user_record = await uow.authorized_users.reject(
                 target_id, callback.from_user.id
             )
-        await bot.send_message(target_id, MSG_REJECTED_USER)
-        if isinstance(callback.message, TgMessage):
-            await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.answer(
-            MSG_REJECTED_ADMIN.format(full_name=user_record.full_name)
-        )
-    else:
-        await callback.answer("Неизвестное действие.")
+            user_message = MSG_REJECTED_USER
+            admin_reply = MSG_REJECTED_ADMIN.format(full_name=user_record.full_name)
+
+    await bot.send_message(target_id, user_message)
+    if isinstance(callback.message, TgMessage):
+        await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.answer(admin_reply)

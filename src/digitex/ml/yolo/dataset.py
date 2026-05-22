@@ -124,7 +124,7 @@ class DatasetCreator:
                 for name in polygon.get("polygonlabels", []):
                     label_names.add(name)
 
-        self.classes = {i: name for i, name in enumerate(sorted(label_names))}
+        self.classes = dict(enumerate(sorted(label_names)))
         self.label2id = {v: k for k, v in self.classes.items()}
         logger.info("classes_derived", classes=self.classes)
 

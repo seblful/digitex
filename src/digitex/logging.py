@@ -1,29 +1,31 @@
 """Logging configuration using structlog."""
 
+from __future__ import annotations
+
 import codecs
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import structlog
 
-from digitex.config.settings import get_settings
+if TYPE_CHECKING:
+    from digitex.config.settings import Settings
 
 
-def setup_logging(
-    file_level: str | None = None,
-    console_level: str | None = None,
-    log_file: Path | None = None,
-) -> None:
-    """Configure structlog for the application."""
-    cfg = get_settings()
-    f_level = file_level or cfg.logging.file_level
-    c_level = console_level or cfg.logging.console_level
+def setup_logging(settings: Settings) -> None:
+    """Configure structlog for the application.
 
-    file_path = log_file or cfg.logging.log_file
+    Per ADR 0001, settings are injected at the outermost module boundary. The
+    CLI entry points call ``get_settings()`` once and pass the result here.
+    """
+    f_level = settings.logging.file_level
+    c_level = settings.logging.console_level
+
+    file_path = settings.logging.log_file
     if not file_path.is_absolute():
-        file_path = cfg.paths.root_dir / file_path
+        file_path = settings.paths.root_dir / file_path
 
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -44,7 +46,7 @@ def setup_logging(
 
     renderer = (
         structlog.processors.JSONRenderer()
-        if cfg.app.environment == "production"
+        if settings.app.environment == "production"
         else structlog.dev.ConsoleRenderer(colors=True)
     )
 

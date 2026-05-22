@@ -1,8 +1,28 @@
-"""Inline keyboard builders."""
+"""Inline keyboard builders.
+
+Callback payloads are produced via the typed factories in
+:mod:`digitex.bot.callbacks` — never as bare formatted strings.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from digitex.bot.callbacks import (
+    AnswerCB,
+    ExamTypeCB,
+    ModeCB,
+    OptionCB,
+    RandomFeedbackCB,
+    RandomPartCB,
+    RegistrationCB,
+    SubjectCB,
+    TopicCB,
+    YearCB,
+)
 from digitex.bot.messages import (
     MSG_KB_CE,
     MSG_KB_CT,
@@ -16,99 +36,119 @@ from digitex.bot.messages import (
     MSG_OPTION_PREFIX,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+# Layout constants — one source of truth instead of magic adjust() numbers.
+COLUMNS_SUBJECTS = 1
+COLUMNS_YEARS = 3
+COLUMNS_OPTIONS = 2
+COLUMNS_MODE = 1
+COLUMNS_RANDOM_FEEDBACK = 1
+COLUMNS_EXAM_TYPE = 2
+COLUMNS_RANDOM_PART = 1
+COLUMNS_TOPICS = 1
+COLUMNS_REGISTRATION = 2
+
+
+def _grid(items: Iterable[tuple[str, str]], columns: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for text, callback_data in items:
+        builder.add(InlineKeyboardButton(text=text, callback_data=callback_data))
+    builder.adjust(columns)
+    return builder.as_markup()
+
 
 def subjects_kb(subjects: list[tuple[int, str]]) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    for subject_id, name in subjects:
-        builder.add(InlineKeyboardButton(text=name, callback_data=f"subj:{subject_id}"))
-    builder.adjust(1)
-    return builder.as_markup()
+    return _grid(
+        ((name, SubjectCB(subject_id=sid).pack()) for sid, name in subjects),
+        COLUMNS_SUBJECTS,
+    )
 
 
 def years_kb(years: list[int]) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    for year in years:
-        builder.add(InlineKeyboardButton(text=str(year), callback_data=f"year:{year}"))
-    builder.adjust(3)
-    return builder.as_markup()
+    return _grid(
+        ((str(year), YearCB(year=year).pack()) for year in years),
+        COLUMNS_YEARS,
+    )
 
 
 def options_kb(options: list[int]) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    for opt in options:
-        builder.add(
-            InlineKeyboardButton(
-                text=f"{MSG_OPTION_PREFIX} {opt}", callback_data=f"opt:{opt}"
-            )
-        )
-    builder.adjust(2)
-    return builder.as_markup()
+    return _grid(
+        (
+            (f"{MSG_OPTION_PREFIX} {opt}", OptionCB(option=opt).pack())
+            for opt in options
+        ),
+        COLUMNS_OPTIONS,
+    )
 
 
 def part_a_kb(num_options: int = 5) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    for i in range(1, num_options + 1):
-        builder.add(InlineKeyboardButton(text=str(i), callback_data=f"ans:{i}"))
-    builder.adjust(num_options)
-    return builder.as_markup()
+    return _grid(
+        ((str(i), AnswerCB(value=i).pack()) for i in range(1, num_options + 1)),
+        num_options,
+    )
 
 
 def mode_kb() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.add(
-        InlineKeyboardButton(text=MSG_KB_STANDARD, callback_data="mode:standard")
+    return _grid(
+        (
+            (MSG_KB_STANDARD, ModeCB(mode="standard").pack()),
+            (MSG_KB_RANDOM, ModeCB(mode="random").pack()),
+            (MSG_KB_TOPICS, ModeCB(mode="topics").pack()),
+        ),
+        COLUMNS_MODE,
     )
-    builder.add(InlineKeyboardButton(text=MSG_KB_RANDOM, callback_data="mode:random"))
-    builder.add(InlineKeyboardButton(text=MSG_KB_TOPICS, callback_data="mode:topics"))
-    builder.adjust(1)
-    return builder.as_markup()
 
 
 def random_feedback_kb() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text=MSG_KB_NEXT, callback_data="random:next"))
-    builder.add(InlineKeyboardButton(text=MSG_KB_FINISH, callback_data="random:finish"))
-    builder.adjust(1)
-    return builder.as_markup()
+    return _grid(
+        (
+            (MSG_KB_NEXT, RandomFeedbackCB(action="next").pack()),
+            (MSG_KB_FINISH, RandomFeedbackCB(action="finish").pack()),
+        ),
+        COLUMNS_RANDOM_FEEDBACK,
+    )
 
 
 def exam_type_kb() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text=MSG_KB_CE, callback_data="exam_type:CE"))
-    builder.add(InlineKeyboardButton(text=MSG_KB_CT, callback_data="exam_type:CT"))
-    builder.adjust(2)
-    return builder.as_markup()
+    return _grid(
+        (
+            (MSG_KB_CE, ExamTypeCB(exam_type="CE").pack()),
+            (MSG_KB_CT, ExamTypeCB(exam_type="CT").pack()),
+        ),
+        COLUMNS_EXAM_TYPE,
+    )
 
 
 def random_part_kb() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text=MSG_KB_PART_A, callback_data="random_part:A"))
-    builder.add(InlineKeyboardButton(text=MSG_KB_PART_B, callback_data="random_part:B"))
-    builder.adjust(1)
-    return builder.as_markup()
+    return _grid(
+        (
+            (MSG_KB_PART_A, RandomPartCB(part="A").pack()),
+            (MSG_KB_PART_B, RandomPartCB(part="B").pack()),
+        ),
+        COLUMNS_RANDOM_PART,
+    )
 
 
 def topics_kb(topics: list[str]) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    for i, name in enumerate(topics):
-        builder.add(InlineKeyboardButton(text=name, callback_data=f"topic:{i}"))
-    builder.adjust(1)
-    return builder.as_markup()
+    return _grid(
+        ((name, TopicCB(index=i).pack()) for i, name in enumerate(topics)),
+        COLUMNS_TOPICS,
+    )
 
 
 def admin_registration_kb(telegram_id: int) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.add(
-        InlineKeyboardButton(
-            text="✅ Подтвердить",
-            callback_data=f"reg:approve:{telegram_id}",
-        )
+    return _grid(
+        (
+            (
+                "✅ Подтвердить",
+                RegistrationCB(action="approve", telegram_id=telegram_id).pack(),
+            ),
+            (
+                "❌ Отклонить",
+                RegistrationCB(action="reject", telegram_id=telegram_id).pack(),
+            ),
+        ),
+        COLUMNS_REGISTRATION,
     )
-    builder.add(
-        InlineKeyboardButton(
-            text="❌ Отклонить",
-            callback_data=f"reg:reject:{telegram_id}",
-        )
-    )
-    builder.adjust(2)
-    return builder.as_markup()

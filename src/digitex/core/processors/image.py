@@ -123,8 +123,8 @@ def _rotate(img: np.ndarray, angle: float) -> np.ndarray:
     h, w = img.shape[:2]
     rad = math.radians(angle)
     sin_a, cos_a = math.sin(rad), math.cos(rad)
-    new_w = int(round(abs(sin_a) * h + abs(cos_a) * w))
-    new_h = int(round(abs(sin_a) * w + abs(cos_a) * h))
+    new_w = round(abs(sin_a) * h + abs(cos_a) * w)
+    new_h = round(abs(sin_a) * w + abs(cos_a) * h)
 
     mat = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
     mat[0, 2] += (new_w - w) / 2
@@ -247,12 +247,12 @@ class SegmentProcessor:
         bg_threshold: int = DEFAULT_BG_THRESHOLD,
         gamma: float = DEFAULT_GAMMA,
     ) -> Image.Image:
-        """Apply color removal, background removal, darkness increase, and white background.
+        """Apply color removal, bg removal, darkness, and white-background composite.
 
         Args:
             image: Input PIL Image.
             saturation_threshold: Max saturation to keep (higher = removes more colors).
-            bg_threshold: Brightness threshold for background removal (higher = keeps more).
+            bg_threshold: Brightness threshold for bg removal (higher = keeps more).
             gamma: Gamma for darkness adjustment. < 1.0 darkens, 1.0 = no change.
 
         Returns:

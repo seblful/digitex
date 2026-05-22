@@ -120,10 +120,10 @@ This project uses `uv` for dependency management.
 uv sync
 
 # Run extraction
-uv run python -m extraction.run --help
+uv run digitex-extract --help
 
 # Run training
-uv run python -m training.cli --help
+uv run digitex-train --help
 ```
 
 ### Requirements
