@@ -66,20 +66,31 @@ postgres container and the bot's `DATABASE_URL`.
 ## Connecting to the VPS database from your PC
 
 Use an **SSH tunnel** — your existing SSH key is the auth layer, no extra
-ports get exposed:
+ports get exposed. Use port `5433` on the local side to avoid colliding with
+any local Postgres instance:
 
 ```powershell
 # in one PowerShell window — keep it open while you work
-ssh -L 5432:localhost:5432 root@<vps-ip>
+ssh -L 5433:localhost:5432 root@<vps-ip>
 ```
 
-That forwards your PC's `localhost:5432` to the VPS's `localhost:5432`. Then
-point any client (psql, DBeaver, pgAdmin, DataGrip) at `localhost:5432` on
+That forwards your PC's `localhost:5433` to the VPS's `localhost:5432`. Then
+point any client (psql, DBeaver, pgAdmin, DataGrip) at `localhost:5433` on
 your PC with the credentials from `.env`. The connection is encrypted by SSH
 end-to-end; no extra DB SSL config is needed for the tunnel.
 
 ```powershell
-psql "postgresql://digitex:<password>@localhost:5432/digitex"
+psql "postgresql://digitex:<password>@localhost:5433/digitex"
+```
+
+### Seeding production through the tunnel
+
+Pass `DATABASE_URL` explicitly so a bare script invocation always hits local,
+never production by accident:
+
+```bash
+DATABASE_URL="postgresql://digitex:<password>@localhost:5433/digitex" \
+    uv run python scripts/populate_db.py
 ```
 
 ### Why an SSH tunnel and not exposing 5432 publicly
