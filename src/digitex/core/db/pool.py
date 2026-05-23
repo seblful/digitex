@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
 from psycopg.rows import dict_row
-from psycopg_pool import AsyncConnectionPool
+from psycopg_pool import AsyncConnectionPool, AsyncNullConnectionPool
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -49,6 +49,32 @@ async def pool_lifespan(
     try:
         # Verify connectivity early so misconfiguration fails fast.
         await pool.wait()
+        yield pool
+    finally:
+        await pool.close()
+
+
+@asynccontextmanager
+async def null_pool_lifespan(
+    settings: DatabaseSettings,
+) -> AsyncIterator[AsyncNullConnectionPool]:
+    """Open a null pool (one connection per acquire, no background workers).
+
+    Use this for short-lived scripts and migration tools — anywhere that
+    ``AsyncConnectionPool``'s background worker tasks are problematic (e.g.
+    Windows SelectorEventLoop). The bot uses ``pool_lifespan`` instead.
+    """
+    pool = AsyncNullConnectionPool(
+        conninfo=settings.conninfo,
+        kwargs={
+            "autocommit": False,
+            "row_factory": dict_row,
+            "options": settings.server_options,
+        },
+        open=False,
+    )
+    await pool.open()
+    try:
         yield pool
     finally:
         await pool.close()

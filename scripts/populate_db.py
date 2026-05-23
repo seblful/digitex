@@ -21,7 +21,7 @@ from alembic.config import Config
 from tqdm import tqdm
 
 from digitex.config import get_settings
-from digitex.core.db import UnitOfWork, pool_lifespan
+from digitex.core.db import UnitOfWork, null_pool_lifespan
 from digitex.core.domain import QuestionKey
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
@@ -202,7 +202,7 @@ async def _amain() -> None:
         print(f"Extraction output not found: {output_dir}")
         sys.exit(1)
 
-    async with pool_lifespan(settings.database) as pool:
+    async with null_pool_lifespan(settings.database) as pool:
         if len(sys.argv) > 1:
             await populate_subject(pool, output_dir, sys.argv[1])
         else:
