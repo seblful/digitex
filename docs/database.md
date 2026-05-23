@@ -21,9 +21,9 @@ one new file added to `migrations/versions/`, applied with
 
 ## Local development
 
-`docker-compose.yml` ships a `postgres:17-alpine` service. The default
-credentials are `digitex:digitex` and they only apply when
-`POSTGRES_PASSWORD` is unset (i.e. local dev — never production).
+`docker-compose.yml` ships a `postgres:17-alpine` service. `POSTGRES_PASSWORD`
+is required — set it in `.env.development` (already set to `digitex` for local
+dev). The host port is `5433` to avoid clashing with any native Postgres install.
 
 ```bash
 docker compose up -d postgres
@@ -40,28 +40,25 @@ before going live:
 
 ### 1. Bind Postgres to localhost only
 
-The compose file already does this (`127.0.0.1:5432:5432`). Port 5432 is
+The compose file already does this (`127.0.0.1:5433:5432`). Port 5433 is
 *not* exposed to the public internet — scanners cannot reach it. The bot
 container still connects through the internal docker network using the
 service name `postgres`.
 
 ### 2. Set a real password
 
-Generate one on the VPS:
+Generate one and add it to `.env.production` on the VPS:
 
 ```bash
 openssl rand -base64 24
 ```
 
-Add it to `/opt/digitex/.env`:
-
 ```env
 POSTGRES_PASSWORD=<the generated value>
-DATABASE_URL=postgresql://digitex:<the generated value>@postgres:5432/digitex
 ```
 
-Compose reads `POSTGRES_PASSWORD` from this file and feeds it into both the
-postgres container and the bot's `DATABASE_URL`.
+`DATABASE_URL` is derived automatically from `POSTGRES_PASSWORD` by
+`docker-compose.yml` — you do not need to set it manually.
 
 ## Connecting to the VPS database from your PC
 

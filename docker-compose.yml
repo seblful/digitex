@@ -3,24 +3,24 @@ services:
     image: postgres:17-alpine
     container_name: digitex-postgres
     environment:
-      POSTGRES_USER: digitex
-      # Falls back to "digitex" for local dev; on the VPS set POSTGRES_PASSWORD
-      # in .env to a strong value generated with `openssl rand -base64 24`.
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-digitex}
-      POSTGRES_DB: digitex
-    # Bind to localhost on the VPS only — reach it from your PC via an SSH
-    # tunnel (see README "Connecting from your PC"). The bot container still
-    # reaches postgres over the internal docker network.
+      POSTGRES_USER: ${POSTGRES_USER:-digitex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-digitex}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U digitex -d digitex"]
-      interval: 2s
-      timeout: 2s
-      retries: 20
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} -h 127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   bot:
     build: .
@@ -29,13 +29,23 @@ services:
     env_file: .env
     environment:
       - ENVIRONMENT=production
-      - DATABASE_URL=postgresql://digitex:digitex@postgres:5432/digitex
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-digitex}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-digitex}
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - ./logs:/app/logs
-      - ./seed:/app/seed
+      - ./seed:/app/seed:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python -m digitex' > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
 volumes:
   pgdata:

@@ -17,13 +17,16 @@ def _load_env() -> None:
     env_name = os.environ.get("ENVIRONMENT") or os.environ.get(
         "APP_ENVIRONMENT", "development"
     )
-    env_specific = BASE_DIR / f".env.{env_name}"
-    if env_specific.exists():
-        load_dotenv(env_specific, override=False)
 
+    # .env is loaded first — real secrets and local overrides always win
     env_file = BASE_DIR / ".env"
     if env_file.exists():
         load_dotenv(env_file, override=False)
+
+    # env-specific file provides defaults for anything not set above
+    env_specific = BASE_DIR / f".env.{env_name}"
+    if env_specific.exists():
+        load_dotenv(env_specific, override=False)
 
 
 class ExtractionSettings(BaseSettings):

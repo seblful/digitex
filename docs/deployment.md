@@ -14,14 +14,14 @@ Deploy the Digitex Telegram bot on a VPS with Docker.
 
 ```bash
 # 1. SSH into the VPS and clone
-ssh root@45.129.186.187
+ssh root@<vps-ip>
 git clone https://github.com/seblful/digitex /opt/digitex
 cd /opt/digitex
 
 # 2. Configure environment
 mkdir -p logs
-cp .env.production .env
-nano .env  # set BOT_TOKEN, BOT_ADMIN_USER_ID, POSTGRES_PASSWORD, DATABASE_URL, DB_SSLMODE
+cp .env.example .env.production
+nano .env.production  # set BOT_TOKEN, BOT_ADMIN_USER_ID, POSTGRES_PASSWORD
 
 # 3. Start Postgres
 docker compose up -d postgres
@@ -64,23 +64,23 @@ cd /opt/digitex
 
 mkdir -p logs
 
-cp .env.production .env
-micro .env
+cp .env.example .env.production
+micro .env.production
 ```
 
-Required variables in `.env`:
+Required variables in `.env.production`:
 
 | Variable | Value | Required |
 | ----------------------- | --------------------------------------------------- | -------- |
 | `BOT_TOKEN` | Your token from @BotFather | Yes |
 | `BOT_ADMIN_USER_ID` | Your Telegram user ID | Yes |
-| `POSTGRES_PASSWORD` | Strong password (e.g. `openssl rand -base64 24`) — read by the postgres container | Yes |
-| `DATABASE_URL` | `postgresql://digitex:<password>@postgres:5432/digitex` (must match `POSTGRES_PASSWORD`) | Yes |
+| `POSTGRES_PASSWORD` | Strong password (`openssl rand -base64 24`) | Yes |
 | `DB_SSLMODE` | `disable` (in-cluster) or `require` (external DB) | Yes |
 | `LOGGING_CONSOLE_LEVEL` | `INFO` | No |
 
-See [database.md](database.md) for the full DB setup story — password
-generation, SSH-tunnel access from your PC, and backups.
+`DATABASE_URL` is derived automatically from `POSTGRES_PASSWORD` by Compose —
+no need to set it manually. See [database.md](database.md) for the full DB
+setup story — password generation, SSH-tunnel access from your PC, and backups.
 
 ### 3. Apply schema and seed data
 

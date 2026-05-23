@@ -61,19 +61,20 @@ The bot allows students to take centralized tests via Telegram:
 ### Bot Setup
 
 1. Get a bot token from [@BotFather](https://t.me/BotFather)
-1. Add to `.env` (or `.env.development`):
+1. Add to `.env.development`:
    ```
    BOT_TOKEN=your_bot_token_here
    BOT_ADMIN_USER_ID=your_telegram_user_id
-   DATABASE_URL=postgresql://digitex:digitex@localhost:5432/digitex
+   POSTGRES_PASSWORD=digitex
+   DATABASE_URL=postgresql://digitex:digitex@localhost:5433/digitex
    ```
 1. Start PostgreSQL:
    ```bash
    docker compose up -d postgres
    ```
-1. Run migrations + populate the database (the script applies the schema and
-   loads extraction output in one go):
+1. Run migrations + populate the database:
    ```bash
+   uv run digitex-db upgrade
    uv run python scripts/populate_db.py
    ```
 1. Run the bot:
@@ -93,21 +94,14 @@ PC, backups, and hardening.
 This project uses Pydantic Settings with environment-specific `.env` files:
 
 ```
-.env                  # Base/shared variables (gitignored)
-.env.development      # Development overrides (gitignored)
-.env.production       # Production overrides (gitignored)
+.env.development      # Complete dev config (gitignored)
+.env.production       # Complete prod config (gitignored)
+.env                  # Per-machine secrets and overrides (gitignored)
 .env.example          # Reference template (committed)
 ```
 
-Set `ENVIRONMENT` or `APP_ENVIRONMENT` to switch:
-
-```bash
-# Development (default)
-digitex-bot run
-
-# Production
-ENVIRONMENT=production digitex-bot run
-```
+`ENVIRONMENT` switches which file loads — defaults to `development` locally,
+set to `production` by Docker on the VPS. You never need to set it manually.
 
 See `.env.example` for all available variables and their defaults.
 
