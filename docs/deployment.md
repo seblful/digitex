@@ -89,24 +89,8 @@ docker compose up -d postgres
 docker compose run --rm bot uv run digitex-db upgrade
 ```
 
-For the initial data load, `populate_db.py` reads from
-`extraction/data/output/` — this directory is not part of the production
-image. Run it locally through an SSH tunnel (recommended):
-
-```powershell
-# Terminal 1 — keep open
-ssh -L 5433:localhost:5432 root@<vps-ip>
-```
-
-```bash
-# Terminal 2 — seed through the tunnel
-DATABASE_URL="postgresql://digitex:<password>@localhost:5433/digitex" \
-    uv run python scripts/populate_db.py
-```
-
-Always pass `DATABASE_URL` explicitly when targeting production — a bare
-`uv run python scripts/populate_db.py` should always hit local, never the
-VPS. See [database.md](database.md) for the full tunnel setup.
+For the initial data load, seed from your local machine through an SSH
+tunnel — see [data-update.md](data-update.md) for the exact commands.
 
 ### 4. Start the Bot
 

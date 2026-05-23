@@ -83,15 +83,8 @@ end-to-end; no extra DB SSL config is needed for the tunnel.
 psql "postgresql://digitex:<password>@localhost:5433/digitex"
 ```
 
-### Seeding production through the tunnel
-
-Pass `DATABASE_URL` explicitly so a bare script invocation always hits local,
-never production by accident:
-
-```bash
-DATABASE_URL="postgresql://digitex:<password>@localhost:5433/digitex" \
-    uv run python scripts/populate_db.py
-```
+For seeding the production database through the tunnel, see
+[data-update.md](data-update.md).
 
 ### Why an SSH tunnel and not exposing 5432 publicly
 
