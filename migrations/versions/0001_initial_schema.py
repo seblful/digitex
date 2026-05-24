@@ -9,12 +9,15 @@ Notes:
   ``session_answers.question_id`` reference *either* ``part_a_questions`` or
   ``part_b_questions``. A single FK cannot express a dual-parent reference;
   this is the structural cost of keeping the Part A / Part B tables split.
+  Because the two part tables share an identity sequence range, every such
+  row also carries a ``part`` column to disambiguate (without it, UNION-ALL
+  queries return duplicates).
   Application-level invariants enforce referential integrity instead.
 * Autogenerate is disabled (no ORM models). Migrations are hand-written.
 
 Revision ID: 0001
 Revises:
-Create Date: 2026-05-21
+Create Date: 2026-05-24
 """
 
 from __future__ import annotations
@@ -145,6 +148,7 @@ def upgrade() -> None:
             session_id     BIGINT NOT NULL REFERENCES test_sessions(session_id)
                                                   ON DELETE CASCADE,
             question_id    BIGINT NOT NULL,
+            part           TEXT NOT NULL CHECK (part IN ('A', 'B')),
             student_answer TEXT NOT NULL,
             is_correct     BOOLEAN NOT NULL,
             time_spent     DOUBLE PRECISION NOT NULL,
@@ -171,7 +175,6 @@ def upgrade() -> None:
 
     op.execute("CREATE INDEX idx_books_subject_year ON books(subject_id, year_value)")
     op.execute("CREATE INDEX idx_options_book_exam ON options(book_id, exam_type)")
-    op.execute("CREATE INDEX idx_options_exam_type ON options(exam_type)")
     op.execute("CREATE INDEX idx_question_topics_topic ON question_topics(topic_name)")
     op.execute(
         "CREATE INDEX idx_session_answers_session ON session_answers(session_id)"
@@ -179,6 +182,10 @@ def upgrade() -> None:
     op.execute(
         "CREATE INDEX idx_session_answers_correct"
         " ON session_answers(session_id, is_correct)"
+    )
+    # Probe answers by part for the JOINs in get_wrong_answers / get_result.
+    op.execute(
+        "CREATE INDEX idx_session_answers_part_q ON session_answers(part, question_id)"
     )
 
 
