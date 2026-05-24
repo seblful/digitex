@@ -7,7 +7,7 @@ Usage::
 
     async with UnitOfWork(pool) as uow:
         subject_id = await uow.books.get_or_create_subject("biology")
-        book_id = await uow.books.get_or_create_book(subject_id, 2016)
+        book_id = await uow.books.create_book(subject_id, 2016)
 """
 
 from __future__ import annotations

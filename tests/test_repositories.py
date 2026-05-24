@@ -29,7 +29,7 @@ pytestmark = [pytest.mark.usefixtures("clean_db")]
 async def _seed_option(uow, subject_name: str = "Physics") -> tuple[int, int, int]:
     """Create subject → book → option and return their ids."""
     subject_id = await uow.books.get_or_create_subject(subject_name)
-    book_id = await uow.books.get_or_create_book(subject_id, 2024)
+    book_id = await uow.books.create_book(subject_id, 2024)
     option_id = await uow.books.get_or_create_option(book_id, 1, "CT")
     return subject_id, book_id, option_id
 

@@ -246,8 +246,8 @@ async def _show_options_for_exam_type(
         return
 
     async with UnitOfWork(pool) as uow:
-        book_id = await uow.books.get_or_create_book(nav.subject_id, year)
-        options = await uow.books.list_options(book_id, exam_type)
+        book_id = await uow.books.get_book(nav.subject_id, year)
+        options = await uow.books.list_options(book_id, exam_type) if book_id else []
 
     if not options:
         await message.edit_text(MSG_NO_OPTIONS.format(exam_type=exam_type))

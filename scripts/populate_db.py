@@ -70,7 +70,9 @@ async def _populate_year(  # noqa: PLR0912 — linear ETL pipeline; branches ref
     if a_num_options == 0:
         a_num_options = 5
 
-    book_id = await uow.books.get_or_create_book(subject_id, year, a_num_options)
+    book_id = await uow.books.get_book(subject_id, year)
+    if book_id is None:
+        book_id = await uow.books.create_book(subject_id, year)
 
     questions_loaded = 0
     answers_loaded = 0
@@ -144,7 +146,9 @@ async def _populate_topics(pool, subject_id: int, subject_dir: Path) -> int:
         for topic_name, years in tqdm(topics_data.items(), desc="topics"):
             for year_str, exam_types in years.items():
                 year = int(year_str)
-                book_id = await uow.books.get_or_create_book(subject_id, year)
+                book_id = await uow.books.get_book(subject_id, year)
+                if book_id is None:
+                    continue
                 for exam_type, keys in exam_types.items():
                     option_numbers = await uow.books.list_options(book_id, exam_type)
                     for key in keys:
