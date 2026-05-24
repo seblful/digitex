@@ -90,6 +90,9 @@ class DatabaseSettings(BaseSettings):
     pool_min_size: int = Field(default=2, ge=1)
     pool_max_size: int = Field(default=10, ge=1)
     pool_timeout: float = Field(default=10.0, gt=0)
+    connect_timeout: int = Field(
+        default=10, gt=0, description="TCP connect timeout in seconds."
+    )
     statement_timeout_ms: int = Field(
         default=5000,
         ge=0,
@@ -113,10 +116,11 @@ class DatabaseSettings(BaseSettings):
     def conninfo(self) -> str:
         """DSN as a libpq conninfo string suitable for psycopg/AsyncConnectionPool."""
         dsn_str = str(self.dsn)
-        if self.sslmode is None:
-            return dsn_str
+        params: list[str] = [f"connect_timeout={self.connect_timeout}"]
+        if self.sslmode is not None:
+            params.append(f"sslmode={self.sslmode}")
         sep = "&" if "?" in dsn_str else "?"
-        return f"{dsn_str}{sep}sslmode={self.sslmode}"
+        return f"{dsn_str}{sep}{'&'.join(params)}"
 
     @computed_field
     @property

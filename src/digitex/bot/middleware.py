@@ -31,6 +31,12 @@ class AuthMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict,
     ) -> None:
+        # Text messages (/start, /help, registration flow) always pass through —
+        # their own handlers decide what to do with unauthorized users.
+        if not isinstance(event, CallbackQuery):
+            await handler(event, data)
+            return
+
         user = data.get("event_from_user")
         if user is None:
             await handler(event, data)
@@ -44,13 +50,7 @@ class AuthMiddleware(BaseMiddleware):
 
         async with UnitOfWork(self._pool) as uow:
             authorized = await uow.authorized_users.is_authorized(telegram_id)
-        if authorized:
-            await handler(event, data)
+        if not authorized:
             return
 
-        # Block callbacks from unauthorized users (inline keyboard interactions)
-        if isinstance(event, CallbackQuery):
-            return
-
-        # Everything else (text messages, /start, etc.) — let through
         await handler(event, data)
