@@ -1,3 +1,4 @@
 - count points for full year as in ct
 - extract biology 2025-2026
 - extract chemistry all
+- automatic telegram bot testing with selenium or similar
