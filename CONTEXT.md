@@ -1,7 +1,7 @@
 # Digitex — Domain Glossary
 
 Definitions for the project's core domain terms. Use these names exactly in
-code, ADRs, and review discussions — drift creates communication overhead and
+code and review discussions — drift creates communication overhead and
 muddies architectural decisions.
 
 For the *architectural* vocabulary (Module, Interface, Depth, Seam, Adapter,
@@ -42,7 +42,8 @@ ______________________________________________________________________
   - **Answers extraction** — pulling the answer key off the back of a Book
     via the OpenRouter vision API.
 - **Conflict** — an extraction collision: a new Question image would overwrite
-  an existing file. Resolved by a `ConflictResolver` (see ADR 0002).
+  an existing file. Resolved by a `ConflictResolver` — a callable
+  `(Conflict) -> int`, not a Protocol class.
 - **Renumbering** — adjusting Question file numbers within an Option/Part to
   fill gaps left after manual additions.
 
@@ -69,7 +70,8 @@ ______________________________________________________________________
   Composed of `PathsSettings`, `BotSettings`, `DatabaseSettings`,
   `ExtractionSettings`, `TrainingSettings`, `OpenRouterSettings`,
   `LabelStudioSettings`, `LoggingSettings`, `DataSettings`, `AppSettings`.
-  See ADR 0001 for the injection rule.
+  Resolved once at module boundaries (the CLI entrypoints) and threaded
+  in — never imported deep in the call stack.
 
 ## ML terms
 
@@ -83,9 +85,11 @@ ______________________________________________________________________
 ## Naming conventions worth preserving
 
 - `on_conflict` (not `conflict_strategy`) for a `ConflictResolver` callable
-  parameter — matches the callable-not-class shape (ADR 0002).
+  parameter — matches the callable-not-class shape.
 - `ask_question` (not `send_question_with_cache`) for the bot's "render a
-  Question and cache its file_id" recipe — `send_question` is the lower-level
+  Question and surface any new file_id" recipe. It returns the new file_id
+  to the caller, which folds the cache write into the next UoW via the
+  `pending_file_id_cache` FSM field. `send_question` is the lower-level
   primitive in `bot.renderer`.
 - `extract` (the verb) is reserved for the top-level operation of an
   Extractor; internal helpers use `_crop_and_save`, `_detect`, etc.
