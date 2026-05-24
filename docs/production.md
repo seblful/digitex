@@ -133,25 +133,13 @@ Seed through the SSH tunnel — same flow as [§1.5](#15-seed-the-database-from-
 
 Order matters: **schema before data**, code last.
 
-```bash
-# VPS — pull and migrate
-cd /opt/digitex
-git pull
-docker compose run --rm bot uv run digitex-db upgrade
-```
-
-```powershell
-# PC — seed through the tunnel
-ssh -L 5433:localhost:5432 root@<vps-ip>           # terminal 1
-$env:DATABASE_URL = "postgresql://digitex:<password>@localhost:5433/digitex"
-uv run python scripts/populate_db.py               # terminal 2
-```
-
-```bash
-# VPS — rebuild + restart bot
-docker compose build --no-cache bot
-docker compose up -d bot
-```
+1. **VPS** — pull and migrate (see [§2.2](#22-new-migration-schema-change)).
+1. **PC** — seed through the SSH tunnel (see [§1.5](#15-seed-the-database-from-your-laptop)).
+1. **VPS** — rebuild + restart bot:
+   ```bash
+   docker compose build --no-cache bot
+   docker compose up -d bot
+   ```
 
 ### 2.5 Manage / inspect
 
