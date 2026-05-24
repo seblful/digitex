@@ -12,7 +12,9 @@ RUN uv pip install --system \
     structlog>=25.5.0 \
     pydantic>=2.0 \
     pydantic-settings>=2.0 \
-    typer
+    typer \
+    "psycopg[binary,pool]>=3.2" \
+    "python-dotenv>=1.0"
 
 ENV PYTHONPATH=/app/src
 ENV PYTHONUNBUFFERED=1
