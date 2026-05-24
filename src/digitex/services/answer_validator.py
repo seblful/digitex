@@ -148,7 +148,7 @@ class AnswerValidator:
         """Count how many options have at least one Part B answer containing 'Б'."""
         options_with_b = 0
         total = 0
-        for opt in sorted(answers_data, key=int):
+        for opt in sorted(answers_data, key=lambda k: int(k)):  # noqa: PLW0108
             part_b = {k: v for k, v in answers_data[opt].items() if k.startswith("B")}
             if any("Б" in v for v in part_b.values()):
                 options_with_b += 1

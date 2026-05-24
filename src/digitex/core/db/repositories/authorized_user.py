@@ -8,13 +8,13 @@ from digitex.core.db.mapping import row_to_model
 from digitex.core.domain import AuthorizedUser
 
 if TYPE_CHECKING:
-    from psycopg import AsyncConnection
+    from digitex.core.db.mapping import DictConn
 
 
 class AuthorizedUserRepository:
     """Repository for the registration / approval workflow."""
 
-    def __init__(self, conn: AsyncConnection) -> None:
+    def __init__(self, conn: DictConn) -> None:
         self._conn = conn
 
     async def get_status(self, telegram_id: int) -> str | None:

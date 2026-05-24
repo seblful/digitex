@@ -11,6 +11,9 @@ from typing import TYPE_CHECKING
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
 from digitex.bot.callbacks import (
     AnswerCB,
     ExamTypeCB,
@@ -59,7 +62,9 @@ def _grid(items: Iterable[tuple[str, str]], columns: int) -> InlineKeyboardMarku
     return builder.as_markup()
 
 
-def subjects_kb(subjects: list[tuple[int, str]]) -> InlineKeyboardMarkup:
+def subjects_kb(
+    subjects: Sequence[tuple[int, str]],
+) -> InlineKeyboardMarkup:
     return _grid(
         ((name, SubjectCB(subject_id=sid).pack()) for sid, name in subjects),
         COLUMNS_SUBJECTS,

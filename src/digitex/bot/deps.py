@@ -13,7 +13,7 @@ manually — this helper is for the common case of one transaction per handler.
 from __future__ import annotations
 
 from functools import wraps
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from digitex.core.db import UnitOfWork
 
@@ -36,7 +36,10 @@ def with_uow[**P, R](
     async def wrapper(*args: Any, **kwargs: Any) -> R:
         pool = kwargs.pop("pool")
         async with UnitOfWork(pool) as uow:
-            return await fn(*args, uow=uow, **kwargs)
+            # ParamSpec can't model "the same parameters minus pool plus uow",
+            # so call through Any to keep the wrapper signature ergonomic.
+            inner = cast("Callable[..., Awaitable[R]]", fn)
+            return await inner(*args, uow=uow, **kwargs)
 
     return wrapper
 

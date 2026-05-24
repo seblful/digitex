@@ -120,7 +120,9 @@ class AnswersExtractor(BaseExtractor):
     def _sort_answers(
         self, answers: dict[str, dict[str, str]]
     ) -> dict[str, dict[str, str]]:
-        sorted_options = sorted(answers.keys(), key=int)
+        # ``key=int`` widens the inferred element type via ``int``'s union
+        # signature; the lambda pins it to ``str``.
+        sorted_options = sorted(answers.keys(), key=lambda k: int(k))  # noqa: PLW0108
         result: dict[str, dict[str, str]] = {}
         for option in sorted_options:
             sorted_labels = sorted(

@@ -7,13 +7,23 @@ to validate a dict; the helpers below remove the per-repo boilerplate.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-    from typing import Any
+
+    from psycopg import AsyncConnection
+
+
+# A row as returned by psycopg when ``dict_row`` is the configured factory.
+type DictRow = dict[str, Any]
+
+# Repository-facing connection type. Annotating with this propagates the dict
+# row shape to every ``cur.fetchone()`` / ``cur.fetchall()`` call site, so
+# ``row["col"]`` no longer trips the type checker's default ``tuple`` stub.
+type DictConn = "AsyncConnection[DictRow]"
 
 
 def row_to_model[T: BaseModel](row: Mapping[str, Any], model: type[T]) -> T:
@@ -25,4 +35,4 @@ def row_to_model[T: BaseModel](row: Mapping[str, Any], model: type[T]) -> T:
     return model.model_validate(dict(row))
 
 
-__all__ = ["row_to_model"]
+__all__ = ["DictConn", "DictRow", "row_to_model"]

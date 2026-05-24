@@ -10,13 +10,13 @@ from digitex.core.db.repositories._common import (
 )
 
 if TYPE_CHECKING:
-    from psycopg import AsyncConnection
+    from digitex.core.db.mapping import DictConn
 
 
 class BookRepository:
     """Reads/writes for subjects, books, and options."""
 
-    def __init__(self, conn: AsyncConnection) -> None:
+    def __init__(self, conn: DictConn) -> None:
         self._conn = conn
 
     async def get_or_create_subject(self, name: str) -> int:

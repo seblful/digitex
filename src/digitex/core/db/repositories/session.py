@@ -12,13 +12,13 @@ from digitex.core.db.repositories._common import (
 from digitex.core.domain import Session, TestResult
 
 if TYPE_CHECKING:
-    from psycopg import AsyncConnection
+    from digitex.core.db.mapping import DictConn
 
 
 class SessionRepository:
     """Repository for test sessions and per-question answers."""
 
-    def __init__(self, conn: AsyncConnection) -> None:
+    def __init__(self, conn: DictConn) -> None:
         self._conn = conn
 
     async def create(self, student_id: int, option_id: int) -> Session:

@@ -8,13 +8,13 @@ from digitex.core.db.mapping import row_to_model
 from digitex.core.domain import Student
 
 if TYPE_CHECKING:
-    from psycopg import AsyncConnection
+    from digitex.core.db.mapping import DictConn
 
 
 class StudentRepository:
     """Repository for Telegram users (students)."""
 
-    def __init__(self, conn: AsyncConnection) -> None:
+    def __init__(self, conn: DictConn) -> None:
         self._conn = conn
 
     async def get_or_create(

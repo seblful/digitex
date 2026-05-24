@@ -12,7 +12,7 @@ Usage::
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from digitex.core.db.repositories import (
     REPOSITORIES,
@@ -24,8 +24,9 @@ from digitex.core.db.repositories import (
 )
 
 if TYPE_CHECKING:
-    from psycopg import AsyncConnection
     from psycopg_pool import AsyncConnectionPool
+
+    from digitex.core.db.mapping import DictConn
 
 
 class UnitOfWork:
@@ -48,17 +49,22 @@ class UnitOfWork:
         self._pool = pool
         self._conn_cm: Any = None
         self._tx_cm: Any = None
-        self._conn: AsyncConnection | None = None
+        self._conn: DictConn | None = None
 
     async def __aenter__(self) -> UnitOfWork:
         conn_cm = self._pool.connection()
-        conn = await conn_cm.__aenter__()
+        raw_conn = await conn_cm.__aenter__()
         try:
-            tx_cm = conn.transaction()
+            tx_cm = raw_conn.transaction()
             await tx_cm.__aenter__()
         except BaseException:
             await conn_cm.__aexit__(None, None, None)
             raise
+        # The pool is configured with ``row_factory=dict_row`` in
+        # ``build_pool``, but psycopg's type stubs default the row type to
+        # ``tuple``. Cast at this single boundary so every repository sees
+        # ``dict[str, Any]`` rows without per-call ``cast`` noise.
+        conn = cast("DictConn", raw_conn)
         self._conn_cm = conn_cm
         self._tx_cm = tx_cm
         self._conn = conn

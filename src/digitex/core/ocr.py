@@ -1,15 +1,18 @@
 """OCR utilities using Tesseract."""
 
 import re
-from typing import Final
+from types import ModuleType
+from typing import Final, cast
 
 import structlog
 from PIL import Image
 
 try:
-    import pytesseract
+    import pytesseract as _pytesseract_mod
+
+    pytesseract: ModuleType | None = _pytesseract_mod
 except ImportError:
-    pytesseract = None  # type: ignore[assignment]
+    pytesseract = cast("ModuleType | None", None)
 
 logger = structlog.get_logger()
 
