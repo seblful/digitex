@@ -8,7 +8,6 @@ from digitex.core.db.mapping import row_to_model
 from digitex.core.db.repositories._common import (
     SessionInfo,
     WrongAnswer,
-    _union_both_parts,
 )
 from digitex.core.domain import Session, TestResult
 
@@ -37,16 +36,17 @@ class SessionRepository:
         self,
         session_id: int,
         question_id: int,
+        part: str,
         student_answer: str,
         is_correct: bool,
         time_spent: float,
     ) -> None:
         await self._conn.execute(
             "INSERT INTO session_answers"
-            "  (session_id, question_id, student_answer, is_correct, time_spent)"
-            " VALUES (%s, %s, %s, %s, %s)"
+            "  (session_id, question_id, part, student_answer, is_correct, time_spent)"
+            " VALUES (%s, %s, %s, %s, %s, %s)"
             " ON CONFLICT (session_id, question_id) DO NOTHING",
-            (session_id, question_id, student_answer, is_correct, time_spent),
+            (session_id, question_id, part, student_answer, is_correct, time_spent),
         )
 
     async def complete(self, session_id: int) -> TestResult:
@@ -72,21 +72,26 @@ class SessionRepository:
         return SessionInfo(row["subject_name"], row["year_value"], row["option_number"])
 
     async def get_wrong_answers(self, session_id: int) -> list[WrongAnswer]:
-        rows = await _union_both_parts(
-            self._conn,
-            select_a=(
-                "q.question_number AS question_number, 'A' AS part,"
-                " sa.student_answer AS student_answer, q.answer::text AS correct_answer"
-            ),
-            select_b=(
-                "q.question_number AS question_number, 'B' AS part,"
-                " sa.student_answer AS student_answer, q.answer AS correct_answer"
-            ),
-            joins="JOIN session_answers sa ON sa.question_id = q.question_id",
-            where="WHERE sa.session_id = %s AND sa.is_correct = FALSE",
-            order_by="part, question_number",
-            params=(session_id,),
+        cur_a = await self._conn.execute(
+            "SELECT q.question_number, 'A' AS part,"
+            "       sa.student_answer, q.answer::text AS correct_answer"
+            "  FROM session_answers sa"
+            "  JOIN part_a_questions q ON q.question_id = sa.question_id"
+            " WHERE sa.session_id = %s AND sa.part = 'A' AND sa.is_correct = FALSE"
+            " ORDER BY q.question_number",
+            (session_id,),
         )
+        cur_b = await self._conn.execute(
+            "SELECT q.question_number, 'B' AS part,"
+            "       sa.student_answer, q.answer AS correct_answer"
+            "  FROM session_answers sa"
+            "  JOIN part_b_questions q ON q.question_id = sa.question_id"
+            " WHERE sa.session_id = %s AND sa.part = 'B' AND sa.is_correct = FALSE"
+            " ORDER BY q.question_number",
+            (session_id,),
+        )
+        rows_a = await cur_a.fetchall()
+        rows_b = await cur_b.fetchall()
         return [
             WrongAnswer(
                 question_number=r["question_number"],
@@ -94,7 +99,7 @@ class SessionRepository:
                 student_answer=r["student_answer"],
                 correct_answer=r["correct_answer"],
             )
-            for r in rows
+            for r in rows_a + rows_b
         ]
 
     async def get_result(self, session_id: int) -> TestResult:
@@ -114,7 +119,7 @@ class SessionRepository:
             "       COUNT(*) AS total"
             "  FROM session_answers sa"
             "  JOIN part_a_questions q ON sa.question_id = q.question_id"
-            " WHERE sa.session_id = %s",
+            " WHERE sa.session_id = %s AND sa.part = 'A'",
             (session_id,),
         )
         part_a = await cur_a.fetchone()
@@ -124,7 +129,7 @@ class SessionRepository:
             "       COUNT(*) AS total"
             "  FROM session_answers sa"
             "  JOIN part_b_questions q ON sa.question_id = q.question_id"
-            " WHERE sa.session_id = %s",
+            " WHERE sa.session_id = %s AND sa.part = 'B'",
             (session_id,),
         )
         part_b = await cur_b.fetchone()

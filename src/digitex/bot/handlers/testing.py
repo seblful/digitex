@@ -66,6 +66,7 @@ async def _record_and_advance(
         await uow.sessions.record_answer(
             session_id=testing.session_id,
             question_id=question_id,
+            part=part,
             student_answer=answer.strip(),
             is_correct=is_correct,
             time_spent=time_spent,
