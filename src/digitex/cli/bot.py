@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 
 import structlog
 
 from digitex.bot import create_dispatcher
 from digitex.config import get_settings
-from digitex.core.db import null_pool_lifespan, pool_lifespan
+from digitex.core.db import pool_lifespan
 from digitex.logging import setup_logging
 
 # Per ADR 0001 — resolve settings once at the CLI boundary.
@@ -29,13 +28,6 @@ def main() -> None:
 
     admin_user_id = settings.bot.admin_user_id
 
-    # AsyncConnectionPool background workers hang on Windows SelectorEventLoop.
-    # Use NullConnectionPool locally; Linux VPS uses the real pool.
-    _pool_lifespan = null_pool_lifespan if sys.platform == "win32" else pool_lifespan
-
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
     async def _main() -> None:
         from aiogram import Bot
         from aiogram.types import BotCommand
@@ -49,7 +41,7 @@ def main() -> None:
             db=settings.database.dsn.path,
         )
 
-        async with _pool_lifespan(settings.database) as pool:
+        async with pool_lifespan(settings.database) as pool:
             bot = Bot(token=token)
             await bot.set_my_commands(
                 [

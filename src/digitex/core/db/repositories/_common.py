@@ -9,13 +9,12 @@ repository file stay focused on its aggregate's reads and writes.
 from __future__ import annotations
 
 from types import MappingProxyType
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, cast
 
 if TYPE_CHECKING:
-    from typing import Any
+    from typing import Any, LiteralString
 
-    from psycopg import AsyncConnection
-
+    from digitex.core.db.mapping import DictConn
     from digitex.core.domain import Part
 
 # Whitelist of safe table names for f-string interpolation. Any code that
@@ -23,10 +22,15 @@ if TYPE_CHECKING:
 _PART_TABLES = MappingProxyType({"A": "part_a_questions", "B": "part_b_questions"})
 
 
-def _part_table(part: str) -> str:
-    """Return the SQL table name for the given part, or raise."""
+def _part_table(part: str) -> LiteralString:
+    """Return the SQL table name for the given part, or raise.
+
+    The returned value is one of two whitelisted literals, so callers can
+    safely f-string it into a query and the result stays a ``LiteralString``
+    that ``psycopg.execute`` accepts.
+    """
     try:
-        return _PART_TABLES[part]
+        return cast("LiteralString", _PART_TABLES[part])
     except KeyError as e:
         raise ValueError(f"Unknown part {part!r}; expected 'A' or 'B'") from e
 
@@ -34,7 +38,7 @@ def _part_table(part: str) -> str:
 def _validate_part(part: str) -> Part:
     if part not in _PART_TABLES:
         raise ValueError(f"Unknown part {part!r}; expected 'A' or 'B'")
-    return part  # type: ignore[return-value]
+    return cast("Part", part)
 
 
 # ---------------------------------------------------------------------------
@@ -71,11 +75,16 @@ class QuestionOrigin(NamedTuple):
 # ---------------------------------------------------------------------------
 
 
-def _question_base(part: Part) -> str:
+def _question_base(part: Part) -> LiteralString:
+    """Question metadata + cached Telegram file_id, no BYTEA payload.
+
+    The image bytes are deliberately not selected. Callers that need to upload
+    a fresh image (cache miss) fetch them via ``QuestionRepository.get_image``.
+    """
     table = _part_table(part)
     return (
         f"SELECT q.question_id, '{part}' AS part, q.question_number,"
-        " b.a_num_options, i.image_data, i.telegram_file_id"
+        " b.a_num_options, i.telegram_file_id"
         f"  FROM {table} q"
         "  JOIN options o ON q.option_id = o.option_id"
         "  JOIN books b ON o.book_id = b.book_id"
@@ -83,11 +92,12 @@ def _question_base(part: Part) -> str:
     )
 
 
-def _question_full(part: Part) -> str:
+def _question_full(part: Part) -> LiteralString:
+    """Question metadata + origin (year/option/exam_type), no BYTEA payload."""
     table = _part_table(part)
     return (
         f"SELECT q.question_id, '{part}' AS part, q.question_number,"
-        " b.a_num_options, i.image_data, i.telegram_file_id,"
+        " b.a_num_options, i.telegram_file_id,"
         " b.year_value, o.option_number, o.exam_type"
         f"  FROM {table} q"
         "  JOIN options o ON q.option_id = o.option_id"
@@ -97,7 +107,7 @@ def _question_full(part: Part) -> str:
 
 
 async def _get_or_create(
-    conn: AsyncConnection,
+    conn: DictConn,
     table: str,
     id_col: str,
     where: dict[str, Any],
@@ -115,19 +125,23 @@ async def _get_or_create(
     conflict_cols = ", ".join(cols)
     # Re-assign the conflict columns to themselves so RETURNING always fires.
     update_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols)
-    cur = await conn.execute(
+    # Column names come from the caller-controlled ``where`` dict literals,
+    # never from user input — safe to interpolate. Cast restores the
+    # ``LiteralString`` shape psycopg's overload requires.
+    sql = cast(
+        "LiteralString",
         f"INSERT INTO {table} ({col_list}) VALUES ({placeholders})"
         f" ON CONFLICT ({conflict_cols}) DO UPDATE SET {update_clause}"
         f" RETURNING {id_col}",
-        values,
     )
+    cur = await conn.execute(sql, values)
     row = await cur.fetchone()
     assert row is not None
     return row[id_col]
 
 
 async def _union_both_parts(
-    conn: AsyncConnection,
+    conn: DictConn,
     select_a: str,
     joins: str = "",
     where: str = "",
@@ -174,7 +188,10 @@ async def _union_both_parts(
             sql += f" ORDER BY {order_by}"
         if limit:
             sql += f" LIMIT {limit}"
-    cur = await conn.execute(sql, params + params)
+    # SELECT/JOIN/WHERE fragments are caller-supplied literals from the
+    # repositories — never user input. ``str.format`` strips ``LiteralString``,
+    # so re-affirm the shape psycopg expects.
+    cur = await conn.execute(cast("LiteralString", sql), params + params)
     return await cur.fetchall()
 
 

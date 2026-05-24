@@ -10,7 +10,7 @@ state through ``load`` / ``save`` and never touch the raw dict.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
@@ -46,6 +46,9 @@ class TestingState(BaseModel):
     current_part: Part | None = None
     question_start_time: float | None = None
     waiting_for_answer: bool = False
+    # ``(question_id, part, telegram_file_id)`` from the just-rendered question.
+    # Flushed on the next UoW so we avoid a dedicated round-trip per upload.
+    pending_file_id_cache: tuple[int, Part, str] | None = None
 
 
 class RandomState(BaseModel):
@@ -59,6 +62,7 @@ class RandomState(BaseModel):
     current_question_id: int | None = None
     current_part: Part | None = None
     question_start_time: float | None = None
+    pending_file_id_cache: tuple[int, Part, str] | None = None
 
 
 async def load[T: BaseModel](state: FSMContext, model: type[T]) -> T:
@@ -74,7 +78,7 @@ async def save(state: FSMContext, payload: BaseModel) -> None:
     await state.set_data(payload.model_dump())
 
 
-async def merge(state: FSMContext, **fields: object) -> None:
+async def merge(state: FSMContext, **fields: Any) -> None:
     """Update a subset of FSM keys without round-tripping a whole model."""
     await state.update_data(**fields)
 

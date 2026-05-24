@@ -150,6 +150,7 @@ async def on_topic_selected(
     topic_name = nav.topic_names[callback_data.index]
     await fsm_data.merge(state, topic_name=topic_name)
 
+    assert callback.bot is not None  # aiogram injects this on every callback
     await start_random_question(callback.message, state, callback.bot, pool)
     await callback.answer()
 
@@ -183,6 +184,7 @@ async def on_random_part_selected(
 
     await fsm_data.merge(state, random_part=callback_data.part)
 
+    assert callback.bot is not None
     await start_random_question(callback.message, state, callback.bot, pool)
     await callback.answer()
 
@@ -294,9 +296,7 @@ async def on_option_selected(
             student_id = student.student_id
         option_id = await uow.books.get_option_id(book_id, callback_data.option)
         session = await uow.sessions.create(student_id, option_id)
-        qs = await uow.questions.list_for_option(option_id, "A")
-        qs += await uow.questions.list_for_option(option_id, "B")
-        question_ids = [(q.question_id, q.part) for q in qs]
+        question_ids = await uow.questions.list_ids_for_option(option_id)
         session_id = session.session_id
 
     await callback.message.edit_text(MSG_START_TESTING)
@@ -312,4 +312,5 @@ async def on_option_selected(
     await state.set_state(Testing.answering)
     await callback.answer()
 
+    assert callback.bot is not None
     await send_current_question(callback.message, state, callback.bot, pool)

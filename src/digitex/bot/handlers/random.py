@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from aiogram import Bot, Router, types
 
 from digitex.bot import fsm_data
-from digitex.bot.answer_flow import ask_question, evaluate_answer
+from digitex.bot.answer_flow import ask_question, evaluate_answer_in_uow
 from digitex.bot.callbacks import AnswerCB, RandomFeedbackCB
 from digitex.bot.fsm_data import RandomState
 from digitex.bot.keyboards import random_feedback_kb
@@ -49,9 +49,12 @@ async def start_random_question(
     pool: AsyncConnectionPool,
 ) -> None:
     rnd = await fsm_data.load(state, RandomState)
+    pending = rnd.pending_file_id_cache
 
     try:
         async with UnitOfWork(pool) as uow:
+            if pending is not None:
+                await uow.questions.cache_file_id(*pending)
             if rnd.topic_name:
                 qid, part = await uow.questions.get_random_question_id_by_topic(
                     rnd.subject_id, rnd.topic_name
@@ -64,6 +67,9 @@ async def start_random_question(
                     rnd.subject_id, part, rnd.exam_type
                 )
             question, origin = await uow.questions.get_full(qid, part)
+            if not question.telegram_file_id:
+                image_data = await uow.questions.get_image(qid, part)
+                question = question.model_copy(update={"image_data": image_data})
     except KeyError:
         if rnd.topic_name:
             await message.answer(MSG_NO_TOPIC_QUESTION)
@@ -76,10 +82,18 @@ async def start_random_question(
         current_question_id=question.question_id,
         current_part=question.part,
         question_start_time=time.time(),
+        pending_file_id_cache=None,
     )
 
     caption = _build_caption(origin, rnd.topic_name)
-    await ask_question(bot, message, question, pool, caption=caption, parse_mode="HTML")
+    new_file_id = await ask_question(
+        bot, message, question, caption=caption, parse_mode="HTML"
+    )
+    if new_file_id:
+        await fsm_data.merge(
+            state,
+            pending_file_id_cache=(question.question_id, question.part, new_file_id),
+        )
     await state.set_state(RandomTesting.answering)
 
 
@@ -122,9 +136,10 @@ async def process_random_answer(
     if rnd.current_question_id is None or rnd.current_part is None:
         return
 
-    is_correct, correct_answer = await evaluate_answer(
-        pool, rnd.current_question_id, rnd.current_part, answer
-    )
+    async with UnitOfWork(pool) as uow:
+        is_correct, correct_answer = await evaluate_answer_in_uow(
+            uow, rnd.current_question_id, rnd.current_part, answer
+        )
 
     if is_correct:
         await message.answer(MSG_CORRECT_ANSWER, reply_markup=random_feedback_kb())
@@ -149,8 +164,13 @@ async def on_random_feedback(
         return
 
     if callback_data.action == "next":
+        assert callback.bot is not None
         await start_random_question(callback.message, state, callback.bot, pool)
     else:
+        rnd = await fsm_data.load(state, RandomState)
+        if rnd.pending_file_id_cache is not None:
+            async with UnitOfWork(pool) as uow:
+                await uow.questions.cache_file_id(*rnd.pending_file_id_cache)
         await callback.message.answer(MSG_RANDOM_FINISH)
         await state.clear()
     await callback.answer()

@@ -103,8 +103,8 @@ class TestQuestionRepository:
             await uow.questions.insert_image(qid, "A", b"payload")
             await uow.questions.insert_image(qid, "A", b"payload")
             await uow.questions.insert_image(qid, "A", b"new-payload")
-            q = await uow.questions.get(qid, "A")
-        assert q.image_data == b"new-payload"
+            image = await uow.questions.get_image(qid, "A")
+        assert image == b"new-payload"
 
     async def test_get_random_question_id_raises_when_empty(
         self, pg_pool: AsyncConnectionPool

@@ -52,7 +52,10 @@ class Question(BaseModel):
     question_id: int
     part: Part
     question_number: int
-    image_data: bytes
+    # Empty by default — repositories return metadata only. Bytes are fetched
+    # on demand via QuestionRepository.get_image when no telegram_file_id is
+    # cached (renderers must check before passing the question to send).
+    image_data: bytes = b""
     telegram_file_id: str | None = None
     num_options: int = 5
 
