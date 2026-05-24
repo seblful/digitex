@@ -18,7 +18,8 @@ digitex/
 ├── migrations/               # Alembic schema migrations
 ├── scripts/                  # DB population scripts
 ├── tests/                    # Test suite
-└── AGENTS.md                 # AI agent instructions
+├── docs/                     # Setup, deployment, workflows (see docs/README.md)
+└── CLAUDE.md                 # AI agent instructions
 ```
 
 ## Features
@@ -58,37 +59,13 @@ The bot allows students to take centralized tests via Telegram:
 1. **Test** — Answer Part A (multiple choice 1-5) and Part B (text) questions
 1. **Results** — Get instant score and mistake review
 
-### Bot Setup
+### Setup & deployment
 
-1. Get a bot token from [@BotFather](https://t.me/BotFather)
-1. Add to `.env.development`:
-   ```
-   BOT_TOKEN=your_bot_token_here
-   BOT_ADMIN_USER_ID=your_telegram_user_id
-   POSTGRES_PASSWORD=digitex
-   DATABASE_URL=postgresql://digitex:digitex@localhost:5433/digitex
-   ```
-1. Start PostgreSQL (compose only auto-loads `.env`; point it at the dev file
-   so `POSTGRES_PASSWORD` resolves):
-   ```bash
-   docker compose --env-file .env.development up -d postgres
-   ```
-1. Run migrations + populate the database:
-   ```bash
-   uv run digitex-db upgrade
-   uv run python scripts/populate_db.py
-   ```
-1. Run the bot:
-   ```bash
-   digitex-bot
-   ```
+- **Run locally**: see [docs/local-setup.md](docs/local-setup.md)
+- **Deploy to a VPS / day-2 ops**: see [docs/production.md](docs/production.md)
+- **Migration CLI & schema conventions**: see [docs/database-reference.md](docs/database-reference.md)
 
-### Database
-
-PostgreSQL 17 with psycopg 3 (async) + connection pool, Alembic migrations.
-See [docs/database.md](docs/database.md) for the full guide: local setup,
-deploying alongside the bot on a single VPS, SSH-tunnel access from your
-PC, backups, and hardening.
+Full doc index: [docs/README.md](docs/README.md).
 
 ## Configuration
 
@@ -135,12 +112,8 @@ uv run digitex-train --help
 
 ## Development
 
-See [AGENTS.md](AGENTS.md) for:
-
-- Code standards and conventions
-- Type hinting requirements
-- Testing guidelines
-- Git workflow
+See [CLAUDE.md](CLAUDE.md) for code standards, type-hinting requirements,
+testing guidelines, and git workflow.
 
 ## Testing
 
