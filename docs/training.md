@@ -10,7 +10,6 @@ For Label Studio setup, configuration, and server management, see [Label Studio]
 
 ```
 training/
-├── cli.py              # Unified CLI for training workflows
 ├── configs/            # Training configurations
 │   └── page.yaml       # Page segmentation config
 ├── data/               # Training data (gitignored)
@@ -21,6 +20,8 @@ training/
 └── runs/               # Ultralytics runs (gitignored)
 ```
 
+The CLI itself lives in `src/digitex/cli/training.py` and is registered as the `digitex-train` entry point.
+
 ## Commands
 
 ### 1. Select Random Pages
@@ -28,7 +29,7 @@ training/
 Select random images from book folders and save them for annotation:
 
 ```bash
-uv run python -m training.cli select-random-pages --num-images 100
+uv run digitex-train select-random-pages --num-images 100
 ```
 
 **Options:**
@@ -44,7 +45,7 @@ uv run python -m training.cli select-random-pages --num-images 100
 Add specific images listed in a text file to the training data:
 
 ```bash
-uv run python -m training.cli add-images page
+uv run digitex-train add-images page
 ```
 
 **Arguments:**
@@ -53,7 +54,7 @@ uv run python -m training.cli add-images page
 
 **Requirements:**
 
-- `paths.txt` in `training/data/<task>/` with one relative path per line:
+- `images.txt` in `training/data/<task>/` with one relative path per line:
 
 ```
 books/biology/images/2024/10.jpg
@@ -73,7 +74,7 @@ books/biology/images/2023/5.jpg
 Convert annotations from Label Studio to YOLO dataset format:
 
 ```bash
-uv run python -m training.cli create-dataset <task> --train-split 0.8
+uv run digitex-train create-dataset <task> --train-split 0.8
 ```
 
 **Arguments:**
@@ -94,7 +95,7 @@ uv run python -m training.cli create-dataset <task> --train-split 0.8
 Train YOLO segmentation model using configuration from `training/configs/<config>.yaml`:
 
 ```bash
-uv run python -m training.cli train --config page
+uv run digitex-train train --config page
 ```
 
 **Options:**
@@ -124,7 +125,7 @@ To modify training parameters, edit `training/configs/<config>.yaml`.
 Run trained model on unannotated Label Studio tasks and upload predictions (see [Label Studio](label-studio.md) for setup):
 
 ```bash
-uv run python -m training.cli ls-predict --project-id 1 --model-path training/runs/train/weights/best.pt
+uv run digitex-train ls-predict --project-id 1 --model-path training/runs/train/weights/best.pt
 ```
 
 **Options:**
@@ -145,18 +146,18 @@ Run from the project root directory:
 
 ```bash
 # Step 1: Add images for annotation
-uv run python -m training.cli select-random-pages --num-images 100
+uv run digitex-train select-random-pages --num-images 100
 
 # Step 2: Annotate images in Label Studio (see [Label Studio](label-studio.md)), then export annotations.json
 
 # Step 3: Create dataset from annotations
-uv run python -m training.cli create-dataset page
+uv run digitex-train create-dataset page
 
 # Step 4: Train model (uses training/config.yaml)
-uv run python -m training.cli train
+uv run digitex-train train
 
 # Step 5: Predict unannotated tasks in Label Studio
-uv run python -m training.cli ls-predict --project-id 1 --model-path training/runs/train/weights/best.pt
+uv run digitex-train ls-predict --project-id 1 --model-path training/runs/train/weights/best.pt
 ```
 
 ## Data Format

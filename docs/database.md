@@ -25,8 +25,11 @@ one new file added to `migrations/versions/`, applied with
 is required — set it in `.env.development` (already set to `digitex` for local
 dev). The host port is `5433` to avoid clashing with any native Postgres install.
 
+Compose only auto-loads `.env` (where ML/extraction keys live), so pass the
+dev file explicitly so the Postgres vars resolve:
+
 ```bash
-docker compose up -d postgres
+docker compose --env-file .env.development up -d postgres
 uv run digitex-db upgrade
 uv run python scripts/populate_db.py
 ```

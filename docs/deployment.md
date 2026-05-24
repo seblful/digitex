@@ -23,14 +23,15 @@ mkdir -p logs
 cp .env.example .env.production
 nano .env.production  # set BOT_TOKEN, BOT_ADMIN_USER_ID, POSTGRES_PASSWORD
 
-# 3. Start Postgres
-docker compose up -d postgres
+# 3. Start Postgres (compose only auto-loads `.env` — point it at the
+#    production file so POSTGRES_PASSWORD resolves)
+docker compose --env-file .env.production up -d postgres
 
 # 4. Apply schema (data load happens separately — see step 3 below)
-docker compose run --rm bot uv run digitex-db upgrade
+docker compose --env-file .env.production run --rm bot uv run digitex-db upgrade
 
 # 5. Start the bot
-docker compose up -d bot
+docker compose --env-file .env.production up -d bot
 
 # 6. Check logs
 docker compose logs -f bot
@@ -85,8 +86,8 @@ setup story — password generation, SSH-tunnel access from your PC, and backups
 ### 3. Apply schema and seed data
 
 ```bash
-docker compose up -d postgres
-docker compose run --rm bot uv run digitex-db upgrade
+docker compose --env-file .env.production up -d postgres
+docker compose --env-file .env.production run --rm bot uv run digitex-db upgrade
 ```
 
 For the initial data load, seed from your local machine through an SSH
@@ -95,7 +96,7 @@ tunnel — see [data-update.md](data-update.md) for the exact commands.
 ### 4. Start the Bot
 
 ```bash
-docker compose up -d bot
+docker compose --env-file .env.production up -d bot
 ```
 
 ### 5. Updates
@@ -103,22 +104,23 @@ docker compose up -d bot
 ```bash
 cd /opt/digitex
 git pull
-docker compose build --no-cache
-docker compose up -d
+docker compose --env-file .env.production build --no-cache
+docker compose --env-file .env.production up -d
 ```
 
 ### 6. Manage
 
 ```bash
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Stop
-docker-compose down
+docker compose --env-file .env.production down
 
 # Restart
-docker-compose restart
+docker compose --env-file .env.production restart
 
 # Rebuild and restart after code changes
-docker-compose build && docker-compose up -d
+docker compose --env-file .env.production build \
+  && docker compose --env-file .env.production up -d
 ```

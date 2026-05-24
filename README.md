@@ -40,7 +40,7 @@ digitex-train create-dataset
 digitex-train train
 
 # Start Telegram bot
-digitex-bot run
+digitex-bot
 
 # Manage schema migrations
 uv run digitex-db upgrade
@@ -68,9 +68,10 @@ The bot allows students to take centralized tests via Telegram:
    POSTGRES_PASSWORD=digitex
    DATABASE_URL=postgresql://digitex:digitex@localhost:5433/digitex
    ```
-1. Start PostgreSQL:
+1. Start PostgreSQL (compose only auto-loads `.env`; point it at the dev file
+   so `POSTGRES_PASSWORD` resolves):
    ```bash
-   docker compose up -d postgres
+   docker compose --env-file .env.development up -d postgres
    ```
 1. Run migrations + populate the database:
    ```bash
@@ -79,7 +80,7 @@ The bot allows students to take centralized tests via Telegram:
    ```
 1. Run the bot:
    ```bash
-   digitex-bot run
+   digitex-bot
    ```
 
 ### Database

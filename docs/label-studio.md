@@ -40,7 +40,7 @@ Images are referenced in Label Studio as `data/page/images/<filename>.jpg` via l
 Run a trained model on unannotated tasks and upload predictions back to Label Studio:
 
 ```bash
-uv run python -m training.cli ls-predict --project-id 1 --model-path extraction/models/page.pt
+uv run digitex-train ls-predict --project-id 1 --model-path extraction/models/page.pt
 ```
 
 **How it works:**
