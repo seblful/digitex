@@ -7,7 +7,7 @@ state and a UnitOfWork-shaped object, and return outcomes as values.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from digitex.bot.answer_flow import (
     NextQuestion,
@@ -20,6 +20,10 @@ from digitex.bot.answer_flow import (
 from digitex.bot.fsm_data import RandomState, TestingState
 from digitex.core.db.repositories._common import QuestionOrigin
 from digitex.core.domain import Question
+
+if TYPE_CHECKING:
+    from digitex.core.db import UnitOfWork
+    from digitex.core.domain import Part
 
 
 @dataclass
@@ -82,10 +86,15 @@ class FakeUow:
     sessions: FakeSessions = field(default_factory=FakeSessions)
 
 
-def _question(question_id: int, part: str, file_id: str | None = None) -> Question:
+def as_uow(fake: FakeUow) -> UnitOfWork:
+    """The fakes satisfy UnitOfWork's contract structurally; cast for the checker."""
+    return cast("UnitOfWork", fake)
+
+
+def _question(question_id: int, part: Part, file_id: str | None = None) -> Question:
     return Question(
         question_id=question_id,
-        part=part,  # type: ignore[arg-type]
+        part=part,
         question_number=1,
         telegram_file_id=file_id,
     )
@@ -104,7 +113,7 @@ class TestRunTestingRound:
             question_start_time=100.0,
         )
 
-        outcome = await run_testing_round(uow, testing, " 3 ", now=112.5)
+        outcome = await run_testing_round(as_uow(uow), testing, " 3 ", now=112.5)
 
         assert uow.sessions.recorded == [
             {
@@ -123,7 +132,7 @@ class TestRunTestingRound:
         uow.questions.correct[(10, "A")] = 3
         testing = TestingState(session_id=7, question_ids=[(10, "A")])
 
-        outcome = await run_testing_round(uow, testing, "2", now=1.0)
+        outcome = await run_testing_round(as_uow(uow), testing, "2", now=1.0)
 
         assert uow.sessions.recorded[0]["is_correct"] is False
         assert outcome == RoundFinished(next_index=1)
@@ -137,7 +146,7 @@ class TestRunTestingRound:
             pending_file_id_cache=(5, "A", "file123"),
         )
 
-        await run_testing_round(uow, testing, "1", now=1.0)
+        await run_testing_round(as_uow(uow), testing, "1", now=1.0)
 
         assert uow.questions.cached == [(5, "A", "file123")]
 
@@ -148,7 +157,7 @@ class TestRunTestingRound:
         uow.questions.images[(20, "B")] = b"image-bytes"
         testing = TestingState(session_id=7, question_ids=[(10, "A"), (20, "B")])
 
-        outcome = await run_testing_round(uow, testing, "1", now=1.0)
+        outcome = await run_testing_round(as_uow(uow), testing, "1", now=1.0)
 
         assert isinstance(outcome, NextQuestion)
         assert outcome.question.image_data == b"image-bytes"
@@ -160,7 +169,7 @@ class TestRunTestingRound:
         uow.questions.by_key[(20, "B")] = _question(20, "B", file_id="cached")
         testing = TestingState(session_id=7, question_ids=[(10, "A"), (20, "B")])
 
-        await run_testing_round(uow, testing, "1", now=1.0)
+        await run_testing_round(as_uow(uow), testing, "1", now=1.0)
 
         assert uow.questions.image_fetches == []
 
@@ -181,12 +190,12 @@ class TestPickRandomQuestion:
 
     async def test_returns_none_when_filters_incomplete(self) -> None:
         picked = await pick_random_question(
-            FakeUow(), self._random_state(random_part=None)
+            as_uow(FakeUow()), self._random_state(random_part=None)
         )
         assert picked is None
 
     async def test_returns_none_when_no_question_matches(self) -> None:
-        picked = await pick_random_question(FakeUow(), self._random_state())
+        picked = await pick_random_question(as_uow(FakeUow()), self._random_state())
         assert picked is None
 
     async def test_picks_by_part_and_settles_debt(self) -> None:
@@ -197,7 +206,7 @@ class TestPickRandomQuestion:
         uow.questions.full[(10, "A")] = (question, origin)
 
         picked = await pick_random_question(
-            uow,
+            as_uow(uow),
             self._random_state(pending_file_id_cache=(5, "B", "file9")),
         )
 
@@ -212,7 +221,7 @@ class TestPickRandomQuestion:
         uow.questions.images[(11, "B")] = b"img"
 
         picked = await pick_random_question(
-            uow, self._random_state(topic_name="Cells", random_part=None)
+            as_uow(uow), self._random_state(topic_name="Cells", random_part=None)
         )
 
         assert picked is not None
@@ -222,13 +231,13 @@ class TestPickRandomQuestion:
 class TestEvaluateRandomAnswer:
     async def test_none_without_active_question(self) -> None:
         rnd = RandomState(subject_id=1)
-        assert await evaluate_random_answer(FakeUow(), rnd, "x") is None
+        assert await evaluate_random_answer(as_uow(FakeUow()), rnd, "x") is None
 
     async def test_scores_part_b_alternatives(self) -> None:
         uow = FakeUow()
         uow.questions.correct[(11, "B")] = "ANS1/ANS2"
         rnd = RandomState(subject_id=1, current_question_id=11, current_part="B")
 
-        verdict = await evaluate_random_answer(uow, rnd, "ANS2")
+        verdict = await evaluate_random_answer(as_uow(uow), rnd, "ANS2")
 
         assert verdict == (True, "ANS1/ANS2")

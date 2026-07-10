@@ -1,7 +1,6 @@
 """Tests for bot message format strings."""
 
 from digitex.bot.messages import (
-    MSG_CORRECT_ANSWER,
     MSG_GREETING,
     MSG_NO_OPTIONS,
     MSG_RESULTS_ERROR_ITEM,
@@ -46,10 +45,6 @@ class TestMessageFormatting:
         assert "5" in result
         assert "3" in result
         assert "4" in result
-
-    def test_correct_answer_keywords(self) -> None:
-        msg = MSG_CORRECT_ANSWER
-        assert len(msg) > 0
 
 
 def test_all_messages_are_strings() -> None:

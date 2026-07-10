@@ -78,13 +78,20 @@ digitex-db = "digitex.cli.db:app"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "--cov=src/digitex --cov-report=term-missing"
+addopts = "-ra --strict-markers --cov=src/digitex --cov-report=term-missing"
+markers = [
+    "integration: exercises a real Postgres via testcontainers (requires Docker)",
+]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 filterwarnings = [
     "ignore::DeprecationWarning:pytz",
     "ignore::pydantic.PydanticDeprecatedSince20:label_studio_sdk",
+    # Production classes whose names happen to start with "Test"
+    "ignore:cannot collect test class 'TestResult':pytest.PytestCollectionWarning",
+    "ignore:cannot collect test class 'TestingState':pytest.PytestCollectionWarning",
+    "ignore:cannot collect test class 'TestsExtractor':pytest.PytestCollectionWarning",
 ]
 
 [tool.ty.environment]
@@ -116,6 +123,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ARG", "PLR2004", "S101"]
 "src/digitex/bot/messages.py" = ["RUF001", "E501"]  # Russian user-facing strings; long format strings
+"tests/unit/test_answers_extractor.py" = ["RUF001"]  # Cyrillic/Latin normalization is under test
+"tests/unit/test_bot_messages.py" = ["RUF001"]  # Russian user-facing strings
 
 [tool.ruff.lint.pylint]
 max-args = 8

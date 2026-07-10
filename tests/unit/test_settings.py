@@ -28,8 +28,8 @@ class TestDatabaseSettings:
         assert "localhost" in str(settings.dsn)
 
     def test_custom_dsn(self) -> None:
-        settings = DatabaseSettings(
-            dsn="postgresql://u:p@db.example:5432/x"  # type: ignore[arg-type]
+        settings = DatabaseSettings.model_validate(
+            {"dsn": "postgresql://u:p@db.example:5432/x"}
         )
         assert str(settings.dsn).startswith("postgresql://")
         assert "db.example" in str(settings.dsn)

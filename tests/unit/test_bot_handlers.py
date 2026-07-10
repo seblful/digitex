@@ -1,38 +1,16 @@
-"""Tests for bot handlers."""
+"""Tests for the bot's result formatting and question rendering."""
 
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-from aiogram.types import Chat, Message, User
-
 from digitex.bot.handlers.results import _format_result_lines
 from digitex.bot.renderer import send_question
 from digitex.core.db.repositories import SessionInfo, WrongAnswer
-from digitex.core.domain import Question, TestResult
-
-
-def _make_message(
-    chat_id: int = 1,
-    user_id: int = 123,
-    full_name: str = "Test User",
-    username: str | None = "@testuser",
-) -> MagicMock:
-    chat = MagicMock(spec=Chat)
-    chat.id = chat_id
-    user = MagicMock(spec=User)
-    user.id = user_id
-    user.full_name = full_name
-    user.username = username
-    msg = MagicMock(spec=Message)
-    msg.chat = chat
-    msg.from_user = user
-    msg.answer = AsyncMock()
-    return msg
+from digitex.core.domain import ExamType, Question, TestResult
 
 
 class TestFormatResultLines:
-    def _make_result(self, exam_type: str = "CT") -> TestResult:
+    def _make_result(self, exam_type: ExamType = "CT") -> TestResult:
         return TestResult(
             session_id=1,
             exam_type=exam_type,
@@ -85,7 +63,6 @@ class TestFormatResultLines:
 
 
 class TestSendQuestion:
-    @pytest.mark.asyncio
     async def test_sends_with_file_id_when_cached(self) -> None:
         bot = AsyncMock()
         question = Question(
@@ -96,12 +73,11 @@ class TestSendQuestion:
             telegram_file_id="cached_file_id",
         )
         result = await send_question(bot, 1, question)
-        bot.send_photo.assert_called_once()
+        bot.send_photo.assert_awaited_once()
         call_kwargs = bot.send_photo.call_args.kwargs
         assert call_kwargs["photo"] == "cached_file_id"
         assert result is None
 
-    @pytest.mark.asyncio
     async def test_uploads_and_returns_file_id_when_not_cached(self) -> None:
         bot = AsyncMock()
         photo_msg = MagicMock()
@@ -117,10 +93,9 @@ class TestSendQuestion:
         )
 
         result = await send_question(bot, 1, question)
-        assert bot.send_photo.call_count == 1
+        assert bot.send_photo.await_count == 1
         assert result == "new_file_id"
 
-    @pytest.mark.asyncio
     async def test_logs_warning_when_no_photo_in_response(self) -> None:
         bot = AsyncMock()
         photo_msg = MagicMock()
@@ -137,5 +112,5 @@ class TestSendQuestion:
 
         with patch("digitex.bot.renderer.logger") as mock_logger:
             result = await send_question(bot, 1, question)
-            mock_logger.warning.assert_called_once()
-            assert result is None
+        mock_logger.warning.assert_called_once()
+        assert result is None

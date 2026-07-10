@@ -1,4 +1,8 @@
-"""Pytest configuration and shared fixtures."""
+"""Fixtures for integration tests — a real Postgres via testcontainers.
+
+Tests here are skipped automatically when Docker or testcontainers are
+missing; run the unit suite alone with ``pytest tests/unit``.
+"""
 
 from __future__ import annotations
 
@@ -8,23 +12,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 import pytest_asyncio
-import structlog
-from PIL import Image
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator
 
     from psycopg_pool import AsyncConnectionPool
 
-logger = structlog.get_logger()
-
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-
-# ---------------------------------------------------------------------------
-# PostgreSQL fixtures (require Docker; tests are skipped if testcontainers
-# or Docker aren't available).
-# ---------------------------------------------------------------------------
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 @pytest.fixture(scope="session")
@@ -117,84 +111,3 @@ async def clean_db(pg_pool: AsyncConnectionPool) -> AsyncIterator[None]:
         await conn.execute(
             "TRUNCATE TABLE " + ", ".join(_TABLES) + " RESTART IDENTITY CASCADE"
         )
-
-
-@pytest.fixture
-def sample_image(tmp_path: Path) -> Image.Image:
-    """Create a sample RGB image for testing.
-
-    Args:
-        tmp_path: Temporary directory fixture.
-
-    Returns:
-        A sample PIL Image.
-    """
-    img = Image.new("RGB", (100, 100), color="red")
-    img_path = tmp_path / "test_image.jpg"
-    img.save(img_path)
-    return img
-
-
-@pytest.fixture
-def sample_label_file(tmp_path: Path) -> Path:
-    """Create a sample YOLO label file.
-
-    Args:
-        tmp_path: Temporary directory fixture.
-
-    Returns:
-        Path to the label file.
-    """
-    label_dir = tmp_path / "labels"
-    label_dir.mkdir(parents=True)
-
-    label_path = label_dir / "image_0.txt"
-    label_content = """0 0.5 0.5 0.8 0.8
-1 0.2 0.2 0.3 0.3
-"""
-    label_path.write_text(label_content)
-
-    return label_path
-
-
-@pytest.fixture
-def sample_classes_file(tmp_path: Path) -> Path:
-    """Create a sample classes.txt file.
-
-    Args:
-        tmp_path: Temporary directory fixture.
-
-    Returns:
-        Path to the classes file.
-    """
-    classes_path = tmp_path / "classes.txt"
-    classes_content = """question
-answer
-"""
-    classes_path.write_text(classes_content)
-
-    return classes_path
-
-
-@pytest.fixture
-def sample_data_dir(tmp_path: Path) -> Path:
-    """Create a sample dataset directory structure.
-
-    Args:
-        tmp_path: Temporary directory fixture.
-
-    Returns:
-        Path to the dataset directory.
-    """
-    data_dir = tmp_path / "dataset"
-    data_dir.mkdir()
-
-    images_dir = data_dir / "images"
-    labels_dir = data_dir / "labels"
-    images_dir.mkdir()
-    labels_dir.mkdir()
-
-    classes_path = data_dir / "classes.txt"
-    classes_path.write_text("question\nanswer\n")
-
-    return data_dir

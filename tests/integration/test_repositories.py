@@ -1,8 +1,8 @@
 """Integration tests for the async PostgreSQL repositories.
 
 These tests run against a real Postgres instance launched via testcontainers
-(see :func:`tests.conftest.pg_dsn`). They are skipped automatically when
-Docker is not available.
+(see ``conftest.pg_dsn`` in this directory). They are skipped automatically
+when Docker is not available; deselect them with ``-m "not integration"``.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from digitex.core.domain import QuestionKey
 if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
 
-pytestmark = [pytest.mark.usefixtures("clean_db")]
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("clean_db")]
 
 
 # ---------------------------------------------------------------------------
@@ -60,8 +60,9 @@ class TestBookRepository:
     async def test_get_option_id_raises_keyerror_for_missing(
         self, pg_pool: AsyncConnectionPool
     ) -> None:
-        async with UnitOfWork(pg_pool) as uow, pytest.raises(KeyError):
-            await uow.books.get_option_id(book_id=999, option_number=1)
+        async with UnitOfWork(pg_pool) as uow:
+            with pytest.raises(KeyError):
+                await uow.books.get_option_id(book_id=999, option_number=1)
 
 
 # ---------------------------------------------------------------------------
@@ -175,10 +176,10 @@ class TestSessionRepository:
             session = await uow.sessions.create(student.student_id, option_id)
 
             await uow.sessions.record_answer(
-                session.session_id, qa, "3", is_correct=True, time_spent=5.0
+                session.session_id, qa, "A", "3", is_correct=True, time_spent=5.0
             )
             await uow.sessions.record_answer(
-                session.session_id, qb, "wrong", is_correct=False, time_spent=10.0
+                session.session_id, qb, "B", "wrong", is_correct=False, time_spent=10.0
             )
             result = await uow.sessions.complete(session.session_id)
             wrong = await uow.sessions.get_wrong_answers(session.session_id)

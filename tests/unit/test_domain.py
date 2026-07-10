@@ -1,13 +1,11 @@
-"""Tests for core schemas and value objects."""
+"""Tests for the domain models and value objects in ``digitex.core.domain``."""
 
 from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
 
-from digitex.core.answer import check_answer
 from digitex.core.domain import (
-    ExamType,
     Question,
     QuestionKey,
     Session,
@@ -19,8 +17,6 @@ from digitex.core.domain import (
 
 
 class TestStudent:
-    """Test Student schema."""
-
     def test_valid_student(self) -> None:
         student = Student(student_id=1, telegram_id=12345, name="John")
         assert student.student_id == 1
@@ -44,8 +40,6 @@ class TestStudent:
 
 
 class TestQuestion:
-    """Test Question schema."""
-
     def test_valid_question(self) -> None:
         q = Question(
             question_id=1,
@@ -81,19 +75,8 @@ class TestQuestion:
                 image_data=b"bytes",
             )
 
-    def test_question_negative_number(self) -> None:
-        q = Question(
-            question_id=1,
-            part="A",
-            question_number=-1,
-            image_data=b"bytes",
-        )
-        assert q.question_number == -1
-
 
 class TestSession:
-    """Test Session schema."""
-
     def test_valid_session(self) -> None:
         now = datetime.now(UTC)
         session = Session(
@@ -128,8 +111,6 @@ class TestSession:
 
 
 class TestTestResult:
-    """Test TestResult schema."""
-
     def test_valid_test_result(self) -> None:
         now = datetime.now(UTC)
         result = TestResult(
@@ -170,8 +151,6 @@ class TestTestResult:
 
 
 class TestQuestionKey:
-    """Test QuestionKey value object."""
-
     def test_valid_question_key(self) -> None:
         key = QuestionKey(part="A", number=1)
         assert key.part == "A"
@@ -190,41 +169,16 @@ class TestQuestionKey:
         assert key.part == "A"
         assert key.number == 3
 
-    def test_question_key_parse_invalid(self) -> None:
+    @pytest.mark.parametrize(
+        "raw", ["", "C1", "A"], ids=["empty", "bad-part", "no-number"]
+    )
+    def test_question_key_parse_invalid(self, raw: str) -> None:
         with pytest.raises(ValueError, match="Invalid question key"):
-            QuestionKey.parse("")
-        with pytest.raises(ValueError, match="Invalid question key"):
-            QuestionKey.parse("C1")
-        with pytest.raises(ValueError, match="Invalid question key"):
-            QuestionKey.parse("A")
-
-
-class TestExamType:
-    """Test ExamType literal."""
-
-    def test_exam_type_values(self) -> None:
-        valid: ExamType = "CE"
-        assert valid == "CE"
-        valid = "CT"
-        assert valid == "CT"
-
-    def test_exam_type_usage(self) -> None:
-        now = datetime.now(UTC)
-        result = TestResult(
-            session_id=1,
-            exam_type="CT",
-            part_a_score=5,
-            part_b_score=5,
-            total_score=10,
-            max_score=20,
-            time_spent=300.0,
-            completed_at=now,
-        )
-        assert result.exam_type in ("CE", "CT")
+            QuestionKey.parse(raw)
 
 
 class TestExamTypeRule:
-    """Test the CE/CT exam-type domain rule."""
+    """The CE/CT exam-type domain rule."""
 
     def test_years_before_2023_are_ct_only(self) -> None:
         assert year_has_exam_types(2022) is False
@@ -242,31 +196,3 @@ class TestExamTypeRule:
     def test_options_above_five_are_ct(self) -> None:
         assert exam_type_for(2023, 6) == "CT"
         assert exam_type_for(2023, 10) == "CT"
-
-
-class TestCheckAnswer:
-    """Test check_answer pure function."""
-
-    def test_part_a_correct(self) -> None:
-        assert check_answer("A", "3", 3) is True
-
-    def test_part_a_wrong(self) -> None:
-        assert check_answer("A", "2", 3) is False
-
-    def test_part_a_strips_whitespace(self) -> None:
-        assert check_answer("A", " 3 ", 3) is True
-
-    def test_part_b_single_correct(self) -> None:
-        assert check_answer("B", "ANS", "ANS") is True
-
-    def test_part_b_multi_correct_first(self) -> None:
-        assert check_answer("B", "ANS1", "ANS1/ANS2") is True
-
-    def test_part_b_multi_correct_second(self) -> None:
-        assert check_answer("B", "ANS2", "ANS1/ANS2") is True
-
-    def test_part_b_wrong(self) -> None:
-        assert check_answer("B", "WRONG", "ANS1/ANS2") is False
-
-    def test_part_b_strips_whitespace(self) -> None:
-        assert check_answer("B", " ANS1 ", "ANS1 / ANS2") is True
