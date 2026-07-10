@@ -1,6 +1,5 @@
 """Core data processors."""
 
-from .file import FileProcessor
 from .image import (
     ImageCropper,
     SegmentProcessor,
@@ -8,7 +7,6 @@ from .image import (
 )
 
 __all__ = [
-    "FileProcessor",
     "ImageCropper",
     "SegmentProcessor",
     "resize_image",

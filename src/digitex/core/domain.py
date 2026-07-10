@@ -10,12 +10,29 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime  # noqa: TC003 — Pydantic needs runtime type
-from typing import Literal
+from typing import Final, Literal
 
 from pydantic import BaseModel, Field
 
 ExamType = Literal["CE", "CT"]
 Part = Literal["A", "B"]
+
+# From 2023 each year's books exist in two exam variants: CE (options 1-5)
+# and CT (the rest). Earlier years are CT only.
+EXAM_TYPE_INTRO_YEAR: Final = 2023
+_CE_MAX_OPTION: Final = 5
+
+
+def year_has_exam_types(year: int) -> bool:
+    """Return True if the year's books split into CE and CT variants."""
+    return year >= EXAM_TYPE_INTRO_YEAR
+
+
+def exam_type_for(year: int, option_number: int) -> ExamType:
+    """Return the exam type an option belongs to."""
+    if year_has_exam_types(year) and option_number <= _CE_MAX_OPTION:
+        return "CE"
+    return "CT"
 
 
 @dataclass(frozen=True)
@@ -92,6 +109,7 @@ class AuthorizedUser(BaseModel):
 
 
 __all__ = [
+    "EXAM_TYPE_INTRO_YEAR",
     "AuthorizedUser",
     "ExamType",
     "Part",
@@ -100,4 +118,6 @@ __all__ = [
     "Session",
     "Student",
     "TestResult",
+    "exam_type_for",
+    "year_has_exam_types",
 ]

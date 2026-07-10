@@ -1,32 +1,7 @@
-"""Prediction result classes for various prediction types."""
+"""Prediction result for segmentation tasks."""
 
 
-class PredictionResult:
-    """Base class for prediction results."""
-
-    def __init__(self, id2label: dict[int, str]) -> None:
-        """Initialize a prediction result.
-
-        Args:
-            id2label: Dictionary mapping class IDs to label names.
-        """
-        self.id2label = id2label
-        self.__label2id: dict[str, int] | None = None
-
-    @property
-    def label2id(self) -> dict[str, int]:
-        """Get label to ID mapping.
-
-        Returns:
-            Dictionary mapping label names to class IDs.
-        """
-        if self.__label2id is None:
-            self.__label2id = {v: k for k, v in self.id2label.items()}
-
-        return self.__label2id
-
-
-class SegmentationPredictionResult(PredictionResult):
+class SegmentationPredictionResult:
     """Prediction result for segmentation tasks."""
 
     def __init__(
@@ -48,9 +23,9 @@ class SegmentationPredictionResult(PredictionResult):
         if len(polygons) != len(ids):
             raise ValueError("Number of polygons must be equal to number of indexes.")
 
-        super().__init__(id2label)
         self.ids = ids
         self.polygons = polygons
+        self.id2label = id2label
 
     @property
     def id2polygons(self) -> dict[int, list[list[tuple[int, int]]]]:

@@ -8,11 +8,13 @@ from digitex.core.db.mapping import row_to_model
 from digitex.core.db.repositories._common import (
     SessionInfo,
     WrongAnswer,
+    _part_table,
 )
 from digitex.core.domain import Session, TestResult
 
 if TYPE_CHECKING:
     from digitex.core.db.mapping import DictConn
+    from digitex.core.domain import Part
 
 
 class SessionRepository:
@@ -71,27 +73,22 @@ class SessionRepository:
             raise KeyError(f"Session {session_id} not found")
         return SessionInfo(row["subject_name"], row["year_value"], row["option_number"])
 
-    async def get_wrong_answers(self, session_id: int) -> list[WrongAnswer]:
-        cur_a = await self._conn.execute(
-            "SELECT q.question_number, 'A' AS part,"
-            "       sa.student_answer, q.answer::text AS correct_answer"
+    async def _wrong_answers_for_part(
+        self, session_id: int, part: Part
+    ) -> list[WrongAnswer]:
+        # Part A answers are integers; cast so WrongAnswer always carries text.
+        answer_expr = "q.answer::text" if part == "A" else "q.answer"
+        cur = await self._conn.execute(
+            f"SELECT q.question_number, '{part}' AS part,"
+            f"       sa.student_answer, {answer_expr} AS correct_answer"
             "  FROM session_answers sa"
-            "  JOIN part_a_questions q ON q.question_id = sa.question_id"
-            " WHERE sa.session_id = %s AND sa.part = 'A' AND sa.is_correct = FALSE"
+            f"  JOIN {_part_table(part)} q ON q.question_id = sa.question_id"
+            f" WHERE sa.session_id = %s AND sa.part = '{part}'"
+            "   AND sa.is_correct = FALSE"
             " ORDER BY q.question_number",
             (session_id,),
         )
-        cur_b = await self._conn.execute(
-            "SELECT q.question_number, 'B' AS part,"
-            "       sa.student_answer, q.answer AS correct_answer"
-            "  FROM session_answers sa"
-            "  JOIN part_b_questions q ON q.question_id = sa.question_id"
-            " WHERE sa.session_id = %s AND sa.part = 'B' AND sa.is_correct = FALSE"
-            " ORDER BY q.question_number",
-            (session_id,),
-        )
-        rows_a = await cur_a.fetchall()
-        rows_b = await cur_b.fetchall()
+        rows = await cur.fetchall()
         return [
             WrongAnswer(
                 question_number=r["question_number"],
@@ -99,8 +96,13 @@ class SessionRepository:
                 student_answer=r["student_answer"],
                 correct_answer=r["correct_answer"],
             )
-            for r in rows_a + rows_b
+            for r in rows
         ]
+
+    async def get_wrong_answers(self, session_id: int) -> list[WrongAnswer]:
+        return await self._wrong_answers_for_part(
+            session_id, "A"
+        ) + await self._wrong_answers_for_part(session_id, "B")
 
     async def get_result(self, session_id: int) -> TestResult:
         cur = await self._conn.execute(
@@ -114,40 +116,35 @@ class SessionRepository:
         if session_row is None:
             raise KeyError(f"Session {session_id} not found")
 
-        cur_a = await self._conn.execute(
-            "SELECT COUNT(*) FILTER (WHERE sa.is_correct) AS correct,"
-            "       COUNT(*) AS total"
-            "  FROM session_answers sa"
-            "  JOIN part_a_questions q ON sa.question_id = q.question_id"
-            " WHERE sa.session_id = %s AND sa.part = 'A'",
-            (session_id,),
-        )
-        part_a = await cur_a.fetchone()
-
-        cur_b = await self._conn.execute(
-            "SELECT COUNT(*) FILTER (WHERE sa.is_correct) AS correct,"
-            "       COUNT(*) AS total"
-            "  FROM session_answers sa"
-            "  JOIN part_b_questions q ON sa.question_id = q.question_id"
-            " WHERE sa.session_id = %s AND sa.part = 'B'",
-            (session_id,),
-        )
-        part_b = await cur_b.fetchone()
-        assert part_a is not None
-        assert part_b is not None
+        a_correct, a_total = await self._score_for_part(session_id, "A")
+        b_correct, b_total = await self._score_for_part(session_id, "B")
 
         started = session_row["started_at"]
         completed = session_row["completed_at"]
         return TestResult(
             session_id=session_id,
             exam_type=session_row["exam_type"],
-            part_a_score=part_a["correct"],
-            part_b_score=part_b["correct"],
-            total_score=part_a["correct"] + part_b["correct"],
-            max_score=part_a["total"] + part_b["total"],
+            part_a_score=a_correct,
+            part_b_score=b_correct,
+            total_score=a_correct + b_correct,
+            max_score=a_total + b_total,
             time_spent=(completed - started).total_seconds(),
             completed_at=completed,
         )
+
+    async def _score_for_part(self, session_id: int, part: Part) -> tuple[int, int]:
+        """Return (correct, total) answered questions of one part."""
+        cur = await self._conn.execute(
+            "SELECT COUNT(*) FILTER (WHERE sa.is_correct) AS correct,"
+            "       COUNT(*) AS total"
+            "  FROM session_answers sa"
+            f"  JOIN {_part_table(part)} q ON sa.question_id = q.question_id"
+            f" WHERE sa.session_id = %s AND sa.part = '{part}'",
+            (session_id,),
+        )
+        row = await cur.fetchone()
+        assert row is not None
+        return row["correct"], row["total"]
 
 
 __all__ = ["SessionRepository"]

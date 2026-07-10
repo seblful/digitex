@@ -13,6 +13,8 @@ from digitex.core.domain import (
     Session,
     Student,
     TestResult,
+    exam_type_for,
+    year_has_exam_types,
 )
 
 
@@ -219,6 +221,27 @@ class TestExamType:
             completed_at=now,
         )
         assert result.exam_type in ("CE", "CT")
+
+
+class TestExamTypeRule:
+    """Test the CE/CT exam-type domain rule."""
+
+    def test_years_before_2023_are_ct_only(self) -> None:
+        assert year_has_exam_types(2022) is False
+        assert exam_type_for(2022, 1) == "CT"
+        assert exam_type_for(2022, 10) == "CT"
+
+    def test_years_from_2023_split_into_variants(self) -> None:
+        assert year_has_exam_types(2023) is True
+        assert year_has_exam_types(2026) is True
+
+    def test_options_one_to_five_are_ce(self) -> None:
+        assert exam_type_for(2023, 1) == "CE"
+        assert exam_type_for(2023, 5) == "CE"
+
+    def test_options_above_five_are_ct(self) -> None:
+        assert exam_type_for(2023, 6) == "CT"
+        assert exam_type_for(2023, 10) == "CT"
 
 
 class TestCheckAnswer:

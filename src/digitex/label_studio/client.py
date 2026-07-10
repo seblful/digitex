@@ -1,11 +1,11 @@
 """Generic Label Studio SDK wrapper."""
 
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
-from urllib.request import url2pathname
 
 import structlog
 from label_studio_sdk import LabelStudio
+
+from digitex.label_studio.geometry import local_file_path
 
 logger = structlog.get_logger()
 
@@ -64,27 +64,13 @@ class LabelStudioClient:
     def get_local_path(task) -> Path | None:
         """Extract filesystem path from a local-files URI in task data.
 
-        Handles URIs of the form /data/local-files/?d=... or /data/local-files/?file=...
-
         Args:
             task: Label Studio task object.
 
         Returns:
             Path to the local file, or None if no valid URI is found.
         """
-        image_uri = task.data.get("image", "")
-        if not image_uri:
-            return None
-
-        parsed = urlparse(image_uri)
-        params = parse_qs(parsed.query)
-
-        for key in ("file", "d"):
-            if key in params:
-                raw_path = url2pathname(params[key][0])
-                return Path(raw_path)
-
-        return None
+        return local_file_path(task.data.get("image", ""))
 
     def upload_predictions(
         self,

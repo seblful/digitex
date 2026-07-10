@@ -6,6 +6,7 @@ import structlog
 from PIL import Image
 
 from digitex.label_studio.client import LabelStudioClient
+from digitex.label_studio.geometry import pixel_to_percent
 from digitex.ml.predictors.prediction_result import SegmentationPredictionResult
 from digitex.ml.predictors.segmentation import YOLO_SegmentationPredictor
 
@@ -67,7 +68,7 @@ class TaskPredictor:
         """
         ls_results = []
         for class_id, polygon in zip(result.ids, result.polygons, strict=False):
-            points = [[x / img_width * 100, y / img_height * 100] for x, y in polygon]
+            points = pixel_to_percent(polygon, img_width, img_height)
             label_name = self.classes.get(class_id, str(class_id))
             ls_results.append(
                 {

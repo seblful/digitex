@@ -116,8 +116,6 @@ def train(
     ),
 ) -> None:
     """Train and validate a YOLO segmentation model."""
-    from digitex.ml.yolo import Trainer
-
     configs_dir = _settings.paths.training_configs_dir
     train_config_path = configs_dir / f"{config}_train.yaml"
     val_config_path = configs_dir / f"{config}_val.yaml"
@@ -141,12 +139,17 @@ def train(
     logger.info("Starting YOLO training", train_config=str(train_config_path))
 
     try:
-        trainer = Trainer(
-            train_config_path=train_config_path,
-            val_config_path=val_config_path,
-        )
-        trainer.train()
-        trainer.validate()
+        import yaml
+        from ultralytics import YOLO
+
+        train_cfg = yaml.safe_load(train_config_path.read_text(encoding="utf-8"))
+        model_name = (train_cfg or {}).get("model")
+        if not model_name:
+            raise ValueError(f"'model' key missing in {train_config_path}")
+
+        model = YOLO(model_name)
+        model.train(cfg=train_config_path)
+        model.val(cfg=val_config_path)
         typer.echo(typer.style("✓ Training and validation completed", fg="green"))
     except Exception as e:
         logger.error("Training failed", error=str(e))

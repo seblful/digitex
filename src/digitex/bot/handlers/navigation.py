@@ -43,6 +43,7 @@ from digitex.bot.messages import (
 )
 from digitex.bot.states import Navigation, Testing
 from digitex.core.db import UnitOfWork
+from digitex.core.domain import year_has_exam_types
 
 if TYPE_CHECKING:
     from aiogram.fsm.context import FSMContext
@@ -203,7 +204,7 @@ async def on_year_selected(
     year = callback_data.year
     await fsm_data.merge(state, year=year)
 
-    if year >= 2023:
+    if year_has_exam_types(year):
         await callback.message.edit_text(
             MSG_EXAM_TYPE_SELECT,
             reply_markup=exam_type_kb(),

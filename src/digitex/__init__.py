@@ -6,19 +6,13 @@ import importlib
 from typing import Any
 
 _MODULES: dict[str, str] = {
-    "BaseExtractor": ".extractors",
     "BookExtractor": ".extractors",
     "ExtractionResult": ".extractors",
-    "ExtractorFactory": ".extractors",
-    "FileProcessor": ".core.processors",
-    "LabelHandler": ".core.handlers",
     "LabelStudioClient": ".label_studio",
     "ManualExtractor": ".extractors",
     "PageDataCreator": ".creators",
     "PageExtractor": ".extractors",
-    "Predictor": ".ml",
     "TaskPredictor": ".label_studio",
-    "Trainer": ".ml",
 }
 
 

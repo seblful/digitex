@@ -1,8 +1,7 @@
-"""Base extractor and shared result type."""
+"""Shared extraction result type."""
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -60,18 +59,3 @@ class ExtractionResult:
             warnings=self.warnings + other.warnings,
             metadata={**self.metadata, **other.metadata},
         )
-
-
-class BaseExtractor(ABC):
-    """Abstract base for all extractors.
-
-    Concrete extractors override :meth:`extract`. Each extractor's ``extract``
-    signature is genuinely different (PageExtractor takes a single PIL image,
-    BookExtractor takes an image dir, TestsExtractor takes a subject name),
-    so a single template ``extract()`` would be a misleading shape — the
-    abstract method takes ``*args, **kwargs`` and each subclass tightens it.
-    """
-
-    @abstractmethod
-    def extract(self, *args: Any, **kwargs: Any) -> ExtractionResult:
-        """Run extraction and return results."""

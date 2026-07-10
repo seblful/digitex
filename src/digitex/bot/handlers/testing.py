@@ -8,7 +8,13 @@ from typing import TYPE_CHECKING
 from aiogram import Bot, Router, types
 
 from digitex.bot import fsm_data
-from digitex.bot.answer_flow import ask_question, evaluate_answer_in_uow
+from digitex.bot.answer_flow import (
+    RoundFinished,
+    ask_question,
+    file_id_debt,
+    load_renderable,
+    run_testing_round,
+)
 from digitex.bot.callbacks import AnswerCB
 from digitex.bot.fsm_data import TestingState
 from digitex.bot.handlers.results import show_results
@@ -19,18 +25,7 @@ if TYPE_CHECKING:
     from aiogram.fsm.context import FSMContext
     from psycopg_pool import AsyncConnectionPool
 
-    from digitex.core.domain import Question
-
 router = Router()
-
-
-async def _load_renderable(uow: UnitOfWork, question_id: int, part: str) -> Question:
-    """Fetch a question's metadata and the image bytes only on a cache miss."""
-    question = await uow.questions.get(question_id, part)
-    if not question.telegram_file_id:
-        image_data = await uow.questions.get_image(question_id, part)
-        question = question.model_copy(update={"image_data": image_data})
-    return question
 
 
 async def send_current_question(
@@ -48,7 +43,7 @@ async def send_current_question(
 
     question_id, part = testing.question_ids[testing.current_index]
     async with UnitOfWork(pool) as uow:
-        question = await _load_renderable(uow, question_id, part)
+        question = await load_renderable(uow, question_id, part)
 
     await fsm_data.merge(
         state,
@@ -57,11 +52,9 @@ async def send_current_question(
         waiting_for_answer=True,
     )
 
-    new_file_id = await ask_question(bot, message, question)
-    if new_file_id:
-        await fsm_data.merge(
-            state, pending_file_id_cache=(question_id, part, new_file_id)
-        )
+    debt = file_id_debt(question, await ask_question(bot, message, question))
+    if debt:
+        await fsm_data.merge(state, pending_file_id_cache=debt)
 
 
 async def _record_and_advance(
@@ -72,55 +65,31 @@ async def _record_and_advance(
     pool: AsyncConnectionPool,
 ) -> None:
     testing = await fsm_data.load(state, TestingState)
-    question_id, part = testing.question_ids[testing.current_index]
-    question_start_time = testing.question_start_time or time.time()
-    time_spent = time.time() - question_start_time
-    next_index = testing.current_index + 1
-    pending = testing.pending_file_id_cache
 
-    next_question: Question | None = None
     async with UnitOfWork(pool) as uow:
-        if pending is not None:
-            await uow.questions.cache_file_id(*pending)
-        is_correct, _ = await evaluate_answer_in_uow(uow, question_id, part, answer)
-        await uow.sessions.record_answer(
-            session_id=testing.session_id,
-            question_id=question_id,
-            part=part,
-            student_answer=answer.strip(),
-            is_correct=is_correct,
-            time_spent=time_spent,
-        )
-        if next_index < len(testing.question_ids):
-            next_qid, next_part = testing.question_ids[next_index]
-            next_question = await _load_renderable(uow, next_qid, next_part)
+        outcome = await run_testing_round(uow, testing, answer, now=time.time())
 
-    if next_question is None:
+    if isinstance(outcome, RoundFinished):
         await fsm_data.merge(
-            state, current_index=next_index, pending_file_id_cache=None
+            state, current_index=outcome.next_index, pending_file_id_cache=None
         )
         await show_results(message, state, bot, pool)
         return
 
     await fsm_data.merge(
         state,
-        current_index=next_index,
+        current_index=outcome.next_index,
         question_start_time=time.time(),
-        current_part=next_question.part,
+        current_part=outcome.question.part,
         waiting_for_answer=True,
         pending_file_id_cache=None,
     )
 
-    new_file_id = await ask_question(bot, message, next_question)
-    if new_file_id:
-        await fsm_data.merge(
-            state,
-            pending_file_id_cache=(
-                next_question.question_id,
-                next_question.part,
-                new_file_id,
-            ),
-        )
+    debt = file_id_debt(
+        outcome.question, await ask_question(bot, message, outcome.question)
+    )
+    if debt:
+        await fsm_data.merge(state, pending_file_id_cache=debt)
 
 
 @router.callback_query(Testing.answering, AnswerCB.filter())

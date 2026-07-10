@@ -1,6 +1,7 @@
 """Tests for the Extractors module."""
 
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,8 +14,10 @@ from digitex.extractors.page_extractor import (
     OCR_LANGUAGE,
     PageExtractionState,
     PageExtractor,
+    QuestionPlacement,
 )
 from digitex.extractors.tests_extractor import PROGRESS_FILE, TestsExtractor
+from digitex.ml.predictors import SegmentationPredictionResult
 
 
 class TestBookExtractor:
@@ -85,6 +88,174 @@ class TestBookExtractor:
         assert output_dir.exists()
         mock_page_extract.assert_called_once()
         assert isinstance(result, ExtractionResult)
+
+
+class TestPageExtractionState:
+    """Test the question-numbering state machine through its interface."""
+
+    def test_option_marker_advances_sequentially(self) -> None:
+        state = PageExtractionState()
+        assert state.on_option(1) is True
+        assert (state.option, state.part, state.question) == (1, "A", 0)
+
+    def test_non_sequential_option_marker_ignored(self) -> None:
+        state = PageExtractionState(option=1, part="B", question=3)
+        assert state.on_option(5) is False
+        assert state.on_option(None) is False
+        assert (state.option, state.part, state.question) == (1, "B", 3)
+
+    def test_part_marker_switches_and_resets_numbering(self) -> None:
+        state = PageExtractionState(option=1, part="A", question=7)
+        assert state.on_part("B") is True
+        assert (state.part, state.question) == ("B", 0)
+
+    def test_same_or_missing_part_marker_ignored(self) -> None:
+        state = PageExtractionState(option=1, part="A", question=7)
+        assert state.on_part("A") is False
+        assert state.on_part(None) is False
+        assert state.question == 7
+
+    def test_placements_number_sequentially_after_commit(self) -> None:
+        state = PageExtractionState(option=1, part="A")
+        assert state.next_question() == QuestionPlacement(option=1, part="A", number=1)
+        state.commit_question()
+        assert state.next_question() == QuestionPlacement(option=1, part="A", number=2)
+
+    def test_next_question_without_commit_does_not_consume(self) -> None:
+        state = PageExtractionState(option=1, part="A")
+        assert state.next_question().number == 1
+        assert state.next_question().number == 1
+
+    def test_correct_option_moves_and_keeps_numbering(self) -> None:
+        state = PageExtractionState(option=1, part="B", question=3)
+        assert state.correct_option(2) is True
+        assert (state.option, state.part, state.question) == (2, "A", 3)
+        assert state.next_question() == QuestionPlacement(option=2, part="A", number=4)
+
+    def test_correct_option_same_option_is_noop(self) -> None:
+        state = PageExtractionState(option=1, part="A", question=3)
+        assert state.correct_option(1) is False
+        assert (state.option, state.part, state.question) == (1, "A", 3)
+
+    def test_full_page_event_sequence(self) -> None:
+        state = PageExtractionState()
+        state.on_option(1)
+        state.on_part("A")
+        placements = [state.next_question()]
+        state.commit_question()
+        placements.append(state.next_question())
+        state.commit_question()
+        state.on_part("B")
+        placements.append(state.next_question())
+        state.commit_question()
+        assert placements == [
+            QuestionPlacement(option=1, part="A", number=1),
+            QuestionPlacement(option=1, part="A", number=2),
+            QuestionPlacement(option=1, part="B", number=1),
+        ]
+
+
+class _FakePredictor:
+    def __init__(self, result: SegmentationPredictionResult) -> None:
+        self._result = result
+
+    def predict(self, image: Image.Image) -> SegmentationPredictionResult:
+        return self._result
+
+
+class _FakeTextExtractor:
+    def __init__(self, digits: list[int], text: str) -> None:
+        self._digits = digits
+        self._text = text
+
+    def extract_digits(self, image: Image.Image) -> list[int]:
+        return self._digits
+
+    def extract_text(self, image: Image.Image) -> str:
+        return self._text
+
+
+class TestPageExtractorExtract:
+    """Behavior tests of extract() through its interface — no YOLO, no OCR."""
+
+    ID2LABEL: ClassVar[dict[int, str]] = {0: "question", 1: "option", 2: "part"}
+
+    def _extractor(
+        self,
+        result: SegmentationPredictionResult,
+        on_conflict=None,
+    ) -> PageExtractor:
+        return PageExtractor(
+            model_path=Path("model.pt"),
+            image_format="jpg",
+            question_max_width=50,
+            question_max_height=50,
+            predictor=_FakePredictor(result),
+            text_extractor=_FakeTextExtractor(digits=[1], text="Часть A"),
+            on_conflict=on_conflict,
+        )
+
+    def test_questions_saved_under_detected_option_and_part(
+        self, tmp_path: Path
+    ) -> None:
+        result = SegmentationPredictionResult(
+            ids=[1, 2, 0, 0],
+            polygons=[
+                [(10, 0), (40, 0), (40, 10), (10, 10)],
+                [(10, 20), (40, 20), (40, 30), (10, 30)],
+                [(10, 40), (200, 40), (200, 80), (10, 80)],
+                [(10, 90), (200, 90), (200, 130), (10, 130)],
+            ],
+            id2label=self.ID2LABEL,
+        )
+        image = Image.new("RGB", (300, 300), color="white")
+
+        state = self._extractor(result).extract(image, tmp_path)
+
+        assert (tmp_path / "1" / "A" / "1.jpg").exists()
+        assert (tmp_path / "1" / "A" / "2.jpg").exists()
+        assert (state.option, state.part, state.question) == (1, "A", 2)
+
+    def test_conflict_with_default_resolver_keeps_existing_file(
+        self, tmp_path: Path
+    ) -> None:
+        result = SegmentationPredictionResult(
+            ids=[0],
+            polygons=[[(10, 40), (200, 40), (200, 80), (10, 80)]],
+            id2label=self.ID2LABEL,
+        )
+        existing = tmp_path / "1" / "A" / "1.jpg"
+        existing.parent.mkdir(parents=True)
+        existing.write_bytes(b"original")
+        image = Image.new("RGB", (300, 300), color="white")
+
+        state = self._extractor(result).extract(
+            image, tmp_path, PageExtractionState(option=1, part="A")
+        )
+
+        assert existing.read_bytes() == b"original"
+        assert (state.option, state.question) == (1, 1)
+
+    def test_conflict_resolver_correction_moves_question_and_state(
+        self, tmp_path: Path
+    ) -> None:
+        result = SegmentationPredictionResult(
+            ids=[0],
+            polygons=[[(10, 40), (200, 40), (200, 80), (10, 80)]],
+            id2label=self.ID2LABEL,
+        )
+        existing = tmp_path / "1" / "A" / "1.jpg"
+        existing.parent.mkdir(parents=True)
+        existing.write_bytes(b"original")
+        image = Image.new("RGB", (300, 300), color="white")
+
+        state = self._extractor(result, on_conflict=lambda conflict: 2).extract(
+            image, tmp_path, PageExtractionState(option=1, part="A")
+        )
+
+        assert not existing.exists()
+        assert (tmp_path / "2" / "A" / "1.jpg").exists()
+        assert (state.option, state.part, state.question) == (2, "A", 1)
 
 
 class TestPageExtractor:

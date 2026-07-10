@@ -143,19 +143,6 @@ class TestYOLOSegmentationPredictor:
             with pytest.raises(RuntimeError, match="Failed to load model"):
                 _ = predictor.model
 
-    def test_preprocess_image(self, tmp_path: Path) -> None:
-        """Test preprocess_image converts PIL Image to numpy array."""
-        model_path = tmp_path / "model.pt"
-        model_path.touch()
-
-        predictor = YOLO_SegmentationPredictor(model_path=str(model_path))
-
-        img = Image.new("RGB", (100, 100), color="red")
-        result = predictor.preprocess_image(img)
-
-        assert isinstance(result, Image.Image)
-        assert result.size == (100, 100)
-
     def test_create_result_empty_predictions(self, tmp_path: Path) -> None:
         """Test create_result raises ValueError on empty predictions."""
         model_path = tmp_path / "model.pt"
@@ -193,7 +180,8 @@ class TestYOLOSegmentationPredictor:
 
         mock_pred = MagicMock()
         mock_pred.boxes = MagicMock()
-        mock_pred.boxes.__iter__ = MagicMock(return_value=iter([mock_box]))
+        mock_pred.boxes.__len__.return_value = 1
+        mock_pred.boxes.__getitem__.side_effect = [mock_box]
         mock_pred.masks = MagicMock()
         mock_pred.masks.xyn = [mock_mask.xyn]
 
@@ -255,7 +243,8 @@ class TestYOLOSegmentationPredictor:
 
         mock_pred = MagicMock()
         mock_pred.boxes = MagicMock()
-        mock_pred.boxes.__iter__ = MagicMock(return_value=iter([mock_box]))
+        mock_pred.boxes.__len__.return_value = 1
+        mock_pred.boxes.__getitem__.side_effect = [mock_box]
         mock_pred.masks = MagicMock()
         mock_pred.masks.xyn = [mock_mask.xyn]
 
@@ -267,35 +256,6 @@ class TestYOLOSegmentationPredictor:
 
         assert len(result.ids) == 1
         assert len(result.polygons) == 1
-
-    def test_predict(self, tmp_path: Path) -> None:
-        """Test predict runs full prediction pipeline."""
-        model_path = tmp_path / "model.pt"
-        model_path.touch()
-
-        predictor = YOLO_SegmentationPredictor(model_path=str(model_path))
-
-        img = Image.new("RGB", (100, 100), color="white")
-
-        mock_model = MagicMock()
-        mock_pred = MagicMock()
-        mock_pred.boxes = None
-        mock_pred.masks = None
-
-        mock_model.names = {}
-        mock_model.predict.return_value = [mock_pred]
-        predictor._model = mock_model
-
-        with patch.object(predictor, "preprocess_image") as mock_preprocess:
-            mock_preprocess.return_value = np.array(img)
-            with patch.object(predictor, "create_result") as mock_create:
-                mock_result = MagicMock()
-                mock_create.return_value = mock_result
-
-                predictor.predict(img)
-
-                mock_preprocess.assert_called_once_with(img)
-                mock_create.assert_called_once()
 
 
 class TestYOLOSegmentationPredictorIntegration:
@@ -322,7 +282,8 @@ class TestYOLOSegmentationPredictorIntegration:
 
         mock_pred = MagicMock()
         mock_pred.boxes = MagicMock()
-        mock_pred.boxes.__iter__ = MagicMock(return_value=iter([mock_box1, mock_box2]))
+        mock_pred.boxes.__len__.return_value = 2
+        mock_pred.boxes.__getitem__.side_effect = [mock_box1, mock_box2]
         mock_pred.masks = MagicMock()
         mock_pred.masks.xyn = [mock_mask1.xyn, mock_mask2.xyn]
 
@@ -339,4 +300,3 @@ class TestYOLOSegmentationPredictorIntegration:
         assert len(result.polygons) == 2
 
         assert result.id2label == {0: "question", 1: "option"}
-        assert result.label2id == {"question": 0, "option": 1}

@@ -7,12 +7,12 @@ from zoneinfo import ZoneInfo
 
 import structlog
 
+from digitex.core.corpus import IMAGE_EXTENSIONS
+
 if TYPE_CHECKING:
     import torch
 
 logger = structlog.get_logger()
-
-IMAGE_EXTENSIONS: set[str] = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
 
 def _natural_sort_key(path: Path) -> list[int | str]:

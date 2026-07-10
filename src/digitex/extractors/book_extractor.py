@@ -8,7 +8,8 @@ import structlog
 from PIL import Image
 from tqdm import tqdm
 
-from digitex.extractors.base import BaseExtractor, ExtractionResult
+from digitex.core.corpus import IMAGE_EXTENSIONS
+from digitex.extractors.base import ExtractionResult
 from digitex.extractors.exceptions import DirectoryNotFoundError
 from digitex.extractors.page_extractor import PageExtractionState, PageExtractor
 from digitex.utils import _natural_sort_key
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 
-class BookExtractor(BaseExtractor):
+class BookExtractor:
     """Extract question images from a directory of images (a "book")."""
 
     def __init__(
@@ -57,8 +58,6 @@ class BookExtractor(BaseExtractor):
         and surfaced as errors — the caller can decide whether one bad page
         invalidates the whole book.
         """
-        from digitex.utils import IMAGE_EXTENSIONS
-
         if not image_dir.exists():
             raise DirectoryNotFoundError(image_dir)
 

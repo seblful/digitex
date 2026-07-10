@@ -2,7 +2,6 @@
 
 import base64
 import json
-import re
 from pathlib import Path
 
 import structlog
@@ -10,7 +9,8 @@ from openai import OpenAI
 from pydantic import BaseModel
 from tqdm import tqdm
 
-from digitex.extractors.base import BaseExtractor, ExtractionResult
+from digitex.core.corpus import IMAGE_EXTENSIONS, parse_answer_sheet_stem
+from digitex.extractors.base import ExtractionResult
 from digitex.extractors.exceptions import APIError, DirectoryNotFoundError
 
 logger = structlog.get_logger()
@@ -40,7 +40,7 @@ OCR_SYSTEM_PROMPT = (
 OCR_USER_PROMPT = "Extract the answer table from this exam answer sheet image."
 
 
-class AnswersExtractor(BaseExtractor):
+class AnswersExtractor:
     """Extracts answer keys from answer sheet images via OpenRouter vision API."""
 
     def __init__(
@@ -133,13 +133,13 @@ class AnswersExtractor(BaseExtractor):
         return result
 
     def _extract_year_and_part(self, image_path: Path) -> tuple[int, int]:
-        match = re.match(r"(\d{4})_(\d+)", image_path.stem)
-        if not match:
+        parsed = parse_answer_sheet_stem(image_path.stem)
+        if parsed is None:
             raise ValueError(
                 f"Invalid filename format: {image_path.name}. "
                 "Expected format: YYYY_N.jpg"
             )
-        return int(match.group(1)), int(match.group(2))
+        return parsed
 
     def extract(self, subject: str) -> ExtractionResult:
         answers_dir = self._books_dir / subject / "answers"
@@ -150,7 +150,7 @@ class AnswersExtractor(BaseExtractor):
             [
                 p
                 for p in answers_dir.iterdir()
-                if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg", ".png")
+                if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
             ],
             key=lambda p: p.name,
         )

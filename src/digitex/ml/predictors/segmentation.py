@@ -10,13 +10,12 @@ from ultralytics.engine.results import Results
 
 from digitex.utils import get_device
 
-from .abstract_predictor import Predictor
 from .prediction_result import SegmentationPredictionResult
 
 logger = structlog.get_logger()
 
 
-class YOLO_SegmentationPredictor(Predictor):
+class YOLO_SegmentationPredictor:
     """YOLO-based segmentation predictor for document analysis."""
 
     def __init__(
@@ -64,17 +63,6 @@ class YOLO_SegmentationPredictor(Predictor):
                 ) from e
 
         return self._model
-
-    def preprocess_image(self, image: Image.Image) -> Image.Image:
-        """Preprocess a PIL Image for YOLO prediction.
-
-        Args:
-            image: PIL Image to preprocess.
-
-        Returns:
-            The same image (YOLO accepts PIL Images directly).
-        """
-        return image
 
     def create_result(
         self,
@@ -180,10 +168,9 @@ class YOLO_SegmentationPredictor(Predictor):
             SegmentationPredictionResult containing IDs and polygons.
         """
         img_width, img_height = image.size
-        preprocessed = self.preprocess_image(image)
 
         preds = self.model.predict(
-            preprocessed,
+            image,
             conf=conf,
             imgsz=imgsz,
             end2end=end2end,

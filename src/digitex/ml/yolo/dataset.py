@@ -3,11 +3,12 @@
 import json
 import random
 import shutil
-import urllib.parse
 from pathlib import Path
 
 import structlog
 import yaml
+
+from digitex.label_studio.geometry import local_file_path, percent_to_normalized
 
 logger = structlog.get_logger()
 
@@ -74,10 +75,8 @@ class DatasetCreator:
         Returns:
             Filename (e.g. biology_2008_12_old.jpg).
         """
-        parsed = urllib.parse.urlparse(image_uri)
-        params = urllib.parse.parse_qs(parsed.query)
-        path = urllib.parse.unquote(params.get("d", [""])[0])
-        return Path(path).name
+        path = local_file_path(image_uri)
+        return path.name if path else ""
 
     @staticmethod
     def _parse_annotation(entry: dict, label2id: dict[str, int]) -> tuple[str, str]:
@@ -97,8 +96,8 @@ class DatasetCreator:
             try:
                 label_name = polygon["polygonlabels"][0]
                 class_id = label2id[label_name]
-                points = polygon["points"]
-                coords = " ".join(f"{x / 100:.6f} {y / 100:.6f}" for x, y in points)
+                normalized = percent_to_normalized(polygon["points"])
+                coords = " ".join(f"{x:.6f} {y:.6f}" for x, y in normalized)
                 lines.append(f"{class_id} {coords}")
             except (KeyError, IndexError) as exc:
                 logger.warning("skipped_polygon", reason=str(exc), polygon=polygon)

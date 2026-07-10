@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import structlog
 from tqdm import tqdm
 
-from digitex.extractors.base import BaseExtractor, ExtractionResult
+from digitex.extractors.base import ExtractionResult
 from digitex.extractors.book_extractor import BookExtractor
 from digitex.extractors.exceptions import DirectoryNotFoundError
 from digitex.extractors.progress import JSONProgressTracker, ProgressTracker
@@ -22,7 +22,7 @@ logger = structlog.get_logger()
 PROGRESS_FILE = "progress.json"
 
 
-class TestsExtractor(BaseExtractor):
+class TestsExtractor:
     """Orchestrates extraction of question images from all image books."""
 
     def __init__(

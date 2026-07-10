@@ -1,11 +1,15 @@
 """Extraction CLI commands."""
 
+from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from digitex.config import get_settings
-from digitex.extractors.factory import ExtractorFactory
+from digitex.extractors.answers_extractor import AnswersExtractor
+from digitex.extractors.exceptions import APIError, ModelNotFoundError
+from digitex.extractors.manual_extractor import ManualExtractor
+from digitex.extractors.tests_extractor import TestsExtractor
 from digitex.extractors.utils import (
     count_subject_images,
     count_total_images,
@@ -26,6 +30,50 @@ setup_logging(_settings)
 app = typer.Typer(help="Extraction commands for processing test books.")
 
 
+def _require_model(path: Path) -> Path:
+    """Fail on a missing model file now, not when the lazy predictor loads."""
+    if not path.exists():
+        raise ModelNotFoundError(path)
+    return path
+
+
+def _tests_extractor() -> TestsExtractor:
+    return TestsExtractor(
+        model_path=_require_model(_settings.paths.extraction_model_path),
+        image_format=_settings.extraction.image_format,
+        question_max_width=_settings.extraction.question_max_width,
+        question_max_height=_settings.extraction.question_max_height,
+        books_dir=_settings.paths.books_dir,
+        extraction_dir=_settings.paths.extraction_output_dir,
+    )
+
+
+def _manual_extractor(manual_dir: Path) -> ManualExtractor:
+    return ManualExtractor(
+        image_format=_settings.extraction.image_format,
+        question_max_width=_settings.extraction.question_max_width,
+        question_max_height=_settings.extraction.question_max_height,
+        manual_dir=manual_dir,
+        output_dir=_settings.paths.extraction_output_dir,
+    )
+
+
+def _answers_extractor() -> AnswersExtractor:
+    api_key = _settings.openrouter.api_key
+    if not api_key:
+        raise APIError(
+            service="OpenRouter",
+            message="API key not set. Set OPENROUTER_API_KEY environment variable.",
+        )
+    return AnswersExtractor(
+        api_key=api_key,
+        model=_settings.openrouter.model,
+        base_url=_settings.openrouter.base_url,
+        books_dir=_settings.paths.books_dir,
+        output_dir=_settings.paths.extraction_output_dir,
+    )
+
+
 @app.command(name="extract-questions")
 def extract_questions(
     subject: Annotated[
@@ -36,7 +84,7 @@ def extract_questions(
 
     SUBJECT is the name of the subject folder in the books directory.
     """
-    extractor = ExtractorFactory(_settings).create_tests_extractor()
+    extractor = _tests_extractor()
     result = extractor.extract(subject=subject)
 
     if result.success:
@@ -171,9 +219,7 @@ def add_questions_manually(
         typer.echo(f"Error: Manual directory '{subject}' not found", err=True)
         raise typer.Exit(code=1)
 
-    extractor = ExtractorFactory(_settings).create_manual_extractor(
-        manual_dir=manual_dir
-    )
+    extractor = _manual_extractor(manual_dir)
     result = extractor.process_all(dry_run=dry_run)
 
     if result.success:
@@ -215,7 +261,7 @@ def extract_answers(
 
     Results are saved to extraction/data/output/{subject}/{year}/answers.json
     """
-    extractor = ExtractorFactory(_settings).create_answers_extractor()
+    extractor = _answers_extractor()
     result = extractor.extract(subject=subject)
 
     if result.success:

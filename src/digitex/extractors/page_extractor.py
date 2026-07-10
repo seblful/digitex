@@ -28,16 +28,37 @@ Detection = tuple[str, list[tuple[int, int]]]
 OCR_LANGUAGE = "rus"
 
 
+@dataclass(frozen=True)
+class QuestionPlacement:
+    """Where one detected question lands in the extraction output."""
+
+    option: int
+    part: str
+    number: int
+
+
 @dataclass
 class PageExtractionState:
-    """Mutable state threaded across pages during a book extraction run."""
+    """Question-numbering state machine, threaded across a book's pages.
+
+    Owns every decision about which option/part/number a detection belongs
+    to. Consumes the page's markers in reading order (``on_option`` /
+    ``on_part``), hands out placements as values (``next_question`` +
+    ``commit_question``), and takes conflict-resolver corrections back via
+    ``correct_option``. Performs no I/O — reading markers off the page and
+    saving crops belong to PageExtractor.
+    """
 
     option: int = 0
     part: str = ""
     question: int = 0
 
-    def try_advance_option(self, new_option: int | None) -> bool:
-        """Advance to the next option if detected. Returns True on change."""
+    def on_option(self, new_option: int | None) -> bool:
+        """Advance when a marker continues the option sequence.
+
+        Anything that is not exactly the next option number is treated as an
+        OCR misread and ignored. Returns True on change.
+        """
         if new_option is not None and new_option == self.option + 1:
             self.option = new_option
             self.part = "A"
@@ -45,26 +66,37 @@ class PageExtractionState:
             return True
         return False
 
-    def try_advance_part(self, new_part: str | None) -> bool:
-        """Switch to a different part if detected. Returns True on change."""
+    def on_part(self, new_part: str | None) -> bool:
+        """Switch part when a different part marker is read. Returns True on change."""
         if new_part is not None and new_part != self.part:
             self.part = new_part
             self.question = 0
             return True
         return False
 
-    def advance_question(self, resolved_option: int) -> int:
-        """Increment question counter; apply option correction if needed.
+    def next_question(self) -> QuestionPlacement:
+        """Return the placement the next question will get, without committing.
 
-        Returns the option number that was active *before* any correction,
-        so callers can log the transition.
+        The caller commits via :meth:`commit_question` only after the crop is
+        saved, so a failed save doesn't consume a question number.
         """
-        prior_option = self.option
+        return QuestionPlacement(self.option, self.part, self.question + 1)
+
+    def commit_question(self) -> None:
+        """Consume the question number handed out by :meth:`next_question`."""
         self.question += 1
-        if resolved_option != self.option:
-            self.option = resolved_option
-            self.part = "A"
-        return prior_option
+
+    def correct_option(self, resolved_option: int) -> bool:
+        """Apply a conflict-resolver decision. Returns True if the option moved.
+
+        The question counter deliberately keeps running — the corrected
+        question retains its number under the new option.
+        """
+        if resolved_option == self.option:
+            return False
+        self.option = resolved_option
+        self.part = "A"
+        return True
 
 
 class PageExtractor:
@@ -251,39 +283,40 @@ class PageExtractor:
         for label, polygon in detections:
             if label == "option":
                 new_option = self._extract_option_number(image, polygon)
-                if state.try_advance_option(new_option):
+                if state.on_option(new_option):
                     logger.debug("Option changed", option_counter=state.option)
             elif label == "part":
                 new_part = self._extract_part_letter(image, polygon)
-                if state.try_advance_part(new_part):
+                if state.on_part(new_part):
                     logger.debug("Part changed", part_letter=state.part)
             elif label == "question":
+                placement = state.next_question()
                 output_path = (
                     output_dir
-                    / str(state.option)
-                    / state.part
-                    / f"{state.question + 1}.{self.image_format}"
+                    / str(placement.option)
+                    / placement.part
+                    / f"{placement.number}.{self.image_format}"
                 )
                 resolved_option = self._crop_and_save(
                     image,
                     polygon,
                     output_path,
-                    state.option,
+                    placement.option,
                     source_image_name,
                     output_dir,
                 )
-                prior_option = state.advance_question(resolved_option)
+                state.commit_question()
+                if state.correct_option(resolved_option):
+                    logger.info(
+                        "Option corrected",
+                        from_option=placement.option,
+                        to_option=resolved_option,
+                    )
                 logger.debug(
                     "Extracting question",
                     option=state.option,
                     part=state.part,
                     question=state.question,
                 )
-                if state.option != prior_option:
-                    logger.info(
-                        "Option corrected",
-                        from_option=prior_option,
-                        to_option=state.option,
-                    )
 
         return state

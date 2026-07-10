@@ -7,6 +7,11 @@ import structlog
 from PIL import Image
 from tqdm import tqdm
 
+from digitex.core.corpus import (
+    is_image,
+    parse_book_page_path,
+    training_page_name,
+)
 from digitex.core.processors import resize_image
 
 logger = structlog.get_logger()
@@ -21,32 +26,21 @@ class PageDataCreator:
     def _parse_book_path(self, img_path: Path) -> tuple[str, str]:
         """Extract subject and year from a book image path.
 
-        Expected structure: books/<subject>/images/<year>/<page>.<ext>
-
         Returns:
             Tuple of (subject, year).
         """
-        parts = img_path.parts
-        year_idx = parts.index("images") + 1
-        subject_idx = parts.index("books") + 1
-        return parts[subject_idx], parts[year_idx]
+        return parse_book_page_path(img_path)
 
     def _collect_images(self, books_dir: Path) -> list[Path]:
-        from digitex.utils import IMAGE_EXTENSIONS
-
-        images: list[Path] = []
-        for img_path in books_dir.rglob("*"):
-            if (
-                img_path.is_file()
-                and img_path.suffix.lower() in IMAGE_EXTENSIONS
-                and "images" in img_path.parts
-            ):
-                images.append(img_path)
-        return images
+        return [
+            img_path
+            for img_path in books_dir.rglob("*")
+            if is_image(img_path) and "images" in img_path.parts
+        ]
 
     def _save_image(self, img_path: Path, output_dir: Path) -> bool:
         subject, year = self._parse_book_path(img_path)
-        output_path = output_dir / f"{subject}_{year}_{img_path.stem}.jpg"
+        output_path = output_dir / training_page_name(subject, year, img_path.stem)
         if output_path.exists():
             return False
         image = Image.open(img_path)

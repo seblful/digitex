@@ -6,83 +6,9 @@ from pathlib import Path
 
 import structlog
 
+from digitex.core.corpus import IMAGE_EXTENSIONS, count_images
+
 logger = structlog.get_logger()
-
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
-
-
-def find_image_files(directory: Path, recursive: bool = True) -> list[Path]:
-    """Find all image files in a directory.
-
-    Args:
-        directory: Directory to search for images.
-        recursive: If True, search subdirectories recursively.
-
-    Returns:
-        List of image file paths sorted by name.
-    """
-    if not directory.exists() or not directory.is_dir():
-        return []
-
-    pattern = "**/*" if recursive else "*"
-    images = [
-        p
-        for p in directory.glob(pattern)
-        if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
-    ]
-    return sorted(images, key=lambda p: p.name)
-
-
-def count_images_by_hierarchy(
-    root: Path,
-) -> dict[str, dict[str, dict[str, dict[str, int]]]]:
-    """Count images organized by subject/year/option/part hierarchy.
-
-    Args:
-        root: Root directory containing the hierarchy.
-
-    Returns:
-        Nested dictionary: {subject: {year: {option: {part: count}}}}
-    """
-
-    def count_in_folder(folder: Path) -> int:
-        return sum(
-            1
-            for p in folder.iterdir()
-            if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
-        )
-
-    result: dict[str, dict[str, dict[str, dict[str, int]]]] = {}
-
-    if not root.exists() or not root.is_dir():
-        return result
-
-    for subject_dir in root.iterdir():
-        if not subject_dir.is_dir():
-            continue
-        subject = subject_dir.name
-
-        for year_dir in subject_dir.iterdir():
-            if not year_dir.is_dir():
-                continue
-            year = year_dir.name
-
-            for option_dir in year_dir.iterdir():
-                if not option_dir.is_dir():
-                    continue
-                option = option_dir.name
-
-                for part_dir in option_dir.iterdir():
-                    if not part_dir.is_dir():
-                        continue
-                    part = part_dir.name
-                    count = count_in_folder(part_dir)
-
-                    result.setdefault(subject, {}).setdefault(year, {}).setdefault(
-                        option, {}
-                    )[part] = count
-
-    return result
 
 
 def count_subject_images(
@@ -96,14 +22,6 @@ def count_subject_images(
     Returns:
         Nested dictionary: {year: {option: {part: count}}}
     """
-
-    def count_in_folder(folder: Path) -> int:
-        return sum(
-            1
-            for p in folder.iterdir()
-            if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
-        )
-
     result: dict[str, dict[str, dict[str, int]]] = {}
 
     if not subject_dir.exists() or not subject_dir.is_dir():
@@ -123,9 +41,10 @@ def count_subject_images(
                 if not part_dir.is_dir():
                     continue
                 part = part_dir.name
-                count = count_in_folder(part_dir)
 
-                result.setdefault(year, {}).setdefault(option, {})[part] = count
+                result.setdefault(year, {}).setdefault(option, {})[part] = count_images(
+                    part_dir
+                )
 
     return result
 
@@ -259,12 +178,7 @@ def count_total_images(root: Path) -> tuple[int, int]:
     for item in root.rglob("*"):
         if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS:
             total_images += 1
-        elif item.is_dir():
-            has_images = any(
-                p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
-                for p in item.iterdir()
-            )
-            if has_images:
-                total_folders += 1
+        elif item.is_dir() and count_images(item):
+            total_folders += 1
 
     return total_images, total_folders

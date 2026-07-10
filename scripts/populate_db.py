@@ -21,10 +21,9 @@ from alembic.config import Config
 from tqdm import tqdm
 
 from digitex.config import get_settings
+from digitex.core.corpus import IMAGE_EXTENSIONS
 from digitex.core.db import UnitOfWork, null_pool_lifespan
-from digitex.core.domain import QuestionKey
-
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+from digitex.core.domain import QuestionKey, exam_type_for
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -84,7 +83,7 @@ async def _populate_year(  # noqa: PLR0912 — linear ETL pipeline; branches ref
 
     for option_dir in option_dirs:
         option_number = int(option_dir.name)
-        exam_type = "CE" if year >= 2023 and option_number <= 5 else "CT"
+        exam_type = exam_type_for(year, option_number)
         option_id = await uow.books.get_or_create_option(
             book_id, option_number, exam_type
         )

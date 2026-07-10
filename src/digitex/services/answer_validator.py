@@ -10,10 +10,10 @@ import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from digitex.core.corpus import walk_question_images
+
 if TYPE_CHECKING:
     from pathlib import Path
-
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
 
 
 @dataclass
@@ -124,22 +124,9 @@ class AnswerValidator:
     @staticmethod
     def _scan_image_questions(year_dir: Path) -> set[str]:
         """Build the ``{"A1", "B2", …}`` set from on-disk image filenames."""
-        found: set[str] = set()
-        for option_folder in year_dir.iterdir():
-            if not option_folder.is_dir():
-                continue
-            for part_folder in option_folder.iterdir():
-                if not part_folder.is_dir():
-                    continue
-                for img_file in part_folder.iterdir():
-                    if img_file.suffix.lower() not in IMAGE_EXTENSIONS:
-                        continue
-                    try:
-                        q_num = int(img_file.stem)
-                    except ValueError:
-                        continue
-                    found.add(f"{part_folder.name.upper()}{q_num}")
-        return found
+        return {
+            f"{img.part.upper()}{img.number}" for img in walk_question_images(year_dir)
+        }
 
     @staticmethod
     def _count_options_with_b(

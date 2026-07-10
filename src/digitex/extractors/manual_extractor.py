@@ -1,6 +1,5 @@
 """Manual extractor for integrating manually cropped question images."""
 
-import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -10,18 +9,15 @@ import structlog
 from PIL import Image
 from tqdm import tqdm
 
+from digitex.core.corpus import IMAGE_EXTENSIONS, ManualImageName
 from digitex.core.processors import SegmentProcessor, resize_image
-from digitex.extractors.base import BaseExtractor, ExtractionResult
+from digitex.extractors.base import ExtractionResult
 from digitex.extractors.exceptions import InvalidFilenameError
-from digitex.extractors.utils import IMAGE_EXTENSIONS
 
 logger = structlog.get_logger()
 
-FILENAME_PATTERN = re.compile(r"^(\d{4})_(\d+)_([AB])_(\d+)\.png$")
-VALID_PARTS = {"A", "B"}
 
-
-class ManualExtractor(BaseExtractor):
+class ManualExtractor:
     """Process manually cropped question images and integrate into extraction output."""
 
     def __init__(
@@ -62,30 +58,10 @@ class ManualExtractor(BaseExtractor):
         Raises:
             InvalidFilenameError: If filename doesn't match expected pattern.
         """
-        match = FILENAME_PATTERN.match(file_path.name)
-        if not match:
-            if file_path.name.endswith(".png"):
-                parts = file_path.stem.split("_")
-                if len(parts) < 4:
-                    raise InvalidFilenameError(
-                        file_path.name, "YYYY_OPTION_PART_QUESTION.png"
-                    )
-                if len(parts) == 4 and not parts[3]:
-                    raise InvalidFilenameError(
-                        file_path.name, "YYYY_OPTION_PART_QUESTION.png"
-                    )
-                if len(parts) >= 3 and parts[2].upper() not in VALID_PARTS:
-                    raise InvalidFilenameError(
-                        file_path.name, "YYYY_OPTION_PART_QUESTION.png"
-                    )
+        parsed = ManualImageName.parse(file_path.name)
+        if parsed is None:
             raise InvalidFilenameError(file_path.name, "YYYY_OPTION_PART_QUESTION.png")
-
-        year = int(match.group(1))
-        option = int(match.group(2))
-        part = match.group(3).upper()
-        question_number = int(match.group(4))
-
-        return year, option, part, question_number
+        return parsed.year, parsed.option, parsed.part, parsed.question
 
     def _preprocess(self, image: Image.Image) -> Image.Image:
         """Apply same preprocessing as automated extraction.
