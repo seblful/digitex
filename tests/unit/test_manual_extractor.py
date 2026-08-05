@@ -70,15 +70,6 @@ class TestManualExtractorPreprocessing:
         assert result.width == 2000
         assert result.height == 1000
 
-    def test_preprocess_converts_black_background_to_white(
-        self, extractor: ManualExtractor
-    ) -> None:
-        img = Image.new("RGB", (500, 500), (0, 0, 0))
-        result = extractor._preprocess(img)
-        assert result.mode == "RGB"
-        assert result.getpixel((0, 0)) == (255, 255, 255)
-        assert result.getpixel((250, 250)) == (255, 255, 255)
-
     def test_preprocess_converts_transparent_to_white(
         self, extractor: ManualExtractor
     ) -> None:
@@ -86,6 +77,30 @@ class TestManualExtractorPreprocessing:
         result = extractor._preprocess(img)
         assert result.mode == "RGB"
         assert result.getpixel((0, 0)) == (255, 255, 255)
+
+    def test_preprocess_keeps_opaque_black_ink(
+        self, extractor: ManualExtractor
+    ) -> None:
+        """Opaque black is ink, not background — erasing it would lose the text."""
+        img = Image.new("RGBA", (500, 500), (255, 255, 255, 255))
+        img.paste(Image.new("RGBA", (100, 100), (0, 0, 0, 255)), (200, 200))
+
+        result = extractor._preprocess(img)
+
+        # 500x500 is scaled up to 2000x2000, so the block's centre lands here.
+        assert result.getpixel((1000, 1000)) == (0, 0, 0)
+
+    def test_preprocess_keeps_ink_that_sits_on_transparency(
+        self, extractor: ManualExtractor
+    ) -> None:
+        """The alpha channel, not darkness, decides what counts as background."""
+        img = Image.new("RGBA", (500, 500), (0, 0, 0, 0))
+        img.paste(Image.new("RGBA", (100, 100), (10, 10, 10, 255)), (200, 200))
+
+        result = extractor._preprocess(img)
+
+        assert result.getpixel((0, 0)) == (255, 255, 255)
+        assert result.getpixel((1000, 1000)) != (255, 255, 255)
 
 
 class TestManualExtractorRenumbering:

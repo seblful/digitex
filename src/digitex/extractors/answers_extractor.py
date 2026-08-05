@@ -9,7 +9,8 @@ from openai import OpenAI
 from pydantic import BaseModel
 from tqdm import tqdm
 
-from digitex.core.corpus import IMAGE_EXTENSIONS, parse_answer_sheet_stem
+from digitex.core.corpus import is_image, parse_answer_sheet_stem
+from digitex.core.domain import normalize_option_number
 from digitex.extractors.base import ExtractionResult
 from digitex.extractors.exceptions import APIError, DirectoryNotFoundError
 
@@ -108,14 +109,32 @@ class AnswersExtractor:
             ) from e
 
     def _normalize_label(self, label: str) -> str:
-        return label.upper().translate(CYRILLIC_TO_LATIN)
+        """Normalize a question label to ``{A|B}{digits}``.
+
+        The vision model is told to use Latin A/B plus a number, but nothing
+        makes it comply. Rejecting a bad shape here puts the failure inside the
+        per-sheet handler, which marks the year failed and leaves its
+        ``answers.json`` unwritten — rather than crashing the whole run later,
+        while sorting keys for output.
+
+        Raises:
+            ValueError: If the label is not a part letter followed by digits.
+        """
+        normalized = label.strip().upper().translate(CYRILLIC_TO_LATIN)
+        if (
+            len(normalized) < 2
+            or normalized[0] not in ("A", "B")
+            or not normalized[1:].isdigit()
+        ):
+            raise ValueError(f"Invalid question label: {label!r}")
+        return normalized
 
     def _normalize_answer(self, answer: str) -> str:
         return answer.translate(LATIN_TO_CYRILLIC)
 
     @staticmethod
     def _normalize_option(option: str) -> str:
-        return str((int(option) - 1) % 10 + 1)
+        return str(normalize_option_number(int(option)))
 
     def _sort_answers(
         self, answers: dict[str, dict[str, str]]
@@ -147,11 +166,7 @@ class AnswersExtractor:
             raise DirectoryNotFoundError(answers_dir)
 
         image_files = sorted(
-            [
-                p
-                for p in answers_dir.iterdir()
-                if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
-            ],
+            [p for p in answers_dir.iterdir() if is_image(p)],
             key=lambda p: p.name,
         )
 

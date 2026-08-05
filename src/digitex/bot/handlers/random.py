@@ -19,9 +19,8 @@ from digitex.bot.callbacks import AnswerCB, RandomFeedbackCB
 from digitex.bot.fsm_data import RandomState
 from digitex.bot.keyboards import random_feedback_kb
 from digitex.bot.messages import (
+    EXAM_LABELS,
     MSG_CORRECT_ANSWER,
-    MSG_EXAM_CE,
-    MSG_EXAM_CT,
     MSG_NO_RANDOM_QUESTION,
     MSG_NO_TOPIC_QUESTION,
     MSG_RANDOM_FINISH,
@@ -42,9 +41,8 @@ router = Router()
 
 
 def _build_caption(origin: QuestionOrigin, topic_name: str | None) -> str:
-    exam_label = MSG_EXAM_CE if origin.exam_type == "CE" else MSG_EXAM_CT
     origin_line = MSG_RANDOM_ORIGIN.format(
-        exam_label=exam_label,
+        exam_label=EXAM_LABELS[origin.exam_type],
         year=origin.year,
         option_number=origin.option_number,
     )
@@ -92,6 +90,14 @@ async def on_random_part_a_answer(
     pool: AsyncConnectionPool,
 ) -> None:
     if not isinstance(callback.message, types.Message):
+        await callback.answer()
+        return
+
+    # Old keyboards stay live in the chat, so a tap can arrive while a Part B
+    # question is on screen — it would otherwise be scored against that
+    # question and disclose its answer. Mirrors the Part B guard below.
+    rnd = await fsm_data.load(state, RandomState)
+    if rnd.current_part != "A":
         await callback.answer()
         return
 

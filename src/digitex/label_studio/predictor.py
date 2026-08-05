@@ -1,24 +1,16 @@
 """Prediction orchestrator for Label Studio tasks."""
 
 from pathlib import Path
-from typing import Any, Protocol
 
 import structlog
 from PIL import Image
 
-from digitex.label_studio.client import LabelStudioClient
+from digitex.label_studio.client import LabelStudioClient, LabelStudioTask
 from digitex.label_studio.geometry import local_file_path, pixel_to_percent
 from digitex.ml.predictors.prediction_result import SegmentationPredictionResult
 from digitex.ml.predictors.segmentation import YOLO_SegmentationPredictor
 
 logger = structlog.get_logger()
-
-
-class LabelStudioTask(Protocol):
-    """The task attributes the prediction run reads off the SDK's objects."""
-
-    id: int
-    data: dict[str, Any]
 
 
 class TaskPredictor:
@@ -75,7 +67,7 @@ class TaskPredictor:
             List of Label Studio result dicts with polygon labels.
         """
         ls_results = []
-        for class_id, polygon in zip(result.ids, result.polygons, strict=False):
+        for class_id, polygon in zip(result.ids, result.polygons, strict=True):
             points = pixel_to_percent(polygon, img_width, img_height)
             label_name = self.classes.get(class_id, str(class_id))
             ls_results.append(

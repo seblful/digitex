@@ -310,7 +310,6 @@ async def on_option_selected(
     await fsm_data.save(
         state,
         TestingState(
-            student_id=student_id,
             session_id=session_id,
             question_ids=question_ids,
             current_index=0,

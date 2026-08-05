@@ -6,9 +6,25 @@ from pathlib import Path
 
 import structlog
 
-from digitex.core.corpus import IMAGE_EXTENSIONS, count_images
+from digitex.core.corpus import count_images, is_image
 
 logger = structlog.get_logger()
+
+
+def numbered_images(folder: Path) -> list[tuple[int, Path]]:
+    """Image files whose stem is a number, as ``(number, path)``, lowest first.
+
+    A non-numeric stem is not a question image, so it is skipped with a warning.
+    """
+    images: list[tuple[int, Path]] = []
+    for f in folder.iterdir():
+        if not is_image(f):
+            continue
+        try:
+            images.append((int(f.stem), f))
+        except ValueError:
+            logger.warning("Skipping file with non-numeric name", file_path=str(f))
+    return sorted(images, key=lambda x: x[0])
 
 
 def count_subject_images(
@@ -69,19 +85,29 @@ def get_mode_values(values: list[int]) -> set[int]:
 
 
 def apply_renames(changes: list[tuple[Path, Path]]) -> None:
-    """Apply ``(old, new)`` renames, routing every move through a temp directory.
+    """Apply ``(old, new)`` renames, staging the whole batch through a temp dir.
 
-    A renumbering batch can map a file onto a name another file in the same
-    batch still holds, so moving directly onto the target would clobber it.
+    A renumbering batch can map a file onto a name another file in the batch
+    still holds, so every source is moved out before any target is written.
+    Detouring one file at a time would not help — it lands on its final name
+    before the next pair is read, leaving the collision intact. The staging dir
+    sits beside the files so these stay renames rather than whole-file copies.
 
     Args:
-        changes: (old_path, new_path) pairs to apply in order.
+        changes: (old_path, new_path) pairs to apply.
     """
-    with tempfile.TemporaryDirectory() as tmp:
+    if not changes:
+        return
+
+    with tempfile.TemporaryDirectory(dir=changes[0][0].parent) as tmp:
         tmp_dir = Path(tmp)
-        for old_path, new_path in changes:
-            temp_path = tmp_dir / new_path.name
+        staged: list[tuple[Path, Path]] = []
+        for i, (old_path, new_path) in enumerate(changes):
+            temp_path = tmp_dir / f"{i}_{new_path.name}"
             shutil.move(str(old_path), str(temp_path))
+            staged.append((temp_path, new_path))
+
+        for temp_path, new_path in staged:
             shutil.move(str(temp_path), str(new_path))
 
 
@@ -97,19 +123,10 @@ def renumber_folder_sequentially(
     Returns:
         List of (old_path, new_path) tuples for changed files.
     """
-    images = []
-    for f in folder.iterdir():
-        if f.is_file() and f.suffix.lower() in IMAGE_EXTENSIONS:
-            try:
-                num = int(f.stem)
-                images.append((num, f))
-            except ValueError:
-                logger.warning("Skipping file with non-numeric name", file_path=str(f))
-
+    images = numbered_images(folder)
     if not images:
         return []
 
-    images.sort(key=lambda x: x[0])
     current_numbers = [n for n, _ in images]
     expected_numbers = list(range(1, len(images) + 1))
 
@@ -146,10 +163,7 @@ def renumber_directory_tree(root: Path, dry_run: bool = True) -> int:
     def find_image_folders(current: Path) -> list[Path]:
         """Find every folder in the tree that directly holds images."""
         entries = sorted(current.iterdir())
-        if any(
-            item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS
-            for item in entries
-        ):
+        if any(is_image(item) for item in entries):
             return [current]
 
         folders: list[Path] = []
@@ -189,7 +203,7 @@ def count_total_images(root: Path) -> tuple[int, int]:
         return 0, 0
 
     for item in root.rglob("*"):
-        if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS:
+        if is_image(item):
             total_images += 1
         elif item.is_dir() and count_images(item):
             total_folders += 1

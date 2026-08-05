@@ -12,8 +12,7 @@ from digitex.bot import fsm_data
 from digitex.bot.fsm_data import TestingState
 from digitex.bot.keyboards import subjects_kb
 from digitex.bot.messages import (
-    MSG_EXAM_CE,
-    MSG_EXAM_CT,
+    EXAM_LABELS,
     MSG_RESULTS_ERROR_ITEM,
     MSG_RESULTS_ERRORS,
     MSG_RESULTS_HEADER,
@@ -71,7 +70,7 @@ def _format_result_lines(
     wrong_rows: list[WrongAnswer],
     info: SessionInfo,
 ) -> list[str]:
-    exam_type_label = MSG_EXAM_CE if result.exam_type == "CE" else MSG_EXAM_CT
+    exam_type_label = EXAM_LABELS[result.exam_type]
     wrong_a = [r for r in wrong_rows if r.part == "A"]
     wrong_b = [r for r in wrong_rows if r.part == "B"]
 

@@ -126,11 +126,18 @@ class DatasetCreator:
                 label_name = polygon["polygonlabels"][0]
                 class_id = label2id[label_name]
                 normalized = percent_to_normalized(polygon["points"])
-                coords = " ".join(f"{x:.6f} {y:.6f}" for x, y in normalized)
-                lines.append(f"{class_id} {coords}")
             except (KeyError, IndexError) as exc:
                 logger.warning("skipped_polygon", reason=str(exc), polygon=polygon)
                 continue
+
+            # An empty points list raises nothing, and would emit a class id
+            # with no coordinates — an invalid YOLO instance.
+            if not normalized:
+                logger.warning("skipped_polygon", reason="no points", polygon=polygon)
+                continue
+
+            coords = " ".join(f"{x:.6f} {y:.6f}" for x, y in normalized)
+            lines.append(f"{class_id} {coords}")
 
         return filename, "\n".join(lines)
 

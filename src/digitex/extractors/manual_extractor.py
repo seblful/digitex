@@ -7,17 +7,13 @@ import structlog
 from PIL import Image
 from tqdm import tqdm
 
-from digitex.core.corpus import IMAGE_EXTENSIONS, ManualImageName
+from digitex.core.corpus import ManualImageName
 from digitex.core.processors import SegmentProcessor, resize_image
 from digitex.extractors.base import ExtractionResult
 from digitex.extractors.exceptions import InvalidFilenameError
-from digitex.extractors.utils import apply_renames
+from digitex.extractors.utils import apply_renames, numbered_images
 
 logger = structlog.get_logger()
-
-# A pixel darker than this on every channel is treated as flattened-away
-# transparency rather than ink.
-FLATTENED_BG_MAX_CHANNEL = 50
 
 
 class ManualExtractor:
@@ -67,12 +63,13 @@ class ManualExtractor:
         return parsed
 
     def _preprocess(self, image: Image.Image) -> Image.Image:
-        """Repaint a flattened transparent background, then process as usual.
+        """Repaint the transparent background white, then process as usual.
 
-        ``_process_file`` opens manual images as RGB, so a PNG whose
-        transparency was flattened arrives with near-black where the background
-        should be; those pixels are repainted white. The automated
-        page-extraction path needs no such step — it crops from an opaque scan.
+        A manual crop is a PNG carrying real transparency where the background
+        should be, so the alpha channel says exactly which pixels are
+        background. Dark pixels are left alone — they are ink, and darkness
+        cannot tell the two apart. The automated page-extraction path needs no
+        such step: it crops from an opaque scan.
 
         Args:
             image: PIL Image (already cropped manually).
@@ -81,8 +78,7 @@ class ManualExtractor:
             Preprocessed image ready for saving.
         """
         img_array = np.array(image.convert("RGBA"))
-        background = np.all(img_array[:, :, :3] < FLATTENED_BG_MAX_CHANNEL, axis=2)
-        img_array[background, :3] = [255, 255, 255]
+        img_array[img_array[:, :, 3] == 0] = [255, 255, 255, 255]
 
         cropped = resize_image(
             Image.fromarray(img_array, mode="RGBA"),
@@ -103,19 +99,7 @@ class ManualExtractor:
         if not target_dir.exists():
             return []
 
-        images = []
-        for f in target_dir.iterdir():
-            if f.is_file() and f.suffix.lower() in IMAGE_EXTENSIONS:
-                try:
-                    num = int(f.stem)
-                    images.append((num, f))
-                except ValueError:
-                    logger.warning(
-                        "Skipping file with non-numeric name",
-                        file_path=str(f),
-                    )
-
-        return sorted(images, key=lambda x: x[0])
+        return numbered_images(target_dir)
 
     def _renumber_files(
         self,
@@ -197,7 +181,9 @@ class ManualExtractor:
             return True
 
         try:
-            image = Image.open(file_path).convert("RGB")
+            # RGBA, not RGB: dropping alpha here would flatten the transparent
+            # background to black, which _preprocess could not tell from ink.
+            image = Image.open(file_path).convert("RGBA")
         except Exception as e:
             logger.error(
                 "Failed to open image",
@@ -217,9 +203,8 @@ class ManualExtractor:
             )
             self._renumber_files(target_dir, parsed.question, dry_run=False)
 
-        output_path = target_path.with_suffix(f".{self.image_format}")
-        processed.save(output_path)
-        logger.info("Saved processed image", path=str(output_path))
+        processed.save(target_path)
+        logger.info("Saved processed image", path=str(target_path))
 
         file_path.unlink()
         logger.info("Deleted source manual file", path=str(file_path))

@@ -8,7 +8,7 @@ import structlog
 from PIL import Image
 from tqdm import tqdm
 
-from digitex.core.corpus import IMAGE_EXTENSIONS, natural_sort_key
+from digitex.core.corpus import is_image, natural_sort_key
 from digitex.extractors.base import ExtractionResult
 from digitex.extractors.exceptions import DirectoryNotFoundError
 from digitex.extractors.page_extractor import PageExtractionState, PageExtractor
@@ -51,11 +51,7 @@ class BookExtractor:
             raise DirectoryNotFoundError(image_dir)
 
         images = sorted(
-            (
-                p
-                for p in image_dir.iterdir()
-                if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
-            ),
+            (p for p in image_dir.iterdir() if is_image(p)),
             key=natural_sort_key,
         )
 

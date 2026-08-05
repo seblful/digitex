@@ -1,5 +1,12 @@
 """User-facing message strings."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from digitex.core.domain import ExamType
+
 MSG_REGISTRATION_INFO = (
     "📚 <b>Digitex</b> — подготовка к ЦТ/ЦЭ\n\n"
     "Доступ предоставляется после одобрения администратором."
@@ -11,7 +18,6 @@ MSG_PENDING = (
     "Ожидайте подтверждения администратором.\n"
     "После одобрения отправьте /start чтобы начать."
 )
-MSG_REJECTED = "❌ Ваша заявка отклонена. Отправьте /start чтобы подать заново."
 MSG_REQUEST_SENT = (
     "✅ Спасибо, {name}! Заявка отправлена.\n\n"
     "📋 <b>Статус: на рассмотрении</b>\n"
@@ -30,7 +36,6 @@ MSG_REJECTED_USER = "❌ Ваша заявка отклонена."
 MSG_APPROVED_ADMIN = "✅ Заявка {full_name} подтверждена."
 MSG_REJECTED_ADMIN = "❌ Заявка {full_name} отклонена."
 
-MSG_SUBJECT_SELECT = "Выберите предмет:"
 MSG_MODE_SELECT = "Выберите режим тестирования:"
 MSG_YEAR_SELECT = "Выберите год:"
 MSG_OPTION_SELECT = "Выберите вариант:"
@@ -72,11 +77,12 @@ MSG_RESULTS_RETRY = "Выберите предмет для нового тес�
 MSG_EXAM_CE = "ЦЭ"
 MSG_EXAM_CT = "ЦТ"
 
+# One label per ExamType, for keyboards and captions alike.
+EXAM_LABELS: dict[ExamType, str] = {"CE": MSG_EXAM_CE, "CT": MSG_EXAM_CT}
+
 MSG_KB_STANDARD = "Стандартный режим"
 MSG_KB_RANDOM = "Случайные вопросы"
 MSG_KB_TOPICS = "Темы"
-MSG_KB_CE = "ЦЭ"
-MSG_KB_CT = "ЦТ"
 MSG_KB_PART_A = "Часть A"
 MSG_KB_PART_B = "Часть B"
 MSG_KB_NEXT = "Следующий вопрос"

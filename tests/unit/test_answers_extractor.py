@@ -38,6 +38,31 @@ class TestAnswersExtractor:
         assert extractor._normalize_label("A1") == "A1"
         assert extractor._normalize_label("B2") == "B2"
 
+    @pytest.mark.parametrize(
+        "label",
+        ["A", "1", "A1B", "B-1", "", "AB", "A 1"],
+        ids=[
+            "letter-only",
+            "digit-only",
+            "trailing-letter",
+            "separator",
+            "empty",
+            "no-digits",
+            "inner-space",
+        ],
+    )
+    def test_normalize_label_rejects_anything_but_part_plus_number(
+        self, extractor: AnswersExtractor, label: str
+    ) -> None:
+        """The sort key downstream assumes this shape; nothing else is usable."""
+        with pytest.raises(ValueError, match="Invalid question label"):
+            extractor._normalize_label(label)
+
+    def test_normalize_label_tolerates_surrounding_whitespace(
+        self, extractor: AnswersExtractor
+    ) -> None:
+        assert extractor._normalize_label(" a1 ") == "A1"
+
     def test_normalize_answer_latin_to_cyrillic(
         self, extractor: AnswersExtractor
     ) -> None:
@@ -132,6 +157,33 @@ class TestAnswersExtractorExtract:
 
         assert not result.success
         assert not (tmp_path / "output" / "bio" / "2016" / "answers.json").exists()
+
+    def test_a_malformed_label_fails_only_its_own_year(
+        self,
+        extractor: AnswersExtractor,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A bad label is a sheet failure, not a run failure.
+
+        Sorting the output assumes ``{A|B}{digits}``, so a label the model got
+        wrong used to abort the whole command from the write loop — after every
+        API call had been paid for, and before any later year was written.
+        """
+        self._seed_sheets(tmp_path, "2016_1.jpg", "2017_1.jpg")
+
+        def ocr(image_path: Path) -> dict[str, dict[str, str]]:
+            if image_path.name == "2016_1.jpg":
+                return {"1": {"A1)": "3"}}
+            return {"1": {"A1": "3"}}
+
+        monkeypatch.setattr(extractor, "ocr", ocr)
+
+        result = extractor.extract("bio")
+
+        assert not result.success
+        assert not (tmp_path / "output" / "bio" / "2016" / "answers.json").exists()
+        assert (tmp_path / "output" / "bio" / "2017" / "answers.json").exists()
 
     def test_an_unaffected_year_is_still_written(
         self,

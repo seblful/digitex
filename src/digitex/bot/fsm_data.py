@@ -39,7 +39,6 @@ class NavigationState(BaseModel):
 class TestingState(BaseModel):
     """State for the standard testing loop (records answers to a Session)."""
 
-    student_id: int | None = None
     session_id: int
     question_ids: list[tuple[int, Part]]
     current_index: int = 0
@@ -54,7 +53,6 @@ class TestingState(BaseModel):
 class RandomState(BaseModel):
     """State for random / topic question mode (no Session recording)."""
 
-    student_id: int | None = None
     subject_id: int
     topic_name: str | None = None
     exam_type: ExamType | None = None

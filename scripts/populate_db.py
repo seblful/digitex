@@ -21,11 +21,17 @@ from alembic.config import Config
 from tqdm import tqdm
 
 from digitex.config import get_settings
-from digitex.core.corpus import IMAGE_EXTENSIONS
+from digitex.core.corpus import is_image
 from digitex.core.db import UnitOfWork, null_pool_lifespan
 from digitex.core.domain import QuestionKey, exam_type_for, parse_exam_type
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# A Question whose answers.json entry is missing or unusable is still loaded, so
+# its image is servable — but with an answer no reply can match. Part A answers
+# are integers and the option buttons start at 1, so 0 is unreachable; Part B
+# compares against text, and "" matches nothing.
+PLACEHOLDER_ANSWER = {"A": "0", "B": ""}
 
 SUBJECT_NAMES = {
     "biology": "Биология",
@@ -86,19 +92,15 @@ async def _populate_year(
                 continue
 
             img_files = sorted(
-                (
-                    f
-                    for f in part_dir.iterdir()
-                    if f.is_file()
-                    and f.suffix.lower() in IMAGE_EXTENSIONS
-                    and f.stem.isdigit()
-                ),
+                (f for f in part_dir.iterdir() if is_image(f) and f.stem.isdigit()),
                 key=lambda f: int(f.stem),
             )
 
             for img_file in img_files:
                 key = QuestionKey.parse(f"{part_dir.name}{img_file.stem}")
                 raw_answer = option_answers.get(str(key))
+
+                question_id: int | None = None
                 if raw_answer:
                     try:
                         question_id = await uow.questions.get_or_create(
@@ -106,16 +108,13 @@ async def _populate_year(
                         )
                         answers_loaded += 1
                     except ValueError as e:
-                        tqdm.write(f"  Warning: {e} (skipped)")
-                        fallback = "1" if key.part == "A" else ""
-                        question_id = await uow.questions.get_or_create(
-                            option_id, key, fallback
-                        )
-                else:
-                    fallback = "1" if key.part == "A" else ""
+                        tqdm.write(f"  Warning: {e} — storing placeholder answer")
+
+                if question_id is None:
                     question_id = await uow.questions.get_or_create(
-                        option_id, key, fallback
+                        option_id, key, PLACEHOLDER_ANSWER[key.part]
                     )
+
                 await uow.questions.insert_image(
                     question_id, key.part, img_file.read_bytes()
                 )
@@ -215,8 +214,6 @@ async def _amain() -> None:
 
 
 def main() -> None:
-    import sys
-
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(_amain())

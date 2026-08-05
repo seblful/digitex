@@ -25,6 +25,54 @@ def _write_year(
         )
 
 
+class TestMalformedAnswersFile:
+    """These files are hand-corrected, so a broken one is a report, not a crash."""
+
+    def test_invalid_json_is_reported_for_that_year(self, tmp_path: Path) -> None:
+        year_dir = tmp_path / "biology" / "2016"
+        _write_year(year_dir, answers={"1": {"A1": "3"}}, images=["1/A/1.jpg"])
+        (year_dir / "answers.json").write_text('{"1": {', encoding="utf-8")
+
+        report = AnswerValidator(tmp_path).validate("biology")
+
+        (year,) = report.years
+        assert year.answers_file_present
+        assert not year.answers_file_valid
+        assert not year.is_clean
+
+    def test_the_other_years_are_still_checked(self, tmp_path: Path) -> None:
+        broken = tmp_path / "biology" / "2016"
+        _write_year(broken, answers={"1": {"A1": "3"}}, images=["1/A/1.jpg"])
+        (broken / "answers.json").write_text("not json at all", encoding="utf-8")
+        _write_year(
+            tmp_path / "biology" / "2017",
+            answers={"1": {"A1": "3", "B1": "Б"}},
+            images=["1/A/1.jpg", "1/B/1.jpg"],
+        )
+
+        report = AnswerValidator(tmp_path).validate("biology")
+
+        by_year = {y.year: y for y in report.years}
+        assert not by_year["2016"].is_clean
+        assert by_year["2017"].is_clean
+
+    def test_a_non_numeric_option_key_is_counted_not_fatal(
+        self, tmp_path: Path
+    ) -> None:
+        """``int(key)`` on a hand-edited option key used to abort the run."""
+        _write_year(
+            tmp_path / "biology" / "2016",
+            answers={"1a": {"A1": "3", "B1": "Б"}},
+            images=["1a/A/1.jpg", "1a/B/1.jpg"],
+        )
+
+        report = AnswerValidator(tmp_path).validate("biology")
+
+        (year,) = report.years
+        assert year.total_options == 1
+        assert year.options_with_b == 1
+
+
 class TestAnswerValidator:
     def test_missing_subject_dir_raises(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):

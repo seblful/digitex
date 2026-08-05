@@ -27,9 +27,8 @@ from digitex.bot.callbacks import (
     YearCB,
 )
 from digitex.bot.messages import (
+    EXAM_LABELS,
     MSG_KB_APPROVE,
-    MSG_KB_CE,
-    MSG_KB_CT,
     MSG_KB_FINISH,
     MSG_KB_NEXT,
     MSG_KB_PART_A,
@@ -121,8 +120,8 @@ def random_feedback_kb() -> InlineKeyboardMarkup:
 def exam_type_kb() -> InlineKeyboardMarkup:
     return _grid(
         (
-            (MSG_KB_CE, ExamTypeCB(exam_type="CE").pack()),
-            (MSG_KB_CT, ExamTypeCB(exam_type="CT").pack()),
+            (EXAM_LABELS["CE"], ExamTypeCB(exam_type="CE").pack()),
+            (EXAM_LABELS["CT"], ExamTypeCB(exam_type="CT").pack()),
         ),
         COLUMNS_EXAM_TYPE,
     )

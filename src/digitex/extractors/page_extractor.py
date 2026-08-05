@@ -7,6 +7,7 @@ import structlog
 from PIL import Image
 
 from digitex.core import TextExtractor
+from digitex.core.domain import normalize_option_number
 from digitex.core.processors import (
     ImageCropper,
     SegmentProcessor,
@@ -156,7 +157,6 @@ class PageExtractor:
             cropped, self.config.question_max_width, self.config.question_max_height
         )
         processed = self._segment_processor.process(cropped)
-        output_path = output_path.with_suffix(f".{self.config.image_format}")
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         if output_path.exists():
@@ -206,8 +206,7 @@ class PageExtractor:
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
         digits = self._text_extractor.extract_digits(cropped)
         if digits:
-            remainder = digits[0] % 10
-            return 10 if remainder == 0 else remainder
+            return normalize_option_number(digits[0])
         return None
 
     def _extract_part_letter(
@@ -246,7 +245,7 @@ class PageExtractor:
         logger.debug("Predictions", class_counts=class_counts)
 
         detections: list[tuple[tuple[int, int], Detection]] = []
-        for class_id, polygon in zip(result.ids, result.polygons, strict=False):
+        for class_id, polygon in zip(result.ids, result.polygons, strict=True):
             label = self._get_label_name(result, class_id)
             position = self._get_polygon_bounding_box(polygon)
             detections.append((position, (label, polygon)))

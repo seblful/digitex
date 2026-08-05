@@ -1,9 +1,19 @@
 """Label Studio SDK adapter — the two calls the prediction run needs."""
 
+from typing import Any, Protocol
+
 import structlog
 from label_studio_sdk import LabelStudio
 
 logger = structlog.get_logger()
+
+
+class LabelStudioTask(Protocol):
+    """The task attributes this package reads off the SDK's objects."""
+
+    id: int
+    data: dict[str, Any]
+    is_labeled: bool
 
 
 class LabelStudioClient:
@@ -23,7 +33,7 @@ class LabelStudioClient:
     def __init__(self, url: str, api_key: str) -> None:
         self._client = LabelStudio(base_url=url, api_key=api_key)
 
-    def list_tasks(self, project_id: int) -> list:
+    def list_tasks(self, project_id: int) -> list[LabelStudioTask]:
         """Return every task in a project, annotations included.
 
         Args:
@@ -36,7 +46,7 @@ class LabelStudioClient:
         logger.info("fetched_tasks", project_id=project_id, count=len(tasks))
         return tasks
 
-    def get_unlabeled_tasks(self, project_id: int) -> list:
+    def get_unlabeled_tasks(self, project_id: int) -> list[LabelStudioTask]:
         """Return tasks where is_labeled is False and have no predictions.
 
         Args:
@@ -63,29 +73,29 @@ class LabelStudioClient:
         return unlabeled
 
     def upload_predictions(
-        self,
-        project_id: int,
-        predictions,
-        model_version: str = "",
+        self, project_id: int, predictions: list[dict[str, Any]]
     ) -> None:
         """Upload predictions to a project.
+
+        Each prediction carries its own ``model_version`` key; the SDK reads it
+        off the payload, so there is no separate tag to pass here.
 
         Args:
             project_id: Label Studio project ID.
             predictions: List of prediction dicts.
-            model_version: Model version tag to attach.
         """
         if not predictions:
             logger.warning("no_predictions", project_id=project_id)
             return
 
         self._client.projects.import_predictions(
+            # The SDK declares Sequence[PredictionRequest] but coerces mappings,
+            # and every caller here builds plain dicts.
             id=project_id,
-            request=predictions,  # type: ignore[arg-type]
+            request=predictions,  # ty: ignore[invalid-argument-type]
         )
         logger.info(
             "uploaded_predictions",
             project_id=project_id,
             count=len(predictions),
-            model_version=model_version,
         )

@@ -25,6 +25,19 @@ _EXAM_TYPES: Final = ("CE", "CT")
 EXAM_TYPE_INTRO_YEAR: Final = 2023
 _CE_MAX_OPTION: Final = 5
 
+# A Book carries this many Options, interleaved across its Pages.
+OPTIONS_PER_BOOK: Final = 10
+
+
+def normalize_option_number(raw: int) -> int:
+    """Fold an absolute option number onto the 1..``OPTIONS_PER_BOOK`` range.
+
+    Answer sheets and page markers number options in blocks — 1-10, then 11-20,
+    then 21-30 — and every block is the same ten Options, so 11 and 21 both
+    mean Option 1.
+    """
+    return (raw - 1) % OPTIONS_PER_BOOK + 1
+
 
 def year_has_exam_types(year: int) -> bool:
     """Return True if the year's books split into CE and CT variants."""
@@ -124,6 +137,7 @@ class AuthorizedUser(BaseModel):
 
 __all__ = [
     "EXAM_TYPE_INTRO_YEAR",
+    "OPTIONS_PER_BOOK",
     "AuthorizedUser",
     "ExamType",
     "Part",
@@ -134,6 +148,7 @@ __all__ = [
     "Student",
     "TestResult",
     "exam_type_for",
+    "normalize_option_number",
     "parse_exam_type",
     "year_has_exam_types",
 ]

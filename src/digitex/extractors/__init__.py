@@ -1,5 +1,7 @@
 """Image extraction module."""
 
+from digitex.core.corpus import IMAGE_EXTENSIONS
+
 from .answers_extractor import AnswersExtractor, ExamExtraction
 from .base import ExtractionConfig, ExtractionResult
 from .book_extractor import BookExtractor
@@ -15,9 +17,9 @@ from .page_extractor import PageExtractor
 from .progress import JSONProgressTracker
 from .tests_extractor import TestsExtractor
 from .utils import (
-    IMAGE_EXTENSIONS,
     count_total_images,
     get_mode_values,
+    numbered_images,
     renumber_directory_tree,
     renumber_folder_sequentially,
 )
@@ -46,6 +48,7 @@ __all__ = [
     "TestsExtractor",
     "count_total_images",
     "get_mode_values",
+    "numbered_images",
     "renumber_directory_tree",
     "renumber_folder_sequentially",
 ]

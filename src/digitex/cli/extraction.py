@@ -1,11 +1,13 @@
 """Extraction CLI commands."""
 
+from collections import defaultdict
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from digitex.config import get_settings
+from digitex.core.domain import OPTIONS_PER_BOOK
 from digitex.extractors.answers_extractor import AnswersExtractor
 from digitex.extractors.base import ExtractionConfig
 from digitex.extractors.exceptions import APIError, ModelNotFoundError
@@ -114,8 +116,21 @@ def extract_questions(
         raise typer.Exit(code=1)
 
 
+def _part_modes(options: dict[str, dict[str, int]]) -> dict[str, set[int]]:
+    """Modal image count per Part, across one year's Options.
+
+    A Part whose count is off its mode is the signal that a page was missed or
+    double-extracted.
+    """
+    all_parts: defaultdict[str, list[int]] = defaultdict(list)
+    for parts in options.values():
+        for part, count in parts.items():
+            all_parts[part].append(count)
+    return {part: get_mode_values(counts) for part, counts in all_parts.items()}
+
+
 @app.command(name="count-questions")
-def count_questions(  # noqa: PLR0912
+def count_questions(
     subject: Annotated[
         str, typer.Argument(help="Subject name to count (e.g., biology, chemistry)")
     ],
@@ -138,27 +153,14 @@ def count_questions(  # noqa: PLR0912
         num_options = len(options)
         year_label = f"  {year}: {num_options} options"
 
-        all_parts: dict[str, list[int]] = {}
-        for opt in options:
-            for part, count in options[opt].items():
-                if part not in all_parts:
-                    all_parts[part] = []
-                all_parts[part].append(count)
+        part_modes = _part_modes(options)
+        all_good = all(
+            count in part_modes[part]
+            for parts in options.values()
+            for part, count in parts.items()
+        )
 
-        part_modes: dict[str, set[int]] = {}
-        for part, part_counts in all_parts.items():
-            part_modes[part] = get_mode_values(part_counts)
-
-        all_good = True
-        for opt in options:
-            for part, part_count in options[opt].items():
-                if part_count not in part_modes[part]:
-                    all_good = False
-                    break
-            if not all_good:
-                break
-
-        if num_options < 10:
+        if num_options < OPTIONS_PER_BOOK:
             year_label = typer.style(year_label, fg="red", bold=True)
         elif all_good:
             year_label = typer.style(year_label, fg="green")
@@ -297,6 +299,10 @@ def _render_year_report(year: YearReport) -> None:
     """Emit the colored year-level rendering of a validation outcome."""
     if not year.answers_file_present:
         typer.echo(f"\n{year.year}: ✗ answers.json NOT FOUND")
+        return
+
+    if not year.answers_file_valid:
+        typer.echo(f"\n{year.year}: ✗ answers.json IS NOT VALID JSON")
         return
 
     if year.has_mismatch:

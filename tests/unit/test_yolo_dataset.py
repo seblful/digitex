@@ -166,8 +166,34 @@ class TestCreate:
         dataset = creator.create()
 
         assert dataset.classes == {0: "question"}
-        # The unlabelled polygon is dropped; the point-less one keeps its class.
-        assert (tmp_path / "dataset" / "train" / "image.txt").read_text() == "0 "
+        # Neither polygon is usable, so the image ships with no label file at
+        # all rather than a class id with no coordinates.
+        assert not (tmp_path / "dataset" / "train" / "image.txt").exists()
+
+    def test_keeps_the_usable_polygons_beside_a_point_less_one(
+        self, tmp_path: Path
+    ) -> None:
+        entry = {
+            "image": "/data/local-files/?d=image.jpg",
+            "label": [
+                {"polygonlabels": ["question"], "points": []},
+                {
+                    "polygonlabels": ["question"],
+                    "points": [
+                        [10.0, 20.0],
+                        [50.0, 20.0],
+                        [50.0, 80.0],
+                        [10.0, 80.0],
+                    ],
+                },
+            ],
+        }
+        creator = _creator(tmp_path, [entry], train_split=1.0, images=("image.jpg",))
+
+        creator.create()
+
+        label_text = (tmp_path / "dataset" / "train" / "image.txt").read_text()
+        assert label_text == LABEL_LINE
 
     def test_empty_export_still_produces_the_tree(self, tmp_path: Path) -> None:
         dataset = _creator(tmp_path, []).create()

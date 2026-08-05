@@ -42,7 +42,7 @@ def _extract_questions(
         return []
 
     segments: list[Image.Image] = []
-    for class_id, polygon in zip(result.ids, result.polygons, strict=False):
+    for class_id, polygon in zip(result.ids, result.polygons, strict=True):
         label = result.id2label.get(class_id, "unknown")
         if label != "question":
             continue

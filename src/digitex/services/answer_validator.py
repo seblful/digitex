@@ -22,6 +22,7 @@ class YearReport:
 
     year: str
     answers_file_present: bool
+    answers_file_valid: bool = True
     a_count: int = 0
     b_count: int = 0
     image_question_count: int = 0
@@ -44,6 +45,7 @@ class YearReport:
     def is_clean(self) -> bool:
         return (
             self.answers_file_present
+            and self.answers_file_valid
             and not self.has_mismatch
             and not self.options_differ
             and self.options_with_b == self.total_options
@@ -89,8 +91,16 @@ class AnswerValidator:
         if not answers_file.exists():
             return YearReport(year=year, answers_file_present=False)
 
-        with answers_file.open(encoding="utf-8") as f:
-            answers_data = json.load(f)
+        # These files are generated then hand-corrected, so a broken one is the
+        # very thing this command exists to report — not a reason to abort the
+        # run and leave every other year unchecked.
+        try:
+            with answers_file.open(encoding="utf-8") as f:
+                answers_data = json.load(f)
+        except json.JSONDecodeError:
+            return YearReport(
+                year=year, answers_file_present=True, answers_file_valid=False
+            )
 
         answer_questions: set[str] = set()
         for option_data in answers_data.values():
@@ -135,9 +145,9 @@ class AnswerValidator:
         """Count how many options have at least one Part B answer containing 'Б'."""
         options_with_b = 0
         total = 0
-        for opt in sorted(answers_data, key=lambda k: int(k)):  # noqa: PLW0108
-            part_b = {k: v for k, v in answers_data[opt].items() if k.startswith("B")}
-            if any("Б" in v for v in part_b.values()):
+        for questions in answers_data.values():
+            part_b = (v for k, v in questions.items() if k.startswith("B"))
+            if any("Б" in v for v in part_b):
                 options_with_b += 1
             total += 1
         return options_with_b, total

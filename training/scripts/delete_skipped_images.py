@@ -23,39 +23,48 @@ app = typer.Typer(help="Delete local images for cancelled Label Studio tasks")
 
 def _collect_cancelled(
     client: LabelStudioClient, project_id: int
-) -> list[tuple[int, str]]:
+) -> list[tuple[int, Path | None]]:
+    """Cancelled tasks as ``(task_id, local image path)``.
+
+    The path stays ``None`` when the task's image URI carries no local-file
+    parameter — collapsing that into a placeholder string would make it
+    indistinguishable from a real path, and it gets fed to ``unlink`` below.
+    """
     tasks = client.list_tasks(project_id)
 
-    cancelled: list[tuple[int, str]] = []
+    cancelled: list[tuple[int, Path | None]] = []
     for task in tasks:
         if not any(ann.get("was_cancelled", False) for ann in task.annotations):
             continue
         image_path = local_file_path(task.data.get("image", ""))
-        path_str = str(image_path) if image_path else "unknown"
-        cancelled.append((task.id, path_str))
-        logger.debug("found_cancelled_task", task_id=task.id, path=path_str)
+        cancelled.append((task.id, image_path))
+        logger.debug("found_cancelled_task", task_id=task.id, path=str(image_path))
 
     logger.info("scan_complete", total_tasks=len(tasks), cancelled=len(cancelled))
     return cancelled
 
 
 def _partition_paths(
-    cancelled: list[tuple[int, str]],
-) -> tuple[list[tuple[int, str]], list[tuple[int, str]]]:
-    existing: list[tuple[int, str]] = []
-    missing: list[tuple[int, str]] = []
-    for task_id, path_str in cancelled:
-        (existing if Path(path_str).exists() else missing).append((task_id, path_str))
+    cancelled: list[tuple[int, Path | None]],
+) -> tuple[list[tuple[int, Path]], list[tuple[int, Path | None]]]:
+    """Split into files that are there to delete, and everything else."""
+    existing: list[tuple[int, Path]] = []
+    missing: list[tuple[int, Path | None]] = []
+    for task_id, path in cancelled:
+        if path is not None and path.exists():
+            existing.append((task_id, path))
+        else:
+            missing.append((task_id, path))
     return existing, missing
 
 
-def _delete(existing: list[tuple[int, str]]) -> int:
+def _delete(existing: list[tuple[int, Path]]) -> int:
     deleted = 0
-    for task_id, path_str in existing:
+    for task_id, path in existing:
         try:
-            Path(path_str).unlink()
+            path.unlink()
             deleted += 1
-            logger.info("deleted_file", task_id=task_id, path=path_str)
+            logger.info("deleted_file", task_id=task_id, path=str(path))
         except Exception as e:
             logger.error("delete_failed", task_id=task_id, error=str(e))
     return deleted
@@ -97,11 +106,9 @@ def delete_skipped_images(
         typer.echo(f"\nDeleted {deleted} files.")
 
     if missing:
-        typer.echo(
-            f"\n--- Cancelled tasks with missing local files ({len(missing)}) ---"
-        )
+        typer.echo(f"\n--- Cancelled tasks with no local file ({len(missing)}) ---")
         for task_id, path in missing:
-            typer.echo(f"  Task {task_id}: {path}")
+            typer.echo(f"  Task {task_id}: {path or 'no local path'}")
 
 
 if __name__ == "__main__":

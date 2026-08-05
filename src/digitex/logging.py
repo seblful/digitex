@@ -59,7 +59,10 @@ def setup_logging(settings: Settings) -> None:
             structlog.dev.set_exc_info,
             renderer,
         ],
-        wrapper_class=structlog.make_filtering_bound_logger(c_level),
+        # structlog turns calls below this into no-ops before any handler runs,
+        # so it has to pass whatever the more verbose destination wants; each
+        # handler then filters down to its own level.
+        wrapper_class=structlog.make_filtering_bound_logger(min(f_level, c_level)),
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
