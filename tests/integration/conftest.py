@@ -6,7 +6,9 @@ missing; run the unit suite alone with ``pytest tests/unit``.
 
 from __future__ import annotations
 
+import asyncio
 import os
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -19,6 +21,14 @@ if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+@pytest.fixture(scope="session")
+def event_loop_policy() -> asyncio.AbstractEventLoopPolicy:
+    """Windows' default ProactorEventLoop is rejected by psycopg."""
+    if sys.platform == "win32":
+        return asyncio.WindowsSelectorEventLoopPolicy()
+    return asyncio.DefaultEventLoopPolicy()
 
 
 @pytest.fixture(scope="session")
@@ -71,11 +81,23 @@ def _run_migrations() -> None:
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def pg_pool(pg_dsn: str) -> AsyncIterator[AsyncConnectionPool]:
-    """Open an :class:`AsyncConnectionPool` against the test container."""
-    from digitex.config import get_settings
-    from digitex.core.db import build_pool
+    """Open a connection pool against the test container.
 
-    pool = build_pool(get_settings().database)
+    On Windows ``AsyncConnectionPool``'s background workers stall even on the
+    SelectorEventLoop, so the null pool stands in there — the same split
+    ``cli/bot.py`` makes for the same reason.
+    """
+    from digitex.config import get_settings
+    from digitex.core.db import build_pool, null_pool_lifespan
+
+    settings = get_settings().database
+
+    if sys.platform == "win32":
+        async with null_pool_lifespan(settings) as pool:
+            yield pool
+        return
+
+    pool = build_pool(settings)
     await pool.open()
     await pool.wait()
     try:

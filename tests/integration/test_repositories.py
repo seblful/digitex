@@ -223,7 +223,7 @@ class TestSessionRepository:
             await uow.sessions.record_answer(
                 session.session_id, qb, "B", "neutron", is_correct=True, time_spent=1.0
             )
-            result = await uow.sessions.get_result(session.session_id)
+            result = await uow.sessions.complete(session.session_id)
 
         assert qa == qb, "precondition: the ids must collide for this to mean anything"
         assert result.max_score == 2
