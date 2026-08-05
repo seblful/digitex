@@ -7,6 +7,7 @@ from digitex.core.corpus import (
     QuestionImage,
     count_images,
     is_image,
+    natural_sort_key,
     parse_answer_sheet_stem,
     parse_book_page_path,
     training_page_name,
@@ -87,3 +88,36 @@ class TestBookPagePath:
         assert training_page_name(subject, year, page.stem) == (
             "biology_2008_12_old.jpg"
         )
+
+
+class TestNaturalSortKey:
+    def test_orders_embedded_numbers_numerically(self) -> None:
+        paths = [Path("page_10.jpg"), Path("page_2.jpg"), Path("page_1.jpg")]
+
+        assert [p.name for p in sorted(paths, key=natural_sort_key)] == [
+            "page_1.jpg",
+            "page_2.jpg",
+            "page_10.jpg",
+        ]
+
+    def test_orders_numbers_inside_longer_names(self) -> None:
+        paths = [
+            Path("page_20_image.png"),
+            Path("page_3_image.png"),
+            Path("page_10_image.png"),
+        ]
+
+        assert [p.name for p in sorted(paths, key=natural_sort_key)] == [
+            "page_3_image.png",
+            "page_10_image.png",
+            "page_20_image.png",
+        ]
+
+    def test_is_case_insensitive(self) -> None:
+        paths = [Path("Image_B.jpg"), Path("Image_A.jpg"), Path("Image_b.jpg")]
+
+        assert [p.name for p in sorted(paths, key=natural_sort_key)] == [
+            "Image_A.jpg",
+            "Image_B.jpg",
+            "Image_b.jpg",
+        ]

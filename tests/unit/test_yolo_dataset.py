@@ -218,4 +218,4 @@ class TestDatasetValue:
         dataset = _creator(tmp_path, []).create()
 
         with pytest.raises(AttributeError):
-            dataset.train = 99  # type: ignore[misc]
+            dataset.train = 99  # ty: ignore[invalid-assignment]

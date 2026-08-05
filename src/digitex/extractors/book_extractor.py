@@ -8,11 +8,10 @@ import structlog
 from PIL import Image
 from tqdm import tqdm
 
-from digitex.core.corpus import IMAGE_EXTENSIONS
+from digitex.core.corpus import IMAGE_EXTENSIONS, natural_sort_key
 from digitex.extractors.base import ExtractionResult
 from digitex.extractors.exceptions import DirectoryNotFoundError
 from digitex.extractors.page_extractor import PageExtractionState, PageExtractor
-from digitex.utils import natural_sort_key
 
 if TYPE_CHECKING:
     from pathlib import Path

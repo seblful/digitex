@@ -143,18 +143,15 @@ async def _populate_topics(pool, subject_id: int, subject_dir: Path) -> int:
                 for exam_type_name, keys in exam_types.items():
                     exam_type = parse_exam_type(exam_type_name)
                     option_numbers = await uow.books.list_options(book_id, exam_type)
+                    # Option ids depend only on (book_id, option_number), so
+                    # resolve them once rather than per topic key.
+                    option_ids = [
+                        await uow.books.get_option_id(book_id, option_number)
+                        for option_number in option_numbers
+                    ]
                     for key in keys:
                         question_key = QuestionKey.parse(key)
-                        for option_number in option_numbers:
-                            option_id = await uow.books.get_option_id(
-                                book_id, option_number
-                            )
-                            await uow.questions.delete_topic(
-                                option_id,
-                                question_key.number,
-                                question_key.part,
-                                topic_name,
-                            )
+                        for option_id in option_ids:
                             await uow.questions.upsert_topic(
                                 option_id,
                                 question_key.number,

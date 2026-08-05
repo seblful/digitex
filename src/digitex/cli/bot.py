@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from zoneinfo import ZoneInfo
 
 import structlog
 
@@ -28,6 +29,7 @@ def main() -> None:
         return
 
     admin_user_id = settings.bot.admin_user_id
+    tz = ZoneInfo(settings.timezone.name)
 
     # Local Windows dev only: psycopg rejects ProactorEventLoop, and
     # AsyncConnectionPool's background workers stall on SelectorEventLoop too —
@@ -60,7 +62,9 @@ def main() -> None:
             )
             dispatcher = create_dispatcher(admin_user_id=admin_user_id, pool=pool)
             logger.info("Starting bot polling...")
-            await dispatcher.start_polling(bot, pool=pool, admin_user_id=admin_user_id)
+            await dispatcher.start_polling(
+                bot, pool=pool, admin_user_id=admin_user_id, tz=tz
+            )
 
     asyncio.run(_main())
 

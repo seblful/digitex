@@ -8,7 +8,6 @@ dependencies = [
   "pillow",
   "numpy",
   "opencv-python",
-  "pypdfium2",
   "torch",
   "torchvision",
   "torchaudio",

@@ -15,6 +15,8 @@ def extractor(tmp_path: Path) -> AnswersExtractor:
         api_key="test-key",
         books_dir=tmp_path / "books",
         output_dir=tmp_path / "output",
+        model="test-model",
+        base_url="https://example.invalid/v1",
         client=MagicMock(),
     )
 

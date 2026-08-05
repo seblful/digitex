@@ -279,14 +279,3 @@ class ManualExtractor:
             processed=processed_count,
             metadata={"failed": failed_count},
         )
-
-    def process_all(self, dry_run: bool = False) -> ExtractionResult:
-        """Process all manual images (alias for extract).
-
-        Args:
-            dry_run: If True, only preview changes without applying.
-
-        Returns:
-            ExtractionResult with statistics.
-        """
-        return self.extract(dry_run=dry_run)

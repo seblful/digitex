@@ -23,14 +23,6 @@ class PageDataCreator:
     def __init__(self, image_size: int) -> None:
         self.image_size = image_size
 
-    def _parse_book_path(self, img_path: Path) -> tuple[str, str]:
-        """Extract subject and year from a book image path.
-
-        Returns:
-            Tuple of (subject, year).
-        """
-        return parse_book_page_path(img_path)
-
     def _collect_images(self, books_dir: Path) -> list[Path]:
         return [
             img_path
@@ -40,7 +32,7 @@ class PageDataCreator:
 
     def _save_image(self, img_path: Path, output_dir: Path) -> bool:
         try:
-            subject, year = self._parse_book_path(img_path)
+            subject, year = parse_book_page_path(img_path)
         except ValueError:
             # Paths come from a user-supplied txt file in add_from_file.
             logger.warning("Skipping unrecognized book path", path=str(img_path))

@@ -228,7 +228,7 @@ def add_questions_manually(
         raise typer.Exit(code=1)
 
     extractor = _manual_extractor(manual_dir)
-    result = extractor.process_all(dry_run=dry_run)
+    result = extractor.extract(dry_run=dry_run)
 
     if result.success:
         if dry_run:

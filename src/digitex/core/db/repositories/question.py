@@ -100,6 +100,12 @@ class QuestionRepository:
         part: str,
         topic_name: str,
     ) -> None:
+        """Unmap one topic from one question.
+
+        No production caller today — ``upsert_topic`` is idempotent, so the
+        populate script needs no delete-before-insert. Kept as the topic
+        mapping's other half.
+        """
         table = part_table(part)
         await self._conn.execute(
             "DELETE FROM question_topics"

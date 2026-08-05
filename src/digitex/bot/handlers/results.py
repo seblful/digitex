@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from aiogram import Bot, Router, types
+from aiogram.utils.text_decorations import html_decoration
 
 from digitex.bot import fsm_data
 from digitex.bot.fsm_data import TestingState
@@ -103,11 +104,13 @@ def _format_result_lines(
                 continue
             lines.append("")
             lines.append(header)
+            # Part B answers are free text on both sides, and the message is
+            # sent with parse_mode="HTML".
             lines.extend(
                 MSG_RESULTS_ERROR_ITEM.format(
                     qnum=row.question_number,
-                    user_ans=row.student_answer,
-                    correct_ans=row.correct_answer,
+                    user_ans=html_decoration.quote(str(row.student_answer)),
+                    correct_ans=html_decoration.quote(str(row.correct_answer)),
                 )
                 for row in rows
             )

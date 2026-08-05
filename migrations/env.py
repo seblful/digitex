@@ -39,6 +39,9 @@ def run_migrations_online() -> None:
     from sqlalchemy import create_engine
 
     url = config.get_main_option("sqlalchemy.url")
+    if not url:
+        msg = "sqlalchemy.url is not set; check alembic.ini and DATABASE_URL"
+        raise RuntimeError(msg)
     # Use SQLAlchemy + psycopg3 sync driver for the alembic engine.
     # Migrations are short-lived, sync is fine.
     sa_url = url.replace("postgresql://", "postgresql+psycopg://", 1)

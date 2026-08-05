@@ -48,8 +48,8 @@ class AnswersExtractor:
         api_key: str,
         books_dir: Path,
         output_dir: Path,
-        model: str = "moonshotai/kimi-k2.6",
-        base_url: str = "https://openrouter.ai/api/v1",
+        model: str,
+        base_url: str,
         client: OpenAI | None = None,
     ) -> None:
         self._api_key = api_key

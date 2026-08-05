@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Literal
 from aiogram import Bot, Router, types
 from aiogram.filters import CommandStart
 from aiogram.types import Message as TgMessage
+from aiogram.utils.text_decorations import html_decoration
 
 from digitex.bot import fsm_data
 from digitex.bot.callbacks import RegistrationCB
@@ -28,10 +29,10 @@ from digitex.bot.messages import (
 )
 from digitex.bot.states import Navigation, Registration
 from digitex.core.db import UnitOfWork
-from digitex.utils import get_tz
 
 if TYPE_CHECKING:
     from datetime import datetime
+    from zoneinfo import ZoneInfo
 
     from aiogram.fsm.context import FSMContext
     from psycopg_pool import AsyncConnectionPool
@@ -54,8 +55,8 @@ MONTHS_RU = [
 ]
 
 
-def _format_datetime(dt: datetime) -> str:
-    local = dt.astimezone(get_tz())
+def _format_datetime(dt: datetime, tz: ZoneInfo) -> str:
+    local = dt.astimezone(tz)
     time_str = f"{local.hour:02d}:{local.minute:02d}"
     return f"{local.day} {MONTHS_RU[local.month - 1]} {local.year} в {time_str}"
 
@@ -128,6 +129,7 @@ async def cmd_start(
     state: FSMContext,
     pool: AsyncConnectionPool,
     admin_user_id: int,
+    tz: ZoneInfo,
 ) -> None:
     telegram_id, _name, _username = _get_user_info(message)
 
@@ -143,7 +145,7 @@ async def cmd_start(
         return
 
     if gate.status == "pending":
-        date_str = _format_datetime(gate.requested_at) if gate.requested_at else "—"
+        date_str = _format_datetime(gate.requested_at, tz) if gate.requested_at else "—"
         await message.answer(MSG_PENDING.format(date=date_str), parse_mode="HTML")
         return
 
@@ -159,6 +161,7 @@ async def process_name(
     bot: Bot,
     pool: AsyncConnectionPool,
     admin_user_id: int,
+    tz: ZoneInfo,
 ) -> None:
     telegram_id, _, username = _get_user_info(message)
     full_name = (message.text or "").strip()
@@ -175,17 +178,20 @@ async def process_name(
         )
     await state.clear()
 
-    date_str = _format_datetime(request.created_at)
+    # The name is whatever the user typed, and both messages are parsed as
+    # HTML — the admin's copy included.
+    safe_name = html_decoration.quote(full_name)
+    date_str = _format_datetime(request.created_at, tz)
     await message.answer(
-        MSG_REQUEST_SENT.format(name=full_name, date=date_str),
+        MSG_REQUEST_SENT.format(name=safe_name, date=date_str),
         parse_mode="HTML",
     )
 
     await bot.send_message(
         admin_user_id,
         MSG_ADMIN_NEW_REQUEST.format(
-            full_name=full_name,
-            username=username or "—",
+            full_name=safe_name,
+            username=html_decoration.quote(username) if username else "—",
             telegram_id=telegram_id,
         ),
         parse_mode="HTML",

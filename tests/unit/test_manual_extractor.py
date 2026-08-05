@@ -135,7 +135,7 @@ class TestManualExtractorRenumbering:
         assert (target_dir / "22.jpg").exists()
 
 
-class TestManualExtractorProcessAll:
+class TestManualExtractorExtract:
     """The full processing pipeline."""
 
     @pytest.fixture
@@ -148,10 +148,10 @@ class TestManualExtractorProcessAll:
         Image.new("RGBA", (500, 500), (255, 255, 255, 255)).save(manual_file)
         return manual_file
 
-    def test_process_all_moves_image_into_output_tree(
+    def test_extract_moves_image_into_output_tree(
         self, extractor: ManualExtractor, manual_image: Path
     ) -> None:
-        extractor.process_all(dry_run=False)
+        extractor.extract(dry_run=False)
 
         assert not manual_image.exists()
         assert extractor.output_dir is not None
@@ -159,10 +159,10 @@ class TestManualExtractorProcessAll:
         assert output_file.exists()
         assert output_file.stat().st_size > 0
 
-    def test_process_all_dry_run_leaves_files_alone(
+    def test_extract_dry_run_leaves_files_alone(
         self, extractor: ManualExtractor, manual_image: Path
     ) -> None:
-        extractor.process_all(dry_run=True)
+        extractor.extract(dry_run=True)
 
         assert manual_image.exists()
         assert extractor.output_dir is not None

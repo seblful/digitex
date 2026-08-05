@@ -39,6 +39,18 @@ def count_images(folder: Path) -> int:
     return sum(1 for p in folder.iterdir() if is_image(p))
 
 
+def natural_sort_key(path: Path) -> list[int | str]:
+    """Sort key that orders embedded numbers numerically.
+
+    Keeps ``page_2`` ahead of ``page_10``, which plain lexicographic sorting
+    gets backwards — and page order decides question numbering.
+    """
+    parts: list[int | str] = []
+    for chunk in re.split(r"(\d+)", path.stem):
+        parts.append(int(chunk) if chunk.isdigit() else chunk.lower())
+    return parts
+
+
 @dataclass(frozen=True)
 class QuestionImage:
     """One numbered question image inside a year's extraction output."""
