@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, ClassVar, cast
 import pytest
 from PIL import Image
 
+from digitex.extractors.base import ExtractionConfig
 from digitex.extractors.page_extractor import (
     PageExtractionState,
     PageExtractor,
@@ -59,10 +60,11 @@ def _extractor(
 ) -> PageExtractor:
     # The fakes satisfy the collaborators' contracts structurally.
     return PageExtractor(
-        model_path=Path("model.pt"),
-        image_format="jpg",
-        question_max_width=50,
-        question_max_height=50,
+        ExtractionConfig(
+            model_path=Path("model.pt"),
+            question_max_width=50,
+            question_max_height=50,
+        ),
         predictor=cast("YOLO_SegmentationPredictor", _FakePredictor(result)),
         text_extractor=cast(
             "TextExtractor", _FakeTextExtractor(digits=digits, text=text)

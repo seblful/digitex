@@ -46,14 +46,28 @@ def create_dataset(
         )
         raise typer.Exit(code=1)
 
-    creator = DatasetCreator(
+    dataset = DatasetCreator(
         annotations_file=annotations_file,
         images_dir=images_dir,
         dataset_dir=dataset_dir,
         train_split=train_split,
+    ).create()
+
+    typer.echo(
+        typer.style(
+            f"✓ Dataset created at {dataset.dataset_dir}:"
+            f" {dataset.train} train, {dataset.val} val, {dataset.test} test",
+            fg="green",
+        )
     )
-    creator.create()
-    typer.echo(typer.style(f"✓ Dataset created at {dataset_dir}", fg="green"))
+    if dataset.missing_images:
+        typer.echo(
+            typer.style(
+                f"  {len(dataset.missing_images)} annotated image(s) not found"
+                f" in {images_dir}",
+                fg="yellow",
+            )
+        )
 
 
 @app.command(name="add-images")

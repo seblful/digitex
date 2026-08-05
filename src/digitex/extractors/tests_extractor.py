@@ -10,12 +10,12 @@ from tqdm import tqdm
 from digitex.extractors.base import ExtractionResult
 from digitex.extractors.book_extractor import BookExtractor
 from digitex.extractors.exceptions import DirectoryNotFoundError
-from digitex.extractors.progress import JSONProgressTracker, ProgressTracker
+from digitex.extractors.progress import JSONProgressTracker
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from digitex.extractors.conflict_resolution import ConflictResolver
+    from digitex.extractors.base import ExtractionConfig
 
 logger = structlog.get_logger()
 
@@ -23,36 +23,26 @@ PROGRESS_FILE = "progress.json"
 
 
 class TestsExtractor:
-    """Orchestrates extraction of question images from all image books."""
+    """Orchestrates extraction of question images from all image books.
+
+    ``extract(subject)`` is the whole interface. Per-year progress is an
+    implementation detail: completed years are skipped and newly finished ones
+    recorded, with no tracker handed back to the caller.
+    """
 
     def __init__(
         self,
-        model_path: Path,
-        image_format: str,
-        question_max_width: int,
-        question_max_height: int,
+        config: ExtractionConfig,
         books_dir: Path,
         extraction_dir: Path,
         data_dir: Path | None = None,
-        progress_tracker: ProgressTracker | None = None,
-        book_extractor: BookExtractor | None = None,
-        on_conflict: ConflictResolver | None = None,
     ) -> None:
         self.books_dir = books_dir
         self.extraction_dir = extraction_dir
         self.data_dir = data_dir or extraction_dir.parent / "data"
 
-        self._progress_tracker = progress_tracker or JSONProgressTracker(
-            self.data_dir / PROGRESS_FILE
-        )
-
-        self._book_extractor = book_extractor or BookExtractor(
-            model_path=model_path,
-            image_format=image_format,
-            question_max_width=question_max_width,
-            question_max_height=question_max_height,
-            on_conflict=on_conflict,
-        )
+        self._progress = JSONProgressTracker(self.data_dir / PROGRESS_FILE)
+        self._book_extractor = BookExtractor(config)
 
     def _validate_books_dir(self) -> None:
         if not self.books_dir.exists():
@@ -99,7 +89,7 @@ class TestsExtractor:
         for year_dir in tqdm(year_dirs, desc=f"Extracting {subject}"):
             year = year_dir.name
 
-            if self._progress_tracker.is_completed(subject, year):
+            if self._progress.is_completed(subject, year):
                 logger.info("Skipping, already extracted", subject=subject, year=year)
                 accumulated = accumulated.merge(
                     ExtractionResult.success_result(skipped=1)
@@ -121,15 +111,6 @@ class TestsExtractor:
             )
 
             if book_result.success:
-                self._progress_tracker.mark_completed(subject, year)
-                self._progress_tracker.save()
+                self._progress.mark_completed(subject, year)
 
         return accumulated
-
-    def get_progress_tracker(self) -> ProgressTracker:
-        """Get the progress tracker instance."""
-        return self._progress_tracker
-
-    def clear_progress(self) -> None:
-        """Clear all progress tracking."""
-        self._progress_tracker.clear()

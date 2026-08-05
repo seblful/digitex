@@ -7,12 +7,11 @@ from typing import TYPE_CHECKING, Any
 
 from digitex.core.db.mapping import row_to_model
 from digitex.core.db.repositories._common import (
+    BothParts,
     QuestionOrigin,
-    _part_table,
-    _question_base,
-    _question_full,
-    _union_both_parts,
-    _validate_part,
+    part_table,
+    question_select,
+    validate_part,
 )
 from digitex.core.domain import Part, Question
 
@@ -24,9 +23,9 @@ if TYPE_CHECKING:
 def _row_to_question(row: dict[str, Any]) -> Question:
     """Build a metadata-only ``Question`` (no ``image_data``).
 
-    Rows produced by ``_question_base`` / ``_question_full`` no longer carry
-    the BYTEA payload — fetch it explicitly with :meth:`QuestionRepository.get_image`
-    when a cache miss requires uploading a fresh image.
+    Rows produced by ``question_select`` do not carry the BYTEA payload — fetch
+    it explicitly with :meth:`QuestionRepository.get_image` when a cache miss
+    requires uploading a fresh image.
     """
     return row_to_model(
         {
@@ -55,7 +54,7 @@ class QuestionRepository:
             answer_val: int | str = int(answer)
         else:
             answer_val = answer
-        table = _part_table(key.part)
+        table = part_table(key.part)
 
         cur = await self._conn.execute(
             f"INSERT INTO {table} (option_id, question_number, answer)"
@@ -101,7 +100,7 @@ class QuestionRepository:
         part: str,
         topic_name: str,
     ) -> None:
-        table = _part_table(part)
+        table = part_table(part)
         await self._conn.execute(
             "DELETE FROM question_topics"
             " WHERE part = %s AND topic_name = %s AND question_id IN"
@@ -117,7 +116,7 @@ class QuestionRepository:
         part: str,
         topic_name: str,
     ) -> None:
-        table = _part_table(part)
+        table = part_table(part)
         await self._conn.execute(
             "INSERT INTO question_topics (question_id, part, topic_name)"
             f" SELECT q.question_id, %s, %s FROM {table} q"
@@ -135,7 +134,7 @@ class QuestionRepository:
     # -- queries -------------------------------------------------------------
 
     async def get(self, question_id: int, part: str) -> Question:
-        base = _question_base(_validate_part(part))
+        base = question_select(validate_part(part))
         cur = await self._conn.execute(
             base + " WHERE q.question_id = %s", (question_id,)
         )
@@ -151,14 +150,11 @@ class QuestionRepository:
         ids are needed up front; metadata and images are fetched per-question
         as the student advances.
         """
-        rows = await _union_both_parts(
-            self._conn,
-            select_a="q.question_id, 'A' AS part, q.question_number",
-            select_b="q.question_id, 'B' AS part, q.question_number",
+        rows = await BothParts(
+            select="q.question_id, '{part}' AS part, q.question_number",
             where="WHERE q.option_id = %s",
             order_by="part, question_number",
-            params=(option_id,),
-        )
+        ).fetch(self._conn, option_id)
         return [(r["question_id"], r["part"]) for r in rows]
 
     async def get_image(self, question_id: int, part: str) -> bytes:
@@ -167,7 +163,7 @@ class QuestionRepository:
         Separate from :meth:`get` so callers that only need to render a cached
         Telegram ``file_id`` do not pull megabytes from the DB.
         """
-        _validate_part(part)
+        validate_part(part)
         cur = await self._conn.execute(
             "SELECT image_data FROM images WHERE question_id = %s AND part = %s",
             (question_id, part),
@@ -182,7 +178,7 @@ class QuestionRepository:
 
         Part A answers are integers (option index); Part B are free-form text.
         """
-        table = _part_table(part)
+        table = part_table(part)
         cur = await self._conn.execute(
             f"SELECT answer FROM {table} WHERE question_id = %s",
             (question_id,),
@@ -201,7 +197,7 @@ class QuestionRepository:
         # ORDER BY RANDOM() forces a full scan + per-row random() evaluation.
         # COUNT + OFFSET scans only OFFSET+1 rows on the second query and keeps
         # the first query indexable.
-        table = _part_table(part)
+        table = part_table(part)
         params: list[Any] = [subject_id]
         where = "b.subject_id = %s"
         if exam_type:
@@ -228,21 +224,15 @@ class QuestionRepository:
         return row["question_id"]
 
     async def get_topics_for_subject(self, subject_id: int) -> list[str]:
-        rows = await _union_both_parts(
-            self._conn,
-            select_a="DISTINCT qt.topic_name",
+        rows = await BothParts(
+            select="DISTINCT qt.topic_name",
             joins=(
                 "JOIN question_topics qt"
-                " ON qt.question_id = q.question_id AND qt.part = 'A'"
-            ),
-            joins_b=(
-                "JOIN question_topics qt"
-                " ON qt.question_id = q.question_id AND qt.part = 'B'"
+                " ON qt.question_id = q.question_id AND qt.part = '{part}'"
             ),
             where="WHERE b.subject_id = %s",
             order_by="topic_name",
-            params=(subject_id,),
-        )
+        ).fetch(self._conn, subject_id)
         return list(dict.fromkeys(r["topic_name"] for r in rows))
 
     async def get_random_question_id_by_topic(
@@ -251,20 +241,14 @@ class QuestionRepository:
         # Topic-filtered sets are small (rarely more than a few dozen rows).
         # Pull the candidate ids and pick one client-side — cheaper than
         # ORDER BY RANDOM() on the UNION-ALL of both part tables.
-        rows = await _union_both_parts(
-            self._conn,
-            select_a="qt.question_id, qt.part",
+        rows = await BothParts(
+            select="qt.question_id, qt.part",
             joins=(
                 "JOIN question_topics qt"
-                " ON qt.question_id = q.question_id AND qt.part = 'A'"
-            ),
-            joins_b=(
-                "JOIN question_topics qt"
-                " ON qt.question_id = q.question_id AND qt.part = 'B'"
+                " ON qt.question_id = q.question_id AND qt.part = '{part}'"
             ),
             where="WHERE b.subject_id = %s AND qt.topic_name = %s",
-            params=(subject_id, topic_name),
-        )
+        ).fetch(self._conn, subject_id, topic_name)
         if not rows:
             raise KeyError(
                 f"No questions found for topic {topic_name!r} in subject {subject_id}"
@@ -273,12 +257,10 @@ class QuestionRepository:
         return pick["question_id"], pick["part"]
 
     async def get_question_origin(self, question_id: int) -> QuestionOrigin:
-        rows = await _union_both_parts(
-            self._conn,
-            select_a="b.year_value, o.option_number, o.exam_type",
+        rows = await BothParts(
+            select="b.year_value, o.option_number, o.exam_type",
             where="WHERE q.question_id = %s",
-            params=(question_id,),
-        )
+        ).fetch(self._conn, question_id)
         if not rows:
             raise KeyError(f"Origin not found for question {question_id}")
         r = rows[0]
@@ -287,7 +269,7 @@ class QuestionRepository:
     async def get_full(
         self, question_id: int, part: str
     ) -> tuple[Question, QuestionOrigin]:
-        base = _question_full(_validate_part(part))
+        base = question_select(validate_part(part), with_origin=True)
         cur = await self._conn.execute(
             base + " WHERE q.question_id = %s", (question_id,)
         )

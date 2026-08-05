@@ -17,35 +17,25 @@ from digitex.utils import _natural_sort_key
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from digitex.extractors.conflict_resolution import ConflictResolver
+    from digitex.extractors.base import ExtractionConfig
 
 logger = structlog.get_logger()
 
 
 class BookExtractor:
-    """Extract question images from a directory of images (a "book")."""
+    """Extract question images from a directory of images (a "book").
+
+    ``page_extractor`` is the one injectable collaborator. A caller that needs
+    a custom conflict resolver builds a configured :class:`PageExtractor` and
+    passes it here, rather than threading the resolver down two more levels.
+    """
 
     def __init__(
         self,
-        model_path: Path,
-        image_format: str = "jpg",
-        question_max_width: int = 2000,
-        question_max_height: int = 2000,
+        config: ExtractionConfig,
         page_extractor: PageExtractor | None = None,
-        on_conflict: ConflictResolver | None = None,
     ) -> None:
-        self.model_path = model_path
-        self.image_format = image_format
-        self.question_max_width = question_max_width
-        self.question_max_height = question_max_height
-
-        self._page_extractor = page_extractor or PageExtractor(
-            model_path=model_path,
-            image_format=image_format,
-            question_max_width=question_max_width,
-            question_max_height=question_max_height,
-            on_conflict=on_conflict,
-        )
+        self._page_extractor = page_extractor or PageExtractor(config)
 
     def extract(
         self,

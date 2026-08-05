@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from digitex.core.db.repositories._common import (
     SubjectRow,
-    _get_or_create,
+    get_or_create,
 )
 
 if TYPE_CHECKING:
@@ -20,9 +20,7 @@ class BookRepository:
         self._conn = conn
 
     async def get_or_create_subject(self, name: str) -> int:
-        return await _get_or_create(
-            self._conn, "subjects", "subject_id", {"name": name}
-        )
+        return await get_or_create(self._conn, "subjects", "subject_id", {"name": name})
 
     async def get_book(self, subject_id: int, year: int) -> int | None:
         cur = await self._conn.execute(

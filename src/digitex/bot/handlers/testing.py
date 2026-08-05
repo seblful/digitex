@@ -10,10 +10,9 @@ from aiogram import Bot, Router, types
 from digitex.bot import fsm_data
 from digitex.bot.answer_flow import (
     RoundFinished,
-    ask_question,
-    file_id_debt,
     load_renderable,
     run_testing_round,
+    show_question,
 )
 from digitex.bot.callbacks import AnswerCB
 from digitex.bot.fsm_data import TestingState
@@ -45,16 +44,7 @@ async def send_current_question(
     async with UnitOfWork(pool) as uow:
         question = await load_renderable(uow, question_id, part)
 
-    await fsm_data.merge(
-        state,
-        question_start_time=time.time(),
-        current_part=part,
-        waiting_for_answer=True,
-    )
-
-    debt = file_id_debt(question, await ask_question(bot, message, question))
-    if debt:
-        await fsm_data.merge(state, pending_file_id_cache=debt)
+    await show_question(bot, message, state, question, started_at=time.time())
 
 
 async def _record_and_advance(
@@ -70,26 +60,19 @@ async def _record_and_advance(
         outcome = await run_testing_round(uow, testing, answer, now=time.time())
 
     if isinstance(outcome, RoundFinished):
-        await fsm_data.merge(
-            state, current_index=outcome.next_index, pending_file_id_cache=None
-        )
+        # The round already settled the debt, and show_results clears the FSM.
+        await fsm_data.merge(state, current_index=outcome.next_index)
         await show_results(message, state, bot, pool)
         return
 
-    await fsm_data.merge(
+    await show_question(
+        bot,
+        message,
         state,
+        outcome.question,
+        started_at=time.time(),
         current_index=outcome.next_index,
-        question_start_time=time.time(),
-        current_part=outcome.question.part,
-        waiting_for_answer=True,
-        pending_file_id_cache=None,
     )
-
-    debt = file_id_debt(
-        outcome.question, await ask_question(bot, message, outcome.question)
-    )
-    if debt:
-        await fsm_data.merge(state, pending_file_id_cache=debt)
 
 
 @router.callback_query(Testing.answering, AnswerCB.filter())

@@ -12,6 +12,7 @@ from digitex.core.processors import (
     SegmentProcessor,
     resize_image,
 )
+from digitex.extractors.base import ExtractionConfig
 from digitex.extractors.conflict_resolution import (
     Conflict,
     ConflictResolver,
@@ -104,20 +105,14 @@ class PageExtractor:
 
     def __init__(
         self,
-        model_path: Path,
-        image_format: str = "jpg",
-        question_max_width: int = 2000,
-        question_max_height: int = 2000,
+        config: ExtractionConfig,
         predictor: YOLO_SegmentationPredictor | None = None,
         segment_processor: SegmentProcessor | None = None,
         image_cropper: ImageCropper | None = None,
         text_extractor: TextExtractor | None = None,
         on_conflict: ConflictResolver | None = None,
     ) -> None:
-        self.model_path = model_path
-        self.image_format = image_format
-        self.question_max_width = question_max_width
-        self.question_max_height = question_max_height
+        self.config = config
 
         self._predictor = predictor
         self._segment_processor = segment_processor or SegmentProcessor()
@@ -129,7 +124,7 @@ class PageExtractor:
     def predictor(self) -> YOLO_SegmentationPredictor:
         """Get or initialize the YOLO predictor."""
         if self._predictor is None:
-            self._predictor = YOLO_SegmentationPredictor(str(self.model_path))
+            self._predictor = YOLO_SegmentationPredictor(str(self.config.model_path))
         return self._predictor
 
     def _get_label_name(
@@ -158,10 +153,10 @@ class PageExtractor:
         """Crop, process, and save extracted image. Returns resolved option number."""
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
         cropped = resize_image(
-            cropped, self.question_max_width, self.question_max_height
+            cropped, self.config.question_max_width, self.config.question_max_height
         )
         processed = self._segment_processor.process(cropped)
-        output_path = output_path.with_suffix(f".{self.image_format}")
+        output_path = output_path.with_suffix(f".{self.config.image_format}")
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         if output_path.exists():
@@ -295,7 +290,7 @@ class PageExtractor:
                     output_dir
                     / str(placement.option)
                     / placement.part
-                    / f"{placement.number}.{self.image_format}"
+                    / f"{placement.number}.{self.config.image_format}"
                 )
                 resolved_option = self._crop_and_save(
                     image,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from aiogram import Bot, Router, types
@@ -32,10 +33,34 @@ if TYPE_CHECKING:
     from aiogram.fsm.context import FSMContext
     from psycopg_pool import AsyncConnectionPool
 
-    from digitex.core.db.repositories import SessionInfo, WrongAnswer
+    from digitex.core.db.repositories import SessionInfo, SubjectRow, WrongAnswer
     from digitex.core.domain import TestResult
 
 router = Router()
+
+
+@dataclass(frozen=True)
+class SessionOutcome:
+    """Everything the results screen shows, read in one transaction."""
+
+    result: TestResult
+    wrong_answers: list[WrongAnswer]
+    info: SessionInfo
+    subjects: list[SubjectRow]
+
+
+async def finish_session(uow: UnitOfWork, session_id: int) -> SessionOutcome:
+    """Close the session and read back everything the results screen needs.
+
+    One transaction for the whole screen — including the subject list the
+    "try again" prompt is built from, which used to cost a second one.
+    """
+    return SessionOutcome(
+        result=await uow.sessions.complete(session_id),
+        wrong_answers=await uow.sessions.get_wrong_answers(session_id),
+        info=await uow.sessions.get_session_info(session_id),
+        subjects=await uow.books.list_subjects(),
+    )
 
 
 def _format_result_lines(
@@ -105,19 +130,17 @@ async def show_results(
     session_id: int = data["session_id"]
 
     async with UnitOfWork(pool) as uow:
-        result = await uow.sessions.complete(session_id)
-        wrong_rows = await uow.sessions.get_wrong_answers(session_id)
-        info = await uow.sessions.get_session_info(session_id)
+        outcome = await finish_session(uow, session_id)
 
-    text = "\n".join(_format_result_lines(result, wrong_rows, info))
+    text = "\n".join(
+        _format_result_lines(outcome.result, outcome.wrong_answers, outcome.info)
+    )
     await bot.send_message(message.chat.id, text, parse_mode="HTML")
     await state.clear()
     await state.set_state(Navigation.select_subject)
 
-    async with UnitOfWork(pool) as uow:
-        subjects = await uow.books.list_subjects()
     await bot.send_message(
         message.chat.id,
         MSG_RESULTS_RETRY,
-        reply_markup=subjects_kb(subjects),
+        reply_markup=subjects_kb(outcome.subjects),
     )

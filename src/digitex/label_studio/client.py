@@ -1,17 +1,19 @@
-"""Generic Label Studio SDK wrapper."""
-
-from pathlib import Path
+"""Label Studio SDK adapter — the two calls the prediction run needs."""
 
 import structlog
 from label_studio_sdk import LabelStudio
-
-from digitex.label_studio.geometry import local_file_path
 
 logger = structlog.get_logger()
 
 
 class LabelStudioClient:
-    """Generic wrapper around the Label Studio SDK.
+    """Adapter over the Label Studio SDK.
+
+    Deliberately narrow: ``get_unlabeled_tasks`` and ``upload_predictions``
+    are the only operations :class:`~digitex.label_studio.predictor.TaskPredictor`
+    performs, so they are the whole seam. Reading a task's local image path is
+    not here — that is pure URI parsing and lives in
+    :mod:`digitex.label_studio.geometry`.
 
     Args:
         url: Label Studio server URL.
@@ -21,15 +23,7 @@ class LabelStudioClient:
     def __init__(self, url: str, api_key: str) -> None:
         self._client = LabelStudio(base_url=url, api_key=api_key)
 
-    def get_tasks(self, project_id: int) -> list:
-        """Return all tasks for a project.
-
-        Args:
-            project_id: Label Studio project ID.
-
-        Returns:
-            List of task objects.
-        """
+    def _list_tasks(self, project_id: int) -> list:
         tasks = list(self._client.tasks.list(project=project_id, fields="all"))
         logger.info("fetched_tasks", project_id=project_id, count=len(tasks))
         return tasks
@@ -43,7 +37,7 @@ class LabelStudioClient:
         Returns:
             List of unlabeled task objects without predictions.
         """
-        tasks = self.get_tasks(project_id)
+        tasks = self._list_tasks(project_id)
         unlabeled = []
         for t in tasks:
             if t.is_labeled:
@@ -59,18 +53,6 @@ class LabelStudioClient:
             unlabeled=len(unlabeled),
         )
         return unlabeled
-
-    @staticmethod
-    def get_local_path(task) -> Path | None:
-        """Extract filesystem path from a local-files URI in task data.
-
-        Args:
-            task: Label Studio task object.
-
-        Returns:
-            Path to the local file, or None if no valid URI is found.
-        """
-        return local_file_path(task.data.get("image", ""))
 
     def upload_predictions(
         self,
@@ -99,29 +81,3 @@ class LabelStudioClient:
             count=len(predictions),
             model_version=model_version,
         )
-
-    def get_label_config(self, project_id: int) -> str:
-        """Return the project's label config XML.
-
-        Args:
-            project_id: Label Studio project ID.
-
-        Returns:
-            Label config XML string.
-        """
-        project = self._client.projects.get(id=project_id)
-        config = str(project.label_config)
-        logger.info("fetched_label_config", project_id=project_id)
-        return config
-
-    def cancel_task(self, task_id: int) -> None:
-        """Mark a task as cancelled.
-
-        Args:
-            task_id: Label Studio task ID.
-        """
-        self._client.tasks.update(
-            id=str(task_id),
-            meta={"is_cancelled": True},
-        )
-        logger.info("cancelled_task", task_id=task_id)

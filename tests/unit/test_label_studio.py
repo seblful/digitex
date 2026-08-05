@@ -6,7 +6,6 @@ the adapter's interface.
 """
 
 from collections.abc import Iterator
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -31,12 +30,6 @@ class TestLabelStudioClient:
             base_url="http://localhost:8080", api_key="api-key"
         )
 
-    def test_get_tasks(self, ls_sdk: MagicMock) -> None:
-        ls_sdk.tasks.list.return_value = [MagicMock(), MagicMock()]
-        client = LabelStudioClient("http://localhost:8080", "api-key")
-        tasks = client.get_tasks(project_id=1)
-        assert len(tasks) == 2
-
     def test_get_unlabeled_tasks_filters_labeled(self, ls_sdk: MagicMock) -> None:
         task1 = MagicMock(is_labeled=False)
         task2 = MagicMock(is_labeled=True)
@@ -45,21 +38,6 @@ class TestLabelStudioClient:
         client = LabelStudioClient("http://localhost:8080", "api-key")
         unlabeled = client.get_unlabeled_tasks(project_id=1)
         assert unlabeled == [task1, task3]
-
-    def test_get_local_path_from_local_files_uri(self) -> None:
-        task = MagicMock()
-        task.data = {"image": "/data/local-files/?d=path/to/image.png"}
-        assert LabelStudioClient.get_local_path(task) == Path("path/to/image.png")
-
-    def test_get_local_path_none_without_image(self) -> None:
-        task = MagicMock()
-        task.data = {}
-        assert LabelStudioClient.get_local_path(task) is None
-
-    def test_get_local_path_none_for_remote_uri(self) -> None:
-        task = MagicMock()
-        task.data = {"image": "http://example.com/image.png"}
-        assert LabelStudioClient.get_local_path(task) is None
 
     def test_upload_predictions_skips_empty(self, ls_sdk: MagicMock) -> None:
         client = LabelStudioClient("http://localhost:8080", "api-key")
@@ -71,18 +49,6 @@ class TestLabelStudioClient:
         predictions = [{"task": 1, "result": [], "model_version": "v1"}]
         client.upload_predictions(project_id=1, predictions=predictions)
         ls_sdk.projects.import_predictions.assert_called_once()
-
-    def test_get_label_config(self, ls_sdk: MagicMock) -> None:
-        ls_sdk.projects.get.return_value = MagicMock(label_config="<View></View>")
-        client = LabelStudioClient("http://localhost:8080", "api-key")
-        assert client.get_label_config(project_id=1) == "<View></View>"
-
-    def test_cancel_task(self, ls_sdk: MagicMock) -> None:
-        client = LabelStudioClient("http://localhost:8080", "api-key")
-        client.cancel_task(task_id=42)
-        ls_sdk.tasks.update.assert_called_once_with(
-            id="42", meta={"is_cancelled": True}
-        )
 
 
 @pytest.fixture
@@ -150,17 +116,13 @@ class TestTaskPredictor:
     def test_predict_task_none_without_local_path(
         self, predictor_deps: tuple[MagicMock, MagicMock]
     ) -> None:
-        _, mock_client_cls = predictor_deps
-        mock_client_cls.return_value.get_local_path.return_value = None
         task = MagicMock(id=1)
+        task.data = {"image": "http://example.com/remote.png"}
         assert _task_predictor()._predict_task(task) is None
 
     def test_predict_task_none_when_file_missing(
         self, predictor_deps: tuple[MagicMock, MagicMock]
     ) -> None:
-        _, mock_client_cls = predictor_deps
-        mock_client_cls.return_value.get_local_path.return_value = Path(
-            "/nonexistent/image.png"
-        )
         task = MagicMock(id=1)
+        task.data = {"image": "/data/local-files/?d=nonexistent%5Cimage.png"}
         assert _task_predictor()._predict_task(task) is None

@@ -95,17 +95,21 @@ async def on_mode_selected(
 
     match callback_data.mode:
         case "standard":
+            # Read everything first: a Telegram round-trip inside the
+            # transaction would hold it open past the statement timeout.
             async with UnitOfWork(pool) as uow:
                 years = await uow.books.list_years(subject_id)
-                if not years:
-                    subjects = await uow.books.list_subjects()
-                    await callback.message.edit_text(
-                        MSG_NO_YEARS,
-                        reply_markup=subjects_kb(subjects),
-                    )
-                    await state.set_state(Navigation.select_subject)
-                    await callback.answer()
-                    return
+                subjects = [] if years else await uow.books.list_subjects()
+
+            if not years:
+                await callback.message.edit_text(
+                    MSG_NO_YEARS,
+                    reply_markup=subjects_kb(subjects),
+                )
+                await state.set_state(Navigation.select_subject)
+                await callback.answer()
+                return
+
             await callback.message.edit_text(
                 MSG_YEAR_SELECT, reply_markup=years_kb(years)
             )

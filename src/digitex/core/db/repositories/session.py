@@ -8,7 +8,7 @@ from digitex.core.db.mapping import row_to_model
 from digitex.core.db.repositories._common import (
     SessionInfo,
     WrongAnswer,
-    _part_table,
+    part_table,
 )
 from digitex.core.domain import Session, TestResult
 
@@ -82,7 +82,7 @@ class SessionRepository:
             f"SELECT q.question_number, '{part}' AS part,"
             f"       sa.student_answer, {answer_expr} AS correct_answer"
             "  FROM session_answers sa"
-            f"  JOIN {_part_table(part)} q ON q.question_id = sa.question_id"
+            f"  JOIN {part_table(part)} q ON q.question_id = sa.question_id"
             f" WHERE sa.session_id = %s AND sa.part = '{part}'"
             "   AND sa.is_correct = FALSE"
             " ORDER BY q.question_number",
@@ -138,7 +138,7 @@ class SessionRepository:
             "SELECT COUNT(*) FILTER (WHERE sa.is_correct) AS correct,"
             "       COUNT(*) AS total"
             "  FROM session_answers sa"
-            f"  JOIN {_part_table(part)} q ON sa.question_id = q.question_id"
+            f"  JOIN {part_table(part)} q ON sa.question_id = q.question_id"
             f" WHERE sa.session_id = %s AND sa.part = '{part}'",
             (session_id,),
         )

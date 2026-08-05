@@ -7,6 +7,7 @@ import typer
 
 from digitex.config import get_settings
 from digitex.extractors.answers_extractor import AnswersExtractor
+from digitex.extractors.base import ExtractionConfig
 from digitex.extractors.exceptions import APIError, ModelNotFoundError
 from digitex.extractors.manual_extractor import ManualExtractor
 from digitex.extractors.tests_extractor import TestsExtractor
@@ -37,12 +38,19 @@ def _require_model(path: Path) -> Path:
     return path
 
 
-def _tests_extractor() -> TestsExtractor:
-    return TestsExtractor(
+def _extraction_config() -> ExtractionConfig:
+    """Resolve the extraction config once, here at the CLI boundary."""
+    return ExtractionConfig(
         model_path=_require_model(_settings.paths.extraction_model_path),
         image_format=_settings.extraction.image_format,
         question_max_width=_settings.extraction.question_max_width,
         question_max_height=_settings.extraction.question_max_height,
+    )
+
+
+def _tests_extractor() -> TestsExtractor:
+    return TestsExtractor(
+        config=_extraction_config(),
         books_dir=_settings.paths.books_dir,
         extraction_dir=_settings.paths.extraction_output_dir,
     )

@@ -1,7 +1,12 @@
-"""Progress tracking abstraction for extractors."""
+"""Per-year extraction progress, persisted as JSON.
+
+One concrete tracker and no abstract base: the extraction run is the only
+caller, and pointing a tracker at a real file under ``tmp_path`` is a better
+test stand-in than a subclass. Introduce an interface here the day a second
+store actually exists.
+"""
 
 import json
-from abc import ABC, abstractmethod
 from pathlib import Path
 
 import structlog
@@ -9,80 +14,29 @@ import structlog
 logger = structlog.get_logger()
 
 
-class ProgressTracker(ABC):
-    """Abstract base class for progress tracking."""
+class JSONProgressTracker:
+    """Records which ``(subject, identifier)`` extractions have completed.
 
-    @abstractmethod
-    def is_completed(self, subject: str, identifier: str) -> bool:
-        """Check if an extraction unit is completed.
-
-        Args:
-            subject: Subject name (e.g., 'math', 'biology').
-            identifier: Unique identifier (e.g., year '2020').
-
-        Returns:
-            True if completed, False otherwise.
-        """
-        pass
-
-    @abstractmethod
-    def mark_completed(self, subject: str, identifier: str) -> None:
-        """Mark an extraction unit as completed.
-
-        Args:
-            subject: Subject name.
-            identifier: Unique identifier.
-        """
-        pass
-
-    @abstractmethod
-    def save(self) -> None:
-        """Persist progress to storage."""
-        pass
-
-    @abstractmethod
-    def load(self) -> None:
-        """Load progress from storage."""
-        pass
-
-    @abstractmethod
-    def clear(self) -> None:
-        """Clear all progress."""
-        pass
-
-
-class JSONProgressTracker(ProgressTracker):
-    """JSON file-based progress tracker."""
+    ``mark_completed`` persists immediately, so callers never have to remember
+    a separate save. Loading is done in ``__init__``; a missing or corrupt file
+    starts an empty log rather than raising.
+    """
 
     def __init__(self, path: Path) -> None:
-        """Initialize the tracker.
-
-        Args:
-            path: Path to the JSON progress file.
-        """
         self._path = path
         self._completed: dict[str, set[str]] = {}
-        self.load()
+        self._load()
 
     def is_completed(self, subject: str, identifier: str) -> bool:
-        """Check if extraction is completed for a subject/identifier pair."""
+        """Return True if this subject/identifier pair is already extracted."""
         return identifier in self._completed.get(subject, set())
 
     def mark_completed(self, subject: str, identifier: str) -> None:
-        """Mark extraction as completed."""
-        if subject not in self._completed:
-            self._completed[subject] = set()
-        self._completed[subject].add(identifier)
+        """Record the pair as extracted and write the log to disk."""
+        self._completed.setdefault(subject, set()).add(identifier)
+        self._save()
 
-    def save(self) -> None:
-        """Save progress to JSON file."""
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        data = {k: sorted(v) for k, v in self._completed.items()}
-        self._path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        logger.debug("Saved progress", path=str(self._path))
-
-    def load(self) -> None:
-        """Load progress from JSON file."""
+    def _load(self) -> None:
         if not self._path.exists():
             self._completed = {}
             return
@@ -99,17 +53,8 @@ class JSONProgressTracker(ProgressTracker):
             )
             self._completed = {}
 
-    def get_completed_subjects(self) -> set[str]:
-        """Get all subjects with completed extractions."""
-        return set(self._completed.keys())
-
-    def get_completed_identifiers(self, subject: str) -> set[str]:
-        """Get all completed identifiers for a subject."""
-        return self._completed.get(subject, set())
-
-    def clear(self) -> None:
-        """Clear all progress."""
-        self._completed = {}
-        if self._path.exists():
-            self._path.unlink()
-        logger.info("Cleared all progress", path=str(self._path))
+    def _save(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        data = {k: sorted(v) for k, v in self._completed.items()}
+        self._path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        logger.debug("Saved progress", path=str(self._path))

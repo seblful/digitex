@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal
 
 from aiogram import Bot, Router, types
 from aiogram.filters import CommandStart
@@ -66,6 +67,37 @@ def _get_user_info(
     return 0, FALLBACK_NAME, None
 
 
+@dataclass(frozen=True)
+class StartGate:
+    """Whether /start proceeds to subject selection, and what to show if not.
+
+    ``new`` covers both a first-time user and one whose earlier request was
+    rejected — /start treats them identically, by asking for a name.
+    """
+
+    status: Literal["new", "pending", "approved"]
+    requested_at: datetime | None = None
+
+
+async def open_registration_gate(uow: UnitOfWork, telegram_id: int) -> StartGate:
+    """Read the user's registration record, resetting a rejected one.
+
+    One round-trip: ``get_request`` already carries both the status and the
+    submission date, so no separate status lookup is needed.
+    """
+    request = await uow.authorized_users.get_request(telegram_id)
+
+    if request is None:
+        return StartGate(status="new")
+    if request.status == "pending":
+        return StartGate(status="pending", requested_at=request.created_at)
+    if request.status == "rejected":
+        # Drop the old decision so the user can apply again.
+        await uow.authorized_users.delete_request(telegram_id)
+        return StartGate(status="new")
+    return StartGate(status="approved")
+
+
 async def _normal_start(
     message: types.Message, state: FSMContext, pool: AsyncConnectionPool
 ) -> None:
@@ -102,25 +134,20 @@ async def cmd_start(
         return
 
     async with UnitOfWork(pool) as uow:
-        status = await uow.authorized_users.get_status(telegram_id)
+        gate = await open_registration_gate(uow, telegram_id)
 
-    if status is None:
-        await state.set_state(Registration.waiting_for_name)
-        await message.answer(MSG_REGISTRATION_INFO, parse_mode="HTML")
-        await message.answer(MSG_ASK_NAME, parse_mode="HTML")
-    elif status == "pending":
-        async with UnitOfWork(pool) as uow:
-            request = await uow.authorized_users.get_request(telegram_id)
-        date_str = _format_datetime(request.created_at) if request else "—"
-        await message.answer(MSG_PENDING.format(date=date_str), parse_mode="HTML")
-    elif status == "rejected":
-        async with UnitOfWork(pool) as uow:
-            await uow.authorized_users.delete_request(telegram_id)
-        await state.set_state(Registration.waiting_for_name)
-        await message.answer(MSG_REGISTRATION_INFO, parse_mode="HTML")
-        await message.answer(MSG_ASK_NAME, parse_mode="HTML")
-    else:
+    if gate.status == "approved":
         await _normal_start(message, state, pool)
+        return
+
+    if gate.status == "pending":
+        date_str = _format_datetime(gate.requested_at) if gate.requested_at else "—"
+        await message.answer(MSG_PENDING.format(date=date_str), parse_mode="HTML")
+        return
+
+    await state.set_state(Registration.waiting_for_name)
+    await message.answer(MSG_REGISTRATION_INFO, parse_mode="HTML")
+    await message.answer(MSG_ASK_NAME, parse_mode="HTML")
 
 
 @router.message(Registration.waiting_for_name)

@@ -13,15 +13,21 @@ from digitex.bot.answer_flow import (
     NextQuestion,
     RoundFinished,
     evaluate_random_answer,
-    file_id_debt,
+    has_unsettled_debt,
     pick_random_question,
     run_testing_round,
+    settle_file_id_debt,
+    show_question,
 )
 from digitex.bot.fsm_data import RandomState, TestingState
+from digitex.bot.messages import MSG_ENTER_ANSWER
 from digitex.core.db.repositories._common import QuestionOrigin
 from digitex.core.domain import Question
 
 if TYPE_CHECKING:
+    from aiogram import Bot, types
+    from aiogram.fsm.context import FSMContext
+
     from digitex.core.db import UnitOfWork
     from digitex.core.domain import Part
 
@@ -89,6 +95,74 @@ class FakeUow:
 def as_uow(fake: FakeUow) -> UnitOfWork:
     """The fakes satisfy UnitOfWork's contract structurally; cast for the checker."""
     return cast("UnitOfWork", fake)
+
+
+# ---------------------------------------------------------------------------
+# Telegram-side fakes — enough of aiogram's shape for show_question, no mocks
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FakePhoto:
+    file_id: str
+
+
+@dataclass
+class FakeSentMessage:
+    photo: list[FakePhoto]
+
+
+@dataclass
+class FakeBot:
+    """Records send_photo calls; yields *fresh_file_id* when an upload happens."""
+
+    fresh_file_id: str | None = None
+    sent: list[dict[str, Any]] = field(default_factory=list)
+
+    async def send_photo(self, **kwargs: Any) -> FakeSentMessage:
+        self.sent.append(kwargs)
+        if self.fresh_file_id is None:
+            return FakeSentMessage(photo=[])
+        return FakeSentMessage(photo=[FakePhoto(self.fresh_file_id)])
+
+
+@dataclass
+class FakeChat:
+    id: int = 99
+
+
+@dataclass
+class FakeMessage:
+    chat: FakeChat = field(default_factory=FakeChat)
+    answers: list[str] = field(default_factory=list)
+
+    async def answer(self, text: str, **kwargs: Any) -> None:
+        self.answers.append(text)
+
+
+@dataclass
+class FakeState:
+    """Stands in for aiogram's FSMContext — the conversation data dict."""
+
+    data: dict[str, Any] = field(default_factory=dict)
+
+    async def update_data(self, **fields: Any) -> None:
+        self.data.update(fields)
+
+    async def get_data(self) -> dict[str, Any]:
+        return dict(self.data)
+
+
+def as_bot(fake: FakeBot) -> Bot:
+    return cast("Bot", fake)
+
+
+def as_message(fake: FakeMessage) -> types.Message:
+    return cast("types.Message", fake)
+
+
+def as_state(fake: FakeState) -> FSMContext:
+    return cast("FSMContext", fake)
 
 
 def _question(question_id: int, part: Part, file_id: str | None = None) -> Question:
@@ -174,12 +248,116 @@ class TestRunTestingRound:
         assert uow.questions.image_fetches == []
 
 
-class TestFileIdDebt:
-    def test_no_debt_when_cached_file_id_was_reused(self) -> None:
-        assert file_id_debt(_question(10, "A"), None) is None
+class TestShowQuestion:
+    """The render + debt protocol, driven through its one entry point."""
 
-    def test_debt_carries_question_identity(self) -> None:
-        assert file_id_debt(_question(10, "A"), "new-id") == (10, "A", "new-id")
+    async def _show(
+        self,
+        question: Question,
+        *,
+        fresh_file_id: str | None = None,
+        state: FakeState | None = None,
+        **kwargs: Any,
+    ) -> tuple[FakeState, FakeBot, FakeMessage]:
+        fake_state = state or FakeState()
+        bot = FakeBot(fresh_file_id=fresh_file_id)
+        message = FakeMessage()
+        kwargs.setdefault("started_at", 100.0)
+        await show_question(
+            as_bot(bot),
+            as_message(message),
+            as_state(fake_state),
+            question,
+            **kwargs,
+        )
+        return fake_state, bot, message
+
+    async def test_records_what_is_now_on_screen(self) -> None:
+        state, _, _ = await self._show(
+            _question(10, "A", file_id="cached"), started_at=123.5
+        )
+
+        assert state.data["current_question_id"] == 10
+        assert state.data["current_part"] == "A"
+        assert state.data["question_start_time"] == 123.5
+        assert state.data["waiting_for_answer"] is True
+
+    async def test_cached_file_id_incurs_no_debt(self) -> None:
+        state, _, _ = await self._show(_question(10, "A", file_id="cached"))
+
+        assert state.data["pending_file_id_cache"] is None
+
+    async def test_fresh_upload_parks_a_debt_carrying_question_identity(self) -> None:
+        state, _, _ = await self._show(_question(10, "A"), fresh_file_id="new-id")
+
+        assert state.data["pending_file_id_cache"] == (10, "A", "new-id")
+
+    async def test_upload_without_a_photo_in_the_response_incurs_no_debt(self) -> None:
+        state, _, _ = await self._show(_question(10, "A"), fresh_file_id=None)
+
+        assert state.data["pending_file_id_cache"] is None
+
+    async def test_each_render_clears_the_debt_the_round_settled(self) -> None:
+        state = FakeState(data={"pending_file_id_cache": (5, "A", "stale")})
+
+        await self._show(_question(10, "A", file_id="cached"), state=state)
+
+        assert state.data["pending_file_id_cache"] is None
+
+    async def test_current_index_advances_only_when_given(self) -> None:
+        without, _, _ = await self._show(_question(10, "A", file_id="cached"))
+        with_index, _, _ = await self._show(
+            _question(10, "A", file_id="cached"), current_index=4
+        )
+
+        assert "current_index" not in without.data
+        assert with_index.data["current_index"] == 4
+
+    async def test_part_a_goes_out_with_the_option_keyboard(self) -> None:
+        _, bot, message = await self._show(_question(10, "A", file_id="cached"))
+
+        assert bot.sent[0]["reply_markup"] is not None
+        assert message.answers == []
+
+    async def test_part_b_gets_a_follow_up_prompt_and_no_keyboard(self) -> None:
+        _, bot, message = await self._show(_question(11, "B", file_id="cached"))
+
+        assert bot.sent[0]["reply_markup"] is None
+        assert message.answers == [MSG_ENTER_ANSWER]
+
+    async def test_caption_and_parse_mode_reach_telegram(self) -> None:
+        _, bot, _ = await self._show(
+            _question(10, "A", file_id="cached"),
+            caption="Тема: Cells",
+            parse_mode="HTML",
+        )
+
+        assert bot.sent[0]["caption"] == "Тема: Cells"
+        assert bot.sent[0]["parse_mode"] == "HTML"
+
+
+class TestFileIdDebtSettlement:
+    def test_no_debt_reported_on_a_fresh_state(self) -> None:
+        assert has_unsettled_debt(RandomState(subject_id=1)) is False
+
+    def test_parked_debt_is_reported(self) -> None:
+        rnd = RandomState(subject_id=1, pending_file_id_cache=(5, "A", "file9"))
+        assert has_unsettled_debt(rnd) is True
+
+    async def test_settling_writes_the_parked_file_id(self) -> None:
+        uow = FakeUow()
+        rnd = RandomState(subject_id=1, pending_file_id_cache=(5, "A", "file9"))
+
+        await settle_file_id_debt(as_uow(uow), rnd)
+
+        assert uow.questions.cached == [(5, "A", "file9")]
+
+    async def test_settling_nothing_touches_no_rows(self) -> None:
+        uow = FakeUow()
+
+        await settle_file_id_debt(as_uow(uow), RandomState(subject_id=1))
+
+        assert uow.questions.cached == []
 
 
 class TestPickRandomQuestion:

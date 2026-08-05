@@ -232,13 +232,12 @@ class ImageCropper:
 
 
 class SegmentProcessor:
-    """Processor for image segment background removal."""
+    """Processor for image segment background removal.
 
-    # Expose module-level functions as static methods for backward compatibility
-    remove_color = staticmethod(remove_color)
-    remove_bg = staticmethod(remove_bg)
-    increase_darkness = staticmethod(increase_darkness)
-    add_white_background = staticmethod(add_white_background)
+    ``process`` is the whole interface. The four stages it composes stay
+    module-level functions in this file — import them directly if you need one
+    in isolation.
+    """
 
     def process(
         self,

@@ -1,7 +1,7 @@
 """Image extraction module."""
 
 from .answers_extractor import AnswersExtractor, ExamExtraction
-from .base import ExtractionResult
+from .base import ExtractionConfig, ExtractionResult
 from .book_extractor import BookExtractor
 from .exceptions import (
     APIError,
@@ -14,7 +14,7 @@ from .exceptions import (
 )
 from .manual_extractor import ManualExtractor
 from .page_extractor import PageExtractor
-from .progress import JSONProgressTracker, ProgressTracker
+from .progress import JSONProgressTracker
 from .tests_extractor import TestsExtractor
 from .utils import (
     IMAGE_EXTENSIONS,
@@ -35,17 +35,18 @@ __all__ = [
     "DirectoryNotFoundError",
     # Schemas
     "ExamExtraction",
+    # Configuration
+    "ExtractionConfig",
     # Exceptions
     "ExtractionError",
     "ExtractionResult",
     "ExtractionValidationError",
     "InvalidFilenameError",
+    # Progress tracking
     "JSONProgressTracker",
     "ManualExtractor",
     "ModelNotFoundError",
     "PageExtractor",
-    # Progress tracking
-    "ProgressTracker",
     "TestsExtractor",
     "count_total_images",
     "get_mode_values",

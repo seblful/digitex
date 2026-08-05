@@ -6,7 +6,7 @@ import structlog
 from PIL import Image
 
 from digitex.label_studio.client import LabelStudioClient
-from digitex.label_studio.geometry import pixel_to_percent
+from digitex.label_studio.geometry import local_file_path, pixel_to_percent
 from digitex.ml.predictors.prediction_result import SegmentationPredictionResult
 from digitex.ml.predictors.segmentation import YOLO_SegmentationPredictor
 
@@ -92,7 +92,7 @@ class TaskPredictor:
         Returns:
             List of Label Studio result dicts, or None if skipped.
         """
-        image_path = self._client.get_local_path(task)
+        image_path = local_file_path(task.data.get("image", ""))
         if image_path is None:
             logger.warning("skip_no_path", task_id=task.id)
             return None

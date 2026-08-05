@@ -9,10 +9,11 @@ from aiogram import Bot, Router, types
 
 from digitex.bot import fsm_data
 from digitex.bot.answer_flow import (
-    ask_question,
     evaluate_random_answer,
-    file_id_debt,
+    has_unsettled_debt,
     pick_random_question,
+    settle_file_id_debt,
+    show_question,
 )
 from digitex.bot.callbacks import AnswerCB, RandomFeedbackCB
 from digitex.bot.fsm_data import RandomState
@@ -66,21 +67,15 @@ async def start_random_question(
         return
     question, origin = picked
 
-    await fsm_data.merge(
+    await show_question(
+        bot,
+        message,
         state,
-        current_question_id=question.question_id,
-        current_part=question.part,
-        question_start_time=time.time(),
-        pending_file_id_cache=None,
-    )
-
-    caption = _build_caption(origin, rnd.topic_name)
-    debt = file_id_debt(
         question,
-        await ask_question(bot, message, question, caption=caption, parse_mode="HTML"),
+        started_at=time.time(),
+        caption=_build_caption(origin, rnd.topic_name),
+        parse_mode="HTML",
     )
-    if debt:
-        await fsm_data.merge(state, pending_file_id_cache=debt)
     await state.set_state(RandomTesting.answering)
 
 
@@ -154,9 +149,9 @@ async def on_random_feedback(
         await start_random_question(callback.message, state, callback.bot, pool)
     else:
         rnd = await fsm_data.load(state, RandomState)
-        if rnd.pending_file_id_cache is not None:
+        if has_unsettled_debt(rnd):
             async with UnitOfWork(pool) as uow:
-                await uow.questions.cache_file_id(*rnd.pending_file_id_cache)
+                await settle_file_id_debt(uow, rnd)
         await callback.message.answer(MSG_RANDOM_FINISH)
         await state.clear()
     await callback.answer()

@@ -1,9 +1,27 @@
-"""Shared extraction result type."""
+"""Shared extraction types — the run's configuration and its result."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+@dataclass(frozen=True)
+class ExtractionConfig:
+    """How a question image is detected and written.
+
+    Resolved once at the CLI boundary and passed down whole, so the page,
+    book, and subject levels no longer restate the same four arguments — and
+    the defaults live here rather than being respelled at each level.
+    """
+
+    model_path: Path
+    image_format: str = "jpg"
+    question_max_width: int = 2000
+    question_max_height: int = 2000
 
 
 @dataclass

@@ -1,32 +1,43 @@
-"""Shared SQL fragments and row types used by the repositories.
+"""Shared SQL builders and row types used by the repositories.
 
-Why this module exists. The five repositories all interpolate a ``Part``
-literal (``"A"`` / ``"B"``) into the SQL table name. Keeping the whitelist of
-safe table names plus the few query-building helpers in one place lets each
-repository file stay focused on its aggregate's reads and writes.
+Why this module exists. Questions live in two tables — ``part_a_questions`` and
+``part_b_questions`` — so nearly every question query either picks one table by
+part (:func:`question_select`) or runs over both and UNION ALLs the halves
+(:class:`BothParts`). The whitelist that makes interpolating a part into SQL
+safe lives here too, so each repository file stays focused on its aggregate's
+reads and writes.
+
+These names are public despite the module's underscore: three of the five
+repositories import them. The SELECT / JOIN / WHERE fragments they accept are
+repository-supplied literals, never user input — a part is the only value ever
+interpolated, and it must go through :func:`part_table`.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple, cast
 
 if TYPE_CHECKING:
     from typing import Any, LiteralString
 
-    from digitex.core.db.mapping import DictConn
+    from digitex.core.db.mapping import DictConn, DictRow
     from digitex.core.domain import Part
 
-# Whitelist of safe table names for f-string interpolation. Any code that
-# substitutes a Part into a SQL string MUST go through ``_part_table()``.
+# Whitelist of safe table names for interpolation. Any code that substitutes a
+# Part into a SQL string MUST go through ``part_table()``.
 _PART_TABLES = MappingProxyType({"A": "part_a_questions", "B": "part_b_questions"})
 
+# The two halves of every BothParts query, in the order results come back.
+PARTS: tuple[Part, Part] = ("A", "B")
 
-def _part_table(part: str) -> LiteralString:
+
+def part_table(part: str) -> LiteralString:
     """Return the SQL table name for the given part, or raise.
 
     The returned value is one of two whitelisted literals, so callers can
-    safely f-string it into a query and the result stays a ``LiteralString``
+    safely interpolate it into a query and the result stays a ``LiteralString``
     that ``psycopg.execute`` accepts.
     """
     try:
@@ -35,7 +46,8 @@ def _part_table(part: str) -> LiteralString:
         raise ValueError(f"Unknown part {part!r}; expected 'A' or 'B'") from e
 
 
-def _validate_part(part: str) -> Part:
+def validate_part(part: str) -> Part:
+    """Narrow a string to a ``Part``, or raise."""
     if part not in _PART_TABLES:
         raise ValueError(f"Unknown part {part!r}; expected 'A' or 'B'")
     return cast("Part", part)
@@ -71,42 +83,100 @@ class QuestionOrigin(NamedTuple):
 
 
 # ---------------------------------------------------------------------------
-# Question query fragments
+# Question queries
 # ---------------------------------------------------------------------------
 
+_QUESTION_COLUMNS = (
+    "q.question_id, '{part}' AS part, q.question_number,"
+    " b.a_num_options, i.telegram_file_id"
+)
+_ORIGIN_COLUMNS = "b.year_value, o.option_number, o.exam_type"
 
-def _question_base(part: Part) -> LiteralString:
-    """Question metadata + cached Telegram file_id, no BYTEA payload.
+_QUESTION_FROM = (
+    "SELECT {columns}"
+    "  FROM {table} q"
+    "  JOIN options o ON q.option_id = o.option_id"
+    "  JOIN books b ON o.book_id = b.book_id"
+    "  LEFT JOIN images i ON i.question_id = q.question_id AND i.part = '{part}'"
+)
 
-    The image bytes are deliberately not selected. Callers that need to upload
-    a fresh image (cache miss) fetch them via ``QuestionRepository.get_image``.
+
+def question_select(part: Part, *, with_origin: bool = False) -> LiteralString:
+    """One part's question metadata, optionally with its origin columns.
+
+    The BYTEA payload is deliberately not selected. Callers that need to upload
+    a fresh image (a cache miss) fetch the bytes via
+    :meth:`~digitex.core.db.repositories.question.QuestionRepository.get_image`.
+
+    With *with_origin*, the year / option / exam-type columns are added, which
+    is the only way the two question shapes differ.
     """
-    table = _part_table(part)
+    columns = _QUESTION_COLUMNS
+    if with_origin:
+        columns = f"{columns}, {_ORIGIN_COLUMNS}"
+    # Every substituted value is a literal, so the result stays a LiteralString.
     return (
-        f"SELECT q.question_id, '{part}' AS part, q.question_number,"
-        " b.a_num_options, i.telegram_file_id"
-        f"  FROM {table} q"
-        "  JOIN options o ON q.option_id = o.option_id"
-        "  JOIN books b ON o.book_id = b.book_id"
-        f"  LEFT JOIN images i ON i.question_id = q.question_id AND i.part = '{part}'"
+        _QUESTION_FROM.replace("{columns}", columns)
+        .replace("{table}", part_table(part))
+        .replace("{part}", part)
     )
 
 
-def _question_full(part: Part) -> LiteralString:
-    """Question metadata + origin (year/option/exam_type), no BYTEA payload."""
-    table = _part_table(part)
-    return (
-        f"SELECT q.question_id, '{part}' AS part, q.question_number,"
-        " b.a_num_options, i.telegram_file_id,"
-        " b.year_value, o.option_number, o.exam_type"
-        f"  FROM {table} q"
-        "  JOIN options o ON q.option_id = o.option_id"
-        "  JOIN books b ON o.book_id = b.book_id"
-        f"  LEFT JOIN images i ON i.question_id = q.question_id AND i.part = '{part}'"
-    )
+_BOTH_PARTS_HALF = (
+    "SELECT {select}"
+    " FROM {table} q"
+    " JOIN options o ON q.option_id = o.option_id"
+    " JOIN books b ON o.book_id = b.book_id"
+    " {joins}"
+    " {where}"
+)
 
 
-async def _get_or_create(
+@dataclass(frozen=True)
+class BothParts:
+    """A question query run over both part tables and UNION ALLed together.
+
+    *select* and *joins* are templates in which ``{part}`` expands to that
+    half's part literal, so one spelling covers both halves — there are no
+    separate overrides for the B side. ``JOIN options o`` and ``JOIN books b``
+    are always present, so ``o.*`` and ``b.*`` are available without asking.
+
+    :meth:`fetch` binds its parameters once per half, so callers pass each
+    value exactly once no matter that the SQL mentions it twice.
+    """
+
+    select: str
+    joins: str = ""
+    where: str = ""
+    order_by: str = ""
+
+    def _half(self, part: Part) -> str:
+        # Substitution is by ``replace``, not ``format``, so stray braces in a
+        # caller's fragment are harmless. Table and part go last so they also
+        # expand inside the injected select / joins / where.
+        return (
+            _BOTH_PARTS_HALF.replace("{select}", self.select)
+            .replace("{joins}", self.joins)
+            .replace("{where}", self.where)
+            .replace("{table}", part_table(part))
+            .replace("{part}", part)
+        )
+
+    def _sql(self) -> LiteralString:
+        union = " UNION ALL ".join(self._half(part) for part in PARTS)
+        if not self.order_by:
+            return cast("LiteralString", union)
+        return cast(
+            "LiteralString", f"SELECT * FROM ({union}) u ORDER BY {self.order_by}"
+        )
+
+    async def fetch(self, conn: DictConn, *params: Any) -> list[DictRow]:
+        """Run the query, binding *params* into each half of the union."""
+        cur = await conn.execute(self._sql(), params * len(PARTS))
+        return await cur.fetchall()
+
+
+async def get_or_create(
     conn: DictConn,
     table: str,
     id_col: str,
@@ -122,16 +192,14 @@ async def _get_or_create(
     values = list(where.values())
     placeholders = ", ".join(["%s"] * len(cols))
     col_list = ", ".join(cols)
-    conflict_cols = ", ".join(cols)
     # Re-assign the conflict columns to themselves so RETURNING always fires.
     update_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols)
     # Column names come from the caller-controlled ``where`` dict literals,
-    # never from user input — safe to interpolate. Cast restores the
-    # ``LiteralString`` shape psycopg's overload requires.
+    # never from user input — safe to interpolate.
     sql = cast(
         "LiteralString",
         f"INSERT INTO {table} ({col_list}) VALUES ({placeholders})"
-        f" ON CONFLICT ({conflict_cols}) DO UPDATE SET {update_clause}"
+        f" ON CONFLICT ({col_list}) DO UPDATE SET {update_clause}"
         f" RETURNING {id_col}",
     )
     cur = await conn.execute(sql, values)
@@ -140,70 +208,15 @@ async def _get_or_create(
     return row[id_col]
 
 
-async def _union_both_parts(
-    conn: DictConn,
-    select_a: str,
-    joins: str = "",
-    where: str = "",
-    order_by: str = "",
-    limit: str = "",
-    params: tuple = (),
-    select_b: str | None = None,
-    joins_b: str | None = None,
-) -> list[dict[str, Any]]:
-    """Run a UNION-ALL query across both ``part_*_questions`` tables.
-
-    The standard ``JOIN options o`` and ``JOIN books b`` are always added so
-    ``o.*`` / ``b.*`` are available. *select_b* / *joins_b* override the first
-    half when the two halves differ (e.g. a hard-coded ``'A'`` vs ``'B'`` part
-    literal).
-
-    Both halves share the same parameter list — *params* is duplicated when
-    bound, so each ``%s`` placeholder in *where* should appear in both halves.
-    """
-    if select_b is None:
-        select_b = select_a
-    if joins_b is None:
-        joins_b = joins
-
-    base = (
-        "SELECT {select}"
-        " FROM {table} q"
-        " JOIN options o ON q.option_id = o.option_id"
-        " JOIN books b ON o.book_id = b.book_id"
-        " {joins}"
-        " {where}"
-    )
-    union = (
-        base.format(select=select_a, table=_part_table("A"), joins=joins, where=where)
-        + " UNION ALL "
-        + base.format(
-            select=select_b, table=_part_table("B"), joins=joins_b, where=where
-        )
-    )
-    sql = union
-    if order_by or limit:
-        sql = f"SELECT * FROM ({union}) u"
-        if order_by:
-            sql += f" ORDER BY {order_by}"
-        if limit:
-            sql += f" LIMIT {limit}"
-    # SELECT/JOIN/WHERE fragments are caller-supplied literals from the
-    # repositories — never user input. ``str.format`` strips ``LiteralString``,
-    # so re-affirm the shape psycopg expects.
-    cur = await conn.execute(cast("LiteralString", sql), params + params)
-    return await cur.fetchall()
-
-
 __all__ = [
+    "PARTS",
+    "BothParts",
     "QuestionOrigin",
     "SessionInfo",
     "SubjectRow",
     "WrongAnswer",
-    "_get_or_create",
-    "_part_table",
-    "_question_base",
-    "_question_full",
-    "_union_both_parts",
-    "_validate_part",
+    "get_or_create",
+    "part_table",
+    "question_select",
+    "validate_part",
 ]
