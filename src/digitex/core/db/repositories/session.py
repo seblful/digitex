@@ -47,7 +47,7 @@ class SessionRepository:
             "INSERT INTO session_answers"
             "  (session_id, question_id, part, student_answer, is_correct, time_spent)"
             " VALUES (%s, %s, %s, %s, %s, %s)"
-            " ON CONFLICT (session_id, question_id) DO NOTHING",
+            " ON CONFLICT (session_id, question_id, part) DO NOTHING",
             (session_id, question_id, part, student_answer, is_correct, time_spent),
         )
 

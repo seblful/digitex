@@ -8,8 +8,6 @@ from shapely.geometry import Polygon
 from ultralytics import YOLO  # type: ignore[import-untyped]
 from ultralytics.engine.results import Results
 
-from digitex.utils import get_device
-
 from .prediction_result import SegmentationPredictionResult
 
 logger = structlog.get_logger()
@@ -34,7 +32,6 @@ class YOLO_SegmentationPredictor:
         """
         self.model_path = model_path
         self.simplify = simplify
-        self.device = get_device()
         if not torch.cuda.is_available():
             logger.info("CUDA not available, using CPU")
         self._model: YOLO | None = None

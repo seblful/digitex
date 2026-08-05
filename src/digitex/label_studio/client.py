@@ -9,10 +9,10 @@ logger = structlog.get_logger()
 class LabelStudioClient:
     """Adapter over the Label Studio SDK.
 
-    Deliberately narrow: ``get_unlabeled_tasks`` and ``upload_predictions``
-    are the only operations :class:`~digitex.label_studio.predictor.TaskPredictor`
-    performs, so they are the whole seam. Reading a task's local image path is
-    not here — that is pure URI parsing and lives in
+    Deliberately narrow: listing tasks, filtering them down to the unlabeled
+    ones, and uploading predictions are the only operations callers perform, so
+    they are the whole seam. Reading a task's local image path is not here —
+    that is pure URI parsing and lives in
     :mod:`digitex.label_studio.geometry`.
 
     Args:
@@ -23,7 +23,15 @@ class LabelStudioClient:
     def __init__(self, url: str, api_key: str) -> None:
         self._client = LabelStudio(base_url=url, api_key=api_key)
 
-    def _list_tasks(self, project_id: int) -> list:
+    def list_tasks(self, project_id: int) -> list:
+        """Return every task in a project, annotations included.
+
+        Args:
+            project_id: Label Studio project ID.
+
+        Returns:
+            List of task objects.
+        """
         tasks = list(self._client.tasks.list(project=project_id, fields="all"))
         logger.info("fetched_tasks", project_id=project_id, count=len(tasks))
         return tasks
@@ -37,7 +45,7 @@ class LabelStudioClient:
         Returns:
             List of unlabeled task objects without predictions.
         """
-        tasks = self._list_tasks(project_id)
+        tasks = self.list_tasks(project_id)
         unlabeled = []
         for t in tasks:
             if t.is_labeled:

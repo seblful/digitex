@@ -39,7 +39,12 @@ class PageDataCreator:
         ]
 
     def _save_image(self, img_path: Path, output_dir: Path) -> bool:
-        subject, year = self._parse_book_path(img_path)
+        try:
+            subject, year = self._parse_book_path(img_path)
+        except ValueError:
+            # Paths come from a user-supplied txt file in add_from_file.
+            logger.warning("Skipping unrecognized book path", path=str(img_path))
+            return False
         output_path = output_dir / training_page_name(subject, year, img_path.stem)
         if output_path.exists():
             return False

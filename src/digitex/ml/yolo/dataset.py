@@ -104,13 +104,15 @@ class DatasetCreator:
     # -- internals -----------------------------------------------------------
 
     @staticmethod
-    def _extract_filename(image_uri: str) -> str:
-        """Filename from a Label Studio local-files URI, or "" if unparseable."""
+    def _extract_filename(image_uri: str) -> str | None:
+        """Filename from a Label Studio local-files URI, or None if unparseable."""
         path = local_file_path(image_uri)
-        return path.name if path else ""
+        return path.name if path else None
 
     @staticmethod
-    def _parse_annotation(entry: dict, label2id: dict[str, int]) -> tuple[str, str]:
+    def _parse_annotation(
+        entry: dict, label2id: dict[str, int]
+    ) -> tuple[str | None, str]:
         """One export entry to ``(filename, YOLO label text)``.
 
         Polygons missing a label or their points are skipped with a warning —
@@ -150,6 +152,9 @@ class DatasetCreator:
         images_labels: dict[str, str] = {}
         for entry in annotations:
             filename, label_str = self._parse_annotation(entry, label2id)
+            if filename is None:
+                logger.warning("skipped_entry_no_local_path", image=entry.get("image"))
+                continue
             images_labels[filename] = label_str
 
         keys = list(images_labels)

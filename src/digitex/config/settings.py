@@ -12,6 +12,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
+LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
 
 def _load_env() -> None:
     env_name = os.environ.get("ENVIRONMENT") or os.environ.get(
@@ -208,13 +210,13 @@ class LoggingSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="LOGGING_", extra="ignore")
 
-    file_level: str = Field(
+    file_level: LogLevel = Field(
         default="DEBUG",
-        description="File logging level (DEBUG, INFO, WARNING, ERROR)",
+        description="File logging level",
     )
-    console_level: str = Field(
+    console_level: LogLevel = Field(
         default="INFO",
-        description="Console logging level (DEBUG, INFO, WARNING, ERROR)",
+        description="Console logging level",
     )
     log_file: Path = Field(
         default=Path("logs/app.log"),

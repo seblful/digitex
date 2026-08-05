@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from digitex.core.corpus import ManualImageName
 from digitex.extractors.exceptions import InvalidFilenameError
 from digitex.extractors.manual_extractor import ManualExtractor
 
@@ -29,11 +30,11 @@ class TestManualExtractorFilename:
 
     def test_parse_valid_filename(self, extractor: ManualExtractor) -> None:
         result = extractor._parse_filename(Path("2016_3_A_20.png"))
-        assert result == (2016, 3, "A", 20)
+        assert result == ManualImageName(year=2016, option=3, part="A", question=20)
 
     def test_parse_valid_filename_part_b(self, extractor: ManualExtractor) -> None:
         result = extractor._parse_filename(Path("2020_5_B_15.png"))
-        assert result == (2020, 5, "B", 15)
+        assert result == ManualImageName(year=2020, option=5, part="B", question=15)
 
     @pytest.mark.parametrize(
         "name",

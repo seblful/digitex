@@ -9,11 +9,13 @@ from aiogram import Bot, Router, types
 from aiogram.filters import CommandStart
 from aiogram.types import Message as TgMessage
 
+from digitex.bot import fsm_data
 from digitex.bot.callbacks import RegistrationCB
 from digitex.bot.constants import FALLBACK_NAME
 from digitex.bot.keyboards import admin_registration_kb, subjects_kb
 from digitex.bot.messages import (
     MSG_ADMIN_NEW_REQUEST,
+    MSG_ADMIN_ONLY,
     MSG_APPROVED_ADMIN,
     MSG_APPROVED_USER,
     MSG_ASK_NAME,
@@ -112,7 +114,7 @@ async def _normal_start(
         subjects = await uow.books.list_subjects()
 
     await state.clear()
-    await state.update_data(student_id=student.student_id)
+    await fsm_data.merge(state, student_id=student.student_id)
     await message.answer(
         MSG_GREETING.format(name=name),
         reply_markup=subjects_kb(subjects),
@@ -162,7 +164,7 @@ async def process_name(
     full_name = (message.text or "").strip()
 
     if not full_name:
-        await message.answer("Пожалуйста, введите ваши имя и фамилию:")
+        await message.answer(MSG_ASK_NAME, parse_mode="HTML")
         return
 
     async with UnitOfWork(pool) as uow:
@@ -200,9 +202,7 @@ async def handle_reg_callback(
     admin_user_id: int,
 ) -> None:
     if callback.from_user.id != admin_user_id:
-        await callback.answer(
-            "Только администратор может выполнять это действие.", show_alert=True
-        )
+        await callback.answer(MSG_ADMIN_ONLY, show_alert=True)
         return
 
     target_id = callback_data.telegram_id

@@ -1,6 +1,7 @@
 """Prediction orchestrator for Label Studio tasks."""
 
 from pathlib import Path
+from typing import Any, Protocol
 
 import structlog
 from PIL import Image
@@ -11,6 +12,13 @@ from digitex.ml.predictors.prediction_result import SegmentationPredictionResult
 from digitex.ml.predictors.segmentation import YOLO_SegmentationPredictor
 
 logger = structlog.get_logger()
+
+
+class LabelStudioTask(Protocol):
+    """The task attributes the prediction run reads off the SDK's objects."""
+
+    id: int
+    data: dict[str, Any]
 
 
 class TaskPredictor:
@@ -83,7 +91,7 @@ class TaskPredictor:
             )
         return ls_results
 
-    def _predict_task(self, task) -> list[dict] | None:
+    def _predict_task(self, task: LabelStudioTask) -> list[dict] | None:
         """Run prediction on a single Label Studio task.
 
         Args:

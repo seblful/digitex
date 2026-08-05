@@ -68,6 +68,23 @@ def get_mode_values(values: list[int]) -> set[int]:
     return {v for v, c in counter.items() if c == max_count}
 
 
+def apply_renames(changes: list[tuple[Path, Path]]) -> None:
+    """Apply ``(old, new)`` renames, routing every move through a temp directory.
+
+    A renumbering batch can map a file onto a name another file in the same
+    batch still holds, so moving directly onto the target would clobber it.
+
+    Args:
+        changes: (old_path, new_path) pairs to apply in order.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_dir = Path(tmp)
+        for old_path, new_path in changes:
+            temp_path = tmp_dir / new_path.name
+            shutil.move(str(old_path), str(temp_path))
+            shutil.move(str(temp_path), str(new_path))
+
+
 def renumber_folder_sequentially(
     folder: Path, dry_run: bool = True
 ) -> list[tuple[Path, Path]]:
@@ -106,24 +123,16 @@ def renumber_folder_sequentially(
             changes.append((old_path, new_path))
 
     if not dry_run and changes:
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_dir = Path(tmp)
-            for old_path, new_path in changes:
-                temp_path = tmp_dir / new_path.name
-                shutil.move(str(old_path), str(temp_path))
-                shutil.move(str(temp_path), str(new_path))
+        apply_renames(changes)
 
     return changes
 
 
-def renumber_directory_tree(
-    root: Path, subject: str | None = None, dry_run: bool = True
-) -> int:
+def renumber_directory_tree(root: Path, dry_run: bool = True) -> int:
     """Renumber all image folders in a directory tree.
 
     Args:
         root: Root directory to search for image folders.
-        subject: Optional subject filter.
         dry_run: If True, only preview changes.
 
     Returns:
@@ -135,15 +144,19 @@ def renumber_directory_tree(
         return 0
 
     def find_image_folders(current: Path) -> list[Path]:
-        """Find folders that contain images."""
-        for item in current.iterdir():
-            if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS:
-                return [current]
+        """Find every folder in the tree that directly holds images."""
+        entries = sorted(current.iterdir())
+        if any(
+            item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS
+            for item in entries
+        ):
+            return [current]
+
+        folders: list[Path] = []
+        for item in entries:
             if item.is_dir():
-                if subject and current.parent.name != subject:
-                    continue
-                return find_image_folders(item)
-        return []
+                folders.extend(find_image_folders(item))
+        return folders
 
     for folder in find_image_folders(root):
         changes = renumber_folder_sequentially(folder, dry_run=dry_run)

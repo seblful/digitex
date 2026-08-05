@@ -32,27 +32,6 @@ class InvalidFilenameError(ExtractionError, ValueError):
         super().__init__(message, context={**(context or {}), "filename": filename})
 
 
-class ConflictResolutionError(ExtractionError):
-    """Raised when a file conflict cannot be resolved."""
-
-    def __init__(
-        self,
-        file_path: Path | str,
-        reason: str,
-        context: dict | None = None,
-    ) -> None:
-        message = f"Cannot resolve conflict for {file_path}: {reason}"
-        super().__init__(
-            message, context={**(context or {}), "file_path": str(file_path)}
-        )
-
-
-class ExtractionValidationError(ExtractionError):
-    """Raised when extraction validation fails."""
-
-    pass
-
-
 class ModelNotFoundError(ExtractionError, FileNotFoundError):
     """Raised when a required ML model file is not found."""
 

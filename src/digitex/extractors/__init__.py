@@ -5,10 +5,8 @@ from .base import ExtractionConfig, ExtractionResult
 from .book_extractor import BookExtractor
 from .exceptions import (
     APIError,
-    ConflictResolutionError,
     DirectoryNotFoundError,
     ExtractionError,
-    ExtractionValidationError,
     InvalidFilenameError,
     ModelNotFoundError,
 )
@@ -31,7 +29,6 @@ __all__ = [
     # Extractors
     "AnswersExtractor",
     "BookExtractor",
-    "ConflictResolutionError",
     "DirectoryNotFoundError",
     # Schemas
     "ExamExtraction",
@@ -40,7 +37,6 @@ __all__ = [
     # Exceptions
     "ExtractionError",
     "ExtractionResult",
-    "ExtractionValidationError",
     "InvalidFilenameError",
     # Progress tracking
     "JSONProgressTracker",

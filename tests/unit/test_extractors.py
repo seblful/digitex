@@ -169,6 +169,31 @@ class TestTestsExtractor:
         # Progress persists without the caller asking for a save.
         assert '"2020"' in (data_dir / PROGRESS_FILE).read_text()
 
+    def test_extract_does_not_record_a_year_whose_pages_failed(
+        self, tmp_path: Path
+    ) -> None:
+        """A partially-failed book stays retryable.
+
+        BookExtractor reports ``success=True`` alongside per-page errors, and a
+        year written to the progress file is skipped on every later run.
+        """
+        year_dir = tmp_path / "books" / "math" / "images" / "2020"
+        year_dir.mkdir(parents=True)
+        _write_page(year_dir, "page_1.jpg")
+        _write_page(year_dir, "page_2.jpg")
+
+        data_dir = tmp_path / "data"
+        pages = _RecordingPageExtractor(fail_on="page_2.jpg")
+        extractor = self._extractor(tmp_path, data_dir=data_dir)
+        extractor._book_extractor = BookExtractor(
+            _config(), page_extractor=pages.as_page_extractor()
+        )
+
+        result = extractor.extract("math")
+
+        assert result.errors
+        assert not (data_dir / PROGRESS_FILE).exists()
+
 
 class TestExtractionResult:
     def test_success_result(self) -> None:

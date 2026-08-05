@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from typing import Any, LiteralString
 
     from digitex.core.db.mapping import DictConn, DictRow
-    from digitex.core.domain import Part
+    from digitex.core.domain import ExamType, Part
 
 # Whitelist of safe table names for interpolation. Any code that substitutes a
 # Part into a SQL string MUST go through ``part_table()``.
@@ -79,7 +79,7 @@ class WrongAnswer(NamedTuple):
 class QuestionOrigin(NamedTuple):
     year: int
     option_number: int
-    exam_type: str
+    exam_type: ExamType
 
 
 # ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ from digitex.core.domain import AuthorizedUser
 
 if TYPE_CHECKING:
     from digitex.core.db.mapping import DictConn
+    from digitex.core.domain import RegistrationStatus
 
 
 class AuthorizedUserRepository:
@@ -16,14 +17,6 @@ class AuthorizedUserRepository:
 
     def __init__(self, conn: DictConn) -> None:
         self._conn = conn
-
-    async def get_status(self, telegram_id: int) -> str | None:
-        cur = await self._conn.execute(
-            "SELECT status FROM authorized_users WHERE telegram_id = %s",
-            (telegram_id,),
-        )
-        row = await cur.fetchone()
-        return row["status"] if row else None
 
     async def create_request(
         self,
@@ -58,7 +51,7 @@ class AuthorizedUserRepository:
         return await self._set_status(telegram_id, admin_id, "rejected")
 
     async def _set_status(
-        self, telegram_id: int, admin_id: int, status: str
+        self, telegram_id: int, admin_id: int, status: RegistrationStatus
     ) -> AuthorizedUser:
         cur = await self._conn.execute(
             "UPDATE authorized_users"

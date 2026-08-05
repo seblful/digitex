@@ -191,6 +191,32 @@ class TestPageExtractorExtract:
 
         assert (tmp_path / "1" / "B" / "1.jpg").exists()
 
+    @pytest.mark.parametrize(
+        "text",
+        ["Часть Б", "ЧАСТЬ Б", "часть б", "ЧАСТЬ B"],
+        ids=["title-case", "upper-case", "lower-case", "latin-b"],
+    )
+    def test_part_b_marker_is_read_whatever_its_casing(
+        self, tmp_path: Path, text: str
+    ) -> None:
+        """The part word's second letter is a Cyrillic A.
+
+        It transliterates to a Latin "A", so stripping the word has to happen
+        after the uppercase — otherwise every Part B marker reads as Part A.
+        """
+        result = SegmentationPredictionResult(
+            ids=[2, 0],
+            polygons=[PART_REGION, QUESTION_REGION],
+            id2label=self.ID2LABEL,
+        )
+        image = Image.new("RGB", (300, 300), color="white")
+
+        _extractor(result, text=text).extract(
+            image, tmp_path, PageExtractionState(option=1, part="A", question=5)
+        )
+
+        assert (tmp_path / "1" / "B" / "1.jpg").exists()
+
     def test_unreadable_markers_leave_state_untouched(self, tmp_path: Path) -> None:
         result = SegmentationPredictionResult(
             ids=[1, 2, 0],

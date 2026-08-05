@@ -132,7 +132,7 @@ class AnswersExtractor:
             result[option] = {label: answers[option][label] for label in sorted_labels}
         return result
 
-    def _extract_year_and_part(self, image_path: Path) -> tuple[int, int]:
+    def _extract_year_and_sheet(self, image_path: Path) -> tuple[int, int]:
         parsed = parse_answer_sheet_stem(image_path.stem)
         if parsed is None:
             raise ValueError(
@@ -164,10 +164,12 @@ class AnswersExtractor:
         years_data: dict[int, dict[str, dict[str, str]]] = {}
         errors: list[str] = []
         skipped_years: set[int] = set()
+        failed_years: set[int] = set()
 
         for image_path in tqdm(image_files, desc=f"Extracting {subject} answers"):
+            year: int | None = None
             try:
-                year, _ = self._extract_year_and_part(image_path)
+                year, _ = self._extract_year_and_sheet(image_path)
                 year_dir = self._output_dir / subject / str(year)
                 if (year_dir / "answers.json").exists():
                     if year not in skipped_years:
@@ -190,11 +192,26 @@ class AnswersExtractor:
                     )
             except Exception as e:
                 msg = f"Failed to process {image_path.name}: {e}"
-                logger.error(msg)
+                logger.error(
+                    "Failed to process answer sheet",
+                    image_path=str(image_path),
+                    error=str(e),
+                )
                 errors.append(msg)
+                if year is not None:
+                    failed_years.add(year)
 
         processed_count = len(skipped_years)
         for year, answers in years_data.items():
+            # A year's answers span several sheets. Writing a partial file would
+            # make the next run skip the year and never recover the rest.
+            if year in failed_years:
+                logger.warning(
+                    "Not writing answers, some sheets failed",
+                    subject=subject,
+                    year=year,
+                )
+                continue
             year_dir = self._output_dir / subject / str(year)
             year_dir.mkdir(parents=True, exist_ok=True)
             (year_dir / "answers.json").write_text(

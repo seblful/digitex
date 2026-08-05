@@ -27,6 +27,7 @@ from digitex.bot.callbacks import (
     YearCB,
 )
 from digitex.bot.messages import (
+    MSG_KB_APPROVE,
     MSG_KB_CE,
     MSG_KB_CT,
     MSG_KB_FINISH,
@@ -34,6 +35,7 @@ from digitex.bot.messages import (
     MSG_KB_PART_A,
     MSG_KB_PART_B,
     MSG_KB_RANDOM,
+    MSG_KB_REJECT,
     MSG_KB_STANDARD,
     MSG_KB_TOPICS,
     MSG_OPTION_PREFIX,
@@ -147,11 +149,11 @@ def admin_registration_kb(telegram_id: int) -> InlineKeyboardMarkup:
     return _grid(
         (
             (
-                "✅ Подтвердить",
+                MSG_KB_APPROVE,
                 RegistrationCB(action="approve", telegram_id=telegram_id).pack(),
             ),
             (
-                "❌ Отклонить",
+                MSG_KB_REJECT,
                 RegistrationCB(action="reject", telegram_id=telegram_id).pack(),
             ),
         ),

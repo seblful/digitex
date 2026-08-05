@@ -25,6 +25,8 @@ from digitex.bot.messages import (
     MSG_NO_RANDOM_QUESTION,
     MSG_NO_TOPIC_QUESTION,
     MSG_RANDOM_FINISH,
+    MSG_RANDOM_ORIGIN,
+    MSG_RANDOM_TOPIC,
     MSG_WRONG_ANSWER,
 )
 from digitex.bot.states import RandomTesting
@@ -34,18 +36,21 @@ if TYPE_CHECKING:
     from aiogram.fsm.context import FSMContext
     from psycopg_pool import AsyncConnectionPool
 
+    from digitex.core.db.repositories._common import QuestionOrigin
+
 router = Router()
 
 
-def _build_caption(origin, topic_name: str | None) -> str:
+def _build_caption(origin: QuestionOrigin, topic_name: str | None) -> str:
     exam_label = MSG_EXAM_CE if origin.exam_type == "CE" else MSG_EXAM_CT
-    spoiler = (
-        f"<tg-spoiler>{exam_label} {origin.year} год,"
-        f" вариант {origin.option_number}</tg-spoiler>"
+    origin_line = MSG_RANDOM_ORIGIN.format(
+        exam_label=exam_label,
+        year=origin.year,
+        option_number=origin.option_number,
     )
     if topic_name:
-        return f"Тема: {topic_name}\n{spoiler}"
-    return spoiler
+        return MSG_RANDOM_TOPIC.format(topic_name=topic_name, origin=origin_line)
+    return origin_line
 
 
 async def start_random_question(
@@ -141,7 +146,7 @@ async def on_random_feedback(
     pool: AsyncConnectionPool,
 ) -> None:
     if not isinstance(callback.message, types.Message):
-        await callback.answer("Ошибка: сообщение недоступно")
+        await callback.answer()
         return
 
     if callback_data.action == "next":

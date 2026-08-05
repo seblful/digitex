@@ -1,7 +1,5 @@
 """Manual extractor for integrating manually cropped question images."""
 
-import shutil
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -13,8 +11,13 @@ from digitex.core.corpus import IMAGE_EXTENSIONS, ManualImageName
 from digitex.core.processors import SegmentProcessor, resize_image
 from digitex.extractors.base import ExtractionResult
 from digitex.extractors.exceptions import InvalidFilenameError
+from digitex.extractors.utils import apply_renames
 
 logger = structlog.get_logger()
+
+# A pixel darker than this on every channel is treated as flattened-away
+# transparency rather than ink.
+FLATTENED_BG_MAX_CHANNEL = 50
 
 
 class ManualExtractor:
@@ -46,14 +49,14 @@ class ManualExtractor:
         self.output_dir = output_dir
         self._segment_processor = segment_processor or SegmentProcessor()
 
-    def _parse_filename(self, file_path: Path) -> tuple[int, int, str, int]:
-        """Parse manual image filename into components.
+    def _parse_filename(self, file_path: Path) -> ManualImageName:
+        """Parse a manual image filename into its named components.
 
         Args:
             file_path: Path to manual image file.
 
         Returns:
-            Tuple of (year, option, part, question_number).
+            The parsed filename.
 
         Raises:
             InvalidFilenameError: If filename doesn't match expected pattern.
@@ -61,30 +64,31 @@ class ManualExtractor:
         parsed = ManualImageName.parse(file_path.name)
         if parsed is None:
             raise InvalidFilenameError(file_path.name, "YYYY_OPTION_PART_QUESTION.png")
-        return parsed.year, parsed.option, parsed.part, parsed.question
+        return parsed
 
     def _preprocess(self, image: Image.Image) -> Image.Image:
-        """Apply same preprocessing as automated extraction.
+        """Repaint a flattened transparent background, then process as usual.
+
+        ``_process_file`` opens manual images as RGB, so a PNG whose
+        transparency was flattened arrives with near-black where the background
+        should be; those pixels are repainted white. The automated
+        page-extraction path needs no such step — it crops from an opaque scan.
 
         Args:
             image: PIL Image (already cropped manually).
 
         Returns:
-            Preprocessed RGB image ready for saving.
+            Preprocessed image ready for saving.
         """
-        if image.mode != "RGBA":
-            image = image.convert("RGBA")
+        img_array = np.array(image.convert("RGBA"))
+        background = np.all(img_array[:, :, :3] < FLATTENED_BG_MAX_CHANNEL, axis=2)
+        img_array[background, :3] = [255, 255, 255]
 
-        img_array = np.array(image)
-        if img_array.shape[2] == 4:
-            alpha = img_array[:, :, 3]
-            if np.all(alpha == 255):
-                mask = np.all(img_array[:, :, :3] < 50, axis=2)
-                if np.any(mask):
-                    img_array[mask, :3] = [255, 255, 255]
-                image = Image.fromarray(img_array, mode="RGBA")
-
-        cropped = resize_image(image, self.question_max_width, self.question_max_height)
+        cropped = resize_image(
+            Image.fromarray(img_array, mode="RGBA"),
+            self.question_max_width,
+            self.question_max_height,
+        )
         return self._segment_processor.process(cropped)
 
     def _get_existing_images(self, target_dir: Path) -> list[tuple[int, Path]]:
@@ -142,12 +146,7 @@ class ManualExtractor:
             changes.append((path, new_path))
 
         if not dry_run and changes:
-            with tempfile.TemporaryDirectory() as tmp:
-                tmp_dir = Path(tmp)
-                for old_path, new_path in changes:
-                    temp_path = tmp_dir / new_path.name
-                    shutil.move(str(old_path), str(temp_path))
-                    shutil.move(str(temp_path), str(new_path))
+            apply_renames(changes)
 
         return changes
 
@@ -162,24 +161,30 @@ class ManualExtractor:
             True if processed successfully, False otherwise.
         """
         try:
-            year, option, part, question_number = self._parse_filename(file_path)
+            parsed = self._parse_filename(file_path)
         except InvalidFilenameError as e:
             logger.error("Skipping invalid filename", error=str(e))
             return False
 
         subject = file_path.parent.name
         assert self.output_dir is not None
-        target_dir = self.output_dir / subject / str(year) / str(option) / part
-        target_path = target_dir / f"{question_number}.{self.image_format}"
+        target_dir = (
+            self.output_dir
+            / subject
+            / str(parsed.year)
+            / str(parsed.option)
+            / parsed.part
+        )
+        target_path = target_dir / f"{parsed.question}.{self.image_format}"
 
         logger.info(
             "Processing manual image",
             source=str(file_path),
             subject=subject,
-            year=year,
-            option=option,
-            part=part,
-            question=question_number,
+            year=parsed.year,
+            option=parsed.option,
+            part=parsed.part,
+            question=parsed.question,
             target=str(target_path),
         )
 
@@ -210,7 +215,7 @@ class ManualExtractor:
                 "Target file exists, shifting subsequent files",
                 target=str(target_path),
             )
-            self._renumber_files(target_dir, question_number, dry_run=False)
+            self._renumber_files(target_dir, parsed.question, dry_run=False)
 
         output_path = target_path.with_suffix(f".{self.image_format}")
         processed.save(output_path)

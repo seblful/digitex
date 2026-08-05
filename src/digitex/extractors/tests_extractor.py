@@ -110,7 +110,9 @@ class TestsExtractor:
                 )
             )
 
-            if book_result.success:
+            # Only a clean run counts as done — BookExtractor reports partial
+            # success, and a year marked completed is never retried.
+            if book_result.success and not book_result.errors:
                 self._progress.mark_completed(subject, year)
 
         return accumulated

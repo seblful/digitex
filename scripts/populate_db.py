@@ -23,7 +23,7 @@ from tqdm import tqdm
 from digitex.config import get_settings
 from digitex.core.corpus import IMAGE_EXTENSIONS
 from digitex.core.db import UnitOfWork, null_pool_lifespan
-from digitex.core.domain import QuestionKey, exam_type_for
+from digitex.core.domain import QuestionKey, exam_type_for, parse_exam_type
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -49,7 +49,7 @@ def _alembic_upgrade() -> None:
     command.upgrade(cfg, "head")
 
 
-async def _populate_year(  # noqa: PLR0912 — linear ETL pipeline; branches reflect the directory layout
+async def _populate_year(
     uow: UnitOfWork, subject_id: int, year_dir: Path
 ) -> tuple[int, int]:
     year = int(year_dir.name)
@@ -60,14 +60,6 @@ async def _populate_year(  # noqa: PLR0912 — linear ETL pipeline; branches ref
         answers = json.loads(answers_file.read_text(encoding="utf-8"))
     else:
         tqdm.write(f"  Warning: no answers.json in {year_dir}")
-
-    a_num_options = 0
-    for q_answers in answers.values():
-        for label, answer in q_answers.items():
-            if label.startswith("A") and answer.isdigit():
-                a_num_options = max(a_num_options, int(answer))
-    if a_num_options == 0:
-        a_num_options = 5
 
     book_id = await uow.books.get_book(subject_id, year)
     if book_id is None:
@@ -105,7 +97,7 @@ async def _populate_year(  # noqa: PLR0912 — linear ETL pipeline; branches ref
             )
 
             for img_file in img_files:
-                key = QuestionKey(part=part_dir.name, number=int(img_file.stem))  # type: ignore[arg-type]
+                key = QuestionKey.parse(f"{part_dir.name}{img_file.stem}")
                 raw_answer = option_answers.get(str(key))
                 if raw_answer:
                     try:
@@ -148,20 +140,26 @@ async def _populate_topics(pool, subject_id: int, subject_dir: Path) -> int:
                 book_id = await uow.books.get_book(subject_id, year)
                 if book_id is None:
                     continue
-                for exam_type, keys in exam_types.items():
+                for exam_type_name, keys in exam_types.items():
+                    exam_type = parse_exam_type(exam_type_name)
                     option_numbers = await uow.books.list_options(book_id, exam_type)
                     for key in keys:
-                        part = key[0]
-                        qnum = int(key[1:])
+                        question_key = QuestionKey.parse(key)
                         for option_number in option_numbers:
                             option_id = await uow.books.get_option_id(
                                 book_id, option_number
                             )
                             await uow.questions.delete_topic(
-                                option_id, qnum, part, topic_name
+                                option_id,
+                                question_key.number,
+                                question_key.part,
+                                topic_name,
                             )
                             await uow.questions.upsert_topic(
-                                option_id, qnum, part, topic_name
+                                option_id,
+                                question_key.number,
+                                question_key.part,
+                                topic_name,
                             )
         return await uow.questions.count_topics()
 

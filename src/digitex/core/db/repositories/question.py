@@ -17,7 +17,7 @@ from digitex.core.domain import Part, Question
 
 if TYPE_CHECKING:
     from digitex.core.db.mapping import DictConn
-    from digitex.core.domain import QuestionKey
+    from digitex.core.domain import ExamType, QuestionKey
 
 
 def _row_to_question(row: dict[str, Any]) -> Question:
@@ -192,7 +192,7 @@ class QuestionRepository:
         self,
         subject_id: int,
         part: str,
-        exam_type: str | None = None,
+        exam_type: ExamType | None = None,
     ) -> int:
         # ORDER BY RANDOM() forces a full scan + per-row random() evaluation.
         # COUNT + OFFSET scans only OFFSET+1 rows on the second query and keeps
@@ -255,16 +255,6 @@ class QuestionRepository:
             )
         pick = rows[secrets.randbelow(len(rows))]
         return pick["question_id"], pick["part"]
-
-    async def get_question_origin(self, question_id: int) -> QuestionOrigin:
-        rows = await BothParts(
-            select="b.year_value, o.option_number, o.exam_type",
-            where="WHERE q.question_id = %s",
-        ).fetch(self._conn, question_id)
-        if not rows:
-            raise KeyError(f"Origin not found for question {question_id}")
-        r = rows[0]
-        return QuestionOrigin(r["year_value"], r["option_number"], r["exam_type"])
 
     async def get_full(
         self, question_id: int, part: str

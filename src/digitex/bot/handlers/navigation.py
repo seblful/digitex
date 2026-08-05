@@ -149,7 +149,9 @@ async def on_topic_selected(
         return
 
     nav = await fsm_data.load(state, NavigationState)
-    if not nav.topic_names:
+    # The index comes off a keyboard that may have been built for a different
+    # subject's (longer) topic list.
+    if not nav.topic_names or not 0 <= callback_data.index < len(nav.topic_names):
         await callback.answer()
         return
     topic_name = nav.topic_names[callback_data.index]

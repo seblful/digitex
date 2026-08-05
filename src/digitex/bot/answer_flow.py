@@ -157,13 +157,22 @@ async def _ask_question(
 # ---------------------------------------------------------------------------
 
 
+async def _attach_image_on_miss(uow: UnitOfWork, question: Question) -> Question:
+    """Graft the image bytes on when the question has no cached ``file_id``.
+
+    ``renderer.send_question`` needs ``image_data`` exactly when
+    ``telegram_file_id`` is absent, so both rounds settle that here.
+    """
+    if question.telegram_file_id:
+        return question
+    image_data = await uow.questions.get_image(question.question_id, question.part)
+    return question.model_copy(update={"image_data": image_data})
+
+
 async def load_renderable(uow: UnitOfWork, question_id: int, part: str) -> Question:
     """Fetch a question's metadata, plus image bytes only on a cache miss."""
     question = await uow.questions.get(question_id, part)
-    if not question.telegram_file_id:
-        image_data = await uow.questions.get_image(question_id, part)
-        question = question.model_copy(update={"image_data": image_data})
-    return question
+    return await _attach_image_on_miss(uow, question)
 
 
 async def run_testing_round(
@@ -230,10 +239,7 @@ async def pick_random_question(
         return None
 
     question, origin = await uow.questions.get_full(qid, part)
-    if not question.telegram_file_id:
-        image_data = await uow.questions.get_image(qid, part)
-        question = question.model_copy(update={"image_data": image_data})
-    return question, origin
+    return await _attach_image_on_miss(uow, question), origin
 
 
 async def evaluate_random_answer(

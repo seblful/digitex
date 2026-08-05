@@ -197,6 +197,38 @@ class TestSessionRepository:
         assert info.year == 2024
         assert info.option_number == 1
 
+    async def test_records_both_parts_when_question_ids_collide(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        """The two part tables have separate sequences, so their ids overlap.
+
+        Keyed on ``(session_id, question_id)`` alone, the Part B row collided
+        with the Part A row already recorded for the session and
+        ``ON CONFLICT DO NOTHING`` discarded it — unscored and unreviewable.
+        """
+        async with UnitOfWork(pg_pool) as uow:
+            _, _, option_id = await _seed_option(uow)
+            qa = await uow.questions.get_or_create(
+                option_id, QuestionKey(part="A", number=1), "3"
+            )
+            qb = await uow.questions.get_or_create(
+                option_id, QuestionKey(part="B", number=1), "neutron"
+            )
+            student = await uow.students.get_or_create(42, "Bob")
+            session = await uow.sessions.create(student.student_id, option_id)
+
+            await uow.sessions.record_answer(
+                session.session_id, qa, "A", "3", is_correct=True, time_spent=1.0
+            )
+            await uow.sessions.record_answer(
+                session.session_id, qb, "B", "neutron", is_correct=True, time_spent=1.0
+            )
+            result = await uow.sessions.get_result(session.session_id)
+
+        assert qa == qb, "precondition: the ids must collide for this to mean anything"
+        assert result.max_score == 2
+        assert result.total_score == 2
+
 
 # ---------------------------------------------------------------------------
 # AuthorizedUserRepository
@@ -241,4 +273,3 @@ class TestAuthorizedUserRepository:
             await uow.authorized_users.create_request(10, "Tmp")
             await uow.authorized_users.delete_request(10)
             assert await uow.authorized_users.get_request(10) is None
-            assert await uow.authorized_users.get_status(10) is None

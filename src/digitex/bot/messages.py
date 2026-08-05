@@ -24,6 +24,7 @@ MSG_ADMIN_NEW_REQUEST = (
     "Имя: <b>{full_name}</b>\n"
     "Telegram: @{username} (ID: <code>{telegram_id}</code>)"
 )
+MSG_ADMIN_ONLY = "Только администратор может выполнять это действие."
 MSG_APPROVED_USER = "✅ Заявка подтверждена. Отправьте /start для начала."
 MSG_REJECTED_USER = "❌ Ваша заявка отклонена."
 MSG_APPROVED_ADMIN = "✅ Заявка {full_name} подтверждена."
@@ -80,8 +81,15 @@ MSG_KB_PART_A = "Часть A"
 MSG_KB_PART_B = "Часть B"
 MSG_KB_NEXT = "Следующий вопрос"
 MSG_KB_FINISH = "Завершить"
+MSG_KB_APPROVE = "✅ Подтвердить"
+MSG_KB_REJECT = "❌ Отклонить"
 
 MSG_OPTION_PREFIX = "Вариант"
+
+MSG_RANDOM_ORIGIN = (
+    "<tg-spoiler>{exam_label} {year} год, вариант {option_number}</tg-spoiler>"
+)
+MSG_RANDOM_TOPIC = "Тема: {topic_name}\n{origin}"
 
 MSG_HELP = (
     "📚 <b>Digitex Telegram Bot</b>\n\n"

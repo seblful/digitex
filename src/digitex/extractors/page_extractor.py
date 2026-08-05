@@ -215,10 +215,12 @@ class PageExtractor:
     ) -> str | None:
         """Extract part letter (A/B) from image region."""
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
-        text = self._text_extractor.extract_text(cropped)
-        text = text.replace("Часть", "").replace("часть", "").strip()
-        cyrillic_to_latin = str.maketrans("АБВ", "ABB")
-        text_normalized = text.upper().translate(cyrillic_to_latin)
+        text = self._text_extractor.extract_text(cropped).upper()
+        # Uppercase and drop the part word before transliterating. Its second
+        # letter is a Cyrillic A, which maps to a Latin "A" and would win the
+        # Part A test below for every marker, Part B included.
+        text = text.replace("ЧАСТЬ", "").strip()
+        text_normalized = text.translate(str.maketrans("АБВ", "ABB"))
 
         if "A" in text_normalized:
             return "A"

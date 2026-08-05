@@ -124,6 +124,7 @@ ignore = [
 "tests/**" = ["ARG", "PLR2004", "S101"]
 "src/digitex/bot/messages.py" = ["RUF001", "E501"]  # Russian user-facing strings; long format strings
 "tests/unit/test_answers_extractor.py" = ["RUF001"]  # Cyrillic/Latin normalization is under test
+"tests/unit/test_page_extractor.py" = ["RUF001"]  # Cyrillic part markers are under test
 "tests/unit/test_bot_messages.py" = ["RUF001"]  # Russian user-facing strings
 
 [tool.ruff.lint.pylint]

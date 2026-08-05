@@ -11,6 +11,7 @@ from digitex.core.db.repositories._common import (
 
 if TYPE_CHECKING:
     from digitex.core.db.mapping import DictConn
+    from digitex.core.domain import ExamType
 
 
 class BookRepository:
@@ -44,7 +45,7 @@ class BookRepository:
         self,
         book_id: int,
         option_number: int,
-        exam_type: str = "CT",
+        exam_type: ExamType = "CT",
     ) -> int:
         cur = await self._conn.execute(
             "INSERT INTO options (book_id, option_number, exam_type)"
@@ -74,7 +75,7 @@ class BookRepository:
         rows = await cur.fetchall()
         return [r["year_value"] for r in rows]
 
-    async def list_options(self, book_id: int, exam_type: str) -> list[int]:
+    async def list_options(self, book_id: int, exam_type: ExamType) -> list[int]:
         cur = await self._conn.execute(
             "SELECT option_number FROM options"
             " WHERE book_id = %s AND exam_type = %s ORDER BY option_number",

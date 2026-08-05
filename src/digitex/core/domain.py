@@ -10,12 +10,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime  # noqa: TC003 — Pydantic needs runtime type
-from typing import Final, Literal
+from typing import Final, Literal, cast
 
 from pydantic import BaseModel, Field
 
 ExamType = Literal["CE", "CT"]
 Part = Literal["A", "B"]
+RegistrationStatus = Literal["pending", "approved", "rejected"]
+
+_EXAM_TYPES: Final = ("CE", "CT")
 
 # From 2023 each year's books exist in two exam variants: CE (options 1-5)
 # and CT (the rest). Earlier years are CT only.
@@ -33,6 +36,17 @@ def exam_type_for(year: int, option_number: int) -> ExamType:
     if year_has_exam_types(year) and option_number <= _CE_MAX_OPTION:
         return "CE"
     return "CT"
+
+
+def parse_exam_type(raw: str) -> ExamType:
+    """Narrow a string to an ``ExamType``, or raise.
+
+    Raises:
+        ValueError: If *raw* is not one of the two exam types.
+    """
+    if raw not in _EXAM_TYPES:
+        raise ValueError(f"Unknown exam type {raw!r}; expected 'CE' or 'CT'")
+    return cast("ExamType", raw)
 
 
 @dataclass(frozen=True)
@@ -102,7 +116,7 @@ class AuthorizedUser(BaseModel):
     telegram_id: int
     full_name: str
     telegram_username: str | None = None
-    status: Literal["pending", "approved", "rejected"]
+    status: RegistrationStatus
     created_at: datetime
     handled_at: datetime | None = None
     handled_by: int | None = None
@@ -115,9 +129,11 @@ __all__ = [
     "Part",
     "Question",
     "QuestionKey",
+    "RegistrationStatus",
     "Session",
     "Student",
     "TestResult",
     "exam_type_for",
+    "parse_exam_type",
     "year_has_exam_types",
 ]

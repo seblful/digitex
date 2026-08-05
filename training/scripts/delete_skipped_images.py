@@ -11,6 +11,7 @@ import typer
 
 from digitex.config import get_settings
 from digitex.label_studio import LabelStudioClient
+from digitex.label_studio.geometry import local_file_path
 from digitex.logging import setup_logging
 
 _settings = get_settings()
@@ -23,14 +24,13 @@ app = typer.Typer(help="Delete local images for cancelled Label Studio tasks")
 def _collect_cancelled(
     client: LabelStudioClient, project_id: int
 ) -> list[tuple[int, str]]:
-    tasks = client.get_tasks(project_id)
-    logger.info("fetched_tasks", project_id=project_id, count=len(tasks))
+    tasks = client.list_tasks(project_id)
 
     cancelled: list[tuple[int, str]] = []
     for task in tasks:
         if not any(ann.get("was_cancelled", False) for ann in task.annotations):
             continue
-        image_path = client.get_local_path(task)
+        image_path = local_file_path(task.data.get("image", ""))
         path_str = str(image_path) if image_path else "unknown"
         cancelled.append((task.id, path_str))
         logger.debug("found_cancelled_task", task_id=task.id, path=path_str)

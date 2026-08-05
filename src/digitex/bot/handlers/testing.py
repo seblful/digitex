@@ -86,7 +86,16 @@ async def on_part_a_answer(
         await callback.answer()
         return
 
+    # Old keyboards stay live in the chat, so a tap can arrive for a question
+    # that is already answered — it would otherwise be recorded against the
+    # next, unseen one. Mirrors the Part B guard below.
+    testing = await fsm_data.load(state, TestingState)
+    if testing.current_part != "A" or not testing.waiting_for_answer:
+        await callback.answer()
+        return
+
     assert callback.bot is not None
+    await fsm_data.merge(state, waiting_for_answer=False)
     await _record_and_advance(
         callback.message, state, callback.bot, str(callback_data.value), pool
     )

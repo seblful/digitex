@@ -24,6 +24,8 @@ from digitex.core.db.repositories import (
 )
 
 if TYPE_CHECKING:
+    from types import TracebackType
+
     from psycopg_pool import AsyncConnectionPool
 
     from digitex.core.db.mapping import DictConn
@@ -72,7 +74,12 @@ class UnitOfWork:
             setattr(self, attr, repo_cls(conn))
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         try:
             await self._tx_cm.__aexit__(exc_type, exc_val, exc_tb)
         finally:

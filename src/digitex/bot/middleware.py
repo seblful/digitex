@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, TelegramObject
@@ -10,6 +10,8 @@ from aiogram.types import CallbackQuery, TelegramObject
 from digitex.core.db import UnitOfWork
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from psycopg_pool import AsyncConnectionPool
 
 
@@ -27,9 +29,9 @@ class AuthMiddleware(BaseMiddleware):
 
     async def __call__(
         self,
-        handler,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
         event: TelegramObject,
-        data: dict,
+        data: dict[str, Any],
     ) -> None:
         # Text messages (/start, /help, registration flow) always pass through —
         # their own handlers decide what to do with unauthorized users.

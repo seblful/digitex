@@ -20,8 +20,9 @@ def setup_logging(settings: Settings) -> None:
     Per ADR 0001, settings are injected at the outermost module boundary. The
     CLI entry points call ``get_settings()`` once and pass the result here.
     """
-    f_level = settings.logging.file_level
-    c_level = settings.logging.console_level
+    levels = logging.getLevelNamesMapping()
+    f_level = levels[settings.logging.file_level]
+    c_level = levels[settings.logging.console_level]
 
     file_path = settings.logging.log_file
     if not file_path.is_absolute():
@@ -32,10 +33,10 @@ def setup_logging(settings: Settings) -> None:
     file_handler = RotatingFileHandler(
         file_path, maxBytes=10_485_760, backupCount=3, encoding="utf-8"
     )
-    file_handler.setLevel(getattr(logging, f_level))
+    file_handler.setLevel(f_level)
 
     console_handler = logging.StreamHandler(sys.stderr)
-    console_handler.setLevel(getattr(logging, c_level))
+    console_handler.setLevel(c_level)
     console_handler.stream = codecs.getwriter("utf-8")(sys.stderr.buffer)
 
     logging.basicConfig(
@@ -58,7 +59,7 @@ def setup_logging(settings: Settings) -> None:
             structlog.dev.set_exc_info,
             renderer,
         ],
-        wrapper_class=structlog.make_filtering_bound_logger(getattr(logging, c_level)),
+        wrapper_class=structlog.make_filtering_bound_logger(c_level),
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,

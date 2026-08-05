@@ -12,7 +12,7 @@ from digitex.core.corpus import IMAGE_EXTENSIONS
 from digitex.extractors.base import ExtractionResult
 from digitex.extractors.exceptions import DirectoryNotFoundError
 from digitex.extractors.page_extractor import PageExtractionState, PageExtractor
-from digitex.utils import _natural_sort_key
+from digitex.utils import natural_sort_key
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -57,7 +57,7 @@ class BookExtractor:
                 for p in image_dir.iterdir()
                 if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
             ),
-            key=_natural_sort_key,
+            key=natural_sort_key,
         )
 
         if not images:
@@ -83,7 +83,11 @@ class BookExtractor:
                 processed_count += 1
             except Exception as e:
                 msg = f"Failed to process {image_path.name}: {e}"
-                logger.error(msg, image_path=str(image_path))
+                logger.error(
+                    "Failed to process page",
+                    image_path=str(image_path),
+                    error=str(e),
+                )
                 errors.append(msg)
 
         logger.info(

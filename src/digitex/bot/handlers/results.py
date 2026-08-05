@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from aiogram import Bot, Router, types
 
+from digitex.bot import fsm_data
+from digitex.bot.fsm_data import TestingState
 from digitex.bot.keyboards import subjects_kb
 from digitex.bot.messages import (
     MSG_EXAM_CE,
@@ -93,29 +95,22 @@ def _format_result_lines(
         lines.append("")
         lines.append(MSG_RESULTS_ERRORS)
 
-        if wrong_a:
+        for header, rows in (
+            (MSG_RESULTS_PART_A_H, wrong_a),
+            (MSG_RESULTS_PART_B_H, wrong_b),
+        ):
+            if not rows:
+                continue
             lines.append("")
-            lines.append(MSG_RESULTS_PART_A_H)
-            for row in wrong_a:
-                lines.append(
-                    MSG_RESULTS_ERROR_ITEM.format(
-                        qnum=row.question_number,
-                        user_ans=row.student_answer,
-                        correct_ans=row.correct_answer,
-                    )
+            lines.append(header)
+            lines.extend(
+                MSG_RESULTS_ERROR_ITEM.format(
+                    qnum=row.question_number,
+                    user_ans=row.student_answer,
+                    correct_ans=row.correct_answer,
                 )
-
-        if wrong_b:
-            lines.append("")
-            lines.append(MSG_RESULTS_PART_B_H)
-            for row in wrong_b:
-                lines.append(
-                    MSG_RESULTS_ERROR_ITEM.format(
-                        qnum=row.question_number,
-                        user_ans=row.student_answer,
-                        correct_ans=row.correct_answer,
-                    )
-                )
+                for row in rows
+            )
 
     return lines
 
@@ -126,11 +121,10 @@ async def show_results(
     bot: Bot,
     pool: AsyncConnectionPool,
 ) -> None:
-    data = await state.get_data()
-    session_id: int = data["session_id"]
+    testing = await fsm_data.load(state, TestingState)
 
     async with UnitOfWork(pool) as uow:
-        outcome = await finish_session(uow, session_id)
+        outcome = await finish_session(uow, testing.session_id)
 
     text = "\n".join(
         _format_result_lines(outcome.result, outcome.wrong_answers, outcome.info)

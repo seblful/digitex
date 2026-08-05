@@ -20,13 +20,13 @@ def extractor(tmp_path: Path) -> AnswersExtractor:
 
 
 class TestAnswersExtractor:
-    def test_extract_year_and_part(self, extractor: AnswersExtractor) -> None:
-        assert extractor._extract_year_and_part(Path("2016_1.jpg")) == (2016, 1)
-        assert extractor._extract_year_and_part(Path("2024_2.png")) == (2024, 2)
+    def test_extract_year_and_sheet(self, extractor: AnswersExtractor) -> None:
+        assert extractor._extract_year_and_sheet(Path("2016_1.jpg")) == (2016, 1)
+        assert extractor._extract_year_and_sheet(Path("2024_2.png")) == (2024, 2)
 
-    def test_extract_year_and_part_invalid(self, extractor: AnswersExtractor) -> None:
+    def test_extract_year_and_sheet_invalid(self, extractor: AnswersExtractor) -> None:
         with pytest.raises(ValueError, match="Invalid filename format"):
-            extractor._extract_year_and_part(Path("invalid.jpg"))
+            extractor._extract_year_and_sheet(Path("invalid.jpg"))
 
     def test_normalize_label_cyrillic_to_latin(
         self, extractor: AnswersExtractor
@@ -80,3 +80,73 @@ class TestAnswersExtractor:
         }
         sorted_answers = extractor._sort_answers(answers)
         assert list(sorted_answers.keys()) == ["1", "2", "5", "10"]
+
+
+class TestAnswersExtractorExtract:
+    """``extract`` over a directory of answer sheets, with ``ocr`` stubbed."""
+
+    @staticmethod
+    def _seed_sheets(tmp_path: Path, *names: str) -> None:
+        answers_dir = tmp_path / "books" / "bio" / "answers"
+        answers_dir.mkdir(parents=True)
+        for name in names:
+            (answers_dir / name).touch()
+
+    def test_writes_answers_when_every_sheet_succeeds(
+        self,
+        extractor: AnswersExtractor,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        self._seed_sheets(tmp_path, "2016_1.jpg", "2016_2.jpg")
+        monkeypatch.setattr(extractor, "ocr", lambda _: {"1": {"A1": "3"}})
+
+        result = extractor.extract("bio")
+
+        assert result.success
+        assert (tmp_path / "output" / "bio" / "2016" / "answers.json").exists()
+
+    def test_partial_failure_leaves_the_year_unwritten(
+        self,
+        extractor: AnswersExtractor,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A year spans several sheets, and a written year is never retried.
+
+        Committing the sheets that did succeed would strand the rest: the next
+        run sees answers.json and skips the year.
+        """
+        self._seed_sheets(tmp_path, "2016_1.jpg", "2016_2.jpg")
+
+        def ocr(image_path: Path) -> dict[str, dict[str, str]]:
+            if image_path.name == "2016_2.jpg":
+                raise RuntimeError("api timeout")
+            return {"1": {"A1": "3"}}
+
+        monkeypatch.setattr(extractor, "ocr", ocr)
+
+        result = extractor.extract("bio")
+
+        assert not result.success
+        assert not (tmp_path / "output" / "bio" / "2016" / "answers.json").exists()
+
+    def test_an_unaffected_year_is_still_written(
+        self,
+        extractor: AnswersExtractor,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        self._seed_sheets(tmp_path, "2016_1.jpg", "2017_1.jpg")
+
+        def ocr(image_path: Path) -> dict[str, dict[str, str]]:
+            if image_path.name == "2016_1.jpg":
+                raise RuntimeError("api timeout")
+            return {"1": {"A1": "3"}}
+
+        monkeypatch.setattr(extractor, "ocr", ocr)
+
+        extractor.extract("bio")
+
+        assert not (tmp_path / "output" / "bio" / "2016" / "answers.json").exists()
+        assert (tmp_path / "output" / "bio" / "2017" / "answers.json").exists()
