@@ -65,22 +65,29 @@ ______________________________________________________________________
   autogenerate). The `digitex-db` CLI is the entry point.
 - **Repository** — the only layer that touches raw SQL. One per aggregate
   (`QuestionRepository`, `StudentRepository`, `SessionRepository`,
-  `AuthorizedUserRepository`, `BookRepository`).
+  `AuthorizedUserRepository`, `BookRepository`). The shapes they return live in
+  `core/domain.py`, because callers outside the DB layer read them.
+- **`questions` table** — one table with a `part` column, not a table per Part.
+  The part is always a bound parameter, never interpolated into SQL, and
+  `question_id` is unique across both Parts — so `images`, `question_topics`
+  and `session_answers` can carry a real foreign key.
 - **Settings** — Pydantic-settings tree loaded once via `get_settings()`.
   Composed of `PathsSettings`, `BotSettings`, `DatabaseSettings`,
-  `ExtractionSettings`, `TrainingSettings`, `OpenRouterSettings`,
-  `LabelStudioSettings`, `LoggingSettings`, `DataSettings`, `AppSettings`.
-  Resolved once at module boundaries (the CLI entrypoints) and threaded
-  in — never imported deep in the call stack.
+  `ExtractionSettings`, `OpenRouterSettings`, `LabelStudioSettings`,
+  `LoggingSettings`, `DataSettings`, `TimezoneSettings`, `AppSettings`.
+  Resolved per command inside the CLI entrypoints and threaded in — never
+  imported deep in the call stack, and never at module import.
 
 ## ML terms
 
-- **Predictor** — a model wrapper that turns a PIL Image into a
-  `SegmentationPredictionResult` (class IDs + polygons). Currently only
-  `YOLO_SegmentationPredictor`.
-- **Detection** — one item in a Predictor's output: a `(label, polygon)`
-  pair. PageExtractor sorts detections top-to-bottom by polygon bounding
-  box before assembling Questions.
+- **Detection** — one thing the segmentation model found on a page: a resolved
+  `label` and a `PixelPolygon`. `YOLO_SegmentationPredictor.predict` returns a
+  `list[Detection]`; PageExtractor sorts them top-to-bottom by polygon bounding
+  box before assembling Questions. There is no predictor abstraction — the one
+  concrete predictor is named at each of its three call sites.
+- **Polygon spaces** — `PixelPolygon` (source-image pixels), `PercentPolygon`
+  (Label Studio's 0-100), `NormalizedPolygon` (YOLO label files' 0-1). Distinct
+  types, so a conversion cannot be applied twice by accident.
 
 ## Naming conventions worth preserving
 

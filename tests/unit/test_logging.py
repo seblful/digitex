@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 import structlog
 
-from digitex.config.settings import (
+from digitex.config import (
     LoggingSettings,
     LogLevel,
     PathsSettings,

@@ -52,7 +52,6 @@ class TestQuestion:
         assert q.question_number == 5
         assert q.image_data == b"fake_image_bytes"
         assert q.telegram_file_id is None
-        assert q.num_options == 5
 
     def test_question_with_optional_fields(self) -> None:
         q = Question(
@@ -61,10 +60,8 @@ class TestQuestion:
             question_number=10,
             image_data=b"more_bytes",
             telegram_file_id="AgAC...",
-            num_options=4,
         )
         assert q.telegram_file_id == "AgAC..."
-        assert q.num_options == 4
 
     def test_question_invalid_part(self) -> None:
         with pytest.raises(ValidationError):

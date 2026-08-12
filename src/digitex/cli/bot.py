@@ -13,15 +13,15 @@ from digitex.config import get_settings
 from digitex.core.db import null_pool_lifespan, pool_lifespan
 from digitex.logging import setup_logging
 
-# Per ADR 0001 — resolve settings once at the CLI boundary.
-_settings = get_settings()
-setup_logging(_settings)
 logger = structlog.get_logger()
 
 
 def main() -> None:
     """Start the Telegram bot in polling mode."""
-    settings = _settings
+    # Settings are resolved here, at the entry point, and passed down — so
+    # importing this module reads no files and installs no log handlers.
+    settings = get_settings()
+    setup_logging(settings)
     token = settings.bot.token
 
     if not token:

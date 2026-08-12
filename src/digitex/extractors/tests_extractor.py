@@ -28,6 +28,11 @@ class TestsExtractor:
     ``extract(subject)`` is the whole interface. Per-year progress is an
     implementation detail: completed years are skipped and newly finished ones
     recorded, with no tracker handed back to the caller.
+
+    ``book_extractor`` is the one injectable collaborator, mirroring
+    :class:`BookExtractor`'s own ``page_extractor``. Configuring anything
+    deeper — a conflict resolver, a stand-in predictor — means building the
+    chain from the bottom and passing the result in here.
     """
 
     def __init__(
@@ -36,13 +41,14 @@ class TestsExtractor:
         books_dir: Path,
         extraction_dir: Path,
         data_dir: Path | None = None,
+        book_extractor: BookExtractor | None = None,
     ) -> None:
         self.books_dir = books_dir
         self.extraction_dir = extraction_dir
         self.data_dir = data_dir or extraction_dir.parent / "data"
 
         self._progress = JSONProgressTracker(self.data_dir / PROGRESS_FILE)
-        self._book_extractor = BookExtractor(config)
+        self._book_extractor = book_extractor or BookExtractor(config)
 
     def _validate_books_dir(self) -> None:
         if not self.books_dir.exists():
@@ -98,13 +104,14 @@ class TestsExtractor:
 
             output_dir = self.extraction_dir / subject / year
             book_result = self._book_extractor.extract(year_dir, output_dir)
-            # Carry per-book errors and processed counts up to the caller.
-            # We treat processed=1 for the year as long as it didn't fail
-            # catastrophically; per-page failures live in book_result.errors.
+            # ``processed`` counts years here, not pages, so the book's own
+            # count is replaced by 1 — but its failed pages and messages carry
+            # up, or the caller would be told a partial year was clean.
             accumulated = accumulated.merge(
                 ExtractionResult(
                     success=book_result.success,
                     processed=1,
+                    failed=book_result.failed,
                     errors=book_result.errors,
                     warnings=book_result.warnings,
                 )

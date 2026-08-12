@@ -43,8 +43,8 @@ class BookExtractor:
     ) -> ExtractionResult:
         """Extract question images from a directory of images.
 
-        Failed page reads are counted as ``failed`` in the result metadata
-        and surfaced as errors — the caller can decide whether one bad page
+        Failed page reads are counted in ``failed`` and surfaced as ``errors``
+        alongside ``success=True`` — the caller decides whether one bad page
         invalidates the whole book.
         """
         if not image_dir.exists():
@@ -63,6 +63,9 @@ class BookExtractor:
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        # One state for the whole book: question numbering continues across
+        # page boundaries. A page that fails leaves it partly advanced, which
+        # is why a book with any error is never marked completed.
         state = PageExtractionState()
         processed_count = 0
         errors: list[str] = []
@@ -72,9 +75,7 @@ class BookExtractor:
         ):
             try:
                 image = Image.open(image_path)
-                state = self._page_extractor.extract(
-                    image, output_dir, state, image_path.name
-                )
+                self._page_extractor.extract(image, output_dir, state)
                 processed_count += 1
             except Exception as e:
                 msg = f"Failed to process {image_path.name}: {e}"
@@ -92,11 +93,9 @@ class BookExtractor:
             failed=len(errors),
         )
 
-        if errors:
-            return ExtractionResult(
-                success=True,  # partial success — caller can inspect errors
-                processed=processed_count,
-                errors=errors,
-                metadata={"failed": len(errors)},
-            )
-        return ExtractionResult.success_result(processed=processed_count)
+        return ExtractionResult(
+            success=True,  # partial success — caller can inspect errors
+            processed=processed_count,
+            failed=len(errors),
+            errors=errors,
+        )

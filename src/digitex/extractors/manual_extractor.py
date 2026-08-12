@@ -256,11 +256,12 @@ class ManualExtractor:
             logger.info("Dry run completed, no changes applied")
             return ExtractionResult.success_result(
                 processed=processed_count,
-                metadata={"dry_run": True, "failed": failed_count},
+                failed=failed_count,
+                metadata={"dry_run": True},
             )
 
         logger.info("Manual image processing completed")
         return ExtractionResult.success_result(
             processed=processed_count,
-            metadata={"failed": failed_count},
+            failed=failed_count,
         )

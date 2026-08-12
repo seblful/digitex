@@ -29,8 +29,8 @@ type DictConn = "AsyncConnection[DictRow]"
 def row_to_model[T: BaseModel](row: Mapping[str, Any], model: type[T]) -> T:
     """Validate a dict-shaped row against a Pydantic model.
 
-    Extra keys are dropped (the model's ``model_config`` decides this);
-    missing keys raise a ``ValidationError`` from Pydantic.
+    Extra keys are dropped, which is Pydantic's default for a model that does
+    not say otherwise; a missing key raises a ``ValidationError``.
     """
     return model.model_validate(dict(row))
 

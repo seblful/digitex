@@ -10,13 +10,28 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime  # noqa: TC003 — Pydantic needs runtime type
-from typing import Final, Literal, cast
+from typing import Final, Literal, NamedTuple, NewType, cast
 
 from pydantic import BaseModel, Field
 
 ExamType = Literal["CE", "CT"]
 Part = Literal["A", "B"]
 RegistrationStatus = Literal["pending", "approved", "rejected"]
+
+# A polygon crosses several coordinate spaces between the YOLO mask it starts
+# as and the crop or Label Studio annotation it ends as. Percent and normalized
+# points are both pairs of floats, so without distinct types a percent polygon
+# converted a second time type-checks and silently divides by 10 000. Each
+# space is its own type: whoever produces it wraps once, and every hop
+# downstream then says which space it is in.
+PixelPolygon = NewType("PixelPolygon", list[tuple[int, int]])
+"""Points in source-image pixels — what a :class:`Detection` carries."""
+
+PercentPolygon = NewType("PercentPolygon", list[list[float]])
+"""Points as percentages (0-100) of the image size — Label Studio's space."""
+
+NormalizedPolygon = NewType("NormalizedPolygon", list[tuple[float, float]])
+"""Points scaled to 0-1 — the space YOLO label files are written in."""
 
 _EXAM_TYPES: Final = ("CE", "CT")
 
@@ -27,6 +42,11 @@ _CE_MAX_OPTION: Final = 5
 
 # A Book carries this many Options, interleaved across its Pages.
 OPTIONS_PER_BOOK: Final = 10
+
+# A Part A question offers this many numbered answers, and the option keyboard
+# is built from it. Fixed across the corpus: ``books`` used to carry a per-book
+# override that nothing ever wrote, so every question already had five.
+PART_A_OPTION_COUNT: Final = 5
 
 
 def normalize_option_number(raw: int) -> int:
@@ -60,6 +80,20 @@ def parse_exam_type(raw: str) -> ExamType:
     if raw not in _EXAM_TYPES:
         raise ValueError(f"Unknown exam type {raw!r}; expected 'CE' or 'CT'")
     return cast("ExamType", raw)
+
+
+@dataclass(frozen=True)
+class Detection:
+    """One thing the segmentation model found on a page.
+
+    The label is already resolved against the model's class map and the polygon
+    is in source-image pixels, so a consumer needs neither the class id nor the
+    id-to-label mapping. One detection is one record, which is why there is no
+    "same number of labels as polygons" invariant to check.
+    """
+
+    label: str
+    polygon: PixelPolygon
 
 
 @dataclass(frozen=True)
@@ -101,7 +135,6 @@ class Question(BaseModel):
     # cached (renderers must check before passing the question to send).
     image_data: bytes = b""
     telegram_file_id: str | None = None
-    num_options: int = 5
 
 
 class Session(BaseModel):
@@ -135,18 +168,58 @@ class AuthorizedUser(BaseModel):
     handled_by: int | None = None
 
 
+# Narrow read-shapes the repositories hand back. They live here rather than
+# beside the SQL because they cross module boundaries — the bot's question round
+# and results screen both read them.
+
+
+class SubjectRow(NamedTuple):
+    id: int
+    name: str
+
+
+class SessionInfo(NamedTuple):
+    subject_name: str
+    year: int
+    option_number: int
+
+
+class WrongAnswer(NamedTuple):
+    question_number: int
+    part: str
+    student_answer: str
+    correct_answer: str
+
+
+class QuestionOrigin(NamedTuple):
+    """Which book and option a randomly drawn question came from."""
+
+    year: int
+    option_number: int
+    exam_type: ExamType
+
+
 __all__ = [
     "EXAM_TYPE_INTRO_YEAR",
     "OPTIONS_PER_BOOK",
+    "PART_A_OPTION_COUNT",
     "AuthorizedUser",
+    "Detection",
     "ExamType",
+    "NormalizedPolygon",
     "Part",
+    "PercentPolygon",
+    "PixelPolygon",
     "Question",
     "QuestionKey",
+    "QuestionOrigin",
     "RegistrationStatus",
     "Session",
+    "SessionInfo",
     "Student",
+    "SubjectRow",
     "TestResult",
+    "WrongAnswer",
     "exam_type_for",
     "normalize_option_number",
     "parse_exam_type",

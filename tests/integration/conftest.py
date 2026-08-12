@@ -2,6 +2,10 @@
 
 Tests here are skipped automatically when Docker or testcontainers are
 missing; run the unit suite alone with ``pytest tests/unit``.
+
+Set ``DIGITEX_TEST_DSN`` to run against an already-running Postgres instead of
+a container. **Every table in that database is truncated after each test**, so
+point it at a throwaway database and nothing else.
 """
 
 from __future__ import annotations
@@ -33,14 +37,22 @@ def event_loop_policy() -> asyncio.AbstractEventLoopPolicy:
 
 @pytest.fixture(scope="session")
 def pg_dsn() -> Iterator[str]:
-    """Start a Postgres container and yield its DSN.
+    """Yield a migrated Postgres DSN, from ``DIGITEX_TEST_DSN`` or a container.
 
     The container is started once per test session. Tests that depend on
     Postgres are skipped automatically if Docker or testcontainers are missing.
     """
+    external = os.environ.get("DIGITEX_TEST_DSN")
+    if external:
+        yield from _external_dsn(external)
+        return
+
     testcontainers = pytest.importorskip("testcontainers.postgres")
-    container = testcontainers.PostgresContainer("postgres:17-alpine")
     try:
+        # Constructing the container already reaches for the Docker daemon, so
+        # both steps have to be guarded or a stopped daemon errors every test
+        # instead of skipping it.
+        container = testcontainers.PostgresContainer("postgres:17-alpine")
         container.start()
     except Exception as e:
         pytest.skip(f"Cannot start Postgres container (is Docker running?): {e}")
@@ -54,7 +66,7 @@ def pg_dsn() -> Iterator[str]:
     os.environ["DATABASE_URL"] = dsn
 
     # Clear cached settings so the new DSN is picked up.
-    from digitex.config import settings as _settings_mod
+    from digitex import config as _settings_mod
 
     _settings_mod._settings = None
 
@@ -68,6 +80,25 @@ def pg_dsn() -> Iterator[str]:
             os.environ["DATABASE_URL"] = prev_db_url
         _settings_mod._settings = None
         container.stop()
+
+
+def _external_dsn(dsn: str) -> Iterator[str]:
+    """Migrate an already-running Postgres and yield its DSN."""
+    prev_db_url = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = dsn
+
+    from digitex import config as _settings_mod
+
+    _settings_mod._settings = None
+    try:
+        _run_migrations()
+        yield dsn
+    finally:
+        if prev_db_url is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = prev_db_url
+        _settings_mod._settings = None
 
 
 def _run_migrations() -> None:
@@ -112,8 +143,7 @@ _TABLES = (
     "authorized_users",
     "question_topics",
     "images",
-    "part_b_questions",
-    "part_a_questions",
+    "questions",
     "options",
     "books",
     "subjects",

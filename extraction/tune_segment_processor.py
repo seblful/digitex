@@ -37,16 +37,11 @@ def _extract_questions(
     max_width: int,
     max_height: int,
 ) -> list[Image.Image]:
-    result = predictor.predict(image)
-    if not result.ids:
-        return []
-
     segments: list[Image.Image] = []
-    for class_id, polygon in zip(result.ids, result.polygons, strict=True):
-        label = result.id2label.get(class_id, "unknown")
-        if label != "question":
+    for det in predictor.predict(image):
+        if det.label != "question":
             continue
-        cropped = cropper.cut_out_image_by_polygon(image, polygon)
+        cropped = cropper.cut_out_image_by_polygon(image, det.polygon)
         cropped = resize_image(cropped, max_width, max_height)
         segments.append(cropped)
 

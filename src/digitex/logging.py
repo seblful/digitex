@@ -11,14 +11,15 @@ from typing import TYPE_CHECKING
 import structlog
 
 if TYPE_CHECKING:
-    from digitex.config.settings import Settings
+    from digitex.config import Settings
 
 
 def setup_logging(settings: Settings) -> None:
     """Configure structlog for the application.
 
-    Per ADR 0001, settings are injected at the outermost module boundary. The
-    CLI entry points call ``get_settings()`` once and pass the result here.
+    Settings are injected rather than read here: each entry point resolves them
+    once and passes the result down, so importing a module never reads the
+    environment or installs a log handler as a side effect.
     """
     levels = logging.getLevelNamesMapping()
     f_level = levels[settings.logging.file_level]

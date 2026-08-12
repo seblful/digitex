@@ -50,6 +50,16 @@ class TestingState(BaseModel):
     pending_file_id_cache: tuple[int, Part, str] | None = None
 
 
+class RoundDebt(BaseModel):
+    """Just the ``file_id`` debt, read out of either mode's state.
+
+    Both round states declare the key; this model exists so the debt can be
+    settled without knowing which mode the conversation was in.
+    """
+
+    pending_file_id_cache: tuple[int, Part, str] | None = None
+
+
 class RandomState(BaseModel):
     """State for random / topic question mode (no Session recording)."""
 
@@ -84,6 +94,7 @@ async def merge(state: FSMContext, **fields: Any) -> None:
 __all__ = [
     "NavigationState",
     "RandomState",
+    "RoundDebt",
     "TestingState",
     "load",
     "merge",

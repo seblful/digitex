@@ -5,10 +5,10 @@ from pathlib import Path
 import structlog
 from PIL import Image
 
+from digitex.core.domain import Detection
 from digitex.label_studio.client import LabelStudioClient, LabelStudioTask
 from digitex.label_studio.geometry import local_file_path, pixel_to_percent
-from digitex.ml.predictors.prediction_result import SegmentationPredictionResult
-from digitex.ml.predictors.segmentation import YOLO_SegmentationPredictor
+from digitex.ml.predictors import YOLO_SegmentationPredictor
 
 logger = structlog.get_logger()
 
@@ -36,52 +36,35 @@ class TaskPredictor:
         self._predictor = YOLO_SegmentationPredictor(model_path, simplify=True)
         self._client = LabelStudioClient(url, api_key)
         self._model_version = model_version or Path(model_path).stem
-        self._classes: dict[int, str] = {}
-
-    @property
-    def classes(self) -> dict[int, str]:
-        """Get class ID to name mapping, loaded lazily from the model.
-
-        Returns:
-            Dictionary mapping class IDs to label names.
-        """
-        if not self._classes:
-            self._classes = dict(self._predictor.model.names)
-            logger.info("classes_loaded", classes=self._classes)
-        return self._classes
 
     def _to_ls_results(
         self,
-        result: SegmentationPredictionResult,
+        detections: list[Detection],
         img_width: int,
         img_height: int,
     ) -> list[dict]:
-        """Convert segmentation prediction to Label Studio result format.
+        """Convert detections to Label Studio result format.
 
         Args:
-            result: Segmentation prediction with pixel-coordinate polygons.
+            detections: Detections carrying pixel-coordinate polygons.
             img_width: Image width in pixels.
             img_height: Image height in pixels.
 
         Returns:
             List of Label Studio result dicts with polygon labels.
         """
-        ls_results = []
-        for class_id, polygon in zip(result.ids, result.polygons, strict=True):
-            points = pixel_to_percent(polygon, img_width, img_height)
-            label_name = self.classes.get(class_id, str(class_id))
-            ls_results.append(
-                {
-                    "from_name": "label",
-                    "to_name": "image",
-                    "type": "polygonlabels",
-                    "value": {
-                        "points": points,
-                        "polygonlabels": [label_name],
-                    },
-                }
-            )
-        return ls_results
+        return [
+            {
+                "from_name": "label",
+                "to_name": "image",
+                "type": "polygonlabels",
+                "value": {
+                    "points": pixel_to_percent(det.polygon, img_width, img_height),
+                    "polygonlabels": [det.label],
+                },
+            }
+            for det in detections
+        ]
 
     def _predict_task(self, task: LabelStudioTask) -> list[dict] | None:
         """Run prediction on a single Label Studio task.
@@ -105,12 +88,12 @@ class TaskPredictor:
             logger.warning("skip_image_open_failed", task_id=task.id, error=str(e))
             return None
         try:
-            result = self._predictor.predict(image)
+            detections = self._predictor.predict(image)
         except Exception as e:
             logger.warning("skip_prediction_failed", task_id=task.id, error=str(e))
             return None
         img_width, img_height = image.size
-        return self._to_ls_results(result, img_width, img_height)
+        return self._to_ls_results(detections, img_width, img_height)
 
     def predict_tasks(self, project_id: int) -> int:
         """Run predictions on all unannotated tasks in a project.

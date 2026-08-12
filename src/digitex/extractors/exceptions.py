@@ -1,4 +1,8 @@
-"""Custom exceptions for the extraction module."""
+"""Custom exceptions for the extraction module.
+
+Each subclass also inherits the closest builtin, so a caller that only knows
+about ``FileNotFoundError`` or ``ValueError`` still catches the right thing.
+"""
 
 from pathlib import Path
 
@@ -6,45 +10,36 @@ from pathlib import Path
 class ExtractionError(Exception):
     """Base exception for all extraction-related errors."""
 
-    def __init__(self, message: str, context: dict | None = None) -> None:
-        super().__init__(message)
-        self.message = message
-        self.context = context or {}
-
 
 class DirectoryNotFoundError(ExtractionError, FileNotFoundError):
     """Raised when a required directory does not exist."""
 
-    def __init__(self, path: Path | str, context: dict | None = None) -> None:
-        message = f"Directory not found: {path}"
-        super().__init__(message, context={**(context or {}), "path": str(path)})
+    def __init__(self, path: Path | str) -> None:
+        super().__init__(f"Directory not found: {path}")
+        self.path = Path(path)
 
 
 class InvalidFilenameError(ExtractionError, ValueError):
     """Raised when a filename doesn't match the expected pattern."""
 
-    def __init__(
-        self, filename: str, expected_format: str, context: dict | None = None
-    ) -> None:
-        message = (
+    def __init__(self, filename: str, expected_format: str) -> None:
+        super().__init__(
             f"Invalid filename format: {filename}. Expected format: {expected_format}"
         )
-        super().__init__(message, context={**(context or {}), "filename": filename})
+        self.filename = filename
 
 
 class ModelNotFoundError(ExtractionError, FileNotFoundError):
     """Raised when a required ML model file is not found."""
 
-    def __init__(self, model_path: Path | str, context: dict | None = None) -> None:
-        message = f"Model file not found: {model_path}"
-        super().__init__(
-            message, context={**(context or {}), "model_path": str(model_path)}
-        )
+    def __init__(self, model_path: Path | str) -> None:
+        super().__init__(f"Model file not found: {model_path}")
+        self.model_path = Path(model_path)
 
 
 class APIError(ExtractionError):
     """Raised when an external API call fails."""
 
-    def __init__(self, service: str, message: str, context: dict | None = None) -> None:
-        full_message = f"{service} API error: {message}"
-        super().__init__(full_message, context={**(context or {}), "service": service})
+    def __init__(self, service: str, message: str) -> None:
+        super().__init__(f"{service} API error: {message}")
+        self.service = service

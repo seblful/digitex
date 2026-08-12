@@ -80,12 +80,10 @@ async def on_part_a_answer(
     callback: types.CallbackQuery,
     callback_data: AnswerCB,
     state: FSMContext,
+    msg: types.Message,
+    bot: Bot,
     pool: AsyncConnectionPool,
 ) -> None:
-    if not isinstance(callback.message, types.Message):
-        await callback.answer()
-        return
-
     # Old keyboards stay live in the chat, so a tap can arrive for a question
     # that is already answered — it would otherwise be recorded against the
     # next, unseen one. Mirrors the Part B guard below.
@@ -94,17 +92,14 @@ async def on_part_a_answer(
         await callback.answer()
         return
 
-    assert callback.bot is not None
     await fsm_data.merge(state, waiting_for_answer=False)
-    await _record_and_advance(
-        callback.message, state, callback.bot, str(callback_data.value), pool
-    )
+    await _record_and_advance(msg, state, bot, str(callback_data.value), pool)
     await callback.answer()
 
 
 @router.message(Testing.answering)
 async def on_part_b_answer(
-    message: types.Message, state: FSMContext, pool: AsyncConnectionPool
+    message: types.Message, state: FSMContext, bot: Bot, pool: AsyncConnectionPool
 ) -> None:
     if not message.text:
         return
@@ -113,6 +108,5 @@ async def on_part_b_answer(
     if testing.current_part != "B" or not testing.waiting_for_answer:
         return
 
-    assert message.bot is not None
     await fsm_data.merge(state, waiting_for_answer=False)
-    await _record_and_advance(message, state, message.bot, message.text, pool)
+    await _record_and_advance(message, state, bot, message.text, pool)

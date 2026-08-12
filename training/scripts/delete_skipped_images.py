@@ -14,11 +14,15 @@ from digitex.label_studio import LabelStudioClient
 from digitex.label_studio.geometry import local_file_path
 from digitex.logging import setup_logging
 
-_settings = get_settings()
-setup_logging(_settings)
 logger = structlog.get_logger()
 
 app = typer.Typer(help="Delete local images for cancelled Label Studio tasks")
+
+
+@app.callback()
+def configure() -> None:
+    """Set up logging before the command runs."""
+    setup_logging(get_settings())
 
 
 def _collect_cancelled(
@@ -85,9 +89,10 @@ def delete_skipped_images(
         project_id: Label Studio project ID to scan.
         dry_run: If True, only log what would be deleted.
     """
+    settings = get_settings()
     client = LabelStudioClient(
-        url=_settings.label_studio.url,
-        api_key=_settings.label_studio.api_key,
+        url=settings.label_studio.url,
+        api_key=settings.label_studio.api_key,
     )
 
     cancelled = _collect_cancelled(client, project_id)

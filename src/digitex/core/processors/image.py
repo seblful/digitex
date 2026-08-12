@@ -8,6 +8,8 @@ import structlog
 from deskew import determine_skew
 from PIL import Image, ImageOps
 
+from digitex.core.domain import PixelPolygon
+
 logger = structlog.get_logger()
 
 DEFAULT_BG_THRESHOLD = 200
@@ -149,9 +151,7 @@ def _order_quad_points(pts: np.ndarray) -> np.ndarray:
     return rect
 
 
-def _polygon_to_quad(
-    polygon: list[tuple[int, int]], max_angle: float = 4.0
-) -> np.ndarray:
+def _polygon_to_quad(polygon: PixelPolygon, max_angle: float = 4.0) -> np.ndarray:
     pts = np.array(polygon, dtype=np.int32)
     rect = cv2.minAreaRect(pts)
 
@@ -205,7 +205,7 @@ class ImageCropper:
 
     @staticmethod
     def cut_out_image_by_polygon(
-        image: Image.Image, polygon: list[tuple[int, int]]
+        image: Image.Image, polygon: PixelPolygon
     ) -> Image.Image:
         if len(polygon) < 4:
             raise ValueError("Polygon must have 4 or more points")

@@ -18,10 +18,16 @@ def _config() -> ExtractionConfig:
 
 
 class _RecordingPageExtractor:
-    """Stands in for PageExtractor: records page names, optionally fails."""
+    """Stands in for PageExtractor: records page names, optionally fails.
+
+    Each page commits one question, so the state handed in comes back advanced
+    exactly as far as the number of pages processed — that is what lets the
+    cross-page numbering test observe the state being threaded.
+    """
 
     def __init__(self, fail_on: str | None = None) -> None:
         self.pages: list[str] = []
+        self.questions_on_arrival: list[int] = []
         self._fail_on = fail_on
 
     def extract(
@@ -29,12 +35,16 @@ class _RecordingPageExtractor:
         image: Image.Image,
         output_dir: Path,
         state: PageExtractionState,
-        source_image_name: str = "",
-    ) -> PageExtractionState:
-        if source_image_name == self._fail_on:
+    ) -> None:
+        # BookExtractor opens pages from disk, so PIL knows the filename —
+        # though only ImageFile declares it, hence the defaulted lookup.
+        name = Path(getattr(image, "filename", "")).name
+        if name == self._fail_on:
             raise ValueError("unreadable page")
-        self.pages.append(source_image_name)
-        return state
+        self.pages.append(name)
+        self.questions_on_arrival.append(state.question)
+        state.next_question()
+        state.commit_question()
 
     def as_page_extractor(self) -> PageExtractor:
         """This fake satisfies PageExtractor's contract structurally."""
@@ -88,7 +98,40 @@ class TestBookExtractor:
         assert result.processed == 1
         assert len(result.errors) == 1
         assert "page_1.jpg" in result.errors[0]
-        assert result.metadata == {"failed": 1}
+        assert result.failed == 1
+
+    def test_question_numbering_continues_across_pages(self, tmp_path: Path) -> None:
+        """One state spans the book, so page 2 does not restart at question 1."""
+        image_dir = tmp_path / "book"
+        image_dir.mkdir()
+        for name in ("page_1.jpg", "page_2.jpg", "page_3.jpg"):
+            _write_page(image_dir, name)
+        pages = _RecordingPageExtractor()
+        extractor = BookExtractor(_config(), page_extractor=pages.as_page_extractor())
+
+        extractor.extract(image_dir, tmp_path / "output")
+
+        # Each page sees the count the previous ones left behind, not zero.
+        assert pages.pages == ["page_1.jpg", "page_2.jpg", "page_3.jpg"]
+        assert pages.questions_on_arrival == [0, 1, 2]
+
+    def test_a_failed_page_leaves_the_state_advanced_for_the_next_one(
+        self, tmp_path: Path
+    ) -> None:
+        """A mid-book failure does not reset numbering for the pages after it."""
+        image_dir = tmp_path / "book"
+        image_dir.mkdir()
+        for name in ("page_1.jpg", "page_2.jpg", "page_3.jpg"):
+            _write_page(image_dir, name)
+        pages = _RecordingPageExtractor(fail_on="page_2.jpg")
+        extractor = BookExtractor(_config(), page_extractor=pages.as_page_extractor())
+
+        result = extractor.extract(image_dir, tmp_path / "output")
+
+        assert pages.pages == ["page_1.jpg", "page_3.jpg"]
+        assert pages.questions_on_arrival == [0, 1]
+        assert result.processed == 2
+        assert len(result.errors) == 1
 
 
 class TestTestsExtractor:
@@ -157,9 +200,12 @@ class TestTestsExtractor:
 
         data_dir = tmp_path / "data"
         pages = _RecordingPageExtractor()
-        extractor = self._extractor(tmp_path, data_dir=data_dir)
-        extractor._book_extractor = BookExtractor(
-            _config(), page_extractor=pages.as_page_extractor()
+        extractor = self._extractor(
+            tmp_path,
+            data_dir=data_dir,
+            book_extractor=BookExtractor(
+                _config(), page_extractor=pages.as_page_extractor()
+            ),
         )
 
         result = extractor.extract("math")
@@ -184,9 +230,12 @@ class TestTestsExtractor:
 
         data_dir = tmp_path / "data"
         pages = _RecordingPageExtractor(fail_on="page_2.jpg")
-        extractor = self._extractor(tmp_path, data_dir=data_dir)
-        extractor._book_extractor = BookExtractor(
-            _config(), page_extractor=pages.as_page_extractor()
+        extractor = self._extractor(
+            tmp_path,
+            data_dir=data_dir,
+            book_extractor=BookExtractor(
+                _config(), page_extractor=pages.as_page_extractor()
+            ),
         )
 
         result = extractor.extract("math")

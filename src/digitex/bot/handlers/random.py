@@ -9,10 +9,9 @@ from aiogram import Bot, Router, types
 
 from digitex.bot import fsm_data
 from digitex.bot.answer_flow import (
+    end_round,
     evaluate_random_answer,
-    has_unsettled_debt,
     pick_random_question,
-    settle_file_id_debt,
     show_question,
 )
 from digitex.bot.callbacks import AnswerCB, RandomFeedbackCB
@@ -35,7 +34,7 @@ if TYPE_CHECKING:
     from aiogram.fsm.context import FSMContext
     from psycopg_pool import AsyncConnectionPool
 
-    from digitex.core.db.repositories._common import QuestionOrigin
+    from digitex.core.domain import QuestionOrigin
 
 router = Router()
 
@@ -87,12 +86,9 @@ async def on_random_part_a_answer(
     callback: types.CallbackQuery,
     callback_data: AnswerCB,
     state: FSMContext,
+    msg: types.Message,
     pool: AsyncConnectionPool,
 ) -> None:
-    if not isinstance(callback.message, types.Message):
-        await callback.answer()
-        return
-
     # Old keyboards stay live in the chat, so a tap can arrive while a Part B
     # question is on screen — it would otherwise be scored against that
     # question and disclose its answer. Mirrors the Part B guard below.
@@ -101,7 +97,7 @@ async def on_random_part_a_answer(
         await callback.answer()
         return
 
-    await process_random_answer(callback.message, state, str(callback_data.value), pool)
+    await process_random_answer(msg, state, str(callback_data.value), pool)
     await callback.answer()
 
 
@@ -149,20 +145,13 @@ async def on_random_feedback(
     callback: types.CallbackQuery,
     callback_data: RandomFeedbackCB,
     state: FSMContext,
+    msg: types.Message,
+    bot: Bot,
     pool: AsyncConnectionPool,
 ) -> None:
-    if not isinstance(callback.message, types.Message):
-        await callback.answer()
-        return
-
     if callback_data.action == "next":
-        assert callback.bot is not None
-        await start_random_question(callback.message, state, callback.bot, pool)
+        await start_random_question(msg, state, bot, pool)
     else:
-        rnd = await fsm_data.load(state, RandomState)
-        if has_unsettled_debt(rnd):
-            async with UnitOfWork(pool) as uow:
-                await settle_file_id_debt(uow, rnd)
-        await callback.message.answer(MSG_RANDOM_FINISH)
-        await state.clear()
+        await msg.answer(MSG_RANDOM_FINISH)
+        await end_round(pool, state)
     await callback.answer()

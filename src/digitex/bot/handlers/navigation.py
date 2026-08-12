@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from aiogram import Router, types
+from aiogram import Bot, Router, types
 
 from digitex.bot import fsm_data
 from digitex.bot.callbacks import (
@@ -59,19 +59,17 @@ async def on_subject_selected(
     callback: types.CallbackQuery,
     callback_data: SubjectCB,
     state: FSMContext,
+    msg: types.Message,
 ) -> None:
-    if not isinstance(callback.message, types.Message):
-        await callback.answer()
-        return
-
+    # ``save`` replaces the whole data dict, so the only thing to carry across
+    # is the student id — no clear() needed, and none wanted: this is a
+    # navigation step, not the end of a round.
     nav = await fsm_data.load(state, NavigationState)
-    student_id = nav.student_id
-    await state.clear()
     await fsm_data.save(
         state,
-        NavigationState(subject_id=callback_data.subject_id, student_id=student_id),
+        NavigationState(subject_id=callback_data.subject_id, student_id=nav.student_id),
     )
-    await callback.message.edit_text(MSG_MODE_SELECT, reply_markup=mode_kb())
+    await msg.edit_text(MSG_MODE_SELECT, reply_markup=mode_kb())
     await state.set_state(Navigation.select_mode)
     await callback.answer()
 
@@ -81,12 +79,9 @@ async def on_mode_selected(
     callback: types.CallbackQuery,
     callback_data: ModeCB,
     state: FSMContext,
+    msg: types.Message,
     pool: AsyncConnectionPool,
 ) -> None:
-    if not isinstance(callback.message, types.Message):
-        await callback.answer()
-        return
-
     nav = await fsm_data.load(state, NavigationState)
     if nav.subject_id is None:
         await callback.answer()
@@ -102,7 +97,7 @@ async def on_mode_selected(
                 subjects = [] if years else await uow.books.list_subjects()
 
             if not years:
-                await callback.message.edit_text(
+                await msg.edit_text(
                     MSG_NO_YEARS,
                     reply_markup=subjects_kb(subjects),
                 )
@@ -110,27 +105,21 @@ async def on_mode_selected(
                 await callback.answer()
                 return
 
-            await callback.message.edit_text(
-                MSG_YEAR_SELECT, reply_markup=years_kb(years)
-            )
+            await msg.edit_text(MSG_YEAR_SELECT, reply_markup=years_kb(years))
             await state.set_state(Navigation.select_year)
 
         case "random":
-            await callback.message.edit_text(
-                MSG_EXAM_TYPE_SELECT, reply_markup=exam_type_kb()
-            )
+            await msg.edit_text(MSG_EXAM_TYPE_SELECT, reply_markup=exam_type_kb())
             await state.set_state(Navigation.select_random_exam_type)
 
         case "topics":
             async with UnitOfWork(pool) as uow:
                 topics = await uow.questions.get_topics_for_subject(subject_id)
             if not topics:
-                await callback.message.edit_text(MSG_NO_TOPICS)
+                await msg.edit_text(MSG_NO_TOPICS)
                 await callback.answer()
                 return
-            await callback.message.edit_text(
-                MSG_TOPIC_SELECT, reply_markup=topics_kb(topics)
-            )
+            await msg.edit_text(MSG_TOPIC_SELECT, reply_markup=topics_kb(topics))
             await fsm_data.merge(state, topic_names=topics)
             await state.set_state(Navigation.select_topic)
 
@@ -142,12 +131,10 @@ async def on_topic_selected(
     callback: types.CallbackQuery,
     callback_data: TopicCB,
     state: FSMContext,
+    bot: Bot,
+    msg: types.Message,
     pool: AsyncConnectionPool,
 ) -> None:
-    if not isinstance(callback.message, types.Message):
-        await callback.answer()
-        return
-
     nav = await fsm_data.load(state, NavigationState)
     # The index comes off a keyboard that may have been built for a different
     # subject's (longer) topic list.
@@ -157,8 +144,7 @@ async def on_topic_selected(
     topic_name = nav.topic_names[callback_data.index]
     await fsm_data.merge(state, topic_name=topic_name)
 
-    assert callback.bot is not None  # aiogram injects this on every callback
-    await start_random_question(callback.message, state, callback.bot, pool)
+    await start_random_question(msg, state, bot, pool)
     await callback.answer()
 
 
@@ -167,13 +153,10 @@ async def on_random_exam_type_selected(
     callback: types.CallbackQuery,
     callback_data: ExamTypeCB,
     state: FSMContext,
+    msg: types.Message,
 ) -> None:
-    if not isinstance(callback.message, types.Message):
-        await callback.answer()
-        return
-
     await fsm_data.merge(state, exam_type=callback_data.exam_type)
-    await callback.message.edit_text(MSG_PART_SELECT, reply_markup=random_part_kb())
+    await msg.edit_text(MSG_PART_SELECT, reply_markup=random_part_kb())
     await state.set_state(Navigation.select_random_part)
     await callback.answer()
 
@@ -183,16 +166,13 @@ async def on_random_part_selected(
     callback: types.CallbackQuery,
     callback_data: RandomPartCB,
     state: FSMContext,
+    bot: Bot,
+    msg: types.Message,
     pool: AsyncConnectionPool,
 ) -> None:
-    if not isinstance(callback.message, types.Message):
-        await callback.answer()
-        return
-
     await fsm_data.merge(state, random_part=callback_data.part)
 
-    assert callback.bot is not None
-    await start_random_question(callback.message, state, callback.bot, pool)
+    await start_random_question(msg, state, bot, pool)
     await callback.answer()
 
 
@@ -201,23 +181,20 @@ async def on_year_selected(
     callback: types.CallbackQuery,
     callback_data: YearCB,
     state: FSMContext,
+    msg: types.Message,
     pool: AsyncConnectionPool,
 ) -> None:
-    if not isinstance(callback.message, types.Message):
-        await callback.answer()
-        return
-
     year = callback_data.year
     await fsm_data.merge(state, year=year)
 
     if year_has_exam_types(year):
-        await callback.message.edit_text(
+        await msg.edit_text(
             MSG_EXAM_TYPE_SELECT,
             reply_markup=exam_type_kb(),
         )
         await state.set_state(Navigation.select_exam_type)
     else:
-        await _show_options_for_exam_type(callback.message, state, year, "CT", pool)
+        await _show_options_for_exam_type(msg, state, year, "CT", pool)
 
     await callback.answer()
 
@@ -227,18 +204,15 @@ async def on_exam_type_selected(
     callback: types.CallbackQuery,
     callback_data: ExamTypeCB,
     state: FSMContext,
+    msg: types.Message,
     pool: AsyncConnectionPool,
 ) -> None:
-    if not isinstance(callback.message, types.Message):
-        await callback.answer()
-        return
-
     nav = await fsm_data.load(state, NavigationState)
     if nav.year is None:
         await callback.answer()
         return
     await _show_options_for_exam_type(
-        callback.message, state, nav.year, callback_data.exam_type, pool
+        msg, state, nav.year, callback_data.exam_type, pool
     )
     await callback.answer()
 
@@ -273,12 +247,10 @@ async def on_option_selected(
     callback: types.CallbackQuery,
     callback_data: OptionCB,
     state: FSMContext,
+    bot: Bot,
+    msg: types.Message,
     pool: AsyncConnectionPool,
 ) -> None:
-    if not isinstance(callback.message, types.Message):
-        await callback.answer()
-        return
-
     nav = await fsm_data.load(state, NavigationState)
     if nav.book_id is None:
         await callback.answer()
@@ -306,7 +278,7 @@ async def on_option_selected(
         question_ids = await uow.questions.list_ids_for_option(option_id)
         session_id = session.session_id
 
-    await callback.message.edit_text(MSG_START_TESTING)
+    await msg.edit_text(MSG_START_TESTING)
     await fsm_data.save(
         state,
         TestingState(
@@ -318,5 +290,4 @@ async def on_option_selected(
     await state.set_state(Testing.answering)
     await callback.answer()
 
-    assert callback.bot is not None
-    await send_current_question(callback.message, state, callback.bot, pool)
+    await send_current_question(msg, state, bot, pool)

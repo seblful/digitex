@@ -1,36 +1,37 @@
-"""Extraction CLI commands."""
+"""Extraction CLI commands.
 
-from collections import defaultdict
+Settings are resolved per command and handed to the collaborators the command
+builds, so importing this module reads no files and configures no logging —
+that happens in the Typer callback, once a command is actually running.
+"""
+
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
-from digitex.config import get_settings
-from digitex.core.domain import OPTIONS_PER_BOOK
+from digitex.config import Settings, get_settings
 from digitex.extractors.answers_extractor import AnswersExtractor
 from digitex.extractors.base import ExtractionConfig
 from digitex.extractors.exceptions import APIError, ModelNotFoundError
 from digitex.extractors.manual_extractor import ManualExtractor
 from digitex.extractors.tests_extractor import TestsExtractor
-from digitex.extractors.utils import (
-    count_subject_images,
-    count_total_images,
-    get_mode_values,
-    renumber_directory_tree,
-)
+from digitex.extractors.utils import renumber_directory_tree
 from digitex.logging import setup_logging
 from digitex.services.answer_validator import (
     AnswerValidator,
     ValidationReport,
     YearReport,
 )
-
-# Per ADR 0001 — resolve settings once at the CLI boundary and pass them down.
-_settings = get_settings()
-setup_logging(_settings)
+from digitex.services.image_census import ImageCensus, SubjectCensus, YearCensus
 
 app = typer.Typer(help="Extraction commands for processing test books.")
+
+
+@app.callback()
+def configure() -> None:
+    """Set up logging before any command runs."""
+    setup_logging(get_settings())
 
 
 def _require_model(path: Path) -> Path:
@@ -40,36 +41,35 @@ def _require_model(path: Path) -> Path:
     return path
 
 
-def _extraction_config() -> ExtractionConfig:
-    """Resolve the extraction config once, here at the CLI boundary."""
+def _extraction_config(settings: Settings) -> ExtractionConfig:
     return ExtractionConfig(
-        model_path=_require_model(_settings.paths.extraction_model_path),
-        image_format=_settings.extraction.image_format,
-        question_max_width=_settings.extraction.question_max_width,
-        question_max_height=_settings.extraction.question_max_height,
+        model_path=_require_model(settings.paths.extraction_model_path),
+        image_format=settings.extraction.image_format,
+        question_max_width=settings.extraction.question_max_width,
+        question_max_height=settings.extraction.question_max_height,
     )
 
 
-def _tests_extractor() -> TestsExtractor:
+def _tests_extractor(settings: Settings) -> TestsExtractor:
     return TestsExtractor(
-        config=_extraction_config(),
-        books_dir=_settings.paths.books_dir,
-        extraction_dir=_settings.paths.extraction_output_dir,
+        config=_extraction_config(settings),
+        books_dir=settings.paths.books_dir,
+        extraction_dir=settings.paths.extraction_output_dir,
     )
 
 
-def _manual_extractor(manual_dir: Path) -> ManualExtractor:
+def _manual_extractor(settings: Settings, manual_dir: Path) -> ManualExtractor:
     return ManualExtractor(
-        image_format=_settings.extraction.image_format,
-        question_max_width=_settings.extraction.question_max_width,
-        question_max_height=_settings.extraction.question_max_height,
+        image_format=settings.extraction.image_format,
+        question_max_width=settings.extraction.question_max_width,
+        question_max_height=settings.extraction.question_max_height,
         manual_dir=manual_dir,
-        output_dir=_settings.paths.extraction_output_dir,
+        output_dir=settings.paths.extraction_output_dir,
     )
 
 
-def _answers_extractor() -> AnswersExtractor:
-    api_key = _settings.openrouter.api_key
+def _answers_extractor(settings: Settings) -> AnswersExtractor:
+    api_key = settings.openrouter.api_key
     if not api_key:
         raise APIError(
             service="OpenRouter",
@@ -77,126 +77,117 @@ def _answers_extractor() -> AnswersExtractor:
         )
     return AnswersExtractor(
         api_key=api_key,
-        model=_settings.openrouter.model,
-        base_url=_settings.openrouter.base_url,
-        books_dir=_settings.paths.books_dir,
-        output_dir=_settings.paths.extraction_output_dir,
+        model=settings.openrouter.model,
+        base_url=settings.openrouter.base_url,
+        books_dir=settings.paths.books_dir,
+        output_dir=settings.paths.extraction_output_dir,
     )
 
 
+def _abort(message: str) -> typer.Exit:
+    """Render *message* on stderr and return the exit to raise."""
+    typer.echo(typer.style(message, fg="red", bold=True), err=True)
+    return typer.Exit(code=1)
+
+
+def _echo_errors(errors: list[str]) -> None:
+    for error in errors:
+        typer.echo(f"  - {error}", err=True)
+
+
+SUBJECT_ARGUMENT = typer.Argument(help="Subject name (e.g., biology, chemistry)")
+
+
 @app.command(name="extract-questions")
-def extract_questions(
-    subject: Annotated[
-        str, typer.Argument(help="Subject name to extract (e.g., biology, chemistry)")
-    ],
-) -> None:
+def extract_questions(subject: Annotated[str, SUBJECT_ARGUMENT]) -> None:
     """Extract question images from a specific subject.
 
     SUBJECT is the name of the subject folder in the books directory.
     """
-    extractor = _tests_extractor()
+    try:
+        extractor = _tests_extractor(get_settings())
+    except ModelNotFoundError as exc:
+        raise _abort(f"✗ {exc}") from None
+
     result = extractor.extract(subject=subject)
 
-    if result.success:
-        typer.echo(
-            typer.style(
-                f"✓ Extraction completed: {result.processed} processed,"
-                f" {result.skipped} skipped (subject: {subject})",
-                fg="green",
-            )
-        )
-        if result.warnings:
-            typer.echo(typer.style("\nWarnings:", fg="yellow"))
-            for warning in result.warnings:
-                typer.echo(f"  - {warning}")
-    else:
+    if not result.success:
         typer.echo(typer.style("✗ Extraction failed:", fg="red", bold=True), err=True)
-        for error in result.errors:
-            typer.echo(f"  - {error}", err=True)
+        _echo_errors(result.errors)
         raise typer.Exit(code=1)
 
+    typer.echo(
+        typer.style(
+            f"✓ Extraction completed: {result.processed} processed,"
+            f" {result.skipped} skipped (subject: {subject})",
+            fg="green",
+        )
+    )
+    if result.warnings:
+        typer.echo(typer.style("\nWarnings:", fg="yellow"))
+        for warning in result.warnings:
+            typer.echo(f"  - {warning}")
+    # A run can succeed with per-page failures; those pages produced no image,
+    # so saying so is the difference between "done" and "done, minus four".
+    if result.failed:
+        typer.echo(
+            typer.style(f"\n{result.failed} page(s) failed:", fg="red", bold=True)
+        )
+        _echo_errors(result.errors)
 
-def _part_modes(options: dict[str, dict[str, int]]) -> dict[str, set[int]]:
-    """Modal image count per Part, across one year's Options.
 
-    A Part whose count is off its mode is the signal that a page was missed or
-    double-extracted.
-    """
-    all_parts: defaultdict[str, list[int]] = defaultdict(list)
-    for parts in options.values():
-        for part, count in parts.items():
-            all_parts[part].append(count)
-    return {part: get_mode_values(counts) for part, counts in all_parts.items()}
+def _render_year_census(year: YearCensus) -> None:
+    label = f"  {year.year}: {year.options} options"
+    if year.missing_options:
+        label = typer.style(label, fg="red", bold=True)
+    elif year.is_complete:
+        label = typer.style(label, fg="green")
+    typer.echo(label)
+
+    for part in year.parts:
+        line = f"    {part.option}/{part.part}: {part.images} images"
+        if part.off_mode:
+            line = typer.style(line, fg="red", bold=True)
+        typer.echo(line)
+
+
+def _render_census(census: SubjectCensus) -> None:
+    for year in census.years:
+        _render_year_census(year)
+    typer.echo(
+        f"\nTotal: {census.images} images in {census.folders} folders"
+        f" (subject: {census.subject})"
+    )
 
 
 @app.command(name="count-questions")
-def count_questions(
-    subject: Annotated[
-        str, typer.Argument(help="Subject name to count (e.g., biology, chemistry)")
-    ],
-) -> None:
+def count_questions(subject: Annotated[str, SUBJECT_ARGUMENT]) -> None:
     """Count images in a specific subject's extraction output."""
-    folder = _settings.paths.extraction_output_dir / subject
+    census_taker = ImageCensus(get_settings().paths.extraction_output_dir)
+    try:
+        census = census_taker.take(subject)
+    except FileNotFoundError:
+        raise _abort(f"Error: Subject '{subject}' not found") from None
 
-    if not folder.exists() or not folder.is_dir():
-        typer.echo(f"Error: Subject '{subject}' not found", err=True)
-        raise typer.Exit(code=1)
-
-    counts = count_subject_images(folder)
-
-    if not counts:
+    if census.is_empty:
         typer.echo(f"No images found for subject '{subject}'")
         return
 
-    for year in sorted(counts, key=lambda y: int(y) if y.isdigit() else y):
-        options = counts[year]
-        num_options = len(options)
-        year_label = f"  {year}: {num_options} options"
-
-        part_modes = _part_modes(options)
-        all_good = all(
-            count in part_modes[part]
-            for parts in options.values()
-            for part, count in parts.items()
-        )
-
-        if num_options < OPTIONS_PER_BOOK:
-            year_label = typer.style(year_label, fg="red", bold=True)
-        elif all_good:
-            year_label = typer.style(year_label, fg="green")
-        typer.echo(year_label)
-
-        for opt in sorted(options, key=lambda o: int(o) if o.isdigit() else o):
-            parts_dict = options[opt]
-            for part in sorted(parts_dict, key=lambda p: p):
-                part_count = parts_dict[part]
-                label = f"    {opt}/{part}: {part_count} images"
-                if part_count not in part_modes[part]:
-                    label = typer.style(label, fg="red", bold=True)
-                typer.echo(label)
-
-    total_images, total_folders = count_total_images(folder)
-    typer.echo(
-        f"\nTotal: {total_images} images in {total_folders} folders"
-        f" (subject: {subject})"
-    )
+    _render_census(census)
 
 
 @app.command(name="renumber-questions")
 def renumber_questions(
-    subject: Annotated[
-        str, typer.Argument(help="Subject name to renumber (e.g., biology, chemistry)")
-    ],
+    subject: Annotated[str, SUBJECT_ARGUMENT],
     dry_run: Annotated[
         bool, typer.Option(help="Preview changes without renaming")
     ] = True,
 ) -> None:
     """Renumber images in a specific subject's extraction output to fill gaps."""
-    folder = _settings.paths.extraction_output_dir / subject
+    folder = get_settings().paths.extraction_output_dir / subject
 
-    if not folder.exists() or not folder.is_dir():
-        typer.echo(f"Error: Subject '{subject}' not found", err=True)
-        raise typer.Exit(code=1)
+    if not folder.is_dir():
+        raise _abort(f"Error: Subject '{subject}' not found")
 
     total = renumber_directory_tree(folder, dry_run=dry_run)
 
@@ -210,9 +201,7 @@ def renumber_questions(
 
 @app.command(name="add-questions-manually")
 def add_questions_manually(
-    subject: Annotated[
-        str, typer.Argument(help="Subject name to process (e.g., biology, chemistry)")
-    ],
+    subject: Annotated[str, SUBJECT_ARGUMENT],
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help="Preview changes without applying")
     ] = False,
@@ -223,47 +212,37 @@ def add_questions_manually(
     with filename format: YYYY_OPTION_PART_QUESTION.png
     Example: biology/2016_3_A_20.png
     """
-    manual_dir = _settings.paths.extraction_manual_dir / subject
+    settings = get_settings()
+    manual_dir = settings.paths.extraction_manual_dir / subject
 
     if not manual_dir.exists():
-        typer.echo(f"Error: Manual directory '{subject}' not found", err=True)
-        raise typer.Exit(code=1)
+        raise _abort(f"Error: Manual directory '{subject}' not found")
 
-    extractor = _manual_extractor(manual_dir)
-    result = extractor.extract(dry_run=dry_run)
+    result = _manual_extractor(settings, manual_dir).extract(dry_run=dry_run)
 
-    if result.success:
-        if dry_run:
-            typer.echo(
-                typer.style(
-                    f"[DRY RUN] Would process {result.processed} files", fg="yellow"
-                )
-            )
-        else:
-            typer.echo(
-                typer.style(f"✓ Processed {result.processed} manual images", fg="green")
-            )
-        if result.metadata.get("failed"):
-            typer.echo(
-                typer.style(
-                    f"  Failed: {result.metadata['failed']}", fg="red", bold=True
-                )
-            )
-    else:
+    if not result.success:
         typer.echo(
             typer.style("✗ Manual extraction failed:", fg="red", bold=True), err=True
         )
-        for error in result.errors:
-            typer.echo(f"  - {error}", err=True)
+        _echo_errors(result.errors)
         raise typer.Exit(code=1)
+
+    if dry_run:
+        typer.echo(
+            typer.style(
+                f"[DRY RUN] Would process {result.processed} files", fg="yellow"
+            )
+        )
+    else:
+        typer.echo(
+            typer.style(f"✓ Processed {result.processed} manual images", fg="green")
+        )
+    if result.failed:
+        typer.echo(typer.style(f"  Failed: {result.failed}", fg="red", bold=True))
 
 
 @app.command(name="extract-answers")
-def extract_answers(
-    subject: Annotated[
-        str, typer.Argument(help="Subject name (e.g., biology, chemistry)")
-    ],
-) -> None:
+def extract_answers(subject: Annotated[str, SUBJECT_ARGUMENT]) -> None:
     """Extract answer keys from answer sheet images using OpenRouter.
 
     Answer images should be placed in books/{subject}/answers/
@@ -271,28 +250,39 @@ def extract_answers(
 
     Results are saved to extraction/data/output/{subject}/{year}/answers.json
     """
-    extractor = _answers_extractor()
+    try:
+        extractor = _answers_extractor(get_settings())
+    except APIError as exc:
+        raise _abort(f"✗ {exc}") from None
+
     result = extractor.extract(subject=subject)
 
-    if result.success:
-        typer.echo(
-            typer.style(
-                f"✓ Extracted answers for"
-                f" {result.metadata.get('years_processed', 0)} years",
-                fg="green",
-            )
-        )
-        if result.errors:
-            typer.echo(typer.style("\nErrors:", fg="red"))
-            for error in result.errors:
-                typer.echo(f"  - {error}")
-    else:
+    if not result.success:
         typer.echo(
             typer.style("✗ Answer extraction failed:", fg="red", bold=True), err=True
         )
-        for error in result.errors:
-            typer.echo(f"  - {error}", err=True)
+        _echo_errors(result.errors)
         raise typer.Exit(code=1)
+
+    typer.echo(
+        typer.style(
+            f"✓ Extracted answers for"
+            f" {result.metadata.get('years_processed', 0)} years",
+            fg="green",
+        )
+    )
+    if result.errors:
+        typer.echo(typer.style("\nErrors:", fg="red"))
+        for error in result.errors:
+            typer.echo(f"  - {error}")
+
+
+_PART_B_COVERAGE_COLOR = {"none": "red", "partial": "yellow", "all": "green"}
+_PART_B_COVERAGE_LABEL = {
+    "none": "NO option has Б",
+    "partial": "{covered}/{total} options have Б",
+    "all": "all options have Б",
+}
 
 
 def _render_year_report(year: YearReport) -> None:
@@ -327,13 +317,14 @@ def _render_year_report(year: YearReport) -> None:
     if year.missing_in_images:
         typer.echo(f"  Missing in images: {year.missing_in_images}")
 
-    if year.options_with_b == 0:
-        styled = typer.style("NO option has Б", fg="red", bold=True)
-    elif year.options_with_b < year.total_options:
-        ratio = f"{year.options_with_b}/{year.total_options} options have Б"
-        styled = typer.style(ratio, fg="yellow")
-    else:
-        styled = typer.style("all options have Б", fg="green")
+    coverage = year.part_b_coverage
+    styled = typer.style(
+        _PART_B_COVERAGE_LABEL[coverage].format(
+            covered=year.options_with_b, total=year.total_options
+        ),
+        fg=_PART_B_COVERAGE_COLOR[coverage],
+        bold=coverage == "none",
+    )
     typer.echo(f"  Part B 'Б' check: {styled}")
 
 
@@ -354,18 +345,13 @@ def _render_validation_report(report: ValidationReport) -> None:
 
 
 @app.command(name="check-answers")
-def check_answers(
-    subject: Annotated[
-        str, typer.Argument(help="Subject name (e.g., biology, chemistry)")
-    ],
-) -> None:
+def check_answers(subject: Annotated[str, SUBJECT_ARGUMENT]) -> None:
     """Check that answers.json files correspond to extracted question images."""
-    validator = AnswerValidator(_settings.paths.extraction_output_dir)
+    validator = AnswerValidator(get_settings().paths.extraction_output_dir)
     try:
         report = validator.validate(subject)
     except FileNotFoundError as exc:
-        typer.echo(f"Error: {exc} does not exist", err=True)
-        raise typer.Exit(code=1) from None
+        raise _abort(f"Error: {exc} does not exist") from None
 
     _render_validation_report(report)
 

@@ -2,7 +2,8 @@
 
 YOLO's ``Results`` objects are stood in by small fakes with the same shape
 (``pred.boxes[i].cls.item()`` / ``pred.masks.xyn``); the ``YOLO`` constructor
-itself is patched only in the lazy-loading tests.
+itself is patched only in the lazy-loading tests. ``detections_from`` takes the
+class map as an argument, so exercising it needs no model at all.
 """
 
 from __future__ import annotations
@@ -15,10 +16,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from digitex.ml.predictors import (
-    SegmentationPredictionResult,
-    YOLO_SegmentationPredictor,
-)
+from digitex.ml.predictors import YOLO_SegmentationPredictor, detections_from
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -79,58 +77,6 @@ def _as_model(fake: _FakeModel) -> YOLO:
     return cast("YOLO", fake)
 
 
-class TestSegmentationPredictionResult:
-    def test_init_valid(self) -> None:
-        ids = [0, 1, 2]
-        polygons = [
-            [(10, 10), (50, 10), (50, 50), (10, 50)],
-            [(20, 20), (60, 20), (60, 60), (20, 60)],
-            [(30, 30), (70, 30), (70, 70), (30, 70)],
-        ]
-        id2label = {0: "question", 1: "option", 2: "part"}
-
-        result = SegmentationPredictionResult(
-            ids=ids, polygons=polygons, id2label=id2label
-        )
-
-        assert result.ids == ids
-        assert result.polygons == polygons
-        assert result.id2label == id2label
-
-    def test_init_mismatched_lengths_raises(self) -> None:
-        with pytest.raises(ValueError, match="Number of polygons must be equal"):
-            SegmentationPredictionResult(
-                ids=[0, 1],
-                polygons=[
-                    [(10, 10), (50, 10), (50, 50), (10, 50)],
-                    [(20, 20), (60, 20), (60, 60), (20, 60)],
-                    [(30, 30), (70, 30), (70, 70), (30, 70)],
-                ],
-                id2label={0: "question", 1: "option"},
-            )
-
-    def test_id2polygons_groups_by_class(self) -> None:
-        polygons = [
-            [(10, 10), (50, 10), (50, 50), (10, 50)],
-            [(20, 20), (60, 20), (60, 60), (20, 60)],
-            [(30, 30), (70, 30), (70, 70), (30, 70)],
-            [(40, 40), (80, 40), (80, 80), (40, 80)],
-        ]
-
-        result = SegmentationPredictionResult(
-            ids=[0, 1, 0, 2],
-            polygons=polygons,
-            id2label={0: "question", 1: "option", 2: "part"},
-        )
-        grouped = result.id2polygons
-
-        assert len(grouped[0]) == 2
-        assert len(grouped[1]) == 1
-        assert len(grouped[2]) == 1
-        assert grouped[0][0] == polygons[0]
-        assert grouped[0][1] == polygons[2]
-
-
 class TestYOLOSegmentationPredictorModelLoading:
     def test_model_loads_lazily_on_access(self, tmp_path: Path) -> None:
         model_path = tmp_path / "model.pt"
@@ -138,7 +84,7 @@ class TestYOLOSegmentationPredictorModelLoading:
         predictor = YOLO_SegmentationPredictor(model_path=str(model_path))
         assert predictor._model is None
 
-        with patch("digitex.ml.predictors.segmentation.YOLO") as mock_yolo:
+        with patch("digitex.ml.predictors.YOLO") as mock_yolo:
             _ = predictor.model
 
         mock_yolo.assert_called_once_with(str(model_path), verbose=False)
@@ -148,7 +94,7 @@ class TestYOLOSegmentationPredictorModelLoading:
         model_path.touch()
         predictor = YOLO_SegmentationPredictor(model_path=str(model_path))
 
-        with patch("digitex.ml.predictors.segmentation.YOLO") as mock_yolo:
+        with patch("digitex.ml.predictors.YOLO") as mock_yolo:
             model1 = predictor.model
             model2 = predictor.model
 
@@ -162,7 +108,7 @@ class TestYOLOSegmentationPredictorModelLoading:
 
         with (
             patch(
-                "digitex.ml.predictors.segmentation.YOLO",
+                "digitex.ml.predictors.YOLO",
                 side_effect=FileNotFoundError("Model not found"),
             ),
             pytest.raises(RuntimeError, match="Failed to load model"),
@@ -170,37 +116,37 @@ class TestYOLOSegmentationPredictorModelLoading:
             _ = predictor.model
 
 
-class TestYOLOSegmentationPredictorCreateResult:
-    def _predictor(
-        self, names: dict[int, str] | None = None, *, simplify: bool = False
-    ) -> YOLO_SegmentationPredictor:
-        predictor = YOLO_SegmentationPredictor(model_path="model.pt", simplify=simplify)
-        predictor._model = _as_model(_FakeModel(names or {0: "question"}, preds=[]))
-        return predictor
+class TestDetectionsFrom:
+    """``detections_from`` is pure — no predictor, no model."""
 
     def test_empty_predictions_raise(self) -> None:
         with pytest.raises(ValueError, match="Empty predictions received"):
-            self._predictor().create_result(_as_results([]), 100, 100)
+            detections_from(_as_results([]), 100, 100, {0: "question"})
 
     def test_prediction_without_boxes_attr_raises(self) -> None:
         with pytest.raises(ValueError, match="Invalid prediction format"):
-            self._predictor().create_result(_as_results([object()]), 100, 100)
+            detections_from(_as_results([object()]), 100, 100, {0: "question"})
 
     def test_scales_normalized_polygons_to_pixels(self) -> None:
         pred = _prediction((0, np.array([[0.1, 0.1], [0.5, 0.5], [0.5, 0.1]])))
 
-        result = self._predictor().create_result(_as_results([pred]), 100, 200)
+        detections = detections_from(_as_results([pred]), 100, 200, {0: "question"})
 
-        assert result.ids == [0]
-        assert result.polygons == [[(10, 20), (50, 100), (50, 20)]]
+        assert len(detections) == 1
+        assert detections[0].label == "question"
+        assert detections[0].polygon == [(10, 20), (50, 100), (50, 20)]
 
-    def test_none_boxes_or_masks_yield_empty_result(self) -> None:
+    def test_unknown_class_id_falls_back_to_unknown(self) -> None:
+        pred = _prediction((7, np.array([[0.1, 0.1], [0.5, 0.5], [0.5, 0.1]])))
+
+        detections = detections_from(_as_results([pred]), 100, 100, {0: "question"})
+
+        assert detections[0].label == "unknown"
+
+    def test_none_boxes_or_masks_yield_no_detections(self) -> None:
         pred = _FakePrediction(boxes=None, masks=None)
 
-        result = self._predictor().create_result(_as_results([pred]), 100, 100)
-
-        assert result.ids == []
-        assert result.polygons == []
+        assert detections_from(_as_results([pred]), 100, 100, {0: "question"}) == []
 
     def test_simplify_drops_collinear_points(self) -> None:
         xyn = np.array(
@@ -216,12 +162,12 @@ class TestYOLOSegmentationPredictorCreateResult:
         )
         pred = _prediction((0, xyn))
 
-        result = self._predictor(simplify=True).create_result(
-            _as_results([pred]), 100, 100
+        detections = detections_from(
+            _as_results([pred]), 100, 100, {0: "question"}, simplify=True
         )
 
-        assert result.ids == [0]
-        assert len(result.polygons[0]) < len(xyn)
+        assert len(detections) == 1
+        assert len(detections[0].polygon) < len(xyn)
 
 
 class TestYOLOSegmentationPredictorPredict:
@@ -235,8 +181,7 @@ class TestYOLOSegmentationPredictorPredict:
             _FakeModel({0: "question", 1: "option"}, preds=[pred])
         )
 
-        result = predictor.predict(Image.new("RGB", (640, 480), color="white"))
+        detections = predictor.predict(Image.new("RGB", (640, 480), color="white"))
 
-        assert result.ids == [0, 1]
-        assert len(result.polygons) == 2
-        assert result.id2label == {0: "question", 1: "option"}
+        assert [det.label for det in detections] == ["question", "option"]
+        assert all(det.polygon for det in detections)

@@ -26,11 +26,19 @@ pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("clean_db")]
 # ---------------------------------------------------------------------------
 
 
-async def _seed_option(uow, subject_name: str = "Physics") -> tuple[int, int, int]:
+async def _seed_option(
+    uow,
+    subject_name: str = "Physics",
+    year: int = 2024,
+    option_number: int = 1,
+    exam_type: str = "CT",
+) -> tuple[int, int, int]:
     """Create subject → book → option and return their ids."""
     subject_id = await uow.books.get_or_create_subject(subject_name)
-    book_id = await uow.books.create_book(subject_id, 2024)
-    option_id = await uow.books.get_or_create_option(book_id, 1, "CT")
+    book_id = await uow.books.get_book(subject_id, year) or await uow.books.create_book(
+        subject_id, year
+    )
+    option_id = await uow.books.get_or_create_option(book_id, option_number, exam_type)
     return subject_id, book_id, option_id
 
 
@@ -63,6 +71,46 @@ class TestBookRepository:
         async with UnitOfWork(pg_pool) as uow:
             with pytest.raises(KeyError):
                 await uow.books.get_option_id(book_id=999, option_number=1)
+
+    async def test_book_lookup_round_trips(self, pg_pool: AsyncConnectionPool) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            subject_id, book_id, option_id = await _seed_option(uow)
+            found = await uow.books.get_book(subject_id, 2024)
+            missing = await uow.books.get_book(subject_id, 1999)
+            assert await uow.books.get_option_id(book_id, 1) == option_id
+        assert found == book_id
+        assert missing is None
+
+    async def test_years_come_back_newest_first(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            for year in (2019, 2024, 2021):
+                await _seed_option(uow, year=year)
+            subject_id = await uow.books.get_or_create_subject("Physics")
+            years = await uow.books.list_years(subject_id)
+        assert years == [2024, 2021, 2019]
+
+    async def test_options_are_listed_per_exam_type(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            _, book_id, _ = await _seed_option(uow, option_number=3, exam_type="CT")
+            await uow.books.get_or_create_option(book_id, 1, "CE")
+            await uow.books.get_or_create_option(book_id, 2, "CT")
+            ce = await uow.books.list_options(book_id, "CE")
+            ct = await uow.books.list_options(book_id, "CT")
+        assert ce == [1]
+        assert ct == [2, 3]
+
+    async def test_option_conflict_updates_the_exam_type(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            _, book_id, option_id = await _seed_option(uow, exam_type="CT")
+            again = await uow.books.get_or_create_option(book_id, 1, "CE")
+            assert again == option_id
+            assert await uow.books.list_options(book_id, "CE") == [1]
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +187,181 @@ class TestQuestionRepository:
             count = await uow.questions.count_topics()
         assert count == 0
 
+    async def test_same_number_in_both_parts_are_distinct_questions(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        """A1 and B1 are different questions with different ids.
+
+        Under the old two-table split they could share a ``question_id``, which
+        is what made a Part B answer collide with a Part A one in the same
+        session and be silently discarded.
+        """
+        async with UnitOfWork(pg_pool) as uow:
+            _, _, option_id = await _seed_option(uow)
+            qa = await uow.questions.get_or_create(
+                option_id, QuestionKey(part="A", number=1), "3"
+            )
+            qb = await uow.questions.get_or_create(
+                option_id, QuestionKey(part="B", number=1), "neutron"
+            )
+        assert qa != qb
+
+    async def test_part_b_answer_comes_back_as_text(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            _, _, option_id = await _seed_option(uow)
+            qid = await uow.questions.get_or_create(
+                option_id, QuestionKey(part="B", number=1), "ВЕРНАДСКИЙ"
+            )
+            answer = await uow.questions.get_correct_answer(qid, "B")
+        assert answer == "ВЕРНАДСКИЙ"
+
+    async def test_the_unmatchable_part_a_placeholder_is_storable(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        """``populate_db`` writes '0' when a year has no answer key.
+
+        The option buttons start at 1, so 0 can never be matched — but the old
+        ``CHECK (answer BETWEEN 1 AND 5)`` rejected the write and rolled back
+        the whole year's load.
+        """
+        async with UnitOfWork(pg_pool) as uow:
+            _, _, option_id = await _seed_option(uow)
+            qid = await uow.questions.get_or_create(
+                option_id, QuestionKey(part="A", number=1), "0"
+            )
+            answer = await uow.questions.get_correct_answer(qid, "A")
+        assert answer == 0
+
+    async def test_get_reads_metadata_and_cached_file_id(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            _, _, option_id = await _seed_option(uow)
+            qid = await uow.questions.get_or_create(
+                option_id, QuestionKey(part="A", number=4), "2"
+            )
+            await uow.questions.insert_image(qid, "A", b"payload")
+
+            before = await uow.questions.get(qid, "A")
+            await uow.questions.cache_file_id(qid, "A", "tg-file-1")
+            after = await uow.questions.get(qid, "A")
+
+        assert before.question_number == 4
+        assert before.part == "A"
+        assert before.telegram_file_id is None
+        assert before.image_data == b""  # metadata only — no BYTEA payload
+        assert after.telegram_file_id == "tg-file-1"
+
+    async def test_get_full_carries_the_question_origin(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            _, _, option_id = await _seed_option(
+                uow, year=2023, option_number=2, exam_type="CE"
+            )
+            qid = await uow.questions.get_or_create(
+                option_id, QuestionKey(part="B", number=7), "photon"
+            )
+            question, origin = await uow.questions.get_full(qid, "B")
+
+        assert question.question_number == 7
+        assert origin.year == 2023
+        assert origin.option_number == 2
+        assert origin.exam_type == "CE"
+
+    async def test_get_raises_for_the_wrong_part(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            _, _, option_id = await _seed_option(uow)
+            qid = await uow.questions.get_or_create(
+                option_id, QuestionKey(part="A", number=1), "1"
+            )
+            with pytest.raises(KeyError):
+                await uow.questions.get(qid, "B")
+
+    async def test_playlist_is_ordered_part_a_then_b_by_number(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        """This order decides the sequence a student answers in."""
+        async with UnitOfWork(pg_pool) as uow:
+            _, _, option_id = await _seed_option(uow)
+            for number in (2, 1, 10):
+                await uow.questions.get_or_create(
+                    option_id, QuestionKey(part="A", number=number), "1"
+                )
+            for number in (2, 1):
+                await uow.questions.get_or_create(
+                    option_id, QuestionKey(part="B", number=number), "x"
+                )
+            playlist = await uow.questions.list_ids_for_option(option_id)
+
+            numbers = [
+                (await uow.questions.get(qid, part)).question_number
+                for qid, part in playlist
+            ]
+            parts = [part for _, part in playlist]
+
+        assert parts == ["A", "A", "A", "B", "B"]
+        assert numbers == [1, 2, 10, 1, 2]
+
+    async def test_random_question_is_drawn_from_the_requested_part(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            subject_id, _, option_id = await _seed_option(uow)
+            await uow.questions.get_or_create(
+                option_id, QuestionKey(part="A", number=1), "1"
+            )
+            qb = await uow.questions.get_or_create(
+                option_id, QuestionKey(part="B", number=1), "x"
+            )
+            drawn = await uow.questions.get_random_question_id(subject_id, "B")
+        assert drawn == qb
+
+    async def test_random_question_honours_the_exam_type_filter(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            subject_id, _, ct_option = await _seed_option(
+                uow, year=2023, option_number=8, exam_type="CT"
+            )
+            _, _, ce_option = await _seed_option(
+                uow, year=2023, option_number=1, exam_type="CE"
+            )
+            await uow.questions.get_or_create(
+                ct_option, QuestionKey(part="A", number=1), "1"
+            )
+            expected = await uow.questions.get_or_create(
+                ce_option, QuestionKey(part="A", number=1), "2"
+            )
+            drawn = await uow.questions.get_random_question_id(subject_id, "A", "CE")
+        assert drawn == expected
+
+    async def test_random_topic_question_returns_its_part(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            subject_id, _, option_id = await _seed_option(uow)
+            expected = await uow.questions.get_or_create(
+                option_id, QuestionKey(part="B", number=3), "x"
+            )
+            await uow.questions.upsert_topic(option_id, 3, "B", "optics")
+            qid, part = await uow.questions.get_random_question_id_by_topic(
+                subject_id, "optics"
+            )
+        assert (qid, part) == (expected, "B")
+
+    async def test_topic_lookup_for_an_unknown_topic_raises(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            subject_id, _, _ = await _seed_option(uow)
+            with pytest.raises(KeyError):
+                await uow.questions.get_random_question_id_by_topic(subject_id, "nope")
+
 
 # ---------------------------------------------------------------------------
 # StudentRepository
@@ -197,14 +420,16 @@ class TestSessionRepository:
         assert info.year == 2024
         assert info.option_number == 1
 
-    async def test_records_both_parts_when_question_ids_collide(
+    async def test_both_parts_are_recorded_even_with_the_same_number(
         self, pg_pool: AsyncConnectionPool
     ) -> None:
-        """The two part tables have separate sequences, so their ids overlap.
+        """The bug migration 0002 was written for, now unrepresentable.
 
-        Keyed on ``(session_id, question_id)`` alone, the Part B row collided
-        with the Part A row already recorded for the session and
+        The two part tables had separate identity sequences, so A1 and B1 could
+        share a ``question_id``; keyed on ``(session_id, question_id)`` alone,
+        the Part B row collided with the Part A row already recorded and
         ``ON CONFLICT DO NOTHING`` discarded it — unscored and unreviewable.
+        One table means one sequence, so the two ids simply differ.
         """
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
@@ -214,20 +439,37 @@ class TestSessionRepository:
             qb = await uow.questions.get_or_create(
                 option_id, QuestionKey(part="B", number=1), "neutron"
             )
-            student = await uow.students.get_or_create(42, "Bob")
+            student = await uow.students.get_or_create(43, "Cleo")
             session = await uow.sessions.create(student.student_id, option_id)
 
             await uow.sessions.record_answer(
-                session.session_id, qa, "A", "3", is_correct=True, time_spent=1.0
+                session.session_id, qa, "A", "1", is_correct=False, time_spent=1.0
             )
             await uow.sessions.record_answer(
-                session.session_id, qb, "B", "neutron", is_correct=True, time_spent=1.0
+                session.session_id, qb, "B", "proton", is_correct=False, time_spent=1.0
             )
             result = await uow.sessions.complete(session.session_id)
+            wrong = await uow.sessions.get_wrong_answers(session.session_id)
 
-        assert qa == qb, "precondition: the ids must collide for this to mean anything"
-        assert result.max_score == 2
-        assert result.total_score == 2
+        assert qa != qb
+        assert result.max_score == 2  # both answers landed, neither was dropped
+        assert result.total_score == 0
+        assert [(w.part, w.question_number) for w in wrong] == [("A", 1), ("B", 1)]
+        # Part A answers are stored as text now; the results screen shows them
+        # as-is rather than through a per-part cast.
+        assert [w.correct_answer for w in wrong] == ["3", "neutron"]
+
+    async def test_a_session_with_no_answers_scores_zero_of_zero(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            _, _, option_id = await _seed_option(uow)
+            student = await uow.students.get_or_create(44, "Dee")
+            session = await uow.sessions.create(student.student_id, option_id)
+            result = await uow.sessions.complete(session.session_id)
+
+        assert (result.part_a_score, result.part_b_score) == (0, 0)
+        assert result.max_score == 0
 
 
 # ---------------------------------------------------------------------------

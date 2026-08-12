@@ -11,21 +11,20 @@ Examples:
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import typer
 from alembic import command
 from alembic.config import Config
 
-app = typer.Typer(help="Alembic-backed database migrations.")
+from digitex.config import BASE_DIR
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-_ALEMBIC_INI = _PROJECT_ROOT / "alembic.ini"
+app = typer.Typer(help="Alembic-backed database migrations.")
 
 
 def _cfg() -> Config:
-    cfg = Config(str(_ALEMBIC_INI))
-    cfg.set_main_option("script_location", str(_PROJECT_ROOT / "migrations"))
+    # BASE_DIR, not PathsSettings.root_dir: alembic.ini and migrations/ ship
+    # with the package, wherever the process happens to be running from.
+    cfg = Config(str(BASE_DIR / "alembic.ini"))
+    cfg.set_main_option("script_location", str(BASE_DIR / "migrations"))
     return cfg
 
 

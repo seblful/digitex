@@ -1,54 +1,6 @@
-"""Image extraction module."""
+"""Image extraction — question images out of scanned book pages.
 
-from digitex.core.corpus import IMAGE_EXTENSIONS
-
-from .answers_extractor import AnswersExtractor, ExamExtraction
-from .base import ExtractionConfig, ExtractionResult
-from .book_extractor import BookExtractor
-from .exceptions import (
-    APIError,
-    DirectoryNotFoundError,
-    ExtractionError,
-    InvalidFilenameError,
-    ModelNotFoundError,
-)
-from .manual_extractor import ManualExtractor
-from .page_extractor import PageExtractor
-from .progress import JSONProgressTracker
-from .tests_extractor import TestsExtractor
-from .utils import (
-    count_total_images,
-    get_mode_values,
-    numbered_images,
-    renumber_directory_tree,
-    renumber_folder_sequentially,
-)
-
-__all__ = [
-    # Utilities
-    "IMAGE_EXTENSIONS",
-    "APIError",
-    # Extractors
-    "AnswersExtractor",
-    "BookExtractor",
-    "DirectoryNotFoundError",
-    # Schemas
-    "ExamExtraction",
-    # Configuration
-    "ExtractionConfig",
-    # Exceptions
-    "ExtractionError",
-    "ExtractionResult",
-    "InvalidFilenameError",
-    # Progress tracking
-    "JSONProgressTracker",
-    "ManualExtractor",
-    "ModelNotFoundError",
-    "PageExtractor",
-    "TestsExtractor",
-    "count_total_images",
-    "get_mode_values",
-    "numbered_images",
-    "renumber_directory_tree",
-    "renumber_folder_sequentially",
-]
+Import the concrete module, not this package: ``from
+digitex.extractors.book_extractor import BookExtractor``. There is deliberately
+no re-export list here, so there is only ever one spelling for a name.
+"""

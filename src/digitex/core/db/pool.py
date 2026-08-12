@@ -10,8 +10,23 @@ from psycopg_pool import AsyncConnectionPool, AsyncNullConnectionPool
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+    from typing import Any
 
-    from digitex.config.settings import DatabaseSettings
+    from digitex.config import DatabaseSettings
+
+
+def _connection_kwargs(settings: DatabaseSettings) -> dict[str, Any]:
+    """The psycopg connection arguments every pool here must be built with.
+
+    ``row_factory=dict_row`` is not a preference: the repositories index rows by
+    column name and :class:`~digitex.core.db.unit_of_work.UnitOfWork` casts on
+    the strength of it. A pool built without it fails deep inside a query.
+    """
+    return {
+        "autocommit": False,
+        "row_factory": dict_row,
+        "options": settings.server_options,
+    }
 
 
 def build_pool(settings: DatabaseSettings) -> AsyncConnectionPool:
@@ -27,11 +42,7 @@ def build_pool(settings: DatabaseSettings) -> AsyncConnectionPool:
         min_size=settings.pool_min_size,
         max_size=settings.pool_max_size,
         timeout=settings.pool_timeout,
-        kwargs={
-            "autocommit": False,
-            "row_factory": dict_row,
-            "options": settings.server_options,
-        },
+        kwargs=_connection_kwargs(settings),
         open=False,
     )
 
@@ -63,14 +74,15 @@ async def null_pool_lifespan(
     Use this for short-lived scripts and migration tools — anywhere that
     ``AsyncConnectionPool``'s background worker tasks are problematic (e.g.
     Windows SelectorEventLoop). The bot uses ``pool_lifespan`` instead.
+
+    ``pool_max_size`` and ``pool_timeout`` are honoured; ``pool_min_size`` is
+    not, and cannot be — a null pool holds no idle connections by definition.
     """
     pool = AsyncNullConnectionPool(
         conninfo=settings.conninfo,
-        kwargs={
-            "autocommit": False,
-            "row_factory": dict_row,
-            "options": settings.server_options,
-        },
+        max_size=settings.pool_max_size,
+        timeout=settings.pool_timeout,
+        kwargs=_connection_kwargs(settings),
         open=False,
     )
     await pool.open()

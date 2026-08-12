@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from pydantic import AliasChoices, Field, PostgresDsn, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
@@ -133,16 +133,6 @@ class DatabaseSettings(BaseSettings):
             f"-c statement_timeout={self.statement_timeout_ms}"
             f" -c idle_in_transaction_session_timeout={idle_ms}"
         )
-
-
-class TrainingSettings(BaseSettings):
-    """YOLO model training parameters."""
-
-    model_config = SettingsConfigDict(env_prefix="TRAIN_", extra="ignore")
-
-    runs_dir_name: str = Field(
-        default="runs", description="Subdirectory name for training runs"
-    )
 
 
 class DataSettings(BaseSettings):
@@ -304,7 +294,6 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
-    training: TrainingSettings = Field(default_factory=TrainingSettings)
     data: DataSettings = Field(default_factory=DataSettings)
     paths: PathsSettings = Field(default_factory=PathsSettings)
     extraction: ExtractionSettings = Field(default_factory=ExtractionSettings)

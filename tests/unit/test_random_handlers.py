@@ -6,16 +6,13 @@ refuse a tap that does not match the Part currently showing — otherwise the
 answer is scored against the wrong Question and disclosed to the Student.
 
 ``process_random_answer`` is the scoring path, so "was it awaited" is the whole
-contract under test. The aiogram objects are real: ``on_random_part_a_answer``
-runs an ``isinstance`` check on ``callback.message``, which a cast cannot pass.
+contract under test. The message arrives as a handler argument, narrowed by
+``AccessibleMessageMiddleware``, so these tests need no real aiogram objects.
 """
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
-
-from aiogram import types
 
 from digitex.bot.callbacks import AnswerCB
 from digitex.bot.handlers.random import (
@@ -39,6 +36,13 @@ class FakeState:
         self.data.update(kwargs)
 
 
+@dataclass
+class FakeMessage:
+    """The narrowed message a callback handler is handed."""
+
+    text: str | None = None
+
+
 def _state(current_part: str | None, question_id: int | None = 7) -> FakeState:
     return FakeState(
         data={
@@ -50,20 +54,9 @@ def _state(current_part: str | None, question_id: int | None = 7) -> FakeState:
     )
 
 
-def _message(text: str | None = None) -> types.Message:
-    """A real Message — the Part A handler's isinstance check demands one."""
-    return types.Message(
-        message_id=1,
-        date=datetime.now(UTC),
-        chat=types.Chat(id=1, type="private"),
-        text=text,
-    )
-
-
 def _callback() -> Any:
-    """A callback query carrying a real Message, with the API calls stubbed."""
+    """A callback query with its API calls stubbed."""
     callback = MagicMock()
-    callback.message = _message()
     callback.answer = AsyncMock()
     return callback
 
@@ -71,9 +64,10 @@ def _callback() -> Any:
 async def _tap_part_a(callback: Any, state: FakeState) -> AsyncMock:
     with patch(SCORING_PATH, new_callable=AsyncMock) as scoring:
         await on_random_part_a_answer(
-            cast("types.CallbackQuery", callback),
+            callback,
             AnswerCB(value=3),
             cast("Any", state),
+            cast("Any", FakeMessage()),
             cast("Any", None),
         )
     return scoring
@@ -117,7 +111,9 @@ class TestPartBTextWhilePartAIsShowing:
     async def _send_text(self, state: FakeState) -> AsyncMock:
         with patch(SCORING_PATH, new_callable=AsyncMock) as scoring:
             await on_random_part_b_answer(
-                _message(text="ВЕРНАДСКИЙ"), cast("Any", state), cast("Any", None)
+                cast("Any", FakeMessage(text="ВЕРНАДСКИЙ")),
+                cast("Any", state),
+                cast("Any", None),
             )
         return scoring
 

@@ -1,14 +1,18 @@
-"""Label Studio geometry — local-file URIs and polygon point conversions.
+"""Label Studio geometry — local-file URIs and the percent point space.
 
 Label Studio references local images as ``/data/local-files/?d=...`` (or
 ``?file=...``) URIs and stores polygon points as percentages (0-100) of the
-image size. Parsing those URIs and converting between the percent space and
-the pipeline's other coordinate spaces happens only here.
+image size. Parsing those URIs, and every conversion into or out of the percent
+space, happens here. The spaces themselves are named in
+:mod:`digitex.core.domain`; scaling a YOLO mask up to pixels belongs to
+:mod:`digitex.ml.predictors`, which is where masks come from.
 """
 
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from urllib.request import url2pathname
+
+from digitex.core.domain import NormalizedPolygon, PercentPolygon, PixelPolygon
 
 
 def local_file_path(image_uri: str) -> Path | None:
@@ -28,15 +32,15 @@ def local_file_path(image_uri: str) -> Path | None:
     return None
 
 
-def percent_to_normalized(
-    points: list[list[float]],
-) -> list[tuple[float, float]]:
+def percent_to_normalized(points: PercentPolygon) -> NormalizedPolygon:
     """Convert Label Studio percent points (0-100) to normalized (0-1)."""
-    return [(x / 100, y / 100) for x, y in points]
+    return NormalizedPolygon([(x / 100, y / 100) for x, y in points])
 
 
 def pixel_to_percent(
-    polygon: list[tuple[int, int]], img_width: int, img_height: int
-) -> list[list[float]]:
+    polygon: PixelPolygon, img_width: int, img_height: int
+) -> PercentPolygon:
     """Convert pixel points to Label Studio percent points (0-100)."""
-    return [[x / img_width * 100, y / img_height * 100] for x, y in polygon]
+    return PercentPolygon(
+        [[x / img_width * 100, y / img_height * 100] for x, y in polygon]
+    )

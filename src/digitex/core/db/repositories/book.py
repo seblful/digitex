@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from digitex.core.db.repositories._common import (
-    SubjectRow,
-    get_or_create,
-)
+from digitex.core.domain import SubjectRow
 
 if TYPE_CHECKING:
     from digitex.core.db.mapping import DictConn
@@ -21,7 +18,17 @@ class BookRepository:
         self._conn = conn
 
     async def get_or_create_subject(self, name: str) -> int:
-        return await get_or_create(self._conn, "subjects", "subject_id", {"name": name})
+        # DO UPDATE, not DO NOTHING: RETURNING is suppressed on a conflict that
+        # does nothing, and this needs the id either way. The update is a no-op.
+        cur = await self._conn.execute(
+            "INSERT INTO subjects (name) VALUES (%s)"
+            " ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name"
+            " RETURNING subject_id",
+            (name,),
+        )
+        row = await cur.fetchone()
+        assert row is not None
+        return row["subject_id"]
 
     async def get_book(self, subject_id: int, year: int) -> int | None:
         cur = await self._conn.execute(

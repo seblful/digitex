@@ -10,9 +10,15 @@ The file_id debt protocol: rendering a question with no cached Telegram
 ``file_id`` uploads the image and yields a fresh ``file_id``. Writing it back
 would cost a dedicated round-trip, so the debt is parked in the FSM
 (``pending_file_id_cache``) and settled inside the *next* round's transaction.
-``show_question`` incurs the debt; ``settle_file_id_debt`` pays it off, and
-``run_testing_round`` / ``pick_random_question`` call it on the way in. No
-handler names ``pending_file_id_cache`` — that key belongs to this module.
+``show_question`` incurs the debt, and the two round functions pay it off on the
+way in.
+
+A round that simply *ends* has no next transaction to ride, which is what
+``end_round`` is for: it settles whatever is owed and clears the conversation
+state together. Clearing the state on its own would drop the write, and Telegram
+would re-upload that image the next time it was shown — so no handler calls
+``state.clear()`` on a conversation that could hold a debt, and no handler names
+``pending_file_id_cache``. That key belongs to this module.
 """
 
 from __future__ import annotations
@@ -21,19 +27,21 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from digitex.bot import fsm_data
+from digitex.bot.fsm_data import RoundDebt
 from digitex.bot.keyboards import part_a_kb
 from digitex.bot.messages import MSG_ENTER_ANSWER
 from digitex.bot.renderer import send_question
 from digitex.core.answer import check_answer
+from digitex.core.db import UnitOfWork
+from digitex.core.domain import PART_A_OPTION_COUNT
 
 if TYPE_CHECKING:
     from aiogram import Bot, types
     from aiogram.fsm.context import FSMContext
+    from psycopg_pool import AsyncConnectionPool
 
     from digitex.bot.fsm_data import RandomState, TestingState
-    from digitex.core.db import UnitOfWork
-    from digitex.core.db.repositories._common import QuestionOrigin
-    from digitex.core.domain import Question
+    from digitex.core.domain import Question, QuestionOrigin
 
 
 @dataclass(frozen=True)
@@ -56,15 +64,7 @@ class RoundFinished:
 # ---------------------------------------------------------------------------
 
 
-def has_unsettled_debt(state: TestingState | RandomState) -> bool:
-    """True when the last render left a ``file_id`` write owed.
-
-    Lets a caller skip opening a transaction it would have nothing to do in.
-    """
-    return state.pending_file_id_cache is not None
-
-
-async def settle_file_id_debt(
+async def _settle_file_id_debt(
     uow: UnitOfWork, state: TestingState | RandomState
 ) -> None:
     """Pay off the ``file_id`` debt parked by the last render, if any.
@@ -74,6 +74,20 @@ async def settle_file_id_debt(
     """
     if state.pending_file_id_cache is not None:
         await uow.questions.cache_file_id(*state.pending_file_id_cache)
+
+
+async def end_round(pool: AsyncConnectionPool, state: FSMContext) -> None:
+    """Leave the round: pay whatever ``file_id`` is owed, then clear the state.
+
+    The only way out of a question round, whichever mode it was. A transaction
+    is opened only when something is actually owed, so ending a round that
+    rendered from cache costs no round-trip.
+    """
+    debt = await fsm_data.load(state, RoundDebt)
+    if debt.pending_file_id_cache is not None:
+        async with UnitOfWork(pool) as uow:
+            await uow.questions.cache_file_id(*debt.pending_file_id_cache)
+    await state.clear()
 
 
 async def show_question(
@@ -136,7 +150,7 @@ async def _ask_question(
             bot,
             message.chat.id,
             question,
-            reply_markup=part_a_kb(question.num_options),
+            reply_markup=part_a_kb(PART_A_OPTION_COUNT),
             caption=caption,
             parse_mode=parse_mode,
         )
@@ -191,7 +205,7 @@ async def run_testing_round(
     started = testing.question_start_time or now
     next_index = testing.current_index + 1
 
-    await settle_file_id_debt(uow, testing)
+    await _settle_file_id_debt(uow, testing)
 
     correct = await uow.questions.get_correct_answer(question_id, part)
     await uow.sessions.record_answer(
@@ -221,7 +235,7 @@ async def pick_random_question(
     Returns None when no question matches the student's filters (or the
     filters are incomplete).
     """
-    await settle_file_id_debt(uow, rnd)
+    await _settle_file_id_debt(uow, rnd)
 
     try:
         if rnd.topic_name:

@@ -104,8 +104,7 @@ class AnswersExtractor:
         except Exception as e:
             raise APIError(
                 service="OpenRouter",
-                message=f"OCR failed: {e!s}",
-                context={"image_path": str(image_path)},
+                message=f"OCR failed for {image_path.name}: {e!s}",
             ) from e
 
     def _normalize_label(self, label: str) -> str:

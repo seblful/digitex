@@ -6,7 +6,7 @@ from pathlib import Path
 
 import structlog
 
-from digitex.core.corpus import count_images, is_image
+from digitex.core.corpus import is_image
 
 logger = structlog.get_logger()
 
@@ -25,63 +25,6 @@ def numbered_images(folder: Path) -> list[tuple[int, Path]]:
         except ValueError:
             logger.warning("Skipping file with non-numeric name", file_path=str(f))
     return sorted(images, key=lambda x: x[0])
-
-
-def count_subject_images(
-    subject_dir: Path,
-) -> dict[str, dict[str, dict[str, int]]]:
-    """Count images in a subject directory by year/option/part.
-
-    Args:
-        subject_dir: Subject directory containing year folders.
-
-    Returns:
-        Nested dictionary: {year: {option: {part: count}}}
-    """
-    result: dict[str, dict[str, dict[str, int]]] = {}
-
-    if not subject_dir.exists() or not subject_dir.is_dir():
-        return result
-
-    for year_dir in subject_dir.iterdir():
-        if not year_dir.is_dir():
-            continue
-        year = year_dir.name
-
-        for option_dir in year_dir.iterdir():
-            if not option_dir.is_dir():
-                continue
-            option = option_dir.name
-
-            for part_dir in option_dir.iterdir():
-                if not part_dir.is_dir():
-                    continue
-                part = part_dir.name
-
-                result.setdefault(year, {}).setdefault(option, {})[part] = count_images(
-                    part_dir
-                )
-
-    return result
-
-
-def get_mode_values(values: list[int]) -> set[int]:
-    """Get the mode(s) of a list of integers.
-
-    Args:
-        values: List of integers.
-
-    Returns:
-        Set of most frequent values.
-    """
-    from collections import Counter
-
-    if not values:
-        return set()
-
-    counter = Counter(values)
-    max_count = counter.most_common(1)[0][1]
-    return {v for v, c in counter.items() if c == max_count}
 
 
 def apply_renames(changes: list[tuple[Path, Path]]) -> None:
@@ -185,27 +128,3 @@ def renumber_directory_tree(root: Path, dry_run: bool = True) -> int:
             )
 
     return total
-
-
-def count_total_images(root: Path) -> tuple[int, int]:
-    """Count total images and folders.
-
-    Args:
-        root: Root directory to count images in.
-
-    Returns:
-        Tuple of (total_images, total_folders).
-    """
-    total_images = 0
-    total_folders = 0
-
-    if not root.exists() or not root.is_dir():
-        return 0, 0
-
-    for item in root.rglob("*"):
-        if is_image(item):
-            total_images += 1
-        elif item.is_dir() and count_images(item):
-            total_folders += 1
-
-    return total_images, total_folders

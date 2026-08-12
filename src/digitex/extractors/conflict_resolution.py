@@ -4,8 +4,12 @@ A `ConflictResolver` is just a callable that, given a `Conflict`, returns the
 option number the new image actually belongs under. The default resolver keeps
 the current option (no interaction).
 
-Per ADR 0002, the shape is a one-line type alias rather than a Protocol. Add
-another resolver as a free function whenever a second real adapter shows up.
+The shape is a one-line type alias rather than a Protocol: there is one
+resolver, and a callable is the smallest thing that expresses "given a
+conflict, name the option". Add another resolver as a free function whenever a
+second real adapter shows up. A caller reaches this seam by building a
+configured `PageExtractor` and passing it to `BookExtractor`, which
+`TestsExtractor` in turn accepts.
 """
 
 from __future__ import annotations
@@ -20,14 +24,13 @@ if TYPE_CHECKING:
     from PIL import Image
 
 
-@dataclass
+@dataclass(frozen=True)
 class Conflict:
     """An extracted question colliding with an already-saved file."""
 
     new_image: Image.Image
     existing_path: Path
     current_option: int
-    source_image_name: str
 
 
 ConflictResolver = Callable[[Conflict], int]

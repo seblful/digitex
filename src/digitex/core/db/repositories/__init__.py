@@ -1,16 +1,10 @@
 """Repository classes — the only layer that touches raw SQL.
 
 Each repository owns one aggregate (book, question, student, session,
-authorized_user). Row containers and SQL fragments shared across them live
-in :mod:`._common`.
+authorized_user). The shapes they return live in
+:mod:`digitex.core.domain`, because callers outside this layer read them.
 """
 
-from digitex.core.db.repositories._common import (
-    QuestionOrigin,
-    SessionInfo,
-    SubjectRow,
-    WrongAnswer,
-)
 from digitex.core.db.repositories.authorized_user import AuthorizedUserRepository
 from digitex.core.db.repositories.book import BookRepository
 from digitex.core.db.repositories.question import QuestionRepository
@@ -32,11 +26,7 @@ __all__ = [
     "REPOSITORIES",
     "AuthorizedUserRepository",
     "BookRepository",
-    "QuestionOrigin",
     "QuestionRepository",
-    "SessionInfo",
     "SessionRepository",
     "StudentRepository",
-    "SubjectRow",
-    "WrongAnswer",
 ]

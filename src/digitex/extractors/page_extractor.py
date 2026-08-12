@@ -7,7 +7,7 @@ import structlog
 from PIL import Image
 
 from digitex.core import TextExtractor
-from digitex.core.domain import normalize_option_number
+from digitex.core.domain import Detection, PixelPolygon, normalize_option_number
 from digitex.core.processors import (
     ImageCropper,
     SegmentProcessor,
@@ -19,15 +19,16 @@ from digitex.extractors.conflict_resolution import (
     ConflictResolver,
     keep_current_option,
 )
-from digitex.ml.predictors import (
-    SegmentationPredictionResult,
-    YOLO_SegmentationPredictor,
-)
+from digitex.ml.predictors import YOLO_SegmentationPredictor
 
 logger = structlog.get_logger()
 
-Detection = tuple[str, list[tuple[int, int]]]
 OCR_LANGUAGE = "rus"
+
+# A conflict-resolver correction moves the question to a different option, and
+# an option always starts at Part A. Named once so the state machine and the
+# path it lands at cannot disagree.
+CORRECTED_PART = "A"
 
 
 @dataclass(frozen=True)
@@ -97,7 +98,7 @@ class PageExtractionState:
         if resolved_option == self.option:
             return False
         self.option = resolved_option
-        self.part = "A"
+        self.part = CORRECTED_PART
         return True
 
 
@@ -128,15 +129,7 @@ class PageExtractor:
             self._predictor = YOLO_SegmentationPredictor(str(self.config.model_path))
         return self._predictor
 
-    def _get_label_name(
-        self, result: SegmentationPredictionResult, class_id: int
-    ) -> str:
-        """Get label name from class ID."""
-        return result.id2label.get(class_id, "unknown")
-
-    def _get_polygon_bounding_box(
-        self, polygon: list[tuple[int, int]]
-    ) -> tuple[int, int]:
+    def _get_polygon_bounding_box(self, polygon: PixelPolygon) -> tuple[int, int]:
         """Get bounding box position from polygon."""
         min_y = min(p[1] for p in polygon)
         min_x = min(p[0] for p in polygon)
@@ -145,10 +138,9 @@ class PageExtractor:
     def _crop_and_save(
         self,
         image: Image.Image,
-        polygon: list[tuple[int, int]],
+        polygon: PixelPolygon,
         output_path: Path,
         current_option: int,
-        source_image_name: str,
         output_dir: Path,
     ) -> int:
         """Crop, process, and save extracted image. Returns resolved option number."""
@@ -161,7 +153,7 @@ class PageExtractor:
 
         if output_path.exists():
             return self._handle_existing_file(
-                output_path, processed, current_option, source_image_name, output_dir
+                output_path, processed, current_option, output_dir
             )
 
         processed.save(output_path)
@@ -172,35 +164,50 @@ class PageExtractor:
         output_path: Path,
         new_image: Image.Image,
         current_option: int,
-        source_image_name: str,
         output_dir: Path,
     ) -> int:
-        """Handle case when output file already exists. Returns resolved option."""
+        """Ask the resolver where a colliding question belongs.
+
+        Returns the option the question ended up under — *current_option* when
+        the existing file is kept, which is also what happens when the resolver
+        names an option whose slot is taken too.
+        """
         resolved_option = self._on_conflict(
             Conflict(
                 new_image=new_image,
                 existing_path=output_path,
                 current_option=current_option,
-                source_image_name=source_image_name,
             )
         )
 
-        if resolved_option != current_option:
-            correct_path = output_dir / str(resolved_option) / "A" / output_path.name
-            correct_path.parent.mkdir(parents=True, exist_ok=True)
-            logger.info(
-                "Saving corrected image",
+        if resolved_option == current_option:
+            return current_option
+
+        correct_path = (
+            output_dir / str(resolved_option) / CORRECTED_PART / output_path.name
+        )
+        if correct_path.exists():
+            # Moving the crop here would overwrite another question's image, so
+            # the collision stands and the state is left where it was.
+            logger.error(
+                "Corrected path already taken, keeping existing file",
                 from_path=str(output_path),
                 to_path=str(correct_path),
             )
-            new_image.save(str(correct_path))
-            output_path.unlink()
-            return resolved_option
+            return current_option
 
+        correct_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.info(
+            "Saving corrected image",
+            from_path=str(output_path),
+            to_path=str(correct_path),
+        )
+        new_image.save(str(correct_path))
+        output_path.unlink()
         return resolved_option
 
     def _extract_option_number(
-        self, image: Image.Image, polygon: list[tuple[int, int]]
+        self, image: Image.Image, polygon: PixelPolygon
     ) -> int | None:
         """Extract option number from image region."""
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
@@ -210,7 +217,7 @@ class PageExtractor:
         return None
 
     def _extract_part_letter(
-        self, image: Image.Image, polygon: list[tuple[int, int]]
+        self, image: Image.Image, polygon: PixelPolygon
     ) -> str | None:
         """Extract part letter (A/B) from image region."""
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
@@ -228,64 +235,59 @@ class PageExtractor:
         return None
 
     def _detect(self, image: Image.Image) -> list[Detection]:
-        """Run YOLO prediction and return sorted detections.
+        """Run YOLO prediction and return detections in reading order.
 
         Raises:
             ValueError: If no detections are found on the page.
         """
-        result = self.predictor.predict(image)
+        detections = self.predictor.predict(image)
 
-        if not result.ids:
+        if not detections:
             raise ValueError("No detections found on page")
 
         class_counts: dict[str, int] = {}
-        for class_id in result.ids:
-            label = self._get_label_name(result, class_id)
-            class_counts[label] = class_counts.get(label, 0) + 1
+        for det in detections:
+            class_counts[det.label] = class_counts.get(det.label, 0) + 1
         logger.debug("Predictions", class_counts=class_counts)
 
-        detections: list[tuple[tuple[int, int], Detection]] = []
-        for class_id, polygon in zip(result.ids, result.polygons, strict=True):
-            label = self._get_label_name(result, class_id)
-            position = self._get_polygon_bounding_box(polygon)
-            detections.append((position, (label, polygon)))
-
-        detections.sort(key=lambda x: x[0])
-        return [det for _, det in detections]
+        return sorted(
+            detections, key=lambda det: self._get_polygon_bounding_box(det.polygon)
+        )
 
     def extract(
         self,
         image: Image.Image,
         output_dir: Path,
-        state: PageExtractionState | None = None,
-        source_image_name: str = "",
-    ) -> PageExtractionState:
-        """Extract questions from a single page image.
+        state: PageExtractionState,
+    ) -> None:
+        """Extract questions from a single page image, advancing *state*.
+
+        *state* is mutated in place — it belongs to the caller, which threads
+        one state across a whole book so question numbering continues across
+        page boundaries. If a page raises partway through, the state reflects
+        the detections handled up to that point; the caller decides whether
+        that is recoverable.
 
         Args:
             image: PIL Image of the page.
             output_dir: Base output directory.
-            state: Extraction state carried across pages. Created fresh if None.
-            source_image_name: Source image filename for conflict resolution display.
+            state: Question-numbering state, advanced by this call.
 
-        Returns:
-            Updated extraction state.
+        Raises:
+            ValueError: If the page has no detections.
         """
-        if state is None:
-            state = PageExtractionState()
-
         detections = self._detect(image)
 
-        for label, polygon in detections:
-            if label == "option":
-                new_option = self._extract_option_number(image, polygon)
+        for det in detections:
+            if det.label == "option":
+                new_option = self._extract_option_number(image, det.polygon)
                 if state.on_option(new_option):
                     logger.debug("Option changed", option_counter=state.option)
-            elif label == "part":
-                new_part = self._extract_part_letter(image, polygon)
+            elif det.label == "part":
+                new_part = self._extract_part_letter(image, det.polygon)
                 if state.on_part(new_part):
                     logger.debug("Part changed", part_letter=state.part)
-            elif label == "question":
+            elif det.label == "question":
                 placement = state.next_question()
                 output_path = (
                     output_dir
@@ -295,10 +297,9 @@ class PageExtractor:
                 )
                 resolved_option = self._crop_and_save(
                     image,
-                    polygon,
+                    det.polygon,
                     output_path,
                     placement.option,
-                    source_image_name,
                     output_dir,
                 )
                 state.commit_question()
@@ -314,5 +315,3 @@ class PageExtractor:
                     part=state.part,
                     question=state.question,
                 )
-
-        return state

@@ -6,11 +6,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from aiogram import Bot, Router, types
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.types import Message as TgMessage
 from aiogram.utils.text_decorations import html_decoration
 
 from digitex.bot import fsm_data
+from digitex.bot.answer_flow import end_round
 from digitex.bot.callbacks import RegistrationCB
 from digitex.bot.constants import FALLBACK_NAME
 from digitex.bot.keyboards import admin_registration_kb, subjects_kb
@@ -21,6 +22,7 @@ from digitex.bot.messages import (
     MSG_APPROVED_USER,
     MSG_ASK_NAME,
     MSG_GREETING,
+    MSG_HELP,
     MSG_PENDING,
     MSG_REGISTRATION_INFO,
     MSG_REJECTED_ADMIN,
@@ -114,13 +116,20 @@ async def _normal_start(
         )
         subjects = await uow.books.list_subjects()
 
-    await state.clear()
+    # /start can land mid-test, where the last render may still owe a file_id
+    # write; ending the round pays it before the state goes away.
+    await end_round(pool, state)
     await fsm_data.merge(state, student_id=student.student_id)
     await message.answer(
         MSG_GREETING.format(name=name),
         reply_markup=subjects_kb(subjects),
     )
     await state.set_state(Navigation.select_subject)
+
+
+@router.message(Command("help"))
+async def cmd_help(message: types.Message) -> None:
+    await message.answer(MSG_HELP, parse_mode="HTML")
 
 
 @router.message(CommandStart())

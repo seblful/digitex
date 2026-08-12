@@ -1,5 +1,6 @@
 """Tests for the Label Studio geometry seam."""
 
+from digitex.core.domain import PercentPolygon, PixelPolygon
 from digitex.label_studio.geometry import (
     local_file_path,
     percent_to_normalized,
@@ -36,17 +37,23 @@ class TestLocalFilePath:
 
 
 class TestCoordinateConversions:
-    """Test percent/normalized/pixel polygon conversions."""
+    """Test percent/normalized/pixel polygon conversions.
+
+    Each space is its own type, so a percent polygon fed back into
+    ``percent_to_normalized`` is a type error rather than a silent divide by
+    10 000. That guarantee is checked by ``ty``, not by a test here.
+    """
 
     def test_percent_to_normalized(self) -> None:
-        points = [[50.0, 100.0], [0.0, 25.0]]
+        points = PercentPolygon([[50.0, 100.0], [0.0, 25.0]])
         assert percent_to_normalized(points) == [(0.5, 1.0), (0.0, 0.25)]
 
     def test_pixel_to_percent(self) -> None:
-        assert pixel_to_percent([(320, 240)], 640, 480) == [[50.0, 50.0]]
+        pixels = PixelPolygon([(320, 240)])
+        assert pixel_to_percent(pixels, 640, 480) == [[50.0, 50.0]]
 
     def test_round_trip_percent_to_pixel_and_back(self) -> None:
-        percent = [[10.0, 20.0], [75.0, 50.0]]
+        percent = PercentPolygon([[10.0, 20.0], [75.0, 50.0]])
         normalized = percent_to_normalized(percent)
-        pixels = [(int(x * 640), int(y * 480)) for x, y in normalized]
+        pixels = PixelPolygon([(int(x * 640), int(y * 480)) for x, y in normalized])
         assert pixel_to_percent(pixels, 640, 480) == percent

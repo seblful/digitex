@@ -11,6 +11,13 @@ if TYPE_CHECKING:
     from digitex.core.db.mapping import DictConn
     from digitex.core.domain import RegistrationStatus
 
+# Every AuthorizedUser field, spelled once — a field added to the model but not
+# here comes back as a ValidationError at runtime rather than a type error.
+_COLUMNS = (
+    "telegram_id, full_name, telegram_username,"
+    " status, created_at, handled_at, handled_by"
+)
+
 
 class AuthorizedUserRepository:
     """Repository for the registration / approval workflow."""
@@ -36,8 +43,7 @@ class AuthorizedUserRepository:
             "   status = 'pending',"
             "   handled_at = NULL,"
             "   handled_by = NULL"
-            " RETURNING telegram_id, full_name, telegram_username,"
-            "          status, created_at, handled_at, handled_by",
+            f" RETURNING {_COLUMNS}",
             (telegram_id, full_name, telegram_username),
         )
         row = await cur.fetchone()
@@ -57,8 +63,7 @@ class AuthorizedUserRepository:
             "UPDATE authorized_users"
             " SET status = %s, handled_at = NOW(), handled_by = %s"
             " WHERE telegram_id = %s"
-            " RETURNING telegram_id, full_name, telegram_username,"
-            "          status, created_at, handled_at, handled_by",
+            f" RETURNING {_COLUMNS}",
             (status, admin_id, telegram_id),
         )
         row = await cur.fetchone()
@@ -74,9 +79,7 @@ class AuthorizedUserRepository:
 
     async def get_request(self, telegram_id: int) -> AuthorizedUser | None:
         cur = await self._conn.execute(
-            "SELECT telegram_id, full_name, telegram_username,"
-            "       status, created_at, handled_at, handled_by"
-            "  FROM authorized_users WHERE telegram_id = %s",
+            f"SELECT {_COLUMNS} FROM authorized_users WHERE telegram_id = %s",
             (telegram_id,),
         )
         row = await cur.fetchone()

@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from digitex.core.domain import PixelPolygon
 from digitex.core.processors import SegmentProcessor, resize_image
 from digitex.core.processors.image import (
     ImageCropper,
@@ -291,7 +292,7 @@ class TestImageCropper:
     def test_polygon_to_quad_returns_four_points(
         self, polygon: list[tuple[int, int]]
     ) -> None:
-        quad = _polygon_to_quad(polygon)
+        quad = _polygon_to_quad(PixelPolygon(polygon))
         assert quad.shape == (4, 2)
 
     def test_perspective_transform_dimensions(self) -> None:
@@ -309,7 +310,9 @@ class TestImageCropper:
     def test_cut_out_requires_four_or_more_points(self) -> None:
         img = Image.new("RGB", (100, 100), color="white")
         with pytest.raises(ValueError, match="Polygon must have 4 or more points"):
-            ImageCropper.cut_out_image_by_polygon(img, [(10, 10), (20, 20)])
+            ImageCropper.cut_out_image_by_polygon(
+                img, PixelPolygon([(10, 10), (20, 20)])
+            )
 
     @pytest.mark.parametrize(
         "polygon",
@@ -331,7 +334,7 @@ class TestImageCropper:
     )
     def test_cut_out_returns_rgba_crop(self, polygon: list[tuple[int, int]]) -> None:
         img = Image.new("RGB", (300, 300), color="white")
-        result = ImageCropper.cut_out_image_by_polygon(img, polygon)
+        result = ImageCropper.cut_out_image_by_polygon(img, PixelPolygon(polygon))
         assert result.mode == "RGBA"
         assert result.size[0] > 0
         assert result.size[1] > 0

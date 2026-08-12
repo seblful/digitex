@@ -9,8 +9,15 @@ from digitex.bot.handlers.results import _format_result_lines, finish_session
 from digitex.bot.handlers.start import open_registration_gate
 from digitex.bot.renderer import send_question
 from digitex.core.db import UnitOfWork
-from digitex.core.db.repositories import SessionInfo, SubjectRow, WrongAnswer
-from digitex.core.domain import AuthorizedUser, ExamType, Question, TestResult
+from digitex.core.domain import (
+    AuthorizedUser,
+    ExamType,
+    Question,
+    SessionInfo,
+    SubjectRow,
+    TestResult,
+    WrongAnswer,
+)
 
 
 class TestFormatResultLines:

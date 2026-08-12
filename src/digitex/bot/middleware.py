@@ -1,11 +1,16 @@
-"""Auth middleware — blocks unauthorized callback queries."""
+"""Middleware — what every callback query passes through before a handler.
+
+``AuthMiddleware`` drops taps from users who are not authorized;
+``AccessibleMessageMiddleware`` narrows the optional ``CallbackQuery.message``
+once, so handlers can declare a real ``Message`` and stop re-checking.
+"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from aiogram import BaseMiddleware
-from aiogram.types import CallbackQuery, TelegramObject
+from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from digitex.core.db import UnitOfWork
 
@@ -56,3 +61,33 @@ class AuthMiddleware(BaseMiddleware):
             return
 
         await handler(event, data)
+
+
+class AccessibleMessageMiddleware(BaseMiddleware):
+    """Give callback handlers the message their keyboard is attached to, as ``msg``.
+
+    ``CallbackQuery.message`` is optional: Telegram sends an
+    ``InaccessibleMessage`` once the original is older than 48 hours or has been
+    deleted, and there is nothing a handler can do with one. Acknowledging those
+    taps here — instead of in every callback handler — is what lets a handler
+    declare ``msg: Message`` and get one.
+
+    Register on the ``callback_query`` observer only; every event it sees is a
+    :class:`CallbackQuery`.
+    """
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        callback = cast("CallbackQuery", event)
+
+        if not isinstance(callback.message, Message):
+            # Ack so the client stops spinning; there is nothing to edit here.
+            await callback.answer()
+            return None
+
+        data["msg"] = callback.message
+        return await handler(event, data)

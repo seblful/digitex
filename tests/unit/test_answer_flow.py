@@ -9,22 +9,22 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
+from digitex.bot import answer_flow
 from digitex.bot.answer_flow import (
     NextQuestion,
     RoundFinished,
+    end_round,
     evaluate_random_answer,
-    has_unsettled_debt,
     pick_random_question,
     run_testing_round,
-    settle_file_id_debt,
     show_question,
 )
 from digitex.bot.fsm_data import RandomState, TestingState
 from digitex.bot.messages import MSG_ENTER_ANSWER
-from digitex.core.db.repositories._common import QuestionOrigin
-from digitex.core.domain import Question
+from digitex.core.domain import Question, QuestionOrigin
 
 if TYPE_CHECKING:
+    import pytest
     from aiogram import Bot, types
     from aiogram.fsm.context import FSMContext
 
@@ -145,12 +145,17 @@ class FakeState:
     """Stands in for aiogram's FSMContext — the conversation data dict."""
 
     data: dict[str, Any] = field(default_factory=dict)
+    cleared: bool = False
 
     async def update_data(self, **fields: Any) -> None:
         self.data.update(fields)
 
     async def get_data(self) -> dict[str, Any]:
         return dict(self.data)
+
+    async def clear(self) -> None:
+        self.data.clear()
+        self.cleared = True
 
 
 def as_bot(fake: FakeBot) -> Bot:
@@ -336,28 +341,67 @@ class TestShowQuestion:
         assert bot.sent[0]["parse_mode"] == "HTML"
 
 
-class TestFileIdDebtSettlement:
-    def test_no_debt_reported_on_a_fresh_state(self) -> None:
-        assert has_unsettled_debt(RandomState(subject_id=1)) is False
+class TestEndRound:
+    """Leaving a round settles the debt and clears the state, together."""
 
-    def test_parked_debt_is_reported(self) -> None:
-        rnd = RandomState(subject_id=1, pending_file_id_cache=(5, "A", "file9"))
-        assert has_unsettled_debt(rnd) is True
+    def _install_uow(
+        self, monkeypatch: pytest.MonkeyPatch, uow: FakeUow
+    ) -> list[object]:
+        """Swap in *uow* for the UnitOfWork end_round opens; record openings."""
+        opened: list[object] = []
 
-    async def test_settling_writes_the_parked_file_id(self) -> None:
+        class _Ctx:
+            async def __aenter__(self) -> FakeUow:
+                opened.append(uow)
+                return uow
+
+            async def __aexit__(self, *args: object) -> None:
+                return None
+
+        monkeypatch.setattr(answer_flow, "UnitOfWork", lambda _pool: _Ctx())
+        return opened
+
+    async def test_parked_file_id_is_written_before_the_state_goes_away(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         uow = FakeUow()
-        rnd = RandomState(subject_id=1, pending_file_id_cache=(5, "A", "file9"))
+        self._install_uow(monkeypatch, uow)
+        state = FakeState(data={"pending_file_id_cache": (5, "A", "file9")})
 
-        await settle_file_id_debt(as_uow(uow), rnd)
+        await end_round(cast("Any", None), as_state(state))
 
         assert uow.questions.cached == [(5, "A", "file9")]
+        assert state.cleared is True
+        assert state.data == {}
 
-    async def test_settling_nothing_touches_no_rows(self) -> None:
+    async def test_a_round_that_owes_nothing_opens_no_transaction(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Rendering from cache costs no round-trip on the way out either."""
+        opened = self._install_uow(monkeypatch, FakeUow())
+        state = FakeState(data={"current_question_id": 10, "current_part": "A"})
+
+        await end_round(cast("Any", None), as_state(state))
+
+        assert opened == []
+        assert state.cleared is True
+
+    async def test_the_debt_is_read_out_of_either_mode(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Standard mode parks extra keys; the debt is found all the same."""
         uow = FakeUow()
+        self._install_uow(monkeypatch, uow)
+        testing = TestingState(
+            session_id=7,
+            question_ids=[(10, "A")],
+            pending_file_id_cache=(5, "B", "file9"),
+        )
+        state = FakeState(data=testing.model_dump())
 
-        await settle_file_id_debt(as_uow(uow), RandomState(subject_id=1))
+        await end_round(cast("Any", None), as_state(state))
 
-        assert uow.questions.cached == []
+        assert uow.questions.cached == [(5, "B", "file9")]
 
 
 class TestPickRandomQuestion:

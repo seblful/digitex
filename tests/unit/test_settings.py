@@ -6,14 +6,13 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
 
-from digitex.config.settings import (
+from digitex.config import (
     DatabaseSettings,
     DataSettings,
     ExtractionSettings,
     LabelStudioSettings,
     PathsSettings,
     Settings,
-    TrainingSettings,
     get_settings,
 )
 
@@ -44,20 +43,6 @@ class TestDatabaseSettings:
         )
         assert "statement_timeout=1234" in settings.server_options
         assert "idle_in_transaction_session_timeout=5678" in settings.server_options
-
-
-class TestTrainingSettings:
-    """Test TrainingSettings class."""
-
-    def test_default_training_values(self) -> None:
-        """Test that TrainingSettings has correct default values."""
-        settings = TrainingSettings()
-        assert settings.runs_dir_name == "runs"
-
-    def test_custom_training_values(self) -> None:
-        """Test custom training values."""
-        settings = TrainingSettings(runs_dir_name="custom_runs")
-        assert settings.runs_dir_name == "custom_runs"
 
 
 class TestDataSettings:
@@ -166,7 +151,6 @@ class TestSettings:
         """Test that Settings composes all sub-settings correctly."""
         settings = Settings()
         assert isinstance(settings.database, DatabaseSettings)
-        assert isinstance(settings.training, TrainingSettings)
         assert isinstance(settings.data, DataSettings)
         assert isinstance(settings.paths, PathsSettings)
         assert isinstance(settings.extraction, ExtractionSettings)
@@ -205,7 +189,6 @@ class TestGetSettings:
         """Test that get_settings returns settings with all categories."""
         settings = get_settings()
         assert hasattr(settings, "database")
-        assert hasattr(settings, "training")
         assert hasattr(settings, "data")
         assert hasattr(settings, "paths")
         assert hasattr(settings, "extraction")

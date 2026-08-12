@@ -1,23 +1,34 @@
-"""Training CLI commands."""
+"""Training CLI commands.
+
+Settings are resolved per command rather than at import, so importing this
+module reads no files and configures no logging. The heavy imports
+(ultralytics, torch) stay inside the commands that need them.
+"""
 
 from pathlib import Path
 
-import structlog
 import typer
 
-from digitex.config import get_settings
+from digitex.config import Settings, get_settings
 from digitex.logging import setup_logging
 
-# Per ADR 0001 — resolve settings once at the CLI boundary.
-_settings = get_settings()
-setup_logging(_settings)
-
 app = typer.Typer(help="YOLO model training for document segmentation.")
-logger = structlog.get_logger()
 
 
-def _data_dir(data_type_dir_name: str) -> Path:
-    return _settings.paths.training_data_dir / data_type_dir_name
+@app.callback()
+def configure() -> None:
+    """Set up logging before any command runs."""
+    setup_logging(get_settings())
+
+
+def _data_dir(settings: Settings, data_type_dir_name: str) -> Path:
+    return settings.paths.training_data_dir / data_type_dir_name
+
+
+def _abort(message: str) -> typer.Exit:
+    """Render *message* on stderr and return the exit to raise."""
+    typer.echo(typer.style(message, fg="red", bold=True), err=True)
+    return typer.Exit(code=1)
 
 
 @app.command(name="create-dataset")
@@ -32,19 +43,14 @@ def create_dataset(
     """Convert Label Studio annotations into a YOLO training dataset."""
     from digitex.ml.yolo.dataset import DatasetCreator
 
-    data_dir = _data_dir(data_type_dir_name)
+    settings = get_settings()
+    data_dir = _data_dir(settings, data_type_dir_name)
     annotations_file = data_dir / "annotations.json"
-    images_dir = data_dir / _settings.data.images_dir_name
-    dataset_dir = data_dir / _settings.data.dataset_dir_name
+    images_dir = data_dir / settings.data.images_dir_name
+    dataset_dir = data_dir / settings.data.dataset_dir_name
 
     if not annotations_file.exists():
-        typer.echo(
-            typer.style(
-                f"Error: annotations file not found: {annotations_file}", fg="red"
-            ),
-            err=True,
-        )
-        raise typer.Exit(code=1)
+        raise _abort(f"Error: annotations file not found: {annotations_file}")
 
     dataset = DatasetCreator(
         annotations_file=annotations_file,
@@ -79,19 +85,19 @@ def add_images(
     """Add images listed in images.txt to training data."""
     from digitex.creators import PageDataCreator
 
-    data_dir = _data_dir(data_type_dir_name)
+    settings = get_settings()
+    data_dir = _data_dir(settings, data_type_dir_name)
     paths_file = data_dir / "images.txt"
 
     if not paths_file.exists():
-        typer.echo(typer.style(f"Error: {paths_file} not found", fg="red"), err=True)
-        raise typer.Exit(code=1)
+        raise _abort(f"Error: {paths_file} not found")
 
     if not paths_file.read_text(encoding="utf-8").strip():
         typer.echo("images.txt is empty.")
         raise typer.Exit(code=0)
 
-    output_dir = data_dir / _settings.data.images_dir_name
-    PageDataCreator(image_size=_settings.data.image_size).add_from_file(
+    output_dir = data_dir / settings.data.images_dir_name
+    PageDataCreator(image_size=settings.data.image_size).add_from_file(
         paths_file=paths_file,
         output_dir=output_dir,
     )
@@ -107,10 +113,11 @@ def select_random_pages(
     """Randomly sample page images from the books directory for training."""
     from digitex.creators import PageDataCreator
 
-    page_train_dir = _data_dir("page") / _settings.data.images_dir_name
+    settings = get_settings()
+    page_train_dir = _data_dir(settings, "page") / settings.data.images_dir_name
 
-    PageDataCreator(image_size=_settings.data.image_size).create(
-        books_dir=_settings.paths.books_dir,
+    PageDataCreator(image_size=settings.data.image_size).create(
+        books_dir=settings.paths.books_dir,
         output_dir=page_train_dir,
         num_images=num_images,
     )
@@ -130,47 +137,21 @@ def train(
     ),
 ) -> None:
     """Train and validate a YOLO segmentation model."""
-    configs_dir = _settings.paths.training_configs_dir
-    train_config_path = configs_dir / f"{config}_train.yaml"
-    val_config_path = configs_dir / f"{config}_val.yaml"
+    from digitex.ml.yolo import training
 
-    if not train_config_path.exists():
-        typer.echo(
-            typer.style(
-                f"Error: train config not found: {train_config_path}", fg="red"
-            ),
-            err=True,
-        )
-        raise typer.Exit(code=1)
-
-    if not val_config_path.exists():
-        typer.echo(
-            typer.style(f"Error: val config not found: {val_config_path}", fg="red"),
-            err=True,
-        )
-        raise typer.Exit(code=1)
-
-    logger.info("Starting YOLO training", train_config=str(train_config_path))
+    configs_dir = get_settings().paths.training_configs_dir
 
     try:
-        import yaml
-        from ultralytics import YOLO
-
-        train_cfg = yaml.safe_load(train_config_path.read_text(encoding="utf-8"))
-        model_name = (train_cfg or {}).get("model")
-        if not model_name:
-            raise ValueError(f"'model' key missing in {train_config_path}")
-
-        model = YOLO(model_name)
-        model.train(cfg=train_config_path)
-        model.val(cfg=val_config_path)
-        typer.echo(typer.style("✓ Training and validation completed", fg="green"))
-    except Exception as e:
-        logger.error("Training failed", error=str(e))
-        typer.echo(
-            typer.style(f"✗ Training failed: {e}", fg="red", bold=True), err=True
+        training.run(
+            train_config=configs_dir / f"{config}_train.yaml",
+            val_config=configs_dir / f"{config}_val.yaml",
         )
-        raise typer.Exit(code=1) from e
+    except FileNotFoundError as exc:
+        raise _abort(f"Error: config not found: {exc}") from None
+    except ValueError as exc:
+        raise _abort(f"Error: {exc}") from None
+
+    typer.echo(typer.style("✓ Training and validation completed", fg="green"))
 
 
 @app.command(name="ls-predict")
@@ -183,10 +164,11 @@ def ls_predict(
     """Run model predictions on Label Studio tasks for a project."""
     from digitex.label_studio import TaskPredictor
 
+    settings = get_settings()
     predictor = TaskPredictor(
         model_path=model_path,
-        url=_settings.label_studio.url,
-        api_key=_settings.label_studio.api_key,
+        url=settings.label_studio.url,
+        api_key=settings.label_studio.api_key,
     )
 
     count = predictor.predict_tasks(project_id)

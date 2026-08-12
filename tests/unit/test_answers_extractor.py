@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from digitex.extractors import AnswersExtractor
+from digitex.extractors.answers_extractor import AnswersExtractor
 
 
 @pytest.fixture

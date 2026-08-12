@@ -6,37 +6,40 @@ only the interface: which files land where on disk, and what state comes back.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from PIL import Image
 
+from digitex.core.domain import Detection, PixelPolygon
 from digitex.extractors.base import ExtractionConfig
 from digitex.extractors.page_extractor import (
     PageExtractionState,
     PageExtractor,
     QuestionPlacement,
 )
-from digitex.ml.predictors import SegmentationPredictionResult
 
 if TYPE_CHECKING:
     from digitex.core import TextExtractor
     from digitex.ml.predictors import YOLO_SegmentationPredictor
 
-ID2LABEL = {0: "question", 1: "option", 2: "part"}
+OPTION_REGION = PixelPolygon([(10, 0), (40, 0), (40, 10), (10, 10)])
+PART_REGION = PixelPolygon([(10, 20), (40, 20), (40, 30), (10, 30)])
+QUESTION_REGION = PixelPolygon([(10, 40), (200, 40), (200, 80), (10, 80)])
+SECOND_QUESTION_REGION = PixelPolygon([(10, 90), (200, 90), (200, 130), (10, 130)])
 
-OPTION_REGION = [(10, 0), (40, 0), (40, 10), (10, 10)]
-PART_REGION = [(10, 20), (40, 20), (40, 30), (10, 30)]
-QUESTION_REGION = [(10, 40), (200, 40), (200, 80), (10, 80)]
-SECOND_QUESTION_REGION = [(10, 90), (200, 90), (200, 130), (10, 130)]
+
+def _dets(*pairs: tuple[str, PixelPolygon]) -> list[Detection]:
+    """Detections in the order the predictor would report them."""
+    return [Detection(label=label, polygon=polygon) for label, polygon in pairs]
 
 
 class _FakePredictor:
-    def __init__(self, result: SegmentationPredictionResult) -> None:
-        self._result = result
+    def __init__(self, detections: list[Detection]) -> None:
+        self._detections = detections
 
-    def predict(self, image: Image.Image) -> SegmentationPredictionResult:
-        return self._result
+    def predict(self, image: Image.Image) -> list[Detection]:
+        return self._detections
 
 
 class _FakeTextExtractor:
@@ -52,7 +55,7 @@ class _FakeTextExtractor:
 
 
 def _extractor(
-    result: SegmentationPredictionResult,
+    detections: list[Detection],
     *,
     digits: list[int] | None = None,
     text: str = "",
@@ -65,7 +68,7 @@ def _extractor(
             question_max_width=50,
             question_max_height=50,
         ),
-        predictor=cast("YOLO_SegmentationPredictor", _FakePredictor(result)),
+        predictor=cast("YOLO_SegmentationPredictor", _FakePredictor(detections)),
         text_extractor=cast(
             "TextExtractor", _FakeTextExtractor(digits=digits, text=text)
         ),
@@ -139,26 +142,27 @@ class TestPageExtractionState:
 
 
 class TestPageExtractorExtract:
-    """Behavior tests of extract() through its interface — no YOLO, no OCR."""
+    """Behavior tests of extract() through its interface — no YOLO, no OCR.
 
-    ID2LABEL: ClassVar[dict[int, str]] = ID2LABEL
+    ``extract`` advances the state it is handed, so each test builds the state
+    it wants and reads it back afterwards.
+    """
 
     def test_questions_saved_under_detected_option_and_part(
         self, tmp_path: Path
     ) -> None:
-        result = SegmentationPredictionResult(
-            ids=[1, 2, 0, 0],
-            polygons=[
-                OPTION_REGION,
-                PART_REGION,
-                QUESTION_REGION,
-                SECOND_QUESTION_REGION,
-            ],
-            id2label=self.ID2LABEL,
+        detections = _dets(
+            ("option", OPTION_REGION),
+            ("part", PART_REGION),
+            ("question", QUESTION_REGION),
+            ("question", SECOND_QUESTION_REGION),
         )
         image = Image.new("RGB", (300, 300), color="white")
+        state = PageExtractionState()
 
-        state = _extractor(result, digits=[1], text="Часть A").extract(image, tmp_path)
+        _extractor(detections, digits=[1], text="Часть A").extract(
+            image, tmp_path, state
+        )
 
         assert (tmp_path / "1" / "A" / "1.jpg").exists()
         assert (tmp_path / "1" / "A" / "2.jpg").exists()
@@ -166,26 +170,24 @@ class TestPageExtractorExtract:
 
     def test_option_digits_normalized_to_one_to_ten_range(self, tmp_path: Path) -> None:
         """Book pages number options 11-20 / 31-40; OCR reads map back to 1-10."""
-        result = SegmentationPredictionResult(
-            ids=[1, 2, 0],
-            polygons=[OPTION_REGION, PART_REGION, QUESTION_REGION],
-            id2label=self.ID2LABEL,
+        detections = _dets(
+            ("option", OPTION_REGION),
+            ("part", PART_REGION),
+            ("question", QUESTION_REGION),
         )
         image = Image.new("RGB", (300, 300), color="white")
 
-        _extractor(result, digits=[11], text="Часть A").extract(image, tmp_path)
+        _extractor(detections, digits=[11], text="Часть A").extract(
+            image, tmp_path, PageExtractionState()
+        )
 
         assert (tmp_path / "1" / "A" / "1.jpg").exists()
 
     def test_cyrillic_part_marker_maps_to_latin_b(self, tmp_path: Path) -> None:
-        result = SegmentationPredictionResult(
-            ids=[2, 0],
-            polygons=[PART_REGION, QUESTION_REGION],
-            id2label=self.ID2LABEL,
-        )
+        detections = _dets(("part", PART_REGION), ("question", QUESTION_REGION))
         image = Image.new("RGB", (300, 300), color="white")
 
-        _extractor(result, text="Часть Б").extract(
+        _extractor(detections, text="Часть Б").extract(
             image, tmp_path, PageExtractionState(option=1, part="A", question=5)
         )
 
@@ -204,53 +206,43 @@ class TestPageExtractorExtract:
         It transliterates to a Latin "A", so stripping the word has to happen
         after the uppercase — otherwise every Part B marker reads as Part A.
         """
-        result = SegmentationPredictionResult(
-            ids=[2, 0],
-            polygons=[PART_REGION, QUESTION_REGION],
-            id2label=self.ID2LABEL,
-        )
+        detections = _dets(("part", PART_REGION), ("question", QUESTION_REGION))
         image = Image.new("RGB", (300, 300), color="white")
 
-        _extractor(result, text=text).extract(
+        _extractor(detections, text=text).extract(
             image, tmp_path, PageExtractionState(option=1, part="A", question=5)
         )
 
         assert (tmp_path / "1" / "B" / "1.jpg").exists()
 
     def test_unreadable_markers_leave_state_untouched(self, tmp_path: Path) -> None:
-        result = SegmentationPredictionResult(
-            ids=[1, 2, 0],
-            polygons=[OPTION_REGION, PART_REGION, QUESTION_REGION],
-            id2label=self.ID2LABEL,
+        detections = _dets(
+            ("option", OPTION_REGION),
+            ("part", PART_REGION),
+            ("question", QUESTION_REGION),
         )
         image = Image.new("RGB", (300, 300), color="white")
 
-        state = _extractor(result, digits=[], text="smudge").extract(
-            image, tmp_path, PageExtractionState(option=2, part="B", question=1)
-        )
+        state = PageExtractionState(option=2, part="B", question=1)
+
+        _extractor(detections, digits=[], text="smudge").extract(image, tmp_path, state)
 
         assert (tmp_path / "2" / "B" / "2.jpg").exists()
         assert (state.option, state.part) == (2, "B")
 
     def test_no_detections_raises(self, tmp_path: Path) -> None:
-        result = SegmentationPredictionResult(
-            ids=[], polygons=[], id2label=self.ID2LABEL
-        )
         image = Image.new("RGB", (300, 300), color="white")
 
         with pytest.raises(ValueError, match="No detections found on page"):
-            _extractor(result).extract(image, tmp_path)
+            _extractor([]).extract(image, tmp_path, PageExtractionState())
 
     def test_detections_processed_in_reading_order(self, tmp_path: Path) -> None:
         """A part marker above a question applies to it, whatever the predict order."""
-        result = SegmentationPredictionResult(
-            ids=[0, 2],  # question predicted first, but it sits BELOW the marker
-            polygons=[QUESTION_REGION, PART_REGION],
-            id2label=self.ID2LABEL,
-        )
+        # Question reported first, but it sits BELOW the marker on the page.
+        detections = _dets(("question", QUESTION_REGION), ("part", PART_REGION))
         image = Image.new("RGB", (300, 300), color="white")
 
-        _extractor(result, text="Часть B").extract(
+        _extractor(detections, text="Часть B").extract(
             image, tmp_path, PageExtractionState(option=1, part="A")
         )
 
@@ -259,19 +251,15 @@ class TestPageExtractorExtract:
     def test_conflict_with_default_resolver_keeps_existing_file(
         self, tmp_path: Path
     ) -> None:
-        result = SegmentationPredictionResult(
-            ids=[0],
-            polygons=[QUESTION_REGION],
-            id2label=self.ID2LABEL,
-        )
+        detections = _dets(("question", QUESTION_REGION))
         existing = tmp_path / "1" / "A" / "1.jpg"
         existing.parent.mkdir(parents=True)
         existing.write_bytes(b"original")
         image = Image.new("RGB", (300, 300), color="white")
 
-        state = _extractor(result).extract(
-            image, tmp_path, PageExtractionState(option=1, part="A")
-        )
+        state = PageExtractionState(option=1, part="A")
+
+        _extractor(detections).extract(image, tmp_path, state)
 
         assert existing.read_bytes() == b"original"
         assert (state.option, state.question) == (1, 1)
@@ -279,20 +267,40 @@ class TestPageExtractorExtract:
     def test_conflict_resolver_correction_moves_question_and_state(
         self, tmp_path: Path
     ) -> None:
-        result = SegmentationPredictionResult(
-            ids=[0],
-            polygons=[QUESTION_REGION],
-            id2label=self.ID2LABEL,
-        )
+        detections = _dets(("question", QUESTION_REGION))
         existing = tmp_path / "1" / "A" / "1.jpg"
         existing.parent.mkdir(parents=True)
         existing.write_bytes(b"original")
         image = Image.new("RGB", (300, 300), color="white")
 
-        state = _extractor(result, on_conflict=lambda conflict: 2).extract(
-            image, tmp_path, PageExtractionState(option=1, part="A")
+        state = PageExtractionState(option=1, part="A")
+
+        _extractor(detections, on_conflict=lambda conflict: 2).extract(
+            image, tmp_path, state
         )
 
         assert not existing.exists()
         assert (tmp_path / "2" / "A" / "1.jpg").exists()
         assert (state.option, state.part, state.question) == (2, "A", 1)
+
+    def test_correction_into_an_occupied_slot_keeps_both_files(
+        self, tmp_path: Path
+    ) -> None:
+        """The resolver's option is already taken, so nothing is overwritten."""
+        detections = _dets(("question", QUESTION_REGION))
+        existing = tmp_path / "1" / "A" / "1.jpg"
+        existing.parent.mkdir(parents=True)
+        existing.write_bytes(b"original")
+        occupied = tmp_path / "2" / "A" / "1.jpg"
+        occupied.parent.mkdir(parents=True)
+        occupied.write_bytes(b"someone else")
+        image = Image.new("RGB", (300, 300), color="white")
+        state = PageExtractionState(option=1, part="A")
+
+        _extractor(detections, on_conflict=lambda conflict: 2).extract(
+            image, tmp_path, state
+        )
+
+        assert existing.read_bytes() == b"original"
+        assert occupied.read_bytes() == b"someone else"
+        assert (state.option, state.part) == (1, "A")

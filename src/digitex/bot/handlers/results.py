@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from aiogram import Bot, Router, types
 from aiogram.utils.text_decorations import html_decoration
 
 from digitex.bot import fsm_data
+from digitex.bot.answer_flow import end_round
 from digitex.bot.fsm_data import TestingState
 from digitex.bot.keyboards import subjects_kb
 from digitex.bot.messages import (
@@ -32,13 +32,16 @@ from digitex.bot.states import Navigation
 from digitex.core.db import UnitOfWork
 
 if TYPE_CHECKING:
+    from aiogram import Bot, types
     from aiogram.fsm.context import FSMContext
     from psycopg_pool import AsyncConnectionPool
 
-    from digitex.core.db.repositories import SessionInfo, SubjectRow, WrongAnswer
-    from digitex.core.domain import TestResult
-
-router = Router()
+    from digitex.core.domain import (
+        SessionInfo,
+        SubjectRow,
+        TestResult,
+        WrongAnswer,
+    )
 
 
 @dataclass(frozen=True)
@@ -132,7 +135,7 @@ async def show_results(
         _format_result_lines(outcome.result, outcome.wrong_answers, outcome.info)
     )
     await bot.send_message(message.chat.id, text, parse_mode="HTML")
-    await state.clear()
+    await end_round(pool, state)
     await state.set_state(Navigation.select_subject)
 
     await bot.send_message(

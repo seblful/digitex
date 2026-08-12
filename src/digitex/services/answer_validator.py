@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from digitex.core.corpus import walk_question_images
 
@@ -40,6 +40,21 @@ class YearReport:
     @property
     def options_differ(self) -> bool:
         return bool(self.options_with_differing_questions)
+
+    @property
+    def part_b_coverage(self) -> Literal["none", "partial", "all"]:
+        """How many of the year's Options carry a Part Б answer key.
+
+        Part Б is hand-written on the answer sheets and the vision model misses
+        it most often, so "none" and "partial" mean different things: the first
+        says the whole year's Б keys are absent, the second that some sheets
+        read and some did not.
+        """
+        if self.options_with_b == 0:
+            return "none"
+        if self.options_with_b < self.total_options:
+            return "partial"
+        return "all"
 
     @property
     def is_clean(self) -> bool:
