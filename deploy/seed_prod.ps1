@@ -32,7 +32,7 @@
     Production POSTGRES_PASSWORD. Defaults to $env:PROD_DB_PASSWORD, else prompts.
 
 .EXAMPLE
-    ./scripts/seed_prod.ps1 -VpsHost 203.0.113.10 -Subject biology
+    ./deploy/seed_prod.ps1 -VpsHost 203.0.113.10 -Subject biology
 #>
 [CmdletBinding()]
 param(

@@ -43,7 +43,7 @@ Runs `ci.yml` as a gate, then:
 
 1. **publish** — builds the image and pushes
    `ghcr.io/seblful/digitex-bot:sha-<short>` plus `:latest`.
-1. **release** — SSHes to the VPS and runs `scripts/deploy.sh`, which pins the
+1. **release** — SSHes to the VPS and runs `deploy/deploy.sh`, which pins the
    tag, pulls it, applies migrations **with the new image**, restarts the bot,
    and waits for the healthcheck.
 
@@ -91,7 +91,7 @@ cat .env               # the box's only env file, with its secrets
 docker compose ps
 ```
 
-> `scripts/deploy.sh` checks out the exact deployed commit, so **local edits
+> `deploy/deploy.sh` checks out the exact deployed commit, so **local edits
 > under `/opt/digitex` other than `.env` are discarded** on release.
 
 Optional: make the GHCR package public
@@ -112,7 +112,7 @@ Merge to `main`. Nothing to do by hand.
 
 ### Schema (a new migration)
 
-Same — merge to `main`. `scripts/deploy.sh` runs `digitex-db upgrade` with the
+Same — merge to `main`. `deploy/deploy.sh` runs `digitex-db upgrade` with the
 new image before starting it. Write the migration per
 [database-reference.md](database-reference.md).
 
@@ -123,8 +123,8 @@ one path stays laptop-driven:
 
 ```powershell
 $env:VPS_HOST = "<vps-ip>"
-./scripts/seed_prod.ps1                 # every subject
-./scripts/seed_prod.ps1 -Subject biology
+./deploy/seed_prod.ps1                 # every subject
+./deploy/seed_prod.ps1 -Subject biology
 ```
 
 The script opens the SSH tunnel, migrates, seeds through it, and closes the
@@ -144,7 +144,7 @@ By hand on the VPS, equivalently:
 
 ```bash
 cd /opt/digitex
-TAG=sha-abc1234 bash scripts/deploy.sh
+TAG=sha-abc1234 bash deploy/deploy.sh
 ```
 
 A rollback restores the image, not the database. If the bad deploy applied a

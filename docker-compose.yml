@@ -31,7 +31,13 @@ services:
           memory: 512M
 
   bot:
-    build: .
+    # This file stays at the repo root even though the Dockerfile does not:
+    # every relative path below, and .env, resolve against the compose file's
+    # directory, and on the VPS that has to be $APP_DIR. Moving it would mean
+    # relocating the server's .env, logs/ and corpus by hand.
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
     # CI builds this image and pushes it per-commit; the VPS pulls the tag the
     # deploy pins in .env.production. `build:` stays so local `up` still builds
     # from source instead of reaching for the registry.

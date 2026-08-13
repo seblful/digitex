@@ -2,7 +2,7 @@
 # Release one image tag on the VPS. Run by .github/workflows/deploy.yml over
 # SSH; safe to run by hand for a rollback:
 #
-#     TAG=sha-abc1234 bash scripts/deploy.sh
+#     TAG=sha-abc1234 bash deploy/deploy.sh
 #
 # Order matters: migrate with the new image *before* the new bot starts, so a
 # failed migration leaves the old bot serving. A GHCR password on stdin is

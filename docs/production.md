@@ -82,7 +82,7 @@ their keys are rows: **the images sync first, then the database is seeded**. A
 row names a file, so seeding first would point the bot at images that have not
 arrived yet.
 
-`./scripts/seed_prod.ps1 -VpsHost <vps-ip>` does both in one command. The manual
+`./deploy/seed_prod.ps1 -VpsHost <vps-ip>` does both in one command. The manual
 equivalent, for when you want the tunnel open anyway (see
 [§3 Database access](#3-database-access-from-your-pc) for why a tunnel):
 
@@ -141,7 +141,7 @@ rollback. Data still ships from your laptop, because the images never enter git.
 | ------------------ | ---------------------------------------------------------- |
 | Code | merge to `main` |
 | Schema (migration) | merge to `main` — the release migrates before restarting |
-| Extracted data | `./scripts/seed_prod.ps1` from your PC ([§2.2](#22-new-extracted-data)) |
+| Extracted data | `./deploy/seed_prod.ps1` from your PC ([§2.2](#22-new-extracted-data)) |
 
 If all three changed: merge to `main`, wait for the release, then seed.
 
@@ -153,14 +153,14 @@ files as well as rows.
 
 ### 2.1 Release by hand
 
-Only needed when Actions is unavailable. `scripts/deploy.sh` is the same script
+Only needed when Actions is unavailable. `deploy/deploy.sh` is the same script
 CI runs — it pins the tag, migrates, restarts, and rolls back if the bot never
 becomes healthy:
 
 ```bash
 # on the VPS
 cd /opt/digitex
-TAG=sha-abc1234 bash scripts/deploy.sh      # a tag from the GHCR package page
+TAG=sha-abc1234 bash deploy/deploy.sh      # a tag from the GHCR package page
 ```
 
 To build on the VPS instead of pulling a published image (last resort — it
@@ -184,7 +184,7 @@ docker compose up -d bot
 ```powershell
 # on your PC, from the repo root
 $env:VPS_HOST = "<vps-ip>"
-./scripts/seed_prod.ps1                     # or -Subject biology
+./deploy/seed_prod.ps1                     # or -Subject biology
 ```
 
 Syncs the images, then opens the SSH tunnel, migrates, seeds, and closes it.
@@ -251,7 +251,7 @@ ______________________________________________________________________
 The dump covers the database only. Question images are files under
 `/opt/digitex/data/questions`, and they are not backed up here on purpose —
 your laptop's `var/extraction/output/` is their source of truth, and
-`scripts/seed_prod.ps1` puts them back. A restore is therefore: restore the
+`deploy/seed_prod.ps1` puts them back. A restore is therefore: restore the
 dump, re-run the seed script, then `digitex-db check-images`.
 
 ### 4.1 Daily backup via cron
@@ -294,7 +294,7 @@ ______________________________________________________________________
 | Bot exits immediately, no logs | `BOT_TOKEN` missing/invalid | Check `.env`, `docker compose logs bot` |
 | `relation "…" does not exist` | Migrations not applied | `docker compose run --rm bot digitex-db upgrade` |
 | `digitex-db populate` says "connection refused" | SSH tunnel closed | Reopen terminal 1; check tunnel command is still running |
-| Bot logs "Question images directory not found" and exits | `./data/questions` not on the VPS | Run `scripts/seed_prod.ps1` from your PC to sync it |
+| Bot logs "Question images directory not found" and exits | `./data/questions` not on the VPS | Run `deploy/seed_prod.ps1` from your PC to sync it |
 | One question fails to send, the rest work | Its file never synced | `digitex-db check-images`, then re-run the seed script |
 | Bot serves an old image after re-extraction | Images synced, rows not re-seeded | `digitex-db populate` — the hash change drops the stale `file_id` |
 | Bot can't reach DB inside container | Postgres healthcheck failing | `docker compose logs postgres` — usually wrong `POSTGRES_PASSWORD` |
@@ -308,7 +308,7 @@ healthy but misbehaves, re-release the previous tag — `Actions → Deploy → 
 ```bash
 cd /opt/digitex
 grep '^TAG=' .env                     # what is deployed now
-TAG=sha-abc1234 bash scripts/deploy.sh
+TAG=sha-abc1234 bash deploy/deploy.sh
 ```
 
 Published tags are listed on the GHCR package page; each deploy run's summary

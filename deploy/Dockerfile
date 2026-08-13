@@ -42,7 +42,13 @@ RUN groupadd --system --gid 10001 digitex \
     && useradd --system --uid 10001 --gid digitex --home-dir /app digitex
 
 WORKDIR /app
-COPY --from=builder --chown=10001:10001 /app /app
+
+# The virtualenv and nothing else. Because the builder installed the project
+# --no-editable, the venv holds a real copy of the package — including
+# alembic.ini and migrations/, which digitex.db.schema resolves through
+# importlib.resources — so /app/src, pyproject.toml and uv.lock have no runtime
+# reader and stay out of the image.
+COPY --from=builder --chown=10001:10001 /app/.venv /app/.venv
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1

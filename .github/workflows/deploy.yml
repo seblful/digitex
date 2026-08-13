@@ -59,6 +59,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
+          file: deploy/Dockerfile
           push: true
           tags: |
             ${{ env.IMAGE }}:${{ steps.tag.outputs.value }}
@@ -112,7 +113,7 @@ jobs:
 
           # Ship the script rather than inlining it, so stdin stays free for the
           # registry token that `docker login --password-stdin` reads.
-          scp -P "$VPS_PORT" "${opts[@]}" scripts/deploy.sh "$VPS_USER@$VPS_HOST:/tmp/digitex-deploy.sh"
+          scp -P "$VPS_PORT" "${opts[@]}" deploy/deploy.sh "$VPS_USER@$VPS_HOST:/tmp/digitex-deploy.sh"
 
           printf '%s' "$GHCR_TOKEN" | ssh -p "$VPS_PORT" "${opts[@]}" "$VPS_USER@$VPS_HOST" \
             "TAG='$TAG' APP_DIR='$APP_DIR' GHCR_USER='$GHCR_USER' bash /tmp/digitex-deploy.sh"

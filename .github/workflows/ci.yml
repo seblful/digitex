@@ -165,6 +165,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
+          file: deploy/Dockerfile
           push: false
           load: true
           tags: digitex-bot:ci
@@ -175,3 +176,32 @@ jobs:
       # the CLI starts. `--help` exits 0 without a bot token or a database.
       - name: Smoke test the image
         run: docker run --rm digitex-bot:ci digitex-db --help
+
+      # The bot entrypoint's real import graph, not just the CLI shim, and the
+      # migrations resolved out of the installed package rather than a copy of
+      # src/ that the image no longer carries.
+      - name: Prove the entrypoint and the packaged migrations import
+        run: |
+          docker run --rm digitex-bot:ci python -c "
+          import digitex.cli.bot, digitex.bot.dispatcher
+          from digitex.db.schema import alembic_config
+          from pathlib import Path
+          loc = Path(alembic_config().get_main_option('script_location'))
+          assert (loc / 'env.py').exists(), loc
+          assert list((loc / 'versions').glob('*.py')), loc
+          print('entrypoint and migrations OK')
+          "
+
+      # The image must NOT contain the local-workflow stack. If this ever
+      # succeeds, something moved a heavy dependency into the production set.
+      - name: Assert the pipeline stack is absent
+        run: |
+          if docker run --rm digitex-bot:ci python -c "import cv2" 2>/dev/null; then
+            echo "::error::cv2 is installed in the production image"
+            exit 1
+          fi
+          if docker run --rm digitex-bot:ci python -c "import torch" 2>/dev/null; then
+            echo "::error::torch is installed in the production image"
+            exit 1
+          fi
+          echo "pipeline stack correctly absent"
