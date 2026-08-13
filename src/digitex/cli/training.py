@@ -83,7 +83,7 @@ def add_images(
     ),
 ) -> None:
     """Add images listed in images.txt to training data."""
-    from digitex.creators import PageDataCreator
+    from digitex.pipeline.training_pool import PageDataCreator
 
     settings = get_settings()
     data_dir = _data_dir(settings, data_type_dir_name)
@@ -111,7 +111,7 @@ def select_random_pages(
     ),
 ) -> None:
     """Randomly sample page images from the books directory for training."""
-    from digitex.creators import PageDataCreator
+    from digitex.pipeline.training_pool import PageDataCreator
 
     settings = get_settings()
     data = settings.pipeline.data
@@ -163,7 +163,7 @@ def ls_predict(
     ),
 ) -> None:
     """Run model predictions on Label Studio tasks for a project."""
-    from digitex.label_studio import TaskPredictor
+    from digitex.labeling import TaskPredictor
 
     settings = get_settings()
     predictor = TaskPredictor(

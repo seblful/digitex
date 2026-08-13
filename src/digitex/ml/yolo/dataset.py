@@ -11,7 +11,7 @@ from pathlib import Path
 import structlog
 import yaml
 
-from digitex.label_studio.geometry import local_file_path, percent_to_normalized
+from digitex.labeling.geometry import local_file_path, percent_to_normalized
 
 logger = structlog.get_logger()
 

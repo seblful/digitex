@@ -42,11 +42,12 @@ ______________________________________________________________________
 - **Extraction** — turning a Book into Question images on disk. Several
   named flavors:
   - **Page extraction** — one Page → multiple Question crops. Driven by
-    `PageExtractor` using YOLO segmentation.
-  - **Book extraction** — every Page in a Book.
-  - **Tests extraction** — every Book in the books directory.
+    `PageExtractor` (`pipeline/page.py`) using YOLO segmentation.
+  - **Book extraction** — every Page in a Book (`pipeline/book.py`).
+  - **Subject extraction** — every Book of one subject, skipping years already
+    recorded complete. Driven by `SubjectExtractor` (`pipeline/subject.py`).
   - **Answers extraction** — pulling the answer key off the back of a Book
-    via the OpenRouter vision API.
+    via the OpenRouter vision API (`pipeline/answers.py`).
 - **Review** — checking a Page's detected regions by hand before its crops are
   written. A `PageReviewer` is a callable
   `(PageProposal) -> ReviewedPage | None` — a callable, not a Protocol class,
@@ -116,7 +117,7 @@ ______________________________________________________________________
 
 - **Review window** — the one Tk window a `--review` run uses. Built once and
   loaded with one Page after another, which is what carries the zoom, the pan
-  and the selected tab across pages. `digitex.gui` is the only package that
+  and the selected tab across pages. `digitex.ui` is the only package that
   imports tkinter.
 - **Snapshot** — one entry in the review window's undo timeline: a copy of the
   Page's Regions, its entry state and the selection. Undo is a stack of copies

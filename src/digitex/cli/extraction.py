@@ -11,13 +11,13 @@ from typing import Annotated
 import typer
 
 from digitex.config import Settings, get_settings
-from digitex.extractors.answers_extractor import AnswersExtractor
-from digitex.extractors.base import ExtractionConfig
-from digitex.extractors.exceptions import APIError, ModelNotFoundError, ReviewAborted
-from digitex.extractors.tests_extractor import TestsExtractor
 from digitex.logging import setup_logging
-from digitex.services.answer_validator import AnswerValidator
-from digitex.services.image_census import ImageCensus
+from digitex.pipeline.answers import AnswersExtractor
+from digitex.pipeline.audit.census import ImageCensus
+from digitex.pipeline.audit.validator import AnswerValidator
+from digitex.pipeline.base import ExtractionConfig
+from digitex.pipeline.exceptions import APIError, ModelNotFoundError, ReviewAborted
+from digitex.pipeline.subject import SubjectExtractor
 
 app = typer.Typer(help="Extraction commands for processing test books.")
 
@@ -44,9 +44,9 @@ def _extraction_config(settings: Settings) -> ExtractionConfig:
     )
 
 
-def _tests_extractor(
+def _subject_extractor(
     settings: Settings, subject: str = "", *, review: bool = False
-) -> TestsExtractor:
+) -> SubjectExtractor:
     config = _extraction_config(settings)
     book_extractor = None
 
@@ -54,9 +54,9 @@ def _tests_extractor(
         # Reaching the reviewer means building the chain from the bottom, the
         # same way a custom conflict resolver is threaded in. Imported here so
         # a machine with no display can still run every other command.
-        from digitex.extractors.book_extractor import BookExtractor
-        from digitex.extractors.page_extractor import PageExtractor
-        from digitex.gui.page_review import TkPageReviewer
+        from digitex.pipeline.book import BookExtractor
+        from digitex.pipeline.page import PageExtractor
+        from digitex.ui.page_review import TkPageReviewer
 
         output_dir = settings.paths.extraction_output_dir
         reviewer = TkPageReviewer(
@@ -68,7 +68,7 @@ def _tests_extractor(
             config, page_extractor=PageExtractor(config, on_review=reviewer)
         )
 
-    return TestsExtractor(
+    return SubjectExtractor(
         config=config,
         books_dir=settings.paths.books_dir,
         extraction_dir=settings.paths.extraction_output_dir,
@@ -128,7 +128,7 @@ def extract_questions(
     check-answers commands print.
     """
     try:
-        extractor = _tests_extractor(get_settings(), subject, review=review)
+        extractor = _subject_extractor(get_settings(), subject, review=review)
     except ModelNotFoundError as exc:
         raise _abort(f"✗ {exc}") from None
 

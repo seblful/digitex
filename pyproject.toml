@@ -122,10 +122,11 @@ python_functions = ["test_*"]
 filterwarnings = [
     "ignore::DeprecationWarning:pytz",
     "ignore::pydantic.PydanticDeprecatedSince20:label_studio_sdk",
-    # Production classes whose names happen to start with "Test"
+    # Production classes whose names happen to start with "Test". Both are
+    # domain terms — a Test is an exam — so they keep the name and pytest is
+    # told to leave them alone.
     "ignore:cannot collect test class 'TestResult':pytest.PytestCollectionWarning",
     "ignore:cannot collect test class 'TestingState':pytest.PytestCollectionWarning",
-    "ignore:cannot collect test class 'TestsExtractor':pytest.PytestCollectionWarning",
 ]
 
 [tool.ty.environment]
@@ -157,9 +158,9 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ARG", "PLR2004", "S101"]
 "src/digitex/bot/messages.py" = ["RUF001", "E501"]  # Russian user-facing strings; long format strings
-"tests/unit/test_answers_extractor.py" = ["RUF001"]  # Cyrillic/Latin normalization is under test
-"tests/unit/test_domain.py" = ["RUF001", "RUF002"]  # Cyrillic question keys are under test
-"tests/unit/test_page_extractor.py" = ["RUF001"]  # Cyrillic part markers are under test
+"tests/unit/test_pipeline_answers.py" = ["RUF001"]  # Cyrillic/Latin normalization is under test
+"tests/unit/test_domain_entities.py" = ["RUF001", "RUF002"]  # Cyrillic question keys are under test
+"tests/unit/test_pipeline_page.py" = ["RUF001"]  # Cyrillic part markers are under test
 "tests/unit/test_bot_messages.py" = ["RUF001"]  # Russian user-facing strings
 
 [tool.ruff.lint.pylint]

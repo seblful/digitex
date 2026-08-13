@@ -10,8 +10,8 @@ import structlog
 import typer
 
 from digitex.config import get_settings
-from digitex.label_studio import LabelStudioClient
-from digitex.label_studio.geometry import local_file_path
+from digitex.labeling import LabelStudioClient
+from digitex.labeling.geometry import local_file_path
 from digitex.logging import setup_logging
 
 logger = structlog.get_logger()
