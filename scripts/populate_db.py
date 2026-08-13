@@ -7,6 +7,7 @@ Usage::
 
     uv run python scripts/populate_db.py              # all subjects
     uv run python scripts/populate_db.py biology      # single subject
+    uv run python scripts/populate_db.py --help
 """
 
 from __future__ import annotations
@@ -14,18 +15,29 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from pathlib import Path
+from typing import TYPE_CHECKING, Annotated
 
+import typer
 from alembic import command
 from alembic.config import Config
 from tqdm import tqdm
 
-from digitex.config import get_settings
-from digitex.core.corpus import is_image
+from digitex.config import BASE_DIR, get_settings
+from digitex.core.corpus import question_image_number
 from digitex.core.db import UnitOfWork, null_pool_lifespan
 from digitex.core.domain import QuestionKey, exam_type_for, parse_exam_type
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if TYPE_CHECKING:
+    from pathlib import Path
+
+app = typer.Typer(help="Load extraction output into the database.")
+
+
+def _abort(message: str) -> typer.Exit:
+    """Render *message* on stderr and return the exit to raise."""
+    typer.echo(typer.style(message, fg="red", bold=True), err=True)
+    return typer.Exit(code=1)
+
 
 # A Question whose answers.json entry is missing or unusable is still loaded, so
 # its image is servable — but with an answer no reply can match. Part A answers
@@ -50,8 +62,10 @@ def get_subject_name(subject: str) -> str:
 
 
 def _alembic_upgrade() -> None:
-    cfg = Config(str(_PROJECT_ROOT / "alembic.ini"))
-    cfg.set_main_option("script_location", str(_PROJECT_ROOT / "migrations"))
+    # BASE_DIR, not this file's parent: alembic.ini and migrations/ ship with
+    # the package, wherever the process happens to be running from.
+    cfg = Config(str(BASE_DIR / "alembic.ini"))
+    cfg.set_main_option("script_location", str(BASE_DIR / "migrations"))
     command.upgrade(cfg, "head")
 
 
@@ -91,13 +105,14 @@ async def _populate_year(
             if not part_dir.is_dir() or part_dir.name not in ("A", "B"):
                 continue
 
-            img_files = sorted(
-                (f for f in part_dir.iterdir() if is_image(f) and f.stem.isdigit()),
-                key=lambda f: int(f.stem),
+            numbered = sorted(
+                (number, f)
+                for f in part_dir.iterdir()
+                if (number := question_image_number(f)) is not None
             )
 
-            for img_file in img_files:
-                key = QuestionKey.parse(f"{part_dir.name}{img_file.stem}")
+            for number, img_file in numbered:
+                key = QuestionKey.parse(f"{part_dir.name}{number}")
                 raw_answer = option_answers.get(str(key))
 
                 question_id: int | None = None
@@ -189,35 +204,41 @@ async def populate_subject(pool, output_dir: Path, subject: str) -> None:
         print(f"  {topic_count} topic mappings loaded")
 
 
-async def _amain() -> None:
+async def _amain(subject: str | None) -> None:
     _alembic_upgrade()
 
     settings = get_settings()
     output_dir = settings.paths.extraction_output_dir
 
     if not output_dir.exists():
-        print(f"Extraction output not found: {output_dir}")
-        sys.exit(1)
+        raise _abort(f"Extraction output not found: {output_dir}")
 
     async with null_pool_lifespan(settings.database) as pool:
-        if len(sys.argv) > 1:
-            await populate_subject(pool, output_dir, sys.argv[1])
+        if subject is not None:
+            await populate_subject(pool, output_dir, subject)
         else:
             subjects = sorted(d.name for d in output_dir.iterdir() if d.is_dir())
             if not subjects:
-                print("No subjects found in extraction output.")
-                sys.exit(0)
-            for subject in subjects:
-                await populate_subject(pool, output_dir, subject)
+                typer.echo("No subjects found in extraction output.")
+                return
+            for name in subjects:
+                await populate_subject(pool, output_dir, name)
 
-    print("\nDone.")
+    typer.echo("\nDone.")
 
 
-def main() -> None:
+@app.command()
+def populate(
+    subject: Annotated[
+        str | None,
+        typer.Argument(help="Subject to load; omit to load every subject"),
+    ] = None,
+) -> None:
+    """Load extraction output into the database, migrating the schema first."""
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    asyncio.run(_amain())
+    asyncio.run(_amain(subject))
 
 
 if __name__ == "__main__":
-    main()
+    app()

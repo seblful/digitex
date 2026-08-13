@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from digitex.extractors.answers_extractor import AnswersExtractor
+from digitex.extractors.exceptions import APIError
 
 
 @pytest.fixture
@@ -21,14 +22,37 @@ def extractor(tmp_path: Path) -> AnswersExtractor:
     )
 
 
-class TestAnswersExtractor:
-    def test_extract_year_and_sheet(self, extractor: AnswersExtractor) -> None:
-        assert extractor._extract_year_and_sheet(Path("2016_1.jpg")) == (2016, 1)
-        assert extractor._extract_year_and_sheet(Path("2024_2.png")) == (2024, 2)
+class TestOcrFailureAttribution:
+    """Only the API call is an API failure; reading the file is the operator's."""
 
-    def test_extract_year_and_sheet_invalid(self, extractor: AnswersExtractor) -> None:
+    def test_an_unreadable_sheet_is_not_reported_as_an_api_error(
+        self, extractor: AnswersExtractor, tmp_path: Path
+    ) -> None:
+        with pytest.raises(OSError, match=r"No such file|cannot find"):
+            extractor.ocr(tmp_path / "books" / "missing" / "2016_1.jpg")
+
+    def test_an_empty_choices_list_is_reported_as_an_api_error(
+        self, extractor: AnswersExtractor, tmp_path: Path
+    ) -> None:
+        """Indexing ``choices[0]`` on an empty list used to read as a bad key."""
+        sheet = tmp_path / "2016_1.jpg"
+        sheet.write_bytes(b"not really a jpeg")
+        client = MagicMock()
+        client.beta.chat.completions.parse.return_value = MagicMock(choices=[])
+        extractor._client = client
+
+        with pytest.raises(APIError, match="no choices"):
+            extractor.ocr(sheet)
+
+
+class TestAnswersExtractor:
+    def test_extract_year(self, extractor: AnswersExtractor) -> None:
+        assert extractor._extract_year(Path("2016_1.jpg")) == 2016
+        assert extractor._extract_year(Path("2024_2.png")) == 2024
+
+    def test_extract_year_invalid(self, extractor: AnswersExtractor) -> None:
         with pytest.raises(ValueError, match="Invalid filename format"):
-            extractor._extract_year_and_sheet(Path("invalid.jpg"))
+            extractor._extract_year(Path("invalid.jpg"))
 
     def test_normalize_label_cyrillic_to_latin(
         self, extractor: AnswersExtractor

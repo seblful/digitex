@@ -236,6 +236,20 @@ class TestPageExtractorExtract:
         with pytest.raises(ValueError, match="No detections found on page"):
             _extractor([]).extract(image, tmp_path, PageExtractionState())
 
+    def test_question_before_any_marker_raises(self, tmp_path: Path) -> None:
+        """A crop placed from the pristine state would lose its Part directory.
+
+        ``Path(out) / "0" / "" / "1.jpg"`` collapses to ``out/0/1.jpg``, which
+        every reader of the output tree skips — so the page must fail loudly.
+        """
+        detections = _dets(("question", QUESTION_REGION))
+        image = Image.new("RGB", (300, 300), color="white")
+
+        with pytest.raises(ValueError, match="before any option/part marker"):
+            _extractor(detections).extract(image, tmp_path, PageExtractionState())
+
+        assert list(tmp_path.rglob("*.jpg")) == []
+
     def test_detections_processed_in_reading_order(self, tmp_path: Path) -> None:
         """A part marker above a question applies to it, whatever the predict order."""
         # Question reported first, but it sits BELOW the marker on the page.

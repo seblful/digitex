@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
 
     from digitex.bot.fsm_data import RandomState, TestingState
-    from digitex.core.domain import Question, QuestionOrigin
+    from digitex.core.domain import Part, Question, QuestionOrigin
 
 
 @dataclass(frozen=True)
@@ -183,7 +183,7 @@ async def _attach_image_on_miss(uow: UnitOfWork, question: Question) -> Question
     return question.model_copy(update={"image_data": image_data})
 
 
-async def load_renderable(uow: UnitOfWork, question_id: int, part: str) -> Question:
+async def load_renderable(uow: UnitOfWork, question_id: int, part: Part) -> Question:
     """Fetch a question's metadata, plus image bytes only on a cache miss."""
     question = await uow.questions.get(question_id, part)
     return await _attach_image_on_miss(uow, question)

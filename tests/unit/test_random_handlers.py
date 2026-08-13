@@ -18,6 +18,7 @@ from digitex.bot.callbacks import AnswerCB
 from digitex.bot.handlers.random import (
     on_random_part_a_answer,
     on_random_part_b_answer,
+    process_random_answer,
 )
 
 SCORING_PATH = "digitex.bot.handlers.random.process_random_answer"
@@ -126,3 +127,43 @@ class TestPartBTextWhilePartAIsShowing:
         scoring = await self._send_text(_state(current_part="B"))
 
         scoring.assert_awaited_once()
+
+
+class TestWrongAnswerRendering:
+    """The Part B answer key is free text and the reply goes out as HTML.
+
+    An unescaped "<" makes Telegram reject the message; the raised error would
+    skip the transition to ``feedback``, leaving the Student unable to continue.
+    """
+
+    async def _reply(self, correct_answer: str) -> tuple[str, Any]:
+        message = MagicMock()
+        message.answer = AsyncMock()
+        state = MagicMock()
+        state.get_data = AsyncMock(return_value=_state(current_part="B").data)
+        state.update_data = AsyncMock()
+        state.set_state = AsyncMock()
+
+        with (
+            patch("digitex.bot.handlers.random.UnitOfWork"),
+            patch(
+                "digitex.bot.handlers.random.evaluate_random_answer",
+                new_callable=AsyncMock,
+                return_value=(False, correct_answer),
+            ),
+        ):
+            await process_random_answer(
+                cast("Any", message), cast("Any", state), "нет", cast("Any", None)
+            )
+
+        return message.answer.call_args.args[0], state
+
+    async def test_html_special_characters_are_escaped(self) -> None:
+        text, _ = await self._reply("x < 5 & y > 2")
+
+        assert "x &lt; 5 &amp; y &gt; 2" in text
+
+    async def test_the_round_still_advances_to_feedback(self) -> None:
+        _, state = await self._reply("x < 5")
+
+        state.set_state.assert_awaited_once()

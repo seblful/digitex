@@ -74,8 +74,8 @@ class BookExtractor:
             images, desc=f"Processing {image_dir.name}", leave=False
         ):
             try:
-                image = Image.open(image_path)
-                self._page_extractor.extract(image, output_dir, state)
+                with Image.open(image_path) as image:
+                    self._page_extractor.extract(image, output_dir, state)
                 processed_count += 1
             except Exception as e:
                 msg = f"Failed to process {image_path.name}: {e}"

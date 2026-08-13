@@ -75,8 +75,10 @@ class AnswersExtractor:
         return f"data:{media_type};base64,{b64}"
 
     def ocr(self, image_path: Path) -> dict[str, dict[str, str]]:
+        # Reading the file is not an API failure — let its own error through so
+        # the operator is pointed at the file rather than at their API key.
+        data_url = self.encode_image(image_path)
         try:
-            data_url = self.encode_image(image_path)
             completion = self._client.beta.chat.completions.parse(
                 model=self._model,
                 messages=[
@@ -97,15 +99,19 @@ class AnswersExtractor:
                 ],
                 response_format=ExamExtraction,
             )
-            extraction = completion.choices[0].message.parsed
-            if extraction:
-                return extraction.options
-            return {}
         except Exception as e:
             raise APIError(
                 service="OpenRouter",
                 message=f"OCR failed for {image_path.name}: {e!s}",
             ) from e
+
+        if not completion.choices:
+            raise APIError(
+                service="OpenRouter",
+                message=f"OCR returned no choices for {image_path.name}",
+            )
+        extraction = completion.choices[0].message.parsed
+        return extraction.options if extraction else {}
 
     def _normalize_label(self, label: str) -> str:
         """Normalize a question label to ``{A|B}{digits}``.
@@ -150,14 +156,15 @@ class AnswersExtractor:
             result[option] = {label: answers[option][label] for label in sorted_labels}
         return result
 
-    def _extract_year_and_sheet(self, image_path: Path) -> tuple[int, int]:
+    def _extract_year(self, image_path: Path) -> int:
         parsed = parse_answer_sheet_stem(image_path.stem)
         if parsed is None:
             raise ValueError(
                 f"Invalid filename format: {image_path.name}. "
                 "Expected format: YYYY_N.jpg"
             )
-        return parsed
+        year, _ = parsed
+        return year
 
     def extract(self, subject: str) -> ExtractionResult:
         answers_dir = self._books_dir / subject / "answers"
@@ -183,7 +190,7 @@ class AnswersExtractor:
         for image_path in tqdm(image_files, desc=f"Extracting {subject} answers"):
             year: int | None = None
             try:
-                year, _ = self._extract_year_and_sheet(image_path)
+                year = self._extract_year(image_path)
                 year_dir = self._output_dir / subject / str(year)
                 if (year_dir / "answers.json").exists():
                     if year not in skipped_years:

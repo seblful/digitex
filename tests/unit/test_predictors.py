@@ -15,10 +15,12 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 from PIL import Image
+from structlog.testing import capture_logs
 
 from digitex.ml.predictors import YOLO_SegmentationPredictor, detections_from
 
 if TYPE_CHECKING:
+    from collections.abc import MutableMapping
     from pathlib import Path
 
     from ultralytics import YOLO
@@ -77,6 +79,15 @@ def _as_model(fake: _FakeModel) -> YOLO:
     return cast("YOLO", fake)
 
 
+def _event(
+    logs: list[MutableMapping[str, Any]], event: str
+) -> MutableMapping[str, Any]:
+    """The one captured log entry with this event, or fail saying what was there."""
+    matches = [entry for entry in logs if entry["event"] == event]
+    assert matches, f"{event!r} not logged; got {[e['event'] for e in logs]}"
+    return matches[0]
+
+
 class TestYOLOSegmentationPredictorModelLoading:
     def test_model_loads_lazily_on_access(self, tmp_path: Path) -> None:
         model_path = tmp_path / "model.pt"
@@ -126,6 +137,35 @@ class TestDetectionsFrom:
     def test_prediction_without_boxes_attr_raises(self) -> None:
         with pytest.raises(ValueError, match="Invalid prediction format"):
             detections_from(_as_results([object()]), 100, 100, {0: "question"})
+
+    def test_a_dropped_detection_is_counted_in_the_log(self) -> None:
+        """A silently dropped marker re-files the rest of a book, so say so."""
+        good = np.array([[0.0, 0.0], [0.5, 0.0], [0.5, 0.5]])
+        pred = _prediction((0, good), (0, good))
+        # A mask that cannot be scaled fails inside the loop, not before it.
+        pred.masks = _FakeMasks(xyn=[good, cast("Any", "not an array")])
+
+        with capture_logs() as logs:
+            detections = detections_from(_as_results([pred]), 100, 100, {0: "question"})
+
+        assert len(detections) == 1
+        summary = _event(logs, "Dropped detections on this page")
+        assert (summary["dropped"], summary["kept"]) == (1, 1)
+
+    def test_a_box_mask_count_mismatch_is_reported(self) -> None:
+        """Truncating to the shorter of the two used to happen in silence."""
+        good = np.array([[0.0, 0.0], [0.5, 0.0], [0.5, 0.5]])
+        pred = _prediction((0, good), (0, good))
+        pred.masks = _FakeMasks(xyn=[good])
+
+        with capture_logs() as logs:
+            detections = detections_from(_as_results([pred]), 100, 100, {0: "question"})
+
+        assert len(detections) == 1
+        mismatch = _event(
+            logs, "Box and mask counts differ, pairing only what lines up"
+        )
+        assert (mismatch["boxes"], mismatch["masks"]) == (2, 1)
 
     def test_scales_normalized_polygons_to_pixels(self) -> None:
         pred = _prediction((0, np.array([[0.1, 0.1], [0.5, 0.5], [0.5, 0.1]])))

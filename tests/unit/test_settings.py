@@ -170,6 +170,12 @@ class TestSettings:
         settings = Settings.load()
         assert "example.test" in str(settings.database.dsn)
 
+    @pytest.mark.parametrize("var", ["ENVIRONMENT", "APP_ENVIRONMENT"])
+    def test_either_spelling_reaches_app_environment(self, var: str) -> None:
+        """docker-compose sets ENVIRONMENT; the JSON log renderer reads this."""
+        with patch.dict("os.environ", {var: "production"}):
+            assert Settings.load().app.environment == "production"
+
 
 class TestGetSettings:
     """Test get_settings singleton function."""

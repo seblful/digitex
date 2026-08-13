@@ -39,6 +39,7 @@ from digitex.bot.messages import (
     MSG_KB_TOPICS,
     MSG_OPTION_PREFIX,
 )
+from digitex.core.domain import PART_A_OPTION_COUNT
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -89,7 +90,7 @@ def options_kb(options: list[int]) -> InlineKeyboardMarkup:
     )
 
 
-def part_a_kb(num_options: int = 5) -> InlineKeyboardMarkup:
+def part_a_kb(num_options: int = PART_A_OPTION_COUNT) -> InlineKeyboardMarkup:
     return _grid(
         ((str(i), AnswerCB(value=i).pack()) for i in range(1, num_options + 1)),
         num_options,

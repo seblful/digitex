@@ -61,12 +61,18 @@ def detections_from(
         return []
 
     mask_data = masks.xyn
+    if len(boxes) != len(mask_data):
+        logger.warning(
+            "Box and mask counts differ, pairing only what lines up",
+            boxes=len(boxes),
+            masks=len(mask_data),
+        )
+
     detections: list[Detection] = []
-    for box, raw_polygon in zip(
-        [boxes[i] for i in range(len(boxes))],
-        [mask_data[i] for i in range(len(mask_data))],
-        strict=False,
-    ):
+    dropped = 0
+    # Boxes indexes but does not iterate, so pair the two by position.
+    for i in range(min(len(boxes), len(mask_data))):
+        box, raw_polygon = boxes[i], mask_data[i]
         try:
             scaled = raw_polygon * np.array([img_width, img_height])
             polygon = PixelPolygon([tuple(p) for p in scaled.astype(np.int32).tolist()])
@@ -76,9 +82,17 @@ def detections_from(
             detections.append(
                 Detection(label=id2label.get(class_id, "unknown"), polygon=polygon)
             )
-        except Exception as e:
-            logger.warning("Failed to process prediction", error=e)
-            continue
+        except Exception:
+            # A dropped marker silently re-files the rest of a book under the
+            # wrong option, so say how many were lost rather than just that one
+            # was — and keep the traceback.
+            dropped += 1
+            logger.warning("Failed to process prediction", index=i, exc_info=True)
+
+    if dropped:
+        logger.warning(
+            "Dropped detections on this page", dropped=dropped, kept=len(detections)
+        )
 
     return detections
 

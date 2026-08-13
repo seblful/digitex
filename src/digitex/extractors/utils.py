@@ -2,11 +2,12 @@
 
 import shutil
 import tempfile
+from contextlib import suppress
 from pathlib import Path
 
 import structlog
 
-from digitex.core.corpus import is_image
+from digitex.core.corpus import is_image, question_image_number
 
 logger = structlog.get_logger()
 
@@ -20,10 +21,11 @@ def numbered_images(folder: Path) -> list[tuple[int, Path]]:
     for f in folder.iterdir():
         if not is_image(f):
             continue
-        try:
-            images.append((int(f.stem), f))
-        except ValueError:
+        number = question_image_number(f)
+        if number is None:
             logger.warning("Skipping file with non-numeric name", file_path=str(f))
+            continue
+        images.append((number, f))
     return sorted(images, key=lambda x: x[0])
 
 
@@ -36,22 +38,45 @@ def apply_renames(changes: list[tuple[Path, Path]]) -> None:
     before the next pair is read, leaving the collision intact. The staging dir
     sits beside the files so these stay renames rather than whole-file copies.
 
+    Because every source leaves the folder before any target is written, a
+    failure partway through would otherwise strand the batch in a staging
+    directory that cleanup then deletes. Every move already made is unwound
+    instead, so an interrupted batch leaves the folder as it was found.
+
     Args:
         changes: (old_path, new_path) pairs to apply.
     """
     if not changes:
         return
 
-    with tempfile.TemporaryDirectory(dir=changes[0][0].parent) as tmp:
-        tmp_dir = Path(tmp)
-        staged: list[tuple[Path, Path]] = []
+    tmp_dir = Path(tempfile.mkdtemp(dir=changes[0][0].parent))
+    staged: list[tuple[Path, Path, Path]] = []
+    applied: list[tuple[Path, Path]] = []
+    try:
         for i, (old_path, new_path) in enumerate(changes):
             temp_path = tmp_dir / f"{i}_{new_path.name}"
             shutil.move(str(old_path), str(temp_path))
-            staged.append((temp_path, new_path))
+            staged.append((old_path, temp_path, new_path))
 
-        for temp_path, new_path in staged:
+        for old_path, temp_path, new_path in staged:
             shutil.move(str(temp_path), str(new_path))
+            applied.append((old_path, new_path))
+    except BaseException:
+        # Undo the finished moves first: that frees each original name before
+        # the still-staged files are put back under it.
+        for old_path, new_path in reversed(applied):
+            with suppress(OSError):
+                shutil.move(str(new_path), str(old_path))
+        for old_path, temp_path, _ in staged:
+            if temp_path.exists():
+                with suppress(OSError):
+                    shutil.move(str(temp_path), str(old_path))
+        raise
+    finally:
+        # rmdir, not rmtree: anything still in here is a file that could not be
+        # restored, and deleting it is exactly the loss this guards against.
+        with suppress(OSError):
+            tmp_dir.rmdir()
 
 
 def renumber_folder_sequentially(

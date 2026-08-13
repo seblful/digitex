@@ -5,7 +5,51 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from digitex.creators.page_creator import PageDataCreator
+from digitex.creators.page_creator import PageDataCreator, PageOutcome
+
+
+class TestSaveOutcome:
+    """Why the two not-saved outcomes are counted apart.
+
+    "Unrecognized path" and "already present" used to be counted together, so
+    an operator read the total as "already added".
+    """
+
+    def _page(self, tmp_path: Path, rel: str) -> Path:
+        page = tmp_path / rel
+        page.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (10, 10), "white").save(page)
+        return page
+
+    def test_an_unrecognized_path_is_counted_apart_from_an_existing_one(
+        self, tmp_path: Path
+    ) -> None:
+        recognized = self._page(tmp_path, "books/biology/images/2016/1.jpg")
+        unrecognized = self._page(tmp_path, "scans/2016/1.jpg")
+        output_dir = tmp_path / "out"
+        output_dir.mkdir()
+        creator = PageDataCreator(image_size=64)
+
+        first = creator._save_images([recognized], output_dir, "t")
+        again = creator._save_images([recognized, unrecognized], output_dir, "t")
+
+        assert first[PageOutcome.SAVED] == 1
+        assert again[PageOutcome.ALREADY_PRESENT] == 1
+        assert again[PageOutcome.UNRECOGNIZED_PATH] == 1
+        assert again[PageOutcome.SAVED] == 0
+
+    def test_a_directory_path_is_unrecognized_not_a_crash(self, tmp_path: Path) -> None:
+        """``books/biology/images`` passes an exists() check and used to raise."""
+        directory = tmp_path / "books" / "biology" / "images"
+        directory.mkdir(parents=True)
+        output_dir = tmp_path / "out"
+        output_dir.mkdir()
+
+        counts = PageDataCreator(image_size=64)._save_images(
+            [directory], output_dir, "t"
+        )
+
+        assert counts[PageOutcome.UNRECOGNIZED_PATH] == 1
 
 
 class TestPageDataCreator:

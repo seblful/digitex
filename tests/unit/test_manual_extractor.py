@@ -25,6 +25,22 @@ def extractor(tmp_path: Path) -> ManualExtractor:
     )
 
 
+class TestManualExtractorConstruction:
+    """Why the two directories are checked up front.
+
+    Both are needed to place a file, and an ``assert`` saying so would vanish
+    under ``python -O``.
+    """
+
+    def test_a_missing_manual_dir_is_rejected(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="both required"):
+            ManualExtractor(manual_dir=None, output_dir=tmp_path / "output")
+
+    def test_a_missing_output_dir_is_rejected(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="both required"):
+            ManualExtractor(manual_dir=tmp_path / "manual", output_dir=None)
+
+
 class TestManualExtractorFilename:
     """Filename parsing and validation."""
 
@@ -127,7 +143,7 @@ class TestManualExtractorRenumbering:
     def test_renumber_files_shifts_from_start_number(
         self, extractor: ManualExtractor, target_dir: Path
     ) -> None:
-        changes = extractor._renumber_files(target_dir, start_num=20, dry_run=False)
+        changes = extractor._renumber_files(target_dir, start_num=20)
 
         assert len(changes) == 3
         # 20->21, 21->22, 22->23; 1-3 untouched
@@ -138,16 +154,6 @@ class TestManualExtractorRenumbering:
         assert (target_dir / "1.jpg").exists()
         assert (target_dir / "2.jpg").exists()
         assert (target_dir / "3.jpg").exists()
-
-    def test_renumber_files_dry_run_previews_without_moving(
-        self, extractor: ManualExtractor, target_dir: Path
-    ) -> None:
-        changes = extractor._renumber_files(target_dir, start_num=20, dry_run=True)
-
-        assert len(changes) == 3
-        assert (target_dir / "20.jpg").exists()
-        assert (target_dir / "21.jpg").exists()
-        assert (target_dir / "22.jpg").exists()
 
 
 class TestManualExtractorExtract:

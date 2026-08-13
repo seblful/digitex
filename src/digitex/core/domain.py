@@ -48,6 +48,11 @@ OPTIONS_PER_BOOK: Final = 10
 # override that nothing ever wrote, so every question already had five.
 PART_A_OPTION_COUNT: Final = 5
 
+# The corpus is Russian throughout, so a hand-typed question key can carry the
+# Cyrillic letters A and VE — indistinguishable on screen from Latin A and B,
+# and rejected as a bad part letter without this fold.
+_CYRILLIC_PART_LETTERS: Final = str.maketrans("АВ", "AB")  # noqa: RUF001
+
 
 def normalize_option_number(raw: int) -> int:
     """Fold an absolute option number onto the 1..``OPTIONS_PER_BOOK`` range.
@@ -109,7 +114,7 @@ class QuestionKey:
 
     @classmethod
     def parse(cls, raw: str) -> QuestionKey:
-        raw = raw.strip().upper()
+        raw = raw.strip().upper().translate(_CYRILLIC_PART_LETTERS)
         if len(raw) < 2 or raw[0] not in ("A", "B") or not raw[1:].isdigit():
             raise ValueError(f"Invalid question key: {raw!r}")
         part: Part = "A" if raw[0] == "A" else "B"
@@ -186,7 +191,7 @@ class SessionInfo(NamedTuple):
 
 class WrongAnswer(NamedTuple):
     question_number: int
-    part: str
+    part: Part
     student_answer: str
     correct_answer: str
 

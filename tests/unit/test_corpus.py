@@ -2,10 +2,11 @@
 
 from pathlib import Path
 
+import pytest
+
 from digitex.core.corpus import (
     ManualImageName,
     QuestionImage,
-    count_images,
     is_image,
     natural_sort_key,
     parse_answer_sheet_stem,
@@ -26,12 +27,6 @@ class TestIsImage:
         (tmp_path / "folder").mkdir()
         assert is_image(tmp_path / "notes.txt") is False
         assert is_image(tmp_path / "folder") is False
-
-    def test_count_images(self, tmp_path: Path) -> None:
-        (tmp_path / "1.jpg").touch()
-        (tmp_path / "2.png").touch()
-        (tmp_path / "answers.json").touch()
-        assert count_images(tmp_path) == 2
 
 
 class TestWalkQuestionImages:
@@ -88,6 +83,16 @@ class TestBookPagePath:
         assert training_page_name(subject, year, page.stem) == (
             "biology_2008_12_old.jpg"
         )
+
+    @pytest.mark.parametrize(
+        "raw",
+        ["scans/biology/2008/12.jpg", "books/biology/images", "books"],
+        ids=["no-marker-segment", "nothing-after-images", "nothing-after-books"],
+    )
+    def test_unusable_paths_all_raise_value_error(self, raw: str) -> None:
+        """A marker segment that is last raised IndexError, which no caller caught."""
+        with pytest.raises(ValueError, match="No subject/year segment"):
+            parse_book_page_path(Path(raw))
 
 
 class TestNaturalSortKey:

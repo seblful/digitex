@@ -16,7 +16,7 @@ from digitex.bot.callbacks import (
     TopicCB,
     YearCB,
 )
-from digitex.bot.constants import FALLBACK_NAME
+from digitex.bot.constants import student_identity
 from digitex.bot.fsm_data import NavigationState, TestingState
 from digitex.bot.handlers.random import start_random_question
 from digitex.bot.handlers.testing import send_current_question
@@ -260,13 +260,7 @@ async def on_option_selected(
 
     async with UnitOfWork(pool) as uow:
         if student_id is None:
-            telegram_id = callback.from_user.id if callback.from_user else 0
-            name = (
-                callback.from_user.full_name
-                if callback.from_user and callback.from_user.full_name
-                else FALLBACK_NAME
-            )
-            username = callback.from_user.username if callback.from_user else None
+            telegram_id, name, username = student_identity(callback)
             student = await uow.students.get_or_create(
                 telegram_id=telegram_id,
                 name=name,

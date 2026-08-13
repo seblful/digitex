@@ -191,6 +191,10 @@ class AppSettings(BaseSettings):
 
     environment: str = Field(
         default="development",
+        # ``_load_env`` picks the .env file off ``ENVIRONMENT``; without it here
+        # the deployment sets that one variable and this field stays at its
+        # default, so production never selects the JSON log renderer.
+        validation_alias=AliasChoices("environment", "APP_ENVIRONMENT", "ENVIRONMENT"),
         description="Application environment (development, production)",
     )
 

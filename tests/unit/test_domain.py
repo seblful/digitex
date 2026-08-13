@@ -167,6 +167,15 @@ class TestQuestionKey:
         assert key.number == 3
 
     @pytest.mark.parametrize(
+        ("raw", "part"),
+        [("А1", "A"), ("В2", "B"), ("а3", "A")],
+        ids=["cyrillic-a", "cyrillic-ve", "lowercase-cyrillic-a"],
+    )
+    def test_parse_accepts_cyrillic_part_letters(self, raw: str, part: str) -> None:
+        """Hand-typed keys in a Russian corpus carry Cyrillic А/В."""
+        assert QuestionKey.parse(raw).part == part
+
+    @pytest.mark.parametrize(
         "raw", ["", "C1", "A"], ids=["empty", "bad-part", "no-number"]
     )
     def test_question_key_parse_invalid(self, raw: str) -> None:

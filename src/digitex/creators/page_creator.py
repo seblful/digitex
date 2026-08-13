@@ -1,6 +1,8 @@
 """Page data creator for extracting images for training."""
 
 import random
+from collections import Counter
+from enum import Enum, auto
 from pathlib import Path
 
 import structlog
@@ -17,6 +19,18 @@ from digitex.core.processors import resize_image
 logger = structlog.get_logger()
 
 
+class PageOutcome(Enum):
+    """What happened to one book page offered to the training pool.
+
+    ``UNRECOGNIZED_PATH`` and ``ALREADY_PRESENT`` are both "not saved" but mean
+    opposite things to an operator, so they are counted apart.
+    """
+
+    SAVED = auto()
+    ALREADY_PRESENT = auto()
+    UNRECOGNIZED_PATH = auto()
+
+
 class PageDataCreator:
     """Creator for preparing training images from book scans."""
 
@@ -30,37 +44,33 @@ class PageDataCreator:
             if is_image(img_path) and "images" in img_path.parts
         ]
 
-    def _save_image(self, img_path: Path, output_dir: Path) -> bool:
+    def _save_image(self, img_path: Path, output_dir: Path) -> PageOutcome:
         try:
             subject, year = parse_book_page_path(img_path)
         except ValueError:
             # Paths come from a user-supplied txt file in add_from_file.
             logger.warning("Skipping unrecognized book path", path=str(img_path))
-            return False
+            return PageOutcome.UNRECOGNIZED_PATH
         output_path = output_dir / training_page_name(subject, year, img_path.stem)
         if output_path.exists():
-            return False
-        image = Image.open(img_path)
-        if image.mode != "RGB":
-            image = image.convert("RGB")
-        image = resize_image(image, self.image_size, self.image_size)
-        image.save(output_path, "JPEG")
-        return True
+            return PageOutcome.ALREADY_PRESENT
+        with Image.open(img_path) as source:
+            image = source if source.mode == "RGB" else source.convert("RGB")
+            resize_image(image, self.image_size, self.image_size).save(
+                output_path, "JPEG"
+            )
+        return PageOutcome.SAVED
 
     def _save_images(
         self,
         paths: list[Path],
         output_dir: Path,
         desc: str,
-    ) -> tuple[int, int]:
-        saved = 0
-        skipped = 0
+    ) -> Counter[PageOutcome]:
+        counts: Counter[PageOutcome] = Counter()
         for img_path in tqdm(paths, desc=desc):
-            if self._save_image(img_path, output_dir):
-                saved += 1
-            else:
-                skipped += 1
-        return saved, skipped
+            counts[self._save_image(img_path, output_dir)] += 1
+        return counts
 
     def add_from_file(
         self,
@@ -95,13 +105,12 @@ class PageDataCreator:
                 continue
             valid_paths.append(img_path)
 
-        saved, skipped_exist = self._save_images(
-            valid_paths, output_dir, "Adding images"
-        )
+        counts = self._save_images(valid_paths, output_dir, "Adding images")
         logger.info(
             "Done",
-            processed=saved,
-            skipped_exist=skipped_exist,
+            processed=counts[PageOutcome.SAVED],
+            skipped_exist=counts[PageOutcome.ALREADY_PRESENT],
+            skipped_unrecognized=counts[PageOutcome.UNRECOGNIZED_PATH],
             skipped_missing=skipped_missing,
         )
 
@@ -122,10 +131,11 @@ class PageDataCreator:
         selected = random.sample(images, min(num_images, len(images)))
         logger.info("Selected images", count=len(selected), books_dir=books_dir)
 
-        saved, skipped = self._save_images(selected, output_dir, "Saving images")
+        counts = self._save_images(selected, output_dir, "Saving images")
         logger.info(
             "Saved images",
-            saved=saved,
-            skipped=skipped,
+            saved=counts[PageOutcome.SAVED],
+            skipped=counts[PageOutcome.ALREADY_PRESENT],
+            skipped_unrecognized=counts[PageOutcome.UNRECOGNIZED_PATH],
             output_dir=output_dir,
         )

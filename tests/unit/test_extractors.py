@@ -149,6 +149,13 @@ class TestTestsExtractor:
         assert extractor.books_dir == tmp_path / "books"
         assert extractor.extraction_dir == tmp_path / "extraction"
 
+    def test_progress_log_defaults_beside_the_output_tree(self, tmp_path: Path) -> None:
+        """``extraction_dir`` is ``.../data/output``; progress lives in ``.../data``."""
+        extractor = self._extractor(
+            tmp_path, extraction_dir=tmp_path / "extraction" / "data" / "output"
+        )
+        assert extractor.data_dir == tmp_path / "extraction" / "data"
+
     def test_extract_fails_on_missing_books_dir(self, tmp_path: Path) -> None:
         result = self._extractor(tmp_path).extract("math")
         assert not result.success
@@ -241,6 +248,21 @@ class TestTestsExtractor:
         result = extractor.extract("math")
 
         assert result.errors
+        assert not (data_dir / PROGRESS_FILE).exists()
+
+    def test_extract_does_not_record_a_year_with_no_pages(self, tmp_path: Path) -> None:
+        """An empty year directory is "nothing to do", not "done".
+
+        BookExtractor reports success over zero pages, and a year written to
+        the progress file is never retried — so scans copied in afterwards
+        would be skipped forever.
+        """
+        (tmp_path / "books" / "math" / "images" / "2020").mkdir(parents=True)
+        data_dir = tmp_path / "data"
+
+        result = self._extractor(tmp_path, data_dir=data_dir).extract("math")
+
+        assert result.success
         assert not (data_dir / PROGRESS_FILE).exists()
 
 

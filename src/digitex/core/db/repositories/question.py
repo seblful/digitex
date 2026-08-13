@@ -82,7 +82,7 @@ class QuestionRepository:
         return row["question_id"]
 
     async def insert_image(
-        self, question_id: int, part: str, image_data: bytes
+        self, question_id: int, part: Part, image_data: bytes
     ) -> None:
         # Skip the write if the BYTEA payload hasn't changed; this avoids
         # rewriting multi-MB rows during idempotent re-runs.
@@ -96,7 +96,7 @@ class QuestionRepository:
         )
 
     async def cache_file_id(
-        self, question_id: int, part: str, telegram_file_id: str
+        self, question_id: int, part: Part, telegram_file_id: str
     ) -> None:
         await self._conn.execute(
             "UPDATE images SET telegram_file_id = %s"
@@ -110,7 +110,7 @@ class QuestionRepository:
         self,
         option_id: int,
         question_number: int,
-        part: str,
+        part: Part,
         topic_name: str,
     ) -> None:
         """Unmap one topic from one question.
@@ -131,7 +131,7 @@ class QuestionRepository:
         self,
         option_id: int,
         question_number: int,
-        part: str,
+        part: Part,
         topic_name: str,
     ) -> None:
         await self._conn.execute(
@@ -150,7 +150,7 @@ class QuestionRepository:
 
     # -- queries -------------------------------------------------------------
 
-    async def get(self, question_id: int, part: str) -> Question:
+    async def get(self, question_id: int, part: Part) -> Question:
         cur = await self._conn.execute(
             _QUESTION_SELECT + " WHERE q.question_id = %s AND q.part = %s",
             (question_id, part),
@@ -176,7 +176,7 @@ class QuestionRepository:
         rows = await cur.fetchall()
         return [(r["question_id"], r["part"]) for r in rows]
 
-    async def get_image(self, question_id: int, part: str) -> bytes:
+    async def get_image(self, question_id: int, part: Part) -> bytes:
         """Fetch the raw image bytes for a question.
 
         Separate from :meth:`get` so callers that only need to render a cached
@@ -191,7 +191,7 @@ class QuestionRepository:
             raise KeyError(f"No image stored for question {question_id} part {part}")
         return bytes(row["image_data"])
 
-    async def get_correct_answer(self, question_id: int, part: str) -> int | str:
+    async def get_correct_answer(self, question_id: int, part: Part) -> int | str:
         """Return the correct answer for a question.
 
         Part A answers are integers (option index); Part B are free-form text.
@@ -208,7 +208,7 @@ class QuestionRepository:
     async def get_random_question_id(
         self,
         subject_id: int,
-        part: str,
+        part: Part,
         exam_type: ExamType | None = None,
     ) -> int:
         # ORDER BY RANDOM() forces a full scan + per-row random() evaluation.
@@ -256,7 +256,7 @@ class QuestionRepository:
 
     async def get_random_question_id_by_topic(
         self, subject_id: int, topic_name: str
-    ) -> tuple[int, str]:
+    ) -> tuple[int, Part]:
         # Topic-filtered sets are small (rarely more than a few dozen rows).
         # Pull the candidate ids and pick one client-side — cheaper than
         # ORDER BY RANDOM() over the topic join.
@@ -279,7 +279,7 @@ class QuestionRepository:
         return pick["question_id"], pick["part"]
 
     async def get_full(
-        self, question_id: int, part: str
+        self, question_id: int, part: Part
     ) -> tuple[Question, QuestionOrigin]:
         cur = await self._conn.execute(
             _QUESTION_WITH_ORIGIN_SELECT + " WHERE q.question_id = %s AND q.part = %s",

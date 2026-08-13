@@ -13,7 +13,7 @@ from aiogram.utils.text_decorations import html_decoration
 from digitex.bot import fsm_data
 from digitex.bot.answer_flow import end_round
 from digitex.bot.callbacks import RegistrationCB
-from digitex.bot.constants import FALLBACK_NAME
+from digitex.bot.constants import student_identity
 from digitex.bot.keyboards import admin_registration_kb, subjects_kb
 from digitex.bot.messages import (
     MSG_ADMIN_NEW_REQUEST,
@@ -63,15 +63,6 @@ def _format_datetime(dt: datetime, tz: ZoneInfo) -> str:
     return f"{local.day} {MONTHS_RU[local.month - 1]} {local.year} в {time_str}"
 
 
-def _get_user_info(
-    message: types.Message,
-) -> tuple[int, str, str | None]:
-    user = message.from_user
-    if user:
-        return user.id, user.full_name or FALLBACK_NAME, user.username
-    return 0, FALLBACK_NAME, None
-
-
 @dataclass(frozen=True)
 class StartGate:
     """Whether /start proceeds to subject selection, and what to show if not.
@@ -106,7 +97,7 @@ async def open_registration_gate(uow: UnitOfWork, telegram_id: int) -> StartGate
 async def _normal_start(
     message: types.Message, state: FSMContext, pool: AsyncConnectionPool
 ) -> None:
-    telegram_id, name, username = _get_user_info(message)
+    telegram_id, name, username = student_identity(message)
 
     async with UnitOfWork(pool) as uow:
         student = await uow.students.get_or_create(
@@ -140,7 +131,7 @@ async def cmd_start(
     admin_user_id: int,
     tz: ZoneInfo,
 ) -> None:
-    telegram_id, _name, _username = _get_user_info(message)
+    telegram_id, _name, _username = student_identity(message)
 
     if telegram_id == admin_user_id:
         await _normal_start(message, state, pool)
@@ -172,7 +163,7 @@ async def process_name(
     admin_user_id: int,
     tz: ZoneInfo,
 ) -> None:
-    telegram_id, _, username = _get_user_info(message)
+    telegram_id, _, username = student_identity(message)
     full_name = (message.text or "").strip()
 
     if not full_name:

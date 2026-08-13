@@ -289,6 +289,13 @@ class PageExtractor:
                     logger.debug("Part changed", part_letter=state.part)
             elif det.label == "question":
                 placement = state.next_question()
+                if not placement.option or not placement.part:
+                    # pathlib drops an empty segment, so this would land one
+                    # directory short of {option}/{part}/ and be invisible to
+                    # every reader of the output tree.
+                    raise ValueError(
+                        "Question detected before any option/part marker was read"
+                    )
                 output_path = (
                     output_dir
                     / str(placement.option)

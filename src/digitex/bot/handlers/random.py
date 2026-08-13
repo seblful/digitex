@@ -6,6 +6,7 @@ import time
 from typing import TYPE_CHECKING
 
 from aiogram import Bot, Router, types
+from aiogram.utils.text_decorations import html_decoration
 
 from digitex.bot import fsm_data
 from digitex.bot.answer_flow import (
@@ -46,7 +47,9 @@ def _build_caption(origin: QuestionOrigin, topic_name: str | None) -> str:
         option_number=origin.option_number,
     )
     if topic_name:
-        return MSG_RANDOM_TOPIC.format(topic_name=topic_name, origin=origin_line)
+        return MSG_RANDOM_TOPIC.format(
+            topic_name=html_decoration.quote(topic_name), origin=origin_line
+        )
     return origin_line
 
 
@@ -132,8 +135,13 @@ async def process_random_answer(
     if is_correct:
         await message.answer(MSG_CORRECT_ANSWER, reply_markup=random_feedback_kb())
     else:
+        # Part B answers are free text and the message goes out as HTML, so an
+        # unescaped "<" would make Telegram reject it — and the raised error
+        # would skip the state transition below, stranding the round.
         await message.answer(
-            MSG_WRONG_ANSWER.format(correct_answer=correct_answer),
+            MSG_WRONG_ANSWER.format(
+                correct_answer=html_decoration.quote(str(correct_answer))
+            ),
             reply_markup=random_feedback_kb(),
             parse_mode="HTML",
         )

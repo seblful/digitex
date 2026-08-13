@@ -56,6 +56,31 @@ class TestMalformedAnswersFile:
         assert not by_year["2016"].is_clean
         assert by_year["2017"].is_clean
 
+    @pytest.mark.parametrize(
+        "broken",
+        ['["A1", "A2"]', '{"1": ["A1", "A2"]}'],
+        ids=["list-at-top-level", "option-flattened-to-list"],
+    )
+    def test_a_parseable_file_of_the_wrong_shape_is_reported(
+        self, tmp_path: Path, broken: str
+    ) -> None:
+        """Valid JSON is not enough — the pass indexes it as a map of maps."""
+        year_dir = tmp_path / "biology" / "2016"
+        _write_year(year_dir, answers={"1": {"A1": "3"}}, images=["1/A/1.jpg"])
+        (year_dir / "answers.json").write_text(broken, encoding="utf-8")
+        _write_year(
+            tmp_path / "biology" / "2017",
+            answers={"1": {"A1": "3", "B1": "Б"}},
+            images=["1/A/1.jpg", "1/B/1.jpg"],
+        )
+
+        report = AnswerValidator(tmp_path).validate("biology")
+
+        by_year = {y.year: y for y in report.years}
+        assert not by_year["2016"].answers_file_valid
+        # The whole point: later years are still checked.
+        assert by_year["2017"].is_clean
+
     def test_a_non_numeric_option_key_is_counted_not_fatal(
         self, tmp_path: Path
     ) -> None:
@@ -71,6 +96,27 @@ class TestMalformedAnswersFile:
         (year,) = report.years
         assert year.total_options == 1
         assert year.options_with_b == 1
+
+
+class TestOptionsWithoutOptionOne:
+    def test_a_year_starting_at_option_six_does_not_report_every_option_differing(
+        self, tmp_path: Path
+    ) -> None:
+        """Options are compared against the year's first one, not against "1"."""
+        _write_year(
+            tmp_path / "biology" / "2016",
+            answers={
+                "6": {"A1": "3", "B1": "Б"},
+                "7": {"A1": "4", "B1": "Б"},
+            },
+            images=["6/A/1.jpg", "6/B/1.jpg", "7/A/1.jpg", "7/B/1.jpg"],
+        )
+
+        report = AnswerValidator(tmp_path).validate("biology")
+
+        (year,) = report.years
+        assert not year.options_differ
+        assert year.is_clean
 
 
 class TestAnswerValidator:

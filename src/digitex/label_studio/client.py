@@ -14,6 +14,9 @@ class LabelStudioTask(Protocol):
     id: int
     data: dict[str, Any]
     is_labeled: bool
+    # ``list_tasks`` asks for fields="all", so annotations come back with the
+    # task; the cancelled-task sweep in training/scripts reads them.
+    annotations: list[dict[str, Any]]
 
 
 class LabelStudioClient:

@@ -34,9 +34,17 @@ def is_image(path: Path) -> bool:
     return path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
 
 
-def count_images(folder: Path) -> int:
-    """Count image files directly inside *folder*."""
-    return sum(1 for p in folder.iterdir() if is_image(p))
+def question_image_number(path: Path) -> int | None:
+    """The question number *path* carries, or None if it is not a question image.
+
+    Question images are named ``{number}.{ext}`` with a positive integer, so a
+    stem that is not all digits belongs to something else — a stray export, a
+    thumbnail. Every walker of the output tree asks this one question, and each
+    decides for itself whether to warn about a None.
+    """
+    if not is_image(path) or not path.stem.isdigit():
+        return None
+    return int(path.stem)
 
 
 def natural_sort_key(path: Path) -> list[int | str]:
@@ -73,11 +81,8 @@ def walk_question_images(year_dir: Path) -> Iterator[QuestionImage]:
             if not part_dir.is_dir():
                 continue
             for img in part_dir.iterdir():
-                if not is_image(img):
-                    continue
-                try:
-                    number = int(img.stem)
-                except ValueError:
+                number = question_image_number(img)
+                if number is None:
                     continue
                 yield QuestionImage(option_dir.name, part_dir.name, number, img)
 
@@ -116,10 +121,16 @@ def parse_book_page_path(page_path: Path) -> tuple[str, str]:
     """Extract (subject, year) from ``books/{subject}/images/{year}/{page}``.
 
     Raises:
-        ValueError: If the path has no ``books`` or ``images`` segment.
+        ValueError: If the path has no ``books`` or ``images`` segment, or the
+            segment is last so nothing names the subject or year.
     """
     parts = page_path.parts
-    return parts[parts.index("books") + 1], parts[parts.index("images") + 1]
+    try:
+        return parts[parts.index("books") + 1], parts[parts.index("images") + 1]
+    except (ValueError, IndexError) as e:
+        # ValueError when a marker segment is absent, IndexError when it is last.
+        # Both mean the same thing to a caller, so both say so.
+        raise ValueError(f"No subject/year segment in {page_path}") from e
 
 
 def training_page_name(subject: str, year: str, stem: str) -> str:

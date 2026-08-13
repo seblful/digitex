@@ -8,12 +8,26 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, TypeGuard
 
 from digitex.core.corpus import walk_question_images
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+PartBCoverage = Literal["none", "partial", "all"]
+
+
+def _is_answer_map(data: object) -> TypeGuard[dict[str, dict[str, str]]]:
+    """True when the parsed file has the ``{option: {label: answer}}`` shape.
+
+    These files are hand-corrected, so the top level or one option's value can
+    come back as a list — which would otherwise blow up on ``.keys()`` deep in
+    the validation pass.
+    """
+    return isinstance(data, dict) and all(
+        isinstance(option, dict) for option in data.values()
+    )
 
 
 @dataclass
@@ -42,7 +56,7 @@ class YearReport:
         return bool(self.options_with_differing_questions)
 
     @property
-    def part_b_coverage(self) -> Literal["none", "partial", "all"]:
+    def part_b_coverage(self) -> PartBCoverage:
         """How many of the year's Options carry a Part Б answer key.
 
         Part Б is hand-written on the answer sheets and the vision model misses
@@ -108,11 +122,17 @@ class AnswerValidator:
 
         # These files are generated then hand-corrected, so a broken one is the
         # very thing this command exists to report — not a reason to abort the
-        # run and leave every other year unchecked.
+        # run and leave every other year unchecked. That covers a file that
+        # parses but whose shape was broken by hand, not just invalid JSON.
         try:
             with answers_file.open(encoding="utf-8") as f:
                 answers_data = json.load(f)
         except json.JSONDecodeError:
+            return YearReport(
+                year=year, answers_file_present=True, answers_file_valid=False
+            )
+
+        if not _is_answer_map(answers_data):
             return YearReport(
                 year=year, answers_file_present=True, answers_file_valid=False
             )
@@ -123,7 +143,13 @@ class AnswerValidator:
 
         image_questions = self._scan_image_questions(year_dir)
 
-        first_option_questions = set(answers_data.get("1", {}).keys())
+        # Compare every option against the year's first one as written, not
+        # against "1": a year whose sheets only produced options 6-10 has no
+        # option 1, and defaulting to an empty set marks every option differing.
+        reference = next(iter(answers_data), None)
+        first_option_questions = (
+            set(answers_data[reference]) if reference is not None else set()
+        )
         differing_options = [
             opt
             for opt in answers_data
@@ -168,4 +194,4 @@ class AnswerValidator:
         return options_with_b, total
 
 
-__all__ = ["AnswerValidator", "ValidationReport", "YearReport"]
+__all__ = ["AnswerValidator", "PartBCoverage", "ValidationReport", "YearReport"]

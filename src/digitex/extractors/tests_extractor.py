@@ -45,7 +45,9 @@ class TestsExtractor:
     ) -> None:
         self.books_dir = books_dir
         self.extraction_dir = extraction_dir
-        self.data_dir = data_dir or extraction_dir.parent / "data"
+        # ``extraction_dir`` is the output tree (``extraction/data/output``), so
+        # the progress log belongs beside it in ``extraction/data``.
+        self.data_dir = data_dir or extraction_dir.parent
 
         self._progress = JSONProgressTracker(self.data_dir / PROGRESS_FILE)
         self._book_extractor = book_extractor or BookExtractor(config)
@@ -88,9 +90,7 @@ class TestsExtractor:
                 processed=0, warnings=[f"No year folders found for subject '{subject}'"]
             )
 
-        accumulated = ExtractionResult.success_result(
-            metadata={"subject": subject, "years": len(year_dirs)}
-        )
+        accumulated = ExtractionResult.success_result()
 
         for year_dir in tqdm(year_dirs, desc=f"Extracting {subject}"):
             year = year_dir.name
@@ -117,9 +117,11 @@ class TestsExtractor:
                 )
             )
 
-            # Only a clean run counts as done — BookExtractor reports partial
-            # success, and a year marked completed is never retried.
-            if book_result.success and not book_result.errors:
+            # Only a clean run over at least one page counts as done —
+            # BookExtractor reports partial success, an empty book directory
+            # reports success over nothing, and a year marked completed is
+            # never retried.
+            if book_result.success and not book_result.errors and book_result.processed:
                 self._progress.mark_completed(subject, year)
 
         return accumulated

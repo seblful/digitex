@@ -94,14 +94,13 @@ def _process_page(
     output_dir: Path,
 ) -> None:
     typer.echo(f"\nProcessing {image_path}")
-    image = Image.open(image_path)
-    if image.mode != "RGB":
-        image = image.convert("RGB")
+    with Image.open(image_path) as source:
+        image = source if source.mode == "RGB" else source.convert("RGB")
 
-    year = image_path.parent.name
-    image_num = image_path.stem
+        year = image_path.parent.name
+        image_num = image_path.stem
 
-    segments = _extract_questions(image, predictor, cropper, max_width, max_height)
+        segments = _extract_questions(image, predictor, cropper, max_width, max_height)
     typer.echo(f"Found {len(segments)} questions")
 
     if not segments:

@@ -90,10 +90,6 @@ class SubjectCensus:
     def is_empty(self) -> bool:
         return not self.years
 
-    @property
-    def is_complete(self) -> bool:
-        return all(year.is_complete for year in self.years)
-
 
 class ImageCensus:
     """Count the question images under one subject's extraction output."""

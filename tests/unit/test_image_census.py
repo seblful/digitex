@@ -63,7 +63,6 @@ class TestImageCensus:
         assert year.options == OPTIONS_PER_BOOK
         assert not year.missing_options
         assert year.is_complete
-        assert census.is_complete
 
     def test_counts_and_folders_add_up(self, output_dir: Path) -> None:
         _year(output_dir / "biology", "2020", {1: {"A": 20, "B": 6}, 2: {"A": 20}})

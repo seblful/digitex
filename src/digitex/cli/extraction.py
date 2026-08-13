@@ -6,7 +6,7 @@ that happens in the Typer callback, once a command is actually running.
 """
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Final
 
 import typer
 
@@ -20,6 +20,7 @@ from digitex.extractors.utils import renumber_directory_tree
 from digitex.logging import setup_logging
 from digitex.services.answer_validator import (
     AnswerValidator,
+    PartBCoverage,
     ValidationReport,
     YearReport,
 )
@@ -272,16 +273,16 @@ def extract_answers(subject: Annotated[str, SUBJECT_ARGUMENT]) -> None:
         )
     )
     if result.errors:
-        typer.echo(typer.style("\nErrors:", fg="red"))
-        for error in result.errors:
-            typer.echo(f"  - {error}")
+        typer.echo(typer.style("\nErrors:", fg="red"), err=True)
+        _echo_errors(result.errors)
 
 
-_PART_B_COVERAGE_COLOR = {"none": "red", "partial": "yellow", "all": "green"}
-_PART_B_COVERAGE_LABEL = {
-    "none": "NO option has Б",
-    "partial": "{covered}/{total} options have Б",
-    "all": "all options have Б",
+# One row per coverage state, keyed by the Literal itself: a new state fails to
+# type-check here instead of raising a KeyError at render time.
+_PART_B_COVERAGE: Final[dict[PartBCoverage, tuple[str, str, bool]]] = {
+    "none": ("red", "NO option has Б", True),
+    "partial": ("yellow", "{covered}/{total} options have Б", False),
+    "all": ("green", "all options have Б", False),
 }
 
 
@@ -292,7 +293,7 @@ def _render_year_report(year: YearReport) -> None:
         return
 
     if not year.answers_file_valid:
-        typer.echo(f"\n{year.year}: ✗ answers.json IS NOT VALID JSON")
+        typer.echo(f"\n{year.year}: ✗ answers.json IS UNREADABLE (bad JSON or shape)")
         return
 
     if year.has_mismatch:
@@ -317,13 +318,11 @@ def _render_year_report(year: YearReport) -> None:
     if year.missing_in_images:
         typer.echo(f"  Missing in images: {year.missing_in_images}")
 
-    coverage = year.part_b_coverage
+    color, label, bold = _PART_B_COVERAGE[year.part_b_coverage]
     styled = typer.style(
-        _PART_B_COVERAGE_LABEL[coverage].format(
-            covered=year.options_with_b, total=year.total_options
-        ),
-        fg=_PART_B_COVERAGE_COLOR[coverage],
-        bold=coverage == "none",
+        label.format(covered=year.options_with_b, total=year.total_options),
+        fg=color,
+        bold=bold,
     )
     typer.echo(f"  Part B 'Б' check: {styled}")
 

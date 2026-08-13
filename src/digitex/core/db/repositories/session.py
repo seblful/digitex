@@ -9,6 +9,7 @@ from digitex.core.domain import Session, SessionInfo, TestResult, WrongAnswer
 
 if TYPE_CHECKING:
     from digitex.core.db.mapping import DictConn
+    from digitex.core.domain import Part
 
 
 class SessionRepository:
@@ -32,7 +33,7 @@ class SessionRepository:
         self,
         session_id: int,
         question_id: int,
-        part: str,
+        part: Part,
         student_answer: str,
         is_correct: bool,
         time_spent: float,
@@ -119,7 +120,7 @@ class SessionRepository:
             completed_at=completed,
         )
 
-    async def _scores_by_part(self, session_id: int) -> dict[str, tuple[int, int]]:
+    async def _scores_by_part(self, session_id: int) -> dict[Part, tuple[int, int]]:
         """``{part: (correct, total)}`` over the answers recorded for a session."""
         cur = await self._conn.execute(
             "SELECT sa.part,"

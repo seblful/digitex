@@ -1,11 +1,17 @@
-"""Core functionality."""
+"""Core functionality.
+
+``TextExtractor`` is imported lazily so that ``import digitex.core`` does not
+pull in pytesseract. The ``TYPE_CHECKING`` import keeps it a real type for
+callers that annotate with it — ``__getattr__`` alone resolves to ``Any``.
+"""
 
 from __future__ import annotations
 
 import importlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from .domain import Question, Session, Student, TestResult
+if TYPE_CHECKING:
+    from .ocr import TextExtractor
 
 _MODULES: dict[str, str] = {
     "TextExtractor": ".ocr",
@@ -20,4 +26,4 @@ def __getattr__(name: str) -> Any:
     raise AttributeError(msg)
 
 
-__all__ = ["Question", "Session", "Student", "TestResult", "TextExtractor"]
+__all__ = ["TextExtractor"]

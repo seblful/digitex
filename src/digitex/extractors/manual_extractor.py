@@ -37,7 +37,15 @@ class ManualExtractor:
             manual_dir: Directory containing manual images.
             output_dir: Output directory for processed images.
             segment_processor: Optional pre-configured processor (dependency injection).
+
+        Raises:
+            ValueError: If *manual_dir* or *output_dir* is missing. Both are
+                needed to place a single file, so rejecting them here beats an
+                ``assert`` that vanishes under ``python -O``.
         """
+        if manual_dir is None or output_dir is None:
+            raise ValueError("manual_dir and output_dir are both required")
+
         self.image_format = image_format
         self.question_max_width = question_max_width
         self.question_max_height = question_max_height
@@ -105,14 +113,12 @@ class ManualExtractor:
         self,
         target_dir: Path,
         start_num: int,
-        dry_run: bool = False,
     ) -> list[tuple[Path, Path]]:
         """Shift existing files starting from start_num by +1.
 
         Args:
             target_dir: Directory containing files to renumber.
             start_num: Starting question number to shift from.
-            dry_run: If True, only preview changes.
 
         Returns:
             List of (old_path, new_path) tuples for changed files.
@@ -129,8 +135,7 @@ class ManualExtractor:
             new_path = target_dir / f"{new_num}{path.suffix}"
             changes.append((path, new_path))
 
-        if not dry_run and changes:
-            apply_renames(changes)
+        apply_renames(changes)
 
         return changes
 
@@ -151,7 +156,6 @@ class ManualExtractor:
             return False
 
         subject = file_path.parent.name
-        assert self.output_dir is not None
         target_dir = (
             self.output_dir
             / subject
@@ -201,7 +205,7 @@ class ManualExtractor:
                 "Target file exists, shifting subsequent files",
                 target=str(target_path),
             )
-            self._renumber_files(target_dir, parsed.question, dry_run=False)
+            self._renumber_files(target_dir, parsed.question)
 
         processed.save(target_path)
         logger.info("Saved processed image", path=str(target_path))
@@ -219,17 +223,13 @@ class ManualExtractor:
         Returns:
             ExtractionResult with statistics.
         """
-        if not self.manual_dir or not self.manual_dir.exists():
+        if not self.manual_dir.exists():
             logger.warning("Manual directory does not exist", path=str(self.manual_dir))
             return ExtractionResult.success_result(
                 processed=0, warnings=["Manual directory does not exist"]
             )
 
-        manual_files = [
-            f
-            for f in self.manual_dir.rglob("*.png")
-            if f.is_file() and f.parent != self.output_dir
-        ]
+        manual_files = [f for f in self.manual_dir.rglob("*.png") if f.is_file()]
 
         if not manual_files:
             logger.info("No manual images found", manual_dir=str(self.manual_dir))
@@ -257,7 +257,6 @@ class ManualExtractor:
             return ExtractionResult.success_result(
                 processed=processed_count,
                 failed=failed_count,
-                metadata={"dry_run": True},
             )
 
         logger.info("Manual image processing completed")
