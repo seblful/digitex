@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 from aiogram import BaseMiddleware
+from aiogram.dispatcher.event.bases import UNHANDLED
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from digitex.db import UnitOfWork
@@ -37,30 +38,30 @@ class AuthMiddleware(BaseMiddleware):
         handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
         event: TelegramObject,
         data: dict[str, Any],
-    ) -> None:
+    ) -> Any:
+        # The handler's result rides back to the dispatcher — it is how
+        # UNHANDLED propagates, and how a webhook-mode reply would be sent.
+
         # Text messages (/start, /help, registration flow) always pass through —
         # their own handlers decide what to do with unauthorized users.
         if not isinstance(event, CallbackQuery):
-            await handler(event, data)
-            return
+            return await handler(event, data)
 
         user = data.get("event_from_user")
         if user is None:
-            await handler(event, data)
-            return
+            return await handler(event, data)
 
         telegram_id = user.id
 
         if telegram_id == self._admin_user_id:
-            await handler(event, data)
-            return
+            return await handler(event, data)
 
         async with UnitOfWork(self._pool) as uow:
             authorized = await uow.students.is_authorized(telegram_id)
         if not authorized:
-            return
+            return UNHANDLED
 
-        await handler(event, data)
+        return await handler(event, data)
 
 
 class AccessibleMessageMiddleware(BaseMiddleware):

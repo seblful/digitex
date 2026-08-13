@@ -3,17 +3,25 @@
 ``AccessibleMessageMiddleware`` is the seam that lets every callback handler
 declare ``msg: Message`` instead of re-checking an optional one, so what it
 passes through and what it refuses is the whole contract.
+
+``AuthMiddleware`` sits on both observers, so what it returns matters as much
+as what it calls: the dispatcher reads the result to know whether an update
+was handled.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from aiogram import types
+from aiogram.dispatcher.event.bases import UNHANDLED
 
-from digitex.bot.middleware import AccessibleMessageMiddleware
+from digitex.bot.middleware import AccessibleMessageMiddleware, AuthMiddleware
+
+if TYPE_CHECKING:
+    import pytest
 
 
 @dataclass
@@ -60,6 +68,77 @@ class _FakeCallback:
 
 def _callback(message: Any) -> _FakeCallback:
     return _FakeCallback(message=message)
+
+
+@dataclass
+class _FakeStudents:
+    authorized: bool
+
+    async def is_authorized(self, telegram_id: int) -> bool:
+        return self.authorized
+
+
+def _uow_class(*, authorized: bool) -> type:
+    """A UnitOfWork stand-in answering ``is_authorized`` with *authorized*."""
+
+    class _FakeUow:
+        def __init__(self, pool: Any) -> None:
+            self.students = _FakeStudents(authorized)
+
+        async def __aenter__(self) -> _FakeUow:
+            return self
+
+        async def __aexit__(self, *exc: Any) -> bool:
+            return False
+
+    return _FakeUow
+
+
+def _tap(user_id: int) -> tuple[types.CallbackQuery, dict[str, Any]]:
+    """A real CallbackQuery — the middleware narrows with isinstance."""
+    user = types.User(id=user_id, is_bot=False, first_name="u")
+    query = types.CallbackQuery(id="1", from_user=user, chat_instance="ci", data="x")
+    return query, {"event_from_user": user}
+
+
+class TestAuthMiddleware:
+    async def test_a_plain_message_passes_through_with_its_result(self) -> None:
+        handler = _Recorder()
+        middleware = AuthMiddleware(admin_user_id=1, pool=cast("Any", None))
+
+        result = await middleware(handler, _message(), {})
+
+        assert result == "handled"
+
+    async def test_an_authorized_tap_passes_through_with_its_result(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "digitex.bot.middleware.UnitOfWork", _uow_class(authorized=True)
+        )
+        handler = _Recorder()
+        middleware = AuthMiddleware(admin_user_id=1, pool=cast("Any", None))
+        query, data = _tap(user_id=2)
+
+        result = await middleware(handler, query, data)
+
+        assert result == "handled"
+
+    async def test_an_unauthorized_tap_reports_unhandled(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """None would look handled to the dispatcher; UNHANDLED is what it reads."""
+        monkeypatch.setattr(
+            "digitex.bot.middleware.UnitOfWork", _uow_class(authorized=False)
+        )
+        handler = _Recorder()
+        middleware = AuthMiddleware(admin_user_id=1, pool=cast("Any", None))
+        query, data = _tap(user_id=2)
+
+        result = await middleware(handler, query, data)
+
+        assert result is UNHANDLED
+        assert handler.calls == []
 
 
 class TestAccessibleMessageMiddleware:

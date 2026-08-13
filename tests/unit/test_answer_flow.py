@@ -10,7 +10,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from digitex.bot import answer_flow
+import pytest
+
+from digitex.bot import answer_flow, fsm_data
 from digitex.bot.answer_flow import (
     NextQuestion,
     RoundFinished,
@@ -25,7 +27,6 @@ from digitex.bot.messages import MSG_ENTER_ANSWER
 from digitex.domain.entities import Question, QuestionOrigin
 
 if TYPE_CHECKING:
-    import pytest
     from aiogram import Bot, types
     from aiogram.fsm.context import FSMContext
 
@@ -151,6 +152,24 @@ class FakeState:
     async def clear(self) -> None:
         self.data.clear()
         self.cleared = True
+
+
+class TestMerge:
+    async def test_a_key_no_state_model_declares_is_refused(self) -> None:
+        """Stored-then-dropped is how a renamed field loses data silently."""
+        state = FakeState()
+
+        with pytest.raises(ValueError, match="Unknown FSM field"):
+            await fsm_data.merge(as_state(state), current_question_idd=7)
+
+        assert state.data == {}
+
+    async def test_declared_keys_pass_through(self) -> None:
+        state = FakeState()
+
+        await fsm_data.merge(as_state(state), current_question_id=7)
+
+        assert state.data == {"current_question_id": 7}
 
 
 def as_bot(fake: FakeBot) -> Bot:

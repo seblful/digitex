@@ -10,7 +10,7 @@ state through ``load`` / ``save`` and never touch the raw dict.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from pydantic import BaseModel
 
@@ -86,8 +86,28 @@ async def save(state: FSMContext, payload: BaseModel) -> None:
     await state.set_data(payload.model_dump())
 
 
+# Every key merge() may write. A key none of the models declares would be
+# stored, then silently dropped by load() — which is how a renamed field
+# loses its value with no error anywhere.
+_KNOWN_FIELDS: Final = frozenset(
+    name
+    for model in (NavigationState, TestingState, RandomState, RoundDebt)
+    for name in model.model_fields
+)
+
+
 async def merge(state: FSMContext, **fields: Any) -> None:
-    """Update a subset of FSM keys without round-tripping a whole model."""
+    """Update a subset of FSM keys without round-tripping a whole model.
+
+    Raises:
+        ValueError: If a key is not a field of any state model.
+    """
+    unknown = sorted(set(fields) - _KNOWN_FIELDS)
+    if unknown:
+        raise ValueError(
+            f"Unknown FSM field(s) {unknown} — declare them on a state model"
+            " in fsm_data"
+        )
     await state.update_data(**fields)
 
 
