@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 import structlog
 
-from digitex.bot import create_dispatcher
+from digitex.bot.dispatcher import create_dispatcher
 from digitex.config import get_settings
 from digitex.core.db import null_pool_lifespan, pool_lifespan
 from digitex.logging import setup_logging
