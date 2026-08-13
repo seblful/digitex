@@ -101,7 +101,7 @@ dev = [
     "ty>=0.0.28",
     "mdformat>=1.0.0",
     "pre-commit>=4.0.0",
-    "testcontainers[postgres]>=4.0",
+    "testcontainers[postgres]>=4.15.0",
 ]
 # Just enough to run tests/contracts in an environment built the way production
 # is — `uv sync --no-dev --group contracts`, no extras. Adding anything from an
