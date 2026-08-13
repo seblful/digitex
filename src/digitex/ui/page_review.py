@@ -21,35 +21,21 @@ from __future__ import annotations
 
 import math
 import tkinter as tk
-from dataclasses import replace
-from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
 from typing import TYPE_CHECKING, Literal
 
 import structlog
 from PIL import Image, ImageTk
 
-from digitex.domain.corpus import highest_question_number
-from digitex.domain.entities import PixelPolygon
 from digitex.pipeline.exceptions import ReviewAborted
-from digitex.pipeline.placement import (
-    PageExtractionState,
-    PageLabel,
-    PageRegion,
-    QuestionPlacement,
-    place_questions,
-    reading_order_key,
-)
 from digitex.pipeline.review import (
-    NumberingFault,
     PageProposal,
     QuestionCrop,
     ReviewedPage,
-    numbering_fault,
 )
 from digitex.ui import geometry
 from digitex.ui.display import BASE_DPI, enable_dpi_awareness, scaled
-from digitex.ui.history import EditHistory, EditSnapshot, copy_regions
+from digitex.ui.edits import MIN_POINTS, Numbering, PageEdits
 from digitex.ui.stats_panel import StatsPanel
 
 if TYPE_CHECKING:
@@ -57,6 +43,7 @@ if TYPE_CHECKING:
 
     from digitex.pipeline.audit.census import ImageCensus
     from digitex.pipeline.audit.validator import AnswerValidator
+    from digitex.pipeline.placement import PageLabel, PageRegion
 
 logger = structlog.get_logger()
 
@@ -87,9 +74,6 @@ MUTED = "#4b5563"
 # Half-width of a vertex handle, in screen pixels.
 HANDLE = 5
 
-# A crop needs four points — ImageCropper refuses fewer.
-MIN_POINTS = 4
-
 MIN_SCALE = 0.05
 MAX_SCALE = 8.0
 ZOOM_STEP = 1.25
@@ -104,9 +88,6 @@ PANEL_WIDTH = 400
 PREVIEW_HEIGHT = 230
 FOOTER_HEIGHT = 46
 PROBLEM_WRAP = 700
-
-# A drawn box smaller than this is a stray click, not a region.
-MIN_DRAWN_SIZE = 5
 
 # Cropping runs a skew detection pass, so it waits for the selection to settle.
 PREVIEW_DELAY_MS = 160
@@ -165,9 +146,9 @@ class TkPageReviewer:
         logger.info(
             "Page approved in review",
             page=proposal.page_name,
-            regions=len(window.regions),
+            regions=len(window.edits.regions),
         )
-        return ReviewedPage(regions=window.regions, state=window.state)
+        return ReviewedPage(regions=window.edits.regions, state=window.edits.state)
 
     def close(self) -> None:
         """Tear the window down — the run is over, one way or another."""
@@ -197,9 +178,11 @@ class TkPageReviewer:
 class _ReviewWindow:
     """The window itself. Built once, then loaded with one page after another.
 
-    It owns a working copy of the current page's regions and entry state:
-    approving hands those back, skipping drops them, and the proposal's own
-    objects are never touched.
+    A view over :class:`~digitex.ui.edits.PageEdits`, which owns the working
+    copy of the page and every rule about editing it. The window's own job is
+    the widgets: draw what ``edits.numbering()`` reports, turn clicks and keys
+    into its operations, and redraw afterwards. Nothing here decides what an
+    edit means.
     """
 
     def __init__(
@@ -210,23 +193,21 @@ class _ReviewWindow:
         validator: AnswerValidator | None = None,
         scale: float = 1.0,
     ) -> None:
-        self.regions: list[PageRegion] = []
-        self.state = PageExtractionState()
+        # The page being edited, and every rule about editing it. The window
+        # draws what this reports and turns input into its operations.
+        self.edits = PageEdits()
+        self._numbering = Numbering()
+
         self._subject = subject
         self._dpi_scale = scale
 
         self._image = Image.new("RGB", (1, 1), "white")
-        self._output_dir = Path()
         self._crop: QuestionCrop | None = None
         self._page_name = ""
         self._page_number = 0
         self._page_count = 0
 
-        self._selected: int | None = None
         self._hover: int | None = None
-        self._placements: dict[int, QuestionPlacement] = {}
-        self._misnumbered: set[int] = set()
-        self._problem: str | None = None
 
         self._scale = 1.0
         self._region = (0.0, 0.0, 1.0, 1.0)
@@ -237,7 +218,6 @@ class _ReviewWindow:
         self._loading = False
         self._jobs: dict[str, str] = {}
 
-        self._history = EditHistory()
         self._drag: tuple[str, int, int] | None = None
         self._drag_from: tuple[float, float] | None = None
         self._draw_label: PageLabel | None = None
@@ -292,17 +272,13 @@ class _ReviewWindow:
 
         resized = self._image.size != proposal.image.size
         self._image = proposal.image.convert("RGB")
-        self._output_dir = proposal.output_dir
         self._crop = proposal.crop
         self._page_name = proposal.page_name or "page"
         self._page_number = proposal.page_number
         self._page_count = proposal.page_count
 
-        self.regions = copy_regions(proposal.regions)
-        self.state = replace(proposal.state)
-        self._selected = None
+        self.edits.load(proposal.regions, proposal.state, proposal.output_dir)
         self._hover = None
-        self._history.reset(self.regions, self.state)
         self._cancel_draw()
         # Cleared here rather than left to the debounce: a crop from the page
         # before, sitting under the new page's caption, is a lie for as long as
@@ -310,9 +286,7 @@ class _ReviewWindow:
         self._clear_preview()
 
         self.top.title(f"Review — {self._page_name} — {self._subject or 'extraction'}")
-        self._option_var.set(str(self.state.option))
-        self._part_var.set(self.state.part)
-        self._question_var.set(str(self.state.question))
+        self._show_entry_state()
         self._stats.follow(self._subject, proposal.output_dir.name)
 
         self._loading = False
@@ -775,7 +749,7 @@ class _ReviewWindow:
 
     def _caption(self, index: int, region: PageRegion) -> str:
         if region.label == "question":
-            placement = self._placements.get(index)
+            placement = self._numbering.placements.get(index)
             return str(placement) if placement else "?"
         return f"{region.label} {self._reading_text(region)}"
 
@@ -788,9 +762,13 @@ class _ReviewWindow:
     def _render_regions(self) -> None:
         self._canvas.delete("region")
 
-        for index, region in enumerate(self.regions):
-            color = MISNUMBERED if index in self._misnumbered else COLORS[region.label]
-            selected = index == self._selected
+        for index, region in enumerate(self.edits.regions):
+            color = (
+                MISNUMBERED
+                if index in self._numbering.misnumbered
+                else COLORS[region.label]
+            )
+            selected = index == self.edits.selected
             hovered = index == self._hover
             coords = [c for point in region.polygon for c in self._to_canvas(point)]
 
@@ -854,46 +832,23 @@ class _ReviewWindow:
     # --- the preview, recomputed after every edit ---
 
     def _refresh(self) -> None:
-        """Replay the regions through a copy of the entry state and redraw."""
-        preview = replace(self.state)
-        self._placements = {}
-        self._misnumbered = set()
-        self._problem = None
+        """Ask the model where everything lands, then redraw what it says."""
+        self._numbering = self.edits.numbering()
+        numbering = self._numbering
 
-        try:
-            placed = place_questions(self.regions, preview)
-        except ValueError as exc:
-            self._problem = str(exc)
-            self._ends_at.configure(text="")
-        else:
-            questions = [i for i, r in enumerate(self.regions) if r.label == "question"]
-            self._placements = {
-                index: item.placement
-                for index, item in zip(questions, placed, strict=True)
-            }
-
-            fault = numbering_fault(placed, self._output_dir)
-            if fault is not None:
-                self._misnumbered = {questions[fault.position]}
-                self._problem = self._fault_message(fault)
-
-            part = preview.part or "?"
-            self._ends_at.configure(
-                text=f"page ends at {preview.option}/{part}/{preview.question}"
-            )
-
-        self._problem_label.configure(text=self._problem or "")
-        self._set_approve_enabled(not self._problem)
+        self._ends_at.configure(text=numbering.ends_at)
+        self._problem_label.configure(text=numbering.problem or "")
+        self._set_approve_enabled(numbering.ok)
         self._continue_button.configure(
             state="normal"
-            if self._problem and self._entry_state_reaches_first_question()
+            if numbering.problem and self.edits.entry_state_reaches_first_question
             else "disabled"
         )
         self._undo_button.configure(
-            state="normal" if self._history.can_undo else "disabled"
+            state="normal" if self.edits.history.can_undo else "disabled"
         )
         self._redo_button.configure(
-            state="normal" if self._history.can_redo else "disabled"
+            state="normal" if self.edits.history.can_redo else "disabled"
         )
         self._render_regions()
         self._fill_tree()
@@ -912,60 +867,39 @@ class _ReviewWindow:
             where += f"    page {self._page_number} of {self._page_count}"
         self._page_label.configure(text=where)
 
-        questions = sum(1 for r in self.regions if r.label == "question")
-        markers = len(self.regions) - questions
+        placements = self._numbering.placements
         span = ""
-        if self._placements:
-            first = next(iter(self._placements.values()))
-            last = list(self._placements.values())[-1]
+        if placements:
+            first = next(iter(placements.values()))
+            last = list(placements.values())[-1]
             span = f"    → {first} … {last}" if first != last else f"    → {first}"
         self._counts_label.configure(
-            text=f"{questions} questions, {markers} markers{span}"
+            text=f"{self.edits.question_count} questions,"
+            f" {self.edits.marker_count} markers{span}"
         )
 
-    def _fault_message(self, fault: NumberingFault) -> str:
-        """Say what is wrong with a number, and which remedy applies."""
-        wrong = "already exists" if fault.collides else "would leave a gap"
-        remedy = (
-            "Use 'Continue from disk'."
-            if self._entry_state_reaches_first_question()
-            else "A marker starts this group, so the page's own numbering is"
-            " right — skip the page if it is already extracted, or correct the"
-            " marker above it."
-        )
-        return (
-            f"{fault.placement} {wrong} — the next free number in"
-            f" {fault.placement.option}/{fault.placement.part} is {fault.free}."
-            f" {remedy}"
-        )
-
-    def _entry_state_reaches_first_question(self) -> bool:
-        """True when nothing resets the numbering before the first question.
-
-        An option or part marker sets the counter itself, so moving where the
-        page starts cannot move a group that begins after one.
-        """
-        for region in self.regions:
-            if region.label == "question":
-                return True
-            if region.label in ("option", "part"):
-                return False
-        return False
+    def _show_entry_state(self) -> None:
+        """Put the model's entry state into the spinboxes without echoing back."""
+        self._loading = True
+        state = self.edits.state
+        self._option_var.set(str(state.option))
+        self._part_var.set(state.part)
+        self._question_var.set(str(state.question))
+        self._loading = False
 
     def _continue_from_disk(self) -> None:
         """Set the entry counter so the page's first question takes the free slot."""
-        first = next(iter(self._placements.values()), None)
-        if first is None:
-            return
-        free = highest_question_number(self._output_dir, first.option, first.part) + 1
-        # next_question() hands out question + 1, so the counter sits one below.
-        self._question_var.set(str(max(free - 1, 0)))
+        counter = self.edits.continue_from_disk()
+        if counter is not None:
+            self._question_var.set(str(counter))
 
     def _fill_tree(self) -> None:
         self._tree.delete(*self._tree.get_children())
-        for index, region in enumerate(self.regions):
+        for index, region in enumerate(self.edits.regions):
             where = self._caption(index, region) if region.label == "question" else ""
-            tag = "misnumbered" if index in self._misnumbered else region.label
+            tag = (
+                "misnumbered" if index in self._numbering.misnumbered else region.label
+            )
             self._tree.insert(
                 "",
                 "end",
@@ -977,14 +911,15 @@ class _ReviewWindow:
                 ),
                 tags=(tag,),
             )
-        if self._selected is not None and self._selected < len(self.regions):
-            self._tree.selection_set(str(self._selected))
-            self._tree.see(str(self._selected))
+        selected = self.edits.selected
+        if selected is not None and selected < len(self.edits.regions):
+            self._tree.selection_set(str(selected))
+            self._tree.see(str(selected))
 
     def _select(self, index: int | None) -> None:
-        if index == self._selected:
+        if index == self.edits.selected:
             return
-        self._selected = index
+        self.edits.selected = index
         self._render_regions()
         if index is None:
             selection = self._tree.selection()
@@ -1012,13 +947,13 @@ class _ReviewWindow:
 
     def _render_preview(self) -> None:
         """Show the selected region as it would be saved."""
-        index = self._selected
-        if index is None or index >= len(self.regions):
+        index = self.edits.selected
+        if index is None or index >= len(self.edits.regions):
             self._clear_preview()
             return
         self._preview.delete("all")
 
-        region = self.regions[index]
+        region = self.edits.regions[index]
         try:
             image = self._crop_for(region)
         except Exception as exc:  # a polygon can be degenerate mid-edit
@@ -1048,7 +983,7 @@ class _ReviewWindow:
     def _preview_text(self, index: int, region: PageRegion, image: Image.Image) -> str:
         size = f"{image.width}x{image.height} px"
         if region.label == "question":
-            placement = self._placements.get(index)
+            placement = self._numbering.placements.get(index)
             saved = f"saved as {placement}" if placement else "not placed"
             return f"{saved} — {size}"
         return f"{region.label} marker — {size}"
@@ -1122,17 +1057,14 @@ class _ReviewWindow:
             return
 
         kind, index, point = self._drag
-        region = self.regions[index]
 
         if kind == "handle":
-            polygon = list(region.polygon)
-            polygon[point] = self._to_image(x, y)
-            region.polygon = PixelPolygon(polygon)
+            self.edits.drag_vertex(index, point, self._to_image(x, y))
         else:
             dx, dy = self._to_image(x - self._drag_from[0], y - self._drag_from[1])
             if dx == 0 and dy == 0:
                 return
-            region.polygon = PixelPolygon(geometry.moved(list(region.polygon), dx, dy))
+            self.edits.drag_polygon(index, dx, dy)
 
         self._drag_from = (x, y)
         self._render_regions()
@@ -1173,7 +1105,7 @@ class _ReviewWindow:
     def _context_menu(
         self, index: int, kind: str, point: int, at: tuple[float, float]
     ) -> tk.Menu:
-        region = self.regions[index]
+        region = self.edits.regions[index]
         menu = tk.Menu(self.top, tearoff=0)
 
         if kind == "handle":
@@ -1240,25 +1172,24 @@ class _ReviewWindow:
     def _on_arrow(self, delta: tuple[int, int], step: int) -> str:
         """Nudge the selected region, or scroll the page when nothing is selected."""
         dx, dy = delta
-        if self._selected is None:
+        selected = self.edits.selected
+        if selected is None:
             self._canvas.xview_scroll(dx, "units")
             self._canvas.yview_scroll(dy, "units")
             return "break"
 
-        region = self.regions[self._selected]
-        region.polygon = PixelPolygon(
-            geometry.moved(list(region.polygon), dx * step, dy * step)
-        )
-        self._commit()
+        self.edits.nudge(selected, dx * step, dy * step)
+        self._refresh()
         return "break"
 
     def _cycle_selection(self, delta: int) -> None:
-        if not self.regions:
+        regions = self.edits.regions
+        if not regions:
             return
-        if self._selected is None:
-            self._select(0 if delta > 0 else len(self.regions) - 1)
+        if self.edits.selected is None:
+            self._select(0 if delta > 0 else len(regions) - 1)
             return
-        self._select((self._selected + delta) % len(self.regions))
+        self._select((self.edits.selected + delta) % len(regions))
 
     def _on_escape(self) -> None:
         if self._draw_label is not None:
@@ -1270,28 +1201,18 @@ class _ReviewWindow:
 
     def _commit(self) -> None:
         """Record an edit in the undo timeline and redraw everything it touched."""
-        self._history.push(self.regions, self.state, self._selected)
+        self.edits.commit()
         self._refresh()
 
     def _undo(self) -> None:
-        self._restore(self._history.undo())
+        if self.edits.undo():
+            self._show_entry_state()
+            self._refresh()
 
     def _redo(self) -> None:
-        self._restore(self._history.redo())
-
-    def _restore(self, snapshot: EditSnapshot | None) -> None:
-        if snapshot is None:
-            return
-        self.regions = snapshot.regions
-        self.state = snapshot.state
-        self._selected = snapshot.selected
-
-        self._loading = True
-        self._option_var.set(str(self.state.option))
-        self._part_var.set(self.state.part)
-        self._question_var.set(str(self.state.question))
-        self._loading = False
-        self._refresh()
+        if self.edits.redo():
+            self._show_entry_state()
+            self._refresh()
 
     def _start_draw(self, label: PageLabel) -> None:
         self._draw_label = label
@@ -1310,62 +1231,38 @@ class _ReviewWindow:
         if label is None or start is None:
             return
 
-        x0, y0 = self._to_image(*start)
-        x1, y1 = self._to_image(x, y)
+        corner = self._to_image(*start)
+        opposite = self._to_image(x, y)
         self._cancel_draw()
 
-        left, right = sorted((x0, x1))
-        top, bottom = sorted((y0, y1))
-        if right - left < MIN_DRAWN_SIZE or bottom - top < MIN_DRAWN_SIZE:
-            return
-
-        # A rectangle is enough: the cropper reduces any polygon to its
-        # minimum-area quad before warping, and masks with the polygon itself.
-        self.regions.append(
-            PageRegion(
-                label=label,
-                polygon=PixelPolygon(
-                    [(left, top), (right, top), (right, bottom), (left, bottom)]
-                ),
-            )
-        )
-        self._selected = len(self.regions) - 1
-        self._commit()
+        if self.edits.add_box(label, corner, opposite):
+            self._refresh()
 
     def _insert_point(self, index: int, point: tuple[int, int]) -> None:
         """Add a vertex on the polygon edge nearest the click."""
-        polygon = list(self.regions[index].polygon)
-        polygon.insert(geometry.nearest_edge(polygon, point) + 1, point)
-        self.regions[index].polygon = PixelPolygon(polygon)
-        self._commit()
+        self.edits.insert_point(index, point)
+        self._refresh()
 
     def _delete_point(self, index: int, point: int) -> None:
-        polygon = list(self.regions[index].polygon)
-        if len(polygon) <= MIN_POINTS:
+        if self.edits.delete_point(index, point):
+            self._refresh()
+        else:
             self._hint.configure(text=f"a region needs at least {MIN_POINTS} points")
-            return
-        del polygon[point]
-        self.regions[index].polygon = PixelPolygon(polygon)
-        self._commit()
 
     def _relabel_selected(self, label: PageLabel) -> None:
-        if self._selected is not None:
-            self._set_label(self._selected, label)
+        if self.edits.selected is not None:
+            self._set_label(self.edits.selected, label)
 
     def _set_label(self, index: int, label: PageLabel) -> None:
-        region = self.regions[index]
-        region.label = label
-        # The old reading belongs to the old kind — an option number on a part
-        # marker would be ignored anyway, and shown as if it counted.
-        region.reading = None
-        self._commit()
+        self.edits.set_label(index, label)
+        self._refresh()
 
     def _set_reading(self, index: int, reading: int | str | None) -> None:
-        self.regions[index].reading = reading
-        self._commit()
+        self.edits.set_reading(index, reading)
+        self._refresh()
 
     def _set_option(self, index: int) -> None:
-        current = self.regions[index].reading
+        current = self.edits.regions[index].reading
         value = simpledialog.askinteger(
             "Option number",
             "Option this marker starts:",
@@ -1379,51 +1276,39 @@ class _ReviewWindow:
 
     def _edit_reading(self) -> None:
         """Double-click on a marker row: fix what OCR read off it."""
-        if self._selected is None:
+        selected = self.edits.selected
+        if selected is None:
             return
-        region = self.regions[self._selected]
+        region = self.edits.regions[selected]
         if region.label == "option":
-            self._set_option(self._selected)
+            self._set_option(selected)
         elif region.label == "part":
-            self._set_reading(self._selected, "B" if region.reading == "A" else "A")
+            self._set_reading(selected, "B" if region.reading == "A" else "A")
 
     def _delete_region(self) -> None:
-        if self._selected is None:
+        if self.edits.selected is None:
             return
-        del self.regions[self._selected]
-        self._selected = None
-        self._commit()
+        self.edits.delete(self.edits.selected)
+        self._refresh()
 
     def _move(self, delta: int) -> None:
         """Move the selected region in the reading order the numbering follows."""
-        if self._selected is None:
+        if self.edits.selected is None:
             return
-        target = self._selected + delta
-        if not 0 <= target < len(self.regions):
-            return
-        regions = self.regions
-        regions[self._selected], regions[target] = (
-            regions[target],
-            regions[self._selected],
-        )
-        self._selected = target
-        self._commit()
+        if self.edits.reorder(self.edits.selected, delta) is not None:
+            self._refresh()
 
     def _sort(self) -> None:
-        selected = self.regions[self._selected] if self._selected is not None else None
-        self.regions.sort(key=lambda region: reading_order_key(region.polygon))
-        # By identity, not equality: two regions can hold equal field values.
-        self._selected = next(
-            (i for i, r in enumerate(self.regions) if r is selected), None
-        )
-        self._commit()
+        self.edits.sort_by_reading_order()
+        self._refresh()
 
     def _zoom_to_selected(self) -> None:
         """Fill the view with the selected region, so its edges can be judged."""
-        if self._selected is None:
+        selected = self.edits.selected
+        if selected is None:
             return
         left, top, right, bottom = geometry.bounds(
-            list(self.regions[self._selected].polygon)
+            list(self.edits.regions[selected].polygon)
         )
         view_w, view_h = self._view_size
         # Some room around it, so the region is seen in the context it was cut
@@ -1439,16 +1324,15 @@ class _ReviewWindow:
     def _on_entry_state_changed(self) -> None:
         if self._loading:
             return
-        self.state.option = _int_or(self._option_var.get(), self.state.option)
-        self.state.part = self._part_var.get()
-        self.state.question = _int_or(self._question_var.get(), self.state.question)
+        state = self.edits.state
+        self.edits.set_entry_state(
+            option=_int_or(self._option_var.get(), state.option),
+            part=self._part_var.get(),
+            question=_int_or(self._question_var.get(), state.question),
+        )
         self._refresh()
         # One undo step per settled value, not one per keystroke.
-        self._debounce(
-            "state",
-            STATE_COMMIT_MS,
-            lambda: self._history.push(self.regions, self.state, self._selected),
-        )
+        self._debounce("state", STATE_COMMIT_MS, self.edits.commit)
 
     def _on_tree_select(self, _event: tk.Event) -> None:
         selection = self._tree.selection()
@@ -1481,7 +1365,7 @@ class _ReviewWindow:
         self._jobs.clear()
 
     def _finish(self, verdict: Verdict) -> None:
-        if verdict == "approve" and self._problem:
+        if verdict == "approve" and self._numbering.problem:
             return
         if verdict == "abort" and not messagebox.askokcancel(
             "Abort run",

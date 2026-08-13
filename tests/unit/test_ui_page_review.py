@@ -1,7 +1,7 @@
 """Behaviour tests for the review window itself.
 
 The window is the one place where the editing rules meet a widget, so the parts
-that cannot be checked in `test_gui_geometry` and `test_gui_history` — that an
+that cannot be checked in `test_ui_geometry` and `test_ui_history` — that an
 edit reaches the tree, that undo puts the page back, that a bad number disables
 approve — are checked here against a real Tk window.
 
@@ -105,7 +105,7 @@ class TestLoadingAPage:
         proposal = _proposal(tmp_path)
         window._load(proposal)
 
-        window.regions[2].label = "part"
+        window.edits.regions[2].label = "part"
 
         assert proposal.regions[2].label == "question"
 
@@ -114,8 +114,11 @@ class TestLoadingAPage:
     ) -> None:
         window._load(_proposal(tmp_path))
 
-        assert [str(p) for p in window._placements.values()] == ["1/A/1", "1/A/2"]
-        assert window._problem is None
+        assert [str(p) for p in window._numbering.placements.values()] == [
+            "1/A/1",
+            "1/A/2",
+        ]
+        assert window._numbering.problem is None
         assert str(window._approve["state"]) == "normal"
 
     def test_the_region_list_matches_the_page(
@@ -136,12 +139,12 @@ class TestLoadingAPage:
         window._load(_proposal(tmp_path))
         window._select(2)
         window._delete_region()
-        assert window._history.can_undo
+        assert window.edits.history.can_undo
 
         window._load(_proposal(tmp_path))
 
-        assert window._history.can_undo is False
-        assert len(window.regions) == 4
+        assert window.edits.history.can_undo is False
+        assert len(window.edits.regions) == 4
 
 
 class TestEditing:
@@ -150,12 +153,12 @@ class TestEditing:
     ) -> None:
         window._load(_proposal(tmp_path))
         window._select(2)
-        before = list(window.regions[3].polygon)
+        before = list(window.edits.regions[3].polygon)
 
         window._on_arrow((1, 0), 10)
 
-        assert next(iter(window.regions[2].polygon)) == (60, 200)
-        assert list(window.regions[3].polygon) == before
+        assert next(iter(window.edits.regions[2].polygon)) == (60, 200)
+        assert list(window.edits.regions[3].polygon) == before
 
     def test_undo_puts_an_edit_back(
         self, window: _ReviewWindow, tmp_path: Path
@@ -166,8 +169,8 @@ class TestEditing:
 
         window._undo()
 
-        assert next(iter(window.regions[2].polygon)) == (50, 200)
-        assert window._history.can_redo
+        assert next(iter(window.edits.regions[2].polygon)) == (50, 200)
+        assert window.edits.history.can_redo
 
     def test_redo_puts_it_back_again(
         self, window: _ReviewWindow, tmp_path: Path
@@ -179,7 +182,7 @@ class TestEditing:
 
         window._redo()
 
-        assert next(iter(window.regions[2].polygon)) == (50, 210)
+        assert next(iter(window.edits.regions[2].polygon)) == (50, 210)
 
     def test_relabelling_a_question_renumbers_the_rest(
         self, window: _ReviewWindow, tmp_path: Path
@@ -190,7 +193,7 @@ class TestEditing:
         window._relabel_selected("part")
 
         # The first question is now a marker, so the second takes its number.
-        assert [str(p) for p in window._placements.values()] == ["1/A/1"]
+        assert [str(p) for p in window._numbering.placements.values()] == ["1/A/1"]
 
     def test_relabelling_drops_a_reading_that_belonged_to_the_old_kind(
         self, window: _ReviewWindow, tmp_path: Path
@@ -200,7 +203,7 @@ class TestEditing:
 
         window._relabel_selected("part")
 
-        assert window.regions[0].reading is None
+        assert window.edits.regions[0].reading is None
 
     def test_deleting_a_marker_is_caught_before_anything_is_written(
         self, window: _ReviewWindow, tmp_path: Path
@@ -212,8 +215,8 @@ class TestEditing:
         window._select(0)
         window._delete_region()
 
-        assert window._problem is not None
-        assert "before any option/part marker" in window._problem
+        assert window._numbering.problem is not None
+        assert "before any option/part marker" in window._numbering.problem
         assert str(window._approve["state"]) == "disabled"
 
     def test_drawing_adds_a_region_in_page_pixels(
@@ -226,8 +229,8 @@ class TestEditing:
         window._draw_from = (50.0, 100.0)
         window._finish_draw(150.0, 200.0)
 
-        assert len(window.regions) == 5
-        assert list(window.regions[4].polygon) == [
+        assert len(window.edits.regions) == 5
+        assert list(window.edits.regions[4].polygon) == [
             (100, 200),
             (300, 200),
             (300, 400),
@@ -243,7 +246,7 @@ class TestEditing:
         window._draw_from = (50.0, 100.0)
         window._finish_draw(52.0, 102.0)
 
-        assert len(window.regions) == 4
+        assert len(window.edits.regions) == 4
 
     def test_sorting_puts_the_regions_in_reading_order(
         self, window: _ReviewWindow, tmp_path: Path
@@ -254,12 +257,12 @@ class TestEditing:
             _region("part", 90, "A"),
         ]
         window._load(_proposal(tmp_path, regions=regions))
-        assert window._problem is not None  # question before its markers
+        assert window._numbering.problem is not None  # question before its markers
 
         window._sort()
 
-        assert [r.label for r in window.regions] == ["option", "part", "question"]
-        assert window._problem is None
+        assert [r.label for r in window.edits.regions] == ["option", "part", "question"]
+        assert window._numbering.problem is None
 
 
 class TestNumbering:
@@ -272,10 +275,10 @@ class TestNumbering:
 
         window._load(_proposal(tmp_path))
 
-        assert window._problem is not None
-        assert "already exists" in window._problem
+        assert window._numbering.problem is not None
+        assert "already exists" in window._numbering.problem
         assert str(window._approve["state"]) == "disabled"
-        assert window._misnumbered == {2}
+        assert window._numbering.misnumbered == {2}
 
     def test_continue_from_disk_is_offered_only_when_it_would_help(
         self, window: _ReviewWindow, tmp_path: Path
@@ -307,8 +310,8 @@ class TestNumbering:
 
         window._continue_from_disk()
 
-        assert [str(p) for p in window._placements.values()] == ["2/B/4"]
-        assert window._problem is None
+        assert [str(p) for p in window._numbering.placements.values()] == ["2/B/4"]
+        assert window._numbering.problem is None
 
     def test_the_entry_state_can_be_typed_in(
         self, window: _ReviewWindow, tmp_path: Path
@@ -323,8 +326,8 @@ class TestNumbering:
 
         window._question_var.set("5")
 
-        assert window.state.question == 5
-        assert [str(p) for p in window._placements.values()] == ["1/A/6"]
+        assert window.edits.state.question == 5
+        assert [str(p) for p in window._numbering.placements.values()] == ["1/A/6"]
 
     def test_an_emptied_spinbox_does_not_lose_the_number(
         self, window: _ReviewWindow, tmp_path: Path
@@ -340,7 +343,7 @@ class TestNumbering:
 
         window._option_var.set("")
 
-        assert window.state.option == 3
+        assert window.edits.state.option == 3
 
 
 class TestCropPreview:
