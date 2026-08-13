@@ -164,7 +164,7 @@ class TestQuestionRepository:
             answer = await uow.questions.get_correct_answer(qid)
         assert answer is None
 
-    async def test_insert_image_idempotent_for_unchanged_payload(
+    async def test_set_image_is_idempotent_and_records_the_latest_hash(
         self, pg_pool: AsyncConnectionPool
     ) -> None:
         async with UnitOfWork(pg_pool) as uow:
@@ -172,11 +172,11 @@ class TestQuestionRepository:
             qid = await uow.questions.get_or_create(
                 option_id, QuestionKey(part="A", number=1), "1"
             )
-            await uow.questions.insert_image(qid, b"payload")
-            await uow.questions.insert_image(qid, b"payload")
-            await uow.questions.insert_image(qid, b"new-payload")
-            image = await uow.questions.get_image(qid)
-        assert image == b"new-payload"
+            await uow.questions.set_image(qid, "s/2016/1/A/1.jpg", "hash-1")
+            await uow.questions.set_image(qid, "s/2016/1/A/1.jpg", "hash-1")
+            await uow.questions.set_image(qid, "s/2016/1/A/1.jpg", "hash-2")
+            images = await uow.questions.list_images()
+        assert images == [("s/2016/1/A/1.jpg", "hash-2")]
 
     async def test_get_random_question_id_raises_when_empty(
         self, pg_pool: AsyncConnectionPool
@@ -291,7 +291,7 @@ class TestQuestionRepository:
             qid = await uow.questions.get_or_create(
                 option_id, QuestionKey(part="A", number=4), "2"
             )
-            await uow.questions.insert_image(qid, b"payload")
+            await uow.questions.set_image(qid, "s/2016/1/A/4.jpg", "hash-1")
 
             before = await uow.questions.get(qid)
             await uow.questions.cache_file_id(qid, "tg-file-1")
@@ -300,10 +300,24 @@ class TestQuestionRepository:
         assert before.question_number == 4
         assert before.part == "A"
         assert before.telegram_file_id is None
-        assert before.image_data == b""  # metadata only — no BYTEA payload
+        # The key rides along with the metadata — one query renders a question.
+        assert before.image_key == "s/2016/1/A/4.jpg"
         assert after.telegram_file_id == "tg-file-1"
 
-    async def test_reseeding_the_same_bytes_keeps_the_cached_file_id(
+    async def test_a_question_with_no_image_row_reads_back_with_no_key(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        """The join is LEFT: a question loads before its image is seeded."""
+        async with UnitOfWork(pg_pool) as uow:
+            _, _, option_id = await _seed_option(uow)
+            qid = await uow.questions.get_or_create(
+                option_id, QuestionKey(part="A", number=9), "1"
+            )
+            question = await uow.questions.get(qid)
+
+        assert question.image_key is None
+
+    async def test_reseeding_the_same_image_keeps_the_cached_file_id(
         self, pg_pool: AsyncConnectionPool
     ) -> None:
         """An idempotent re-run must not throw away a working cache.
@@ -316,36 +330,55 @@ class TestQuestionRepository:
             qid = await uow.questions.get_or_create(
                 option_id, QuestionKey(part="A", number=5), "1"
             )
-            await uow.questions.insert_image(qid, b"payload")
+            await uow.questions.set_image(qid, "s/2016/1/A/5.jpg", "hash-1")
             await uow.questions.cache_file_id(qid, "tg-file-1")
 
-            await uow.questions.insert_image(qid, b"payload")
+            await uow.questions.set_image(qid, "s/2016/1/A/5.jpg", "hash-1")
             question = await uow.questions.get(qid)
 
         assert question.telegram_file_id == "tg-file-1"
 
-    async def test_reseeding_new_bytes_drops_the_stale_file_id(
+    async def test_reseeding_changed_bytes_drops_the_stale_file_id(
         self, pg_pool: AsyncConnectionPool
     ) -> None:
         """A corrected image invalidates the id naming the old upload.
 
-        send_question prefers the cached id over the payload, so leaving it in
-        place would serve the superseded image forever.
+        Re-extracting a question rewrites the same path, so the key is unchanged
+        and only the hash shows that anything happened. send_question prefers the
+        cached id over the file, so leaving it in place would serve the
+        superseded image forever.
         """
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
             qid = await uow.questions.get_or_create(
                 option_id, QuestionKey(part="A", number=6), "1"
             )
-            await uow.questions.insert_image(qid, b"payload")
+            await uow.questions.set_image(qid, "s/2016/1/A/6.jpg", "hash-1")
             await uow.questions.cache_file_id(qid, "tg-file-1")
 
-            await uow.questions.insert_image(qid, b"corrected payload")
+            await uow.questions.set_image(qid, "s/2016/1/A/6.jpg", "hash-2")
             question = await uow.questions.get(qid)
-            image = await uow.questions.get_image(qid)
 
         assert question.telegram_file_id is None
-        assert image == b"corrected payload"
+        assert question.image_key == "s/2016/1/A/6.jpg"
+
+    async def test_a_moved_image_drops_the_stale_file_id(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        """Same bytes at a new path is still a change the cache must not survive."""
+        async with UnitOfWork(pg_pool) as uow:
+            _, _, option_id = await _seed_option(uow)
+            qid = await uow.questions.get_or_create(
+                option_id, QuestionKey(part="A", number=7), "1"
+            )
+            await uow.questions.set_image(qid, "s/2016/1/A/7.jpg", "hash-1")
+            await uow.questions.cache_file_id(qid, "tg-file-1")
+
+            await uow.questions.set_image(qid, "s/2017/1/A/7.jpg", "hash-1")
+            question = await uow.questions.get(qid)
+
+        assert question.telegram_file_id is None
+        assert question.image_key == "s/2017/1/A/7.jpg"
 
     async def test_get_full_carries_the_question_origin(
         self, pg_pool: AsyncConnectionPool

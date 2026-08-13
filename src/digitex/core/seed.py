@@ -1,9 +1,15 @@
-"""Load extraction output into the database.
+"""Load extraction output into the database, and check that it still matches.
 
 The on-disk corpus (``{subject}/{year}/{option}/{part}/{n}.png`` plus its
 ``answers.json`` and ``topic_to_year.json``) becomes rows. Every write goes
 through ``get_or_create``, so a re-run of the same output is a no-op rather
 than a duplicate — which is what makes re-seeding after new extractions safe.
+
+Images are the exception to "becomes rows": the file stays on disk and the row
+records its key and content hash. That buys a small database and a cheap seed,
+and costs the guarantee that a row and its bytes agree — which is what
+:func:`check_images` is for, and why the runbook syncs the files before seeding
+rather than after.
 
 The caller supplies the pool and the output directory; migrating the schema
 first is :mod:`digitex.cli.db`'s job.
@@ -12,15 +18,22 @@ first is :mod:`digitex.cli.db`'s job.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from tqdm import tqdm
 
-from digitex.core.corpus import question_image_number
+from digitex.core.corpus import (
+    file_digest,
+    question_image_number,
+    question_object_key,
+    walk_question_images,
+)
 from digitex.core.db import UnitOfWork
 from digitex.core.domain import QuestionKey, exam_type_for, parse_exam_type
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
     from psycopg_pool import AsyncConnectionPool
@@ -42,7 +55,7 @@ def get_subject_name(subject: str) -> str:
 
 
 async def _populate_year(
-    uow: UnitOfWork, subject_id: int, year_dir: Path
+    uow: UnitOfWork, subject_id: int, output_dir: Path, year_dir: Path
 ) -> tuple[int, int]:
     year = int(year_dir.name)
 
@@ -105,7 +118,11 @@ async def _populate_year(
                         option_id, key, None
                     )
 
-                await uow.questions.insert_image(question_id, img_file.read_bytes())
+                await uow.questions.set_image(
+                    question_id,
+                    question_object_key(output_dir, img_file),
+                    file_digest(img_file),
+                )
                 questions_loaded += 1
 
     return questions_loaded, answers_loaded
@@ -177,7 +194,9 @@ async def populate_subject(
 
     for year_dir in tqdm(year_dirs, desc=subject):
         async with UnitOfWork(pool) as uow:
-            questions, answers = await _populate_year(uow, subject_id, year_dir)
+            questions, answers = await _populate_year(
+                uow, subject_id, output_dir, year_dir
+            )
         tqdm.write(f"  {year_dir.name}: {questions} questions, {answers} answers")
 
     topic_count = await _populate_topics(pool, subject_id, subject_dir)
@@ -200,3 +219,62 @@ async def populate(
 
     for name in subjects:
         await populate_subject(pool, output_dir, name)
+
+
+# ---------------------------------------------------------------------------
+# Reconcile
+# ---------------------------------------------------------------------------
+
+
+def _all_question_images(output_dir: Path) -> Iterator[Path]:
+    """Every question image in the corpus, across all subjects and years."""
+    for subject_dir in sorted(output_dir.iterdir()):
+        if not subject_dir.is_dir():
+            continue
+        for year_dir in sorted(subject_dir.iterdir()):
+            if not year_dir.is_dir() or not year_dir.name.isdigit():
+                continue
+            for image in walk_question_images(year_dir):
+                yield image.path
+
+
+@dataclass(frozen=True)
+class ImageCheck:
+    """Where the ``images`` table and the image corpus disagree.
+
+    Each list holds object keys. They are separate because the fixes differ:
+    *missing* means the files never reached this machine (sync them), *stale*
+    means they did but the rows were not re-seeded afterwards (populate), and
+    *orphaned* means files nothing points at (a subject that was never seeded,
+    or extraction output that outlived its questions).
+    """
+
+    missing: list[str]
+    stale: list[str]
+    orphaned: list[str]
+
+    @property
+    def ok(self) -> bool:
+        return not (self.missing or self.stale or self.orphaned)
+
+
+async def check_images(pool: AsyncConnectionPool, output_dir: Path) -> ImageCheck:
+    """Compare every stored image key and hash against the files on disk."""
+    async with UnitOfWork(pool) as uow:
+        stored = dict(await uow.questions.list_images())
+
+    on_disk = {
+        question_object_key(output_dir, path): path
+        for path in _all_question_images(output_dir)
+    }
+
+    both = stored.keys() & on_disk.keys()
+    return ImageCheck(
+        missing=sorted(stored.keys() - on_disk.keys()),
+        stale=sorted(
+            key
+            for key in tqdm(sorted(both), desc="hashing")
+            if file_digest(on_disk[key]) != stored[key]
+        ),
+        orphaned=sorted(on_disk.keys() - stored.keys()),
+    )

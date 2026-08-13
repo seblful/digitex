@@ -46,6 +46,8 @@ from digitex.core.db import UnitOfWork
 from digitex.core.domain import year_has_exam_types
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from aiogram.fsm.context import FSMContext
     from psycopg_pool import AsyncConnectionPool
 
@@ -137,6 +139,7 @@ async def on_topic_selected(
     bot: Bot,
     msg: types.Message,
     pool: AsyncConnectionPool,
+    questions_dir: Path,
 ) -> None:
     nav = await fsm_data.load(state, NavigationState)
     # The index comes off a keyboard that may have been built for a different
@@ -147,7 +150,7 @@ async def on_topic_selected(
     topic_name = nav.topic_names[callback_data.index]
     await fsm_data.merge(state, topic_name=topic_name)
 
-    await start_random_question(msg, state, bot, pool)
+    await start_random_question(msg, state, bot, pool, questions_dir)
     await callback.answer()
 
 
@@ -172,10 +175,11 @@ async def on_random_part_selected(
     bot: Bot,
     msg: types.Message,
     pool: AsyncConnectionPool,
+    questions_dir: Path,
 ) -> None:
     await fsm_data.merge(state, random_part=callback_data.part)
 
-    await start_random_question(msg, state, bot, pool)
+    await start_random_question(msg, state, bot, pool, questions_dir)
     await callback.answer()
 
 
@@ -253,6 +257,7 @@ async def on_option_selected(
     bot: Bot,
     msg: types.Message,
     pool: AsyncConnectionPool,
+    questions_dir: Path,
 ) -> None:
     nav = await fsm_data.load(state, NavigationState)
     if nav.book_id is None:
@@ -290,4 +295,4 @@ async def on_option_selected(
     await state.set_state(Testing.answering)
     await callback.answer()
 
-    await send_current_question(msg, state, bot, pool)
+    await send_current_question(msg, state, bot, pool, questions_dir)

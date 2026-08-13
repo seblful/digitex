@@ -7,6 +7,7 @@ state and a UnitOfWork-shaped object, and return outcomes as values.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from digitex.bot import answer_flow
@@ -38,12 +39,11 @@ class FakeQuestions:
 
     by_id: dict[int, Question] = field(default_factory=dict)
     correct: dict[int, int | str | None] = field(default_factory=dict)
-    images: dict[int, bytes] = field(default_factory=dict)
     full: dict[int, tuple[Question, QuestionOrigin]] = field(default_factory=dict)
     random_result: int | None = None
     topic_result: int | None = None
     cached: list[tuple[int, str]] = field(default_factory=list)
-    image_fetches: list[int] = field(default_factory=list)
+    lookups: list[int] = field(default_factory=list)
 
     async def cache_file_id(self, question_id: int, file_id: str) -> None:
         self.cached.append((question_id, file_id))
@@ -52,11 +52,8 @@ class FakeQuestions:
         return self.correct[question_id]
 
     async def get(self, question_id: int) -> Question:
+        self.lookups.append(question_id)
         return self.by_id[question_id]
-
-    async def get_image(self, question_id: int) -> bytes:
-        self.image_fetches.append(question_id)
-        return self.images[question_id]
 
     async def get_full(self, question_id: int) -> tuple[Question, QuestionOrigin]:
         return self.full[question_id]
@@ -173,8 +170,15 @@ def _question(question_id: int, part: Part, file_id: str | None = None) -> Quest
         question_id=question_id,
         part=part,
         question_number=1,
+        image_key=f"biology/2016/1/{part}/{question_id}.jpg",
         telegram_file_id=file_id,
     )
+
+
+# The renders below never reach the filesystem: a cached file_id short-circuits
+# the upload, and FSInputFile does not open its path until aiogram sends it —
+# which the FakeBot here never does.
+CORPUS = Path("corpus")
 
 
 class TestRunTestingRound:
@@ -250,28 +254,18 @@ class TestRunTestingRound:
 
         assert uow.questions.cached == [(5, "file123")]
 
-    async def test_next_question_image_fetched_only_on_cache_miss(self) -> None:
+    async def test_next_question_carries_its_image_key_in_one_lookup(self) -> None:
+        """An uncached question costs no extra round-trip: the key rides along."""
         uow = FakeUow()
         uow.questions.correct[10] = 1
         uow.questions.by_id[20] = _question(20, "B", file_id=None)
-        uow.questions.images[20] = b"image-bytes"
         testing = TestingState(session_id=7, question_ids=[(10, "A"), (20, "B")])
 
         outcome = await run_testing_round(as_uow(uow), testing, "1", now=1.0)
 
         assert isinstance(outcome, NextQuestion)
-        assert outcome.question.image_data == b"image-bytes"
-        assert uow.questions.image_fetches == [20]
-
-    async def test_cached_next_question_skips_image_fetch(self) -> None:
-        uow = FakeUow()
-        uow.questions.correct[10] = 1
-        uow.questions.by_id[20] = _question(20, "B", file_id="cached")
-        testing = TestingState(session_id=7, question_ids=[(10, "A"), (20, "B")])
-
-        await run_testing_round(as_uow(uow), testing, "1", now=1.0)
-
-        assert uow.questions.image_fetches == []
+        assert outcome.question.image_key == "biology/2016/1/B/20.jpg"
+        assert uow.questions.lookups == [20]
 
 
 class TestShowQuestion:
@@ -294,6 +288,7 @@ class TestShowQuestion:
             as_message(message),
             as_state(fake_state),
             question,
+            CORPUS,
             **kwargs,
         )
         return fake_state, bot, message
@@ -461,14 +456,13 @@ class TestPickRandomQuestion:
         question = _question(11, "B", file_id=None)
         uow.questions.topic_result = 11
         uow.questions.full[11] = (question, QuestionOrigin(2020, 2, "CT"))
-        uow.questions.images[11] = b"img"
 
         picked = await pick_random_question(
             as_uow(uow), self._random_state(topic_name="Cells", random_part=None)
         )
 
         assert picked is not None
-        assert picked[0].image_data == b"img"
+        assert picked[0].image_key == "biology/2016/1/B/11.jpg"
 
 
 class TestEvaluateRandomAnswer:

@@ -18,7 +18,25 @@ uv run digitex-db upgrade        # apply all pending migrations
 uv run digitex-db current        # show what's applied
 uv run digitex-db history        # list revisions
 uv run digitex-db revision "msg" # scaffold a new empty revision
+uv run digitex-db check-images   # rows vs. question image files on this machine
 ```
+
+## Question images are files
+
+`images` stores each question image's `object_key` (its path below the corpus
+root, e.g. `biology/2016/1/A/3.jpg`) and its `content_hash` — not the bytes.
+The corpus itself is synced to the server separately; see
+[production.md §1.5](production.md#15-seed-the-data-from-your-laptop).
+
+Two consequences worth knowing before you touch this table:
+
+- The hash is not redundant with the key. Re-extracting a question rewrites the
+  *same* path, and the hash is the only thing that shows it changed — which is
+  what drops the cached `telegram_file_id` so the bot stops serving the
+  superseded upload.
+- A row and its file can drift apart, which no constraint can catch.
+  `check-images` is the reconcile, and it exits non-zero so a deploy can gate
+  on it.
 
 ## Authoring a migration
 

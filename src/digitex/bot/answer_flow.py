@@ -36,6 +36,8 @@ from digitex.core.db import UnitOfWork
 from digitex.core.domain import PART_A_OPTION_COUNT
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from aiogram import Bot, types
     from aiogram.fsm.context import FSMContext
     from psycopg_pool import AsyncConnectionPool
@@ -95,6 +97,7 @@ async def show_question(
     message: types.Message,
     state: FSMContext,
     question: Question,
+    questions_dir: Path,
     *,
     started_at: float,
     current_index: int | None = None,
@@ -123,7 +126,7 @@ async def show_question(
     await fsm_data.merge(state, **fields)
 
     new_file_id = await _ask_question(
-        bot, message, question, caption=caption, parse_mode=parse_mode
+        bot, message, question, questions_dir, caption=caption, parse_mode=parse_mode
     )
     if new_file_id is not None:
         await fsm_data.merge(
@@ -136,6 +139,7 @@ async def _ask_question(
     bot: Bot,
     message: types.Message,
     question: Question,
+    questions_dir: Path,
     *,
     caption: str | None = None,
     parse_mode: str | None = None,
@@ -150,6 +154,7 @@ async def _ask_question(
             bot,
             message.chat.id,
             question,
+            questions_dir,
             reply_markup=part_a_kb(PART_A_OPTION_COUNT),
             caption=caption,
             parse_mode=parse_mode,
@@ -159,6 +164,7 @@ async def _ask_question(
         bot,
         message.chat.id,
         question,
+        questions_dir,
         caption=caption,
         parse_mode=parse_mode,
     )
@@ -171,24 +177,6 @@ async def _ask_question(
 # ---------------------------------------------------------------------------
 
 
-async def _attach_image_on_miss(uow: UnitOfWork, question: Question) -> Question:
-    """Graft the image bytes on when the question has no cached ``file_id``.
-
-    ``renderer.send_question`` needs ``image_data`` exactly when
-    ``telegram_file_id`` is absent, so both rounds settle that here.
-    """
-    if question.telegram_file_id:
-        return question
-    image_data = await uow.questions.get_image(question.question_id)
-    return question.model_copy(update={"image_data": image_data})
-
-
-async def load_renderable(uow: UnitOfWork, question_id: int) -> Question:
-    """Fetch a question's metadata, plus image bytes only on a cache miss."""
-    question = await uow.questions.get(question_id)
-    return await _attach_image_on_miss(uow, question)
-
-
 async def run_testing_round(
     uow: UnitOfWork,
     testing: TestingState,
@@ -199,7 +187,7 @@ async def run_testing_round(
     """Settle the file_id debt, score and record the answer, fetch what's next.
 
     One transaction: the pending file_id write, the correctness lookup, the
-    answer row, and the next question's metadata/bytes commit together.
+    answer row, and the next question's metadata commit together.
     """
     question_id, part = testing.question_ids[testing.current_index]
     started = testing.question_start_time or now
@@ -222,7 +210,7 @@ async def run_testing_round(
 
     next_qid, _next_part = testing.question_ids[next_index]
     return NextQuestion(
-        question=await load_renderable(uow, next_qid),
+        question=await uow.questions.get(next_qid),
         next_index=next_index,
     )
 
@@ -251,8 +239,7 @@ async def pick_random_question(
     except KeyError:
         return None
 
-    question, origin = await uow.questions.get_full(qid)
-    return await _attach_image_on_miss(uow, question), origin
+    return await uow.questions.get_full(qid)
 
 
 async def evaluate_random_answer(

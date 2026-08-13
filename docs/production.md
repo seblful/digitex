@@ -17,6 +17,8 @@ ______________________________________________________________________
 - Telegram bot token from [@BotFather](https://t.me/BotFather)
 - Extraction output (`extraction/data/output/`) on your local machine, ready
   to seed the production database
+- `rsync` on your PC (`choco install rsync`) — question images are files, and
+  this is what ships them
 
 ### 1.2 Server preparation
 
@@ -73,11 +75,25 @@ docker compose up -d postgres
 docker compose run --rm bot digitex-db upgrade
 ```
 
-### 1.5 Seed the database (from your laptop)
+### 1.5 Seed the data (from your laptop)
 
-`./scripts/seed_prod.ps1 -VpsHost <vps-ip>` does all of this in one command.
-The manual equivalent, for when you want the tunnel open anyway (see
+Data ships in two parts, because question images are files on disk and only
+their keys are rows: **the images sync first, then the database is seeded**. A
+row names a file, so seeding first would point the bot at images that have not
+arrived yet.
+
+`./scripts/seed_prod.ps1 -VpsHost <vps-ip>` does both in one command. The manual
+equivalent, for when you want the tunnel open anyway (see
 [§3 Database access](#3-database-access-from-your-pc) for why a tunnel):
+
+```powershell
+# PC — 1. the images. --delete is what removes what you deleted locally.
+ssh root@<vps-ip> "mkdir -p /opt/digitex/data/questions"
+cd extraction/data/output
+rsync -rlt --delete --chmod=D755,F644 --info=progress2 `
+    ./ root@<vps-ip>:/opt/digitex/data/questions/
+cd ../../..
+```
 
 ```powershell
 # Terminal 1 — PC, keep open
@@ -85,7 +101,7 @@ ssh -L 5433:localhost:5432 root@<vps-ip>
 ```
 
 ```powershell
-# Terminal 2 — PC
+# Terminal 2 — PC, 2. the rows
 $env:DATABASE_URL = "postgresql://digitex:<password>@localhost:5433/digitex"
 uv run digitex-db populate
 ```
@@ -93,6 +109,17 @@ uv run digitex-db populate
 `populate` is idempotent (`get_or_create`), so re-running is safe. It
 migrates the schema first, so it is also a valid way to apply a pending
 migration.
+
+> Run rsync from *inside* `extraction/data/output` and pass `./`. A Windows
+> rsync reads a `C:\…` source as a remote host spec; a relative path has no
+> drive letter to misread.
+
+Confirm the two halves agree before starting the bot:
+
+```bash
+# on the VPS
+docker compose run --rm bot digitex-db check-images
+```
 
 ### 1.6 Start the bot
 
@@ -117,6 +144,12 @@ rollback. Data still ships from your laptop, because the images never enter git.
 | Extracted data | `./scripts/seed_prod.ps1` from your PC ([§2.2](#22-new-extracted-data)) |
 
 If all three changed: merge to `main`, wait for the release, then seed.
+
+Question images are the one thing that is *not* in the database: they live at
+`/opt/digitex/data/questions` on the VPS, bind-mounted read-only into the bot,
+and the `images` table stores each one's path and content hash. That keeps the
+corpus (~400MB) out of every `pg_dump`, and it is why "extracted data" ships
+files as well as rows.
 
 ### 2.1 Release by hand
 
@@ -154,9 +187,26 @@ $env:VPS_HOST = "<vps-ip>"
 ./scripts/seed_prod.ps1                     # or -Subject biology
 ```
 
-Opens the SSH tunnel, migrates, seeds, closes the tunnel. Idempotent
-(`get_or_create`), so re-running is safe. The manual equivalent is
-[§1.5](#15-seed-the-database-from-your-laptop).
+Syncs the images, then opens the SSH tunnel, migrates, seeds, and closes it.
+Idempotent (`get_or_create`), so re-running is safe. The manual equivalent is
+[§1.5](#15-seed-the-data-from-your-laptop).
+
+The image sync always covers the whole corpus even with `-Subject`: it deletes
+remote files that no longer exist locally, and a partial sync could not tell a
+subject you did not seed from a subject you deleted.
+
+A re-extracted image keeps its path, so the row's content hash is what marks it
+changed — and that drops the cached Telegram `file_id`, which is what makes the
+bot upload the corrected image instead of re-serving the old one. Sync without
+seeding and the two fall out of step; `digitex-db check-images` says so:
+
+```bash
+# on the VPS
+docker compose run --rm bot digitex-db check-images
+```
+
+It lists keys whose file is missing (sync), files whose bytes no longer match
+the seeded hash (populate), and files nothing points at, then exits non-zero.
 
 ### 2.3 Manage / inspect
 
@@ -198,6 +248,12 @@ ______________________________________________________________________
 
 ## 4. Backups & restore
 
+The dump covers the database only. Question images are files under
+`/opt/digitex/data/questions`, and they are not backed up here on purpose —
+your laptop's `extraction/data/output/` is their source of truth, and
+`scripts/seed_prod.ps1` puts them back. A restore is therefore: restore the
+dump, re-run the seed script, then `digitex-db check-images`.
+
 ### 4.1 Daily backup via cron
 
 ```cron
@@ -238,6 +294,9 @@ ______________________________________________________________________
 | Bot exits immediately, no logs | `BOT_TOKEN` missing/invalid | Check `.env`, `docker compose logs bot` |
 | `relation "…" does not exist` | Migrations not applied | `docker compose run --rm bot digitex-db upgrade` |
 | `digitex-db populate` says "connection refused" | SSH tunnel closed | Reopen terminal 1; check tunnel command is still running |
+| Bot logs "Question images directory not found" and exits | `./data/questions` not on the VPS | Run `scripts/seed_prod.ps1` from your PC to sync it |
+| One question fails to send, the rest work | Its file never synced | `digitex-db check-images`, then re-run the seed script |
+| Bot serves an old image after re-extraction | Images synced, rows not re-seeded | `digitex-db populate` — the hash change drops the stale `file_id` |
 | Bot can't reach DB inside container | Postgres healthcheck failing | `docker compose logs postgres` — usually wrong `POSTGRES_PASSWORD` |
 | Disk full on VPS | Old backups + docker images piling up | `docker system prune -a`, prune `/opt/digitex/backups` |
 

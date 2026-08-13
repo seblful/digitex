@@ -71,12 +71,12 @@ class TestQuestion:
             question_id=1,
             part="A",
             question_number=5,
-            image_data=b"fake_image_bytes",
+            image_key="biology/2016/1/A/5.jpg",
         )
         assert q.question_id == 1
         assert q.part == "A"
         assert q.question_number == 5
-        assert q.image_data == b"fake_image_bytes"
+        assert q.image_key == "biology/2016/1/A/5.jpg"
         assert q.telegram_file_id is None
 
     def test_question_with_optional_fields(self) -> None:
@@ -84,7 +84,7 @@ class TestQuestion:
             question_id=2,
             part="B",
             question_number=10,
-            image_data=b"more_bytes",
+            image_key="biology/2016/1/B/10.jpg",
             telegram_file_id="AgAC...",
         )
         assert q.telegram_file_id == "AgAC..."
@@ -95,7 +95,7 @@ class TestQuestion:
                 question_id=1,
                 part="C",  # type: ignore
                 question_number=1,
-                image_data=b"bytes",
+                image_key="biology/2016/1/A/1.jpg",
             )
 
 

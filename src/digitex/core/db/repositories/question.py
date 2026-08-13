@@ -15,14 +15,16 @@ if TYPE_CHECKING:
 # ``question_id`` identifies a question on its own — the part is a column of the
 # row it names, so nothing that references a question restates it.
 _QUESTION_SELECT = (
-    "SELECT q.question_id, q.part, q.question_number, i.telegram_file_id"
+    "SELECT q.question_id, q.part, q.question_number,"
+    "       i.object_key, i.telegram_file_id"
     "  FROM questions q"
     "  LEFT JOIN images i ON i.question_id = q.question_id"
 )
 
 # Only the origin needs the book a question came from.
 _QUESTION_WITH_ORIGIN_SELECT = (
-    "SELECT q.question_id, q.part, q.question_number, i.telegram_file_id,"
+    "SELECT q.question_id, q.part, q.question_number,"
+    "       i.object_key, i.telegram_file_id,"
     "       b.year_value, o.option_number, o.exam_type"
     "  FROM questions q"
     "  JOIN options o ON q.option_id = o.option_id"
@@ -40,17 +42,18 @@ _QUESTION_BY_KEY = (
 
 
 def _row_to_question(row: dict[str, Any]) -> Question:
-    """Build a metadata-only ``Question`` (no ``image_data``).
+    """Build a ``Question``, image key and all.
 
-    Question selects do not carry the BYTEA payload — fetch it explicitly with
-    :meth:`QuestionRepository.get_image` when a cache miss requires uploading a
-    fresh image.
+    The key is a short string, so unlike the BYTEA payload it replaced there is
+    no reason to leave it behind and fetch it in a second round-trip: every
+    question select carries everything a render needs.
     """
     return row_to_model(
         {
             "question_id": row["question_id"],
             "part": row["part"],
             "question_number": row["question_number"],
+            "image_key": row["object_key"],
             "telegram_file_id": row["telegram_file_id"],
         },
         Question,
@@ -90,23 +93,29 @@ class QuestionRepository:
         assert row is not None
         return row["question_id"]
 
-    async def insert_image(self, question_id: int, image_data: bytes) -> None:
-        # Skip the write if the BYTEA payload hasn't changed; this avoids
-        # rewriting multi-MB rows during idempotent re-runs.
-        #
-        # New bytes drop the cached file_id: it names an image already uploaded
-        # to Telegram, and send_question prefers it over the payload — so a
-        # re-seed that kept it would serve the old image forever. The DISTINCT
-        # guard is what makes this safe to pair with the update: an idempotent
-        # re-run never reaches the SET, so a valid cache survives it.
+    async def set_image(
+        self, question_id: int, object_key: str, content_hash: str
+    ) -> None:
+        """Point a question at its image file on disk.
+
+        A changed image drops the cached file_id: that id names an image already
+        uploaded to Telegram, and send_question prefers it over the file — so a
+        re-seed that kept it would serve the superseded image forever. The key
+        alone cannot detect the change, because re-extracting a question rewrites
+        the same path; the hash is what makes it visible. The DISTINCT guard is
+        what makes clearing the cache safe to pair with the update: an idempotent
+        re-run never reaches the SET, so a valid cache survives it.
+        """
         await self._conn.execute(
-            "INSERT INTO images (question_id, image_data)"
-            " VALUES (%s, %s)"
+            "INSERT INTO images (question_id, object_key, content_hash)"
+            " VALUES (%s, %s, %s)"
             " ON CONFLICT (question_id)"
-            " DO UPDATE SET image_data = EXCLUDED.image_data,"
+            " DO UPDATE SET object_key = EXCLUDED.object_key,"
+            " content_hash = EXCLUDED.content_hash,"
             " telegram_file_id = NULL"
-            " WHERE images.image_data IS DISTINCT FROM EXCLUDED.image_data",
-            (question_id, image_data),
+            " WHERE images.content_hash IS DISTINCT FROM EXCLUDED.content_hash"
+            "    OR images.object_key IS DISTINCT FROM EXCLUDED.object_key",
+            (question_id, object_key, content_hash),
         )
 
     async def cache_file_id(self, question_id: int, telegram_file_id: str) -> None:
@@ -204,20 +213,18 @@ class QuestionRepository:
         rows = await cur.fetchall()
         return [(r["question_id"], r["part"]) for r in rows]
 
-    async def get_image(self, question_id: int) -> bytes:
-        """Fetch the raw image bytes for a question.
+    async def list_images(self) -> list[tuple[str, str]]:
+        """Every ``(object_key, content_hash)`` the corpus claims to have.
 
-        Separate from :meth:`get` so callers that only need to render a cached
-        Telegram ``file_id`` do not pull megabytes from the DB.
+        The whole table, because the reconcile check has to answer "which files
+        is nothing pointing at?" as well as "which rows point at nothing" — and
+        the second question cannot be asked one row at a time.
         """
         cur = await self._conn.execute(
-            "SELECT image_data FROM images WHERE question_id = %s",
-            (question_id,),
+            "SELECT object_key, content_hash FROM images ORDER BY object_key"
         )
-        row = await cur.fetchone()
-        if row is None:
-            raise KeyError(f"No image stored for question {question_id}")
-        return bytes(row["image_data"])
+        rows = await cur.fetchall()
+        return [(r["object_key"], r["content_hash"]) for r in rows]
 
     async def get_correct_answer(self, question_id: int) -> int | str | None:
         """Return the correct answer for a question, or None if it has no key.

@@ -99,8 +99,9 @@ class TestQuestionReferences:
         with pytest.raises(psycopg.errors.ForeignKeyViolation):
             await _execute(
                 pg_pool,
-                "INSERT INTO images (question_id, image_data) VALUES (999999, %s)",
-                (b"x",),
+                "INSERT INTO images (question_id, object_key, content_hash)"
+                " VALUES (999999, %s, %s)",
+                ("biology/2016/1/A/1.jpg", "hash"),
             )
 
     async def test_a_topic_mapping_for_an_unknown_question_is_rejected(
@@ -124,14 +125,16 @@ class TestQuestionReferences:
     ) -> None:
         await _execute(
             pg_pool,
-            "INSERT INTO images (question_id, image_data) VALUES (%s, %s)",
-            (seeded.question_id, b"first"),
+            "INSERT INTO images (question_id, object_key, content_hash)"
+            " VALUES (%s, %s, %s)",
+            (seeded.question_id, "biology/2016/1/A/1.jpg", "hash"),
         )
         with pytest.raises(psycopg.errors.UniqueViolation):
             await _execute(
                 pg_pool,
-                "INSERT INTO images (question_id, image_data) VALUES (%s, %s)",
-                (seeded.question_id, b"second"),
+                "INSERT INTO images (question_id, object_key, content_hash)"
+                " VALUES (%s, %s, %s)",
+                (seeded.question_id, "biology/2016/1/A/2.jpg", "hash"),
             )
 
 

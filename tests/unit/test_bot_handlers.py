@@ -2,8 +2,11 @@
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from digitex.bot.handlers.results import _format_result_lines, finish_session
 from digitex.bot.handlers.start import open_registration_gate
@@ -270,22 +273,34 @@ class TestOpenRegistrationGate:
 
 
 class TestSendQuestion:
-    async def test_sends_with_file_id_when_cached(self) -> None:
+    KEY = "biology/2016/1/A/1.jpg"
+
+    @staticmethod
+    def _corpus(tmp_path: Path) -> Path:
+        """A corpus root holding the one image the fixtures below point at."""
+        image = tmp_path / TestSendQuestion.KEY
+        image.parent.mkdir(parents=True)
+        image.write_bytes(b"fake")
+        return tmp_path
+
+    async def test_sends_with_file_id_when_cached(self, tmp_path: Path) -> None:
         bot = AsyncMock()
         question = Question(
             question_id=1,
             part="A",
             question_number=1,
-            image_data=b"fake",
+            image_key=self.KEY,
             telegram_file_id="cached_file_id",
         )
-        result = await send_question(bot, 1, question)
+        # No corpus on disk: a cached id must not need one, which is what keeps
+        # the bot serving after the mount goes missing.
+        result = await send_question(bot, 1, question, tmp_path)
         bot.send_photo.assert_awaited_once()
         call_kwargs = bot.send_photo.call_args.kwargs
         assert call_kwargs["photo"] == "cached_file_id"
         assert result is None
 
-    async def test_uploads_and_returns_file_id_when_not_cached(self) -> None:
+    async def test_uploads_from_disk_and_returns_file_id(self, tmp_path: Path) -> None:
         bot = AsyncMock()
         photo_msg = MagicMock()
         photo_msg.photo = [MagicMock(file_id="new_file_id")]
@@ -295,15 +310,28 @@ class TestSendQuestion:
             question_id=1,
             part="A",
             question_number=1,
-            image_data=b"fake",
+            image_key=self.KEY,
             telegram_file_id=None,
         )
 
-        result = await send_question(bot, 1, question)
+        result = await send_question(bot, 1, question, self._corpus(tmp_path))
         assert bot.send_photo.await_count == 1
         assert result == "new_file_id"
+        # The key resolves against the root it was given, not against cwd.
+        assert bot.send_photo.call_args.kwargs["photo"].path == tmp_path / self.KEY
 
-    async def test_logs_warning_when_no_photo_in_response(self) -> None:
+    async def test_raises_when_question_has_no_image(self, tmp_path: Path) -> None:
+        question = Question(
+            question_id=7,
+            part="A",
+            question_number=1,
+            image_key=None,
+            telegram_file_id=None,
+        )
+        with pytest.raises(KeyError, match="7"):
+            await send_question(AsyncMock(), 1, question, tmp_path)
+
+    async def test_logs_warning_when_no_photo_in_response(self, tmp_path: Path) -> None:
         bot = AsyncMock()
         photo_msg = MagicMock()
         photo_msg.photo = []
@@ -313,11 +341,11 @@ class TestSendQuestion:
             question_id=1,
             part="A",
             question_number=1,
-            image_data=b"fake",
+            image_key=self.KEY,
             telegram_file_id=None,
         )
 
         with patch("digitex.bot.renderer.logger") as mock_logger:
-            result = await send_question(bot, 1, question)
+            result = await send_question(bot, 1, question, self._corpus(tmp_path))
         mock_logger.warning.assert_called_once()
         assert result is None

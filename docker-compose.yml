@@ -42,11 +42,16 @@ services:
     environment:
       - ENVIRONMENT=production
       - DATABASE_URL=postgresql://${POSTGRES_USER:-digitex}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-digitex}
+      # Question images are files, not rows: the corpus rsyncs to ./data/questions
+      # and the bot resolves each image's stored key against this mount.
+      - PATH_QUESTIONS_DIR=/app/data/questions
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - ./logs:/app/logs
+      # Read-only: the bot serves this corpus, the sync from the laptop owns it.
+      - ./data/questions:/app/data/questions:ro
     # Reaching the database proves more than the process being alive, which the
     # restart policy already covers: the container exits if the bot dies.
     healthcheck:

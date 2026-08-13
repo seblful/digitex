@@ -14,6 +14,15 @@ Design notes:
   question still loads so its image is servable, and scoring treats a NULL key
   as matching nothing (see ``core.answer.check_answer``) — no sentinel value
   has to be chosen for being unreachable.
+* Question images are files, not rows. ~400MB of static images in a database
+  that is otherwise a few megabytes of reference rows would ride along in every
+  ``pg_dump`` and down the tunnel on every re-seed, so ``images`` stores each
+  one's path and content hash and the corpus is synced to the server directly.
+  The hash is not redundant with the path: re-extracting a question rewrites
+  the *same* path, and the cached ``telegram_file_id`` has to be dropped when
+  that happens or the bot serves the superseded upload forever. Nothing in the
+  schema can enforce that a row's file exists — ``digitex-db check-images`` is
+  what reconciles the two.
 * ``session_answers`` snapshots ``correct_answer``. A recorded answer is
   history: correcting an answer key later must not rewrite what a student was
   told, and the stored ``is_correct`` must not drift from the key it was judged
@@ -83,14 +92,21 @@ _TABLES = (
         UNIQUE (option_id, part, question_number)
     )
     """,
-    # One image per question, so the question id is the key. ``image_data`` is
-    # written once by extraction; ``telegram_file_id`` is a cache the bot fills
-    # on the first upload.
+    # One image per question, so the question id is the key. The image itself
+    # is a file — see the module docstring — so the row carries where it is and
+    # what is in it; ``telegram_file_id`` is a cache the bot fills on the first
+    # upload.
+    #
+    # ``object_key`` is UNIQUE because it is derived from the question's natural
+    # key: two questions naming one file means the key was built wrong, and a
+    # constraint says so at seed time rather than by serving the wrong image
+    # later.
     """
     CREATE TABLE images (
         question_id      BIGINT PRIMARY KEY REFERENCES questions(question_id)
                                             ON DELETE CASCADE,
-        image_data       BYTEA NOT NULL,
+        object_key       TEXT NOT NULL UNIQUE,
+        content_hash     TEXT NOT NULL,
         telegram_file_id TEXT
     )
     """,

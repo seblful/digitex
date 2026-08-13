@@ -9,19 +9,23 @@ Examples:
     uv run digitex-db revision "msg"     # new hand-written revision
     uv run digitex-db populate           # load extraction output (migrates first)
     uv run digitex-db populate biology   # ... one subject
+    uv run digitex-db check-images       # rows vs. image files on this machine
 """
 
 from __future__ import annotations
 
 import asyncio
 import sys
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 from alembic import command
 from alembic.config import Config
 
 from digitex.config import BASE_DIR, get_settings
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 app = typer.Typer(help="Alembic-backed migrations and corpus loading.")
 
@@ -64,6 +68,15 @@ def revision(message: str) -> None:
     command.revision(_cfg(), message=message, autogenerate=False)
 
 
+def _require_dir(path: Path, what: str) -> None:
+    """Exit with a message rather than a traceback when the corpus is absent."""
+    if not path.is_dir():
+        typer.echo(
+            typer.style(f"{what} not found: {path}", fg="red", bold=True), err=True
+        )
+        raise typer.Exit(code=1)
+
+
 @app.command()
 def populate(
     subject: Annotated[
@@ -85,14 +98,7 @@ def populate(
 
     settings = get_settings()
     output_dir = settings.paths.extraction_output_dir
-    if not output_dir.exists():
-        typer.echo(
-            typer.style(
-                f"Extraction output not found: {output_dir}", fg="red", bold=True
-            ),
-            err=True,
-        )
-        raise typer.Exit(code=1)
+    _require_dir(output_dir, "Extraction output")
 
     async def _run() -> None:
         # The null pool, not the app's: this is a one-shot command, and
@@ -104,6 +110,49 @@ def populate(
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(_run())
     typer.echo("\nDone.")
+
+
+@app.command("check-images")
+def check_images() -> None:
+    """Reconcile the ``images`` rows against the image files on this machine.
+
+    Question images live on disk, so a row and its file can drift apart — the
+    sync ran without a re-seed, or the other way round. Exits non-zero when
+    anything is off, so a deploy can gate on it.
+    """
+    from digitex.core.db import null_pool_lifespan
+    from digitex.core.seed import ImageCheck
+    from digitex.core.seed import check_images as run_check
+
+    settings = get_settings()
+    questions_dir = settings.paths.question_images_dir
+    _require_dir(questions_dir, "Question images directory")
+
+    async def _run() -> ImageCheck:
+        async with null_pool_lifespan(settings.database) as pool:
+            return await run_check(pool, questions_dir)
+
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    result = asyncio.run(_run())
+
+    for label, keys in (
+        ("missing on disk (sync the corpus)", result.missing),
+        ("changed since seeding (run populate)", result.stale),
+        ("on disk but unreferenced", result.orphaned),
+    ):
+        if not keys:
+            continue
+        typer.echo(typer.style(f"\n{len(keys)} {label}:", fg="yellow", bold=True))
+        # The full list is what makes the report actionable, and 4k keys is a
+        # page of scrollback, not a problem.
+        for key in keys:
+            typer.echo(f"  {key}")
+
+    if result.ok:
+        typer.echo(typer.style("\nImages and rows agree.", fg="green"))
+        return
+    raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":

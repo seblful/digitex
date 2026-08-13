@@ -10,7 +10,6 @@ from aiogram import Bot, Router, types
 from digitex.bot import fsm_data
 from digitex.bot.answer_flow import (
     RoundFinished,
-    load_renderable,
     run_testing_round,
     show_question,
 )
@@ -21,6 +20,8 @@ from digitex.bot.states import Testing
 from digitex.core.db import UnitOfWork
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from aiogram.fsm.context import FSMContext
     from psycopg_pool import AsyncConnectionPool
 
@@ -32,6 +33,7 @@ async def send_current_question(
     state: FSMContext,
     bot: Bot,
     pool: AsyncConnectionPool,
+    questions_dir: Path,
 ) -> None:
     """Render the question at ``current_index`` (used to start the loop)."""
     testing = await fsm_data.load(state, TestingState)
@@ -42,9 +44,11 @@ async def send_current_question(
 
     question_id, _part = testing.question_ids[testing.current_index]
     async with UnitOfWork(pool) as uow:
-        question = await load_renderable(uow, question_id)
+        question = await uow.questions.get(question_id)
 
-    await show_question(bot, message, state, question, started_at=time.time())
+    await show_question(
+        bot, message, state, question, questions_dir, started_at=time.time()
+    )
 
 
 async def _record_and_advance(
@@ -53,6 +57,7 @@ async def _record_and_advance(
     bot: Bot,
     answer: str,
     pool: AsyncConnectionPool,
+    questions_dir: Path,
 ) -> None:
     testing = await fsm_data.load(state, TestingState)
 
@@ -70,6 +75,7 @@ async def _record_and_advance(
         message,
         state,
         outcome.question,
+        questions_dir,
         started_at=time.time(),
         current_index=outcome.next_index,
     )
@@ -83,6 +89,7 @@ async def on_part_a_answer(
     msg: types.Message,
     bot: Bot,
     pool: AsyncConnectionPool,
+    questions_dir: Path,
 ) -> None:
     # Old keyboards stay live in the chat, so a tap can arrive for a question
     # that is already answered — it would otherwise be recorded against the
@@ -93,13 +100,19 @@ async def on_part_a_answer(
         return
 
     await fsm_data.merge(state, waiting_for_answer=False)
-    await _record_and_advance(msg, state, bot, str(callback_data.value), pool)
+    await _record_and_advance(
+        msg, state, bot, str(callback_data.value), pool, questions_dir
+    )
     await callback.answer()
 
 
 @router.message(Testing.answering)
 async def on_part_b_answer(
-    message: types.Message, state: FSMContext, bot: Bot, pool: AsyncConnectionPool
+    message: types.Message,
+    state: FSMContext,
+    bot: Bot,
+    pool: AsyncConnectionPool,
+    questions_dir: Path,
 ) -> None:
     if not message.text:
         return
@@ -109,4 +122,4 @@ async def on_part_b_answer(
         return
 
     await fsm_data.merge(state, waiting_for_answer=False)
-    await _record_and_advance(message, state, bot, message.text, pool)
+    await _record_and_advance(message, state, bot, message.text, pool, questions_dir)

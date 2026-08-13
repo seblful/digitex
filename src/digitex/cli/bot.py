@@ -30,6 +30,7 @@ def main() -> None:
 
     admin_user_id = settings.bot.admin_user_id
     tz = ZoneInfo(settings.timezone.name)
+    questions_dir = settings.paths.question_images_dir
 
     # Local Windows dev only: psycopg rejects ProactorEventLoop, and
     # AsyncConnectionPool's background workers stall on SelectorEventLoop too —
@@ -51,6 +52,11 @@ def main() -> None:
             host=hosts[0].get("host") if hosts else "unknown",
             db=settings.database.dsn.path,
         )
+        # A missing corpus only surfaces on the first uncached question
+        # otherwise — one broken render per student, minutes into a session.
+        if not questions_dir.is_dir():
+            logger.error("Question images directory not found", path=str(questions_dir))
+            return
 
         async with _pool_lifespan(settings.database) as pool:
             bot = Bot(token=token)
@@ -63,7 +69,11 @@ def main() -> None:
             dispatcher = create_dispatcher(admin_user_id=admin_user_id, pool=pool)
             logger.info("Starting bot polling...")
             await dispatcher.start_polling(
-                bot, pool=pool, admin_user_id=admin_user_id, tz=tz
+                bot,
+                pool=pool,
+                admin_user_id=admin_user_id,
+                tz=tz,
+                questions_dir=questions_dir,
             )
 
     asyncio.run(_main())

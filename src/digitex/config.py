@@ -240,6 +240,12 @@ class PathsSettings(BaseSettings):
     # extractors at a books/ that isn't there.
     root_dir: Path = BASE_DIR
 
+    # Where the bot resolves an image's object_key against. Production rsyncs
+    # the corpus to a directory of its own and bind-mounts it, so this is not
+    # derivable from root_dir there; unset, it is the extraction output tree
+    # the keys were written from, which is what a laptop wants.
+    questions_dir: Path | None = None
+
     # Top-level directories
 
     @computed_field
@@ -268,6 +274,12 @@ class PathsSettings(BaseSettings):
     @cached_property
     def extraction_output_dir(self) -> Path:
         return self.extraction_data_dir / "output"
+
+    @computed_field
+    @cached_property
+    def question_images_dir(self) -> Path:
+        """Root that a question image's stored ``object_key`` resolves against."""
+        return self.questions_dir or self.extraction_output_dir
 
     @computed_field
     @cached_property

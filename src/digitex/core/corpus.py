@@ -13,6 +13,7 @@ through this one, so a layout change is a one-file edit.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
@@ -44,6 +45,26 @@ def question_image_number(path: Path) -> int | None:
     if not is_image(path) or not path.stem.isdigit():
         return None
     return int(path.stem)
+
+
+def question_object_key(output_dir: Path, image_path: Path) -> str:
+    """The stored key for a question image: its path relative to the corpus root.
+
+    POSIX-separated whichever platform writes it, because the key is seeded from
+    a Windows laptop and resolved on a Linux server — a backslash in the column
+    would name nothing there.
+    """
+    return image_path.relative_to(output_dir).as_posix()
+
+
+def file_digest(path: Path) -> str:
+    """Hex SHA-256 of a file's contents.
+
+    Seeded alongside the key so a question re-extracted to the same path is
+    still recognisable as changed — see ``QuestionRepository.set_image``.
+    """
+    with path.open("rb") as fh:
+        return hashlib.file_digest(fh, "sha256").hexdigest()
 
 
 def natural_sort_key(path: Path) -> list[int | str]:

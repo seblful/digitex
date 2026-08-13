@@ -48,6 +48,9 @@ uv run digitex-db upgrade
 
 # Populate database from extraction output
 uv run digitex-db populate
+
+# Check the image rows still match the files on disk
+uv run digitex-db check-images
 ```
 
 ## Telegram Bot

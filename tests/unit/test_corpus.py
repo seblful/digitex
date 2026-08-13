@@ -6,13 +6,44 @@ import pytest
 
 from digitex.core.corpus import (
     QuestionImage,
+    file_digest,
     is_image,
     natural_sort_key,
     parse_answer_sheet_stem,
     parse_book_page_path,
+    question_object_key,
     training_page_name,
     walk_question_images,
 )
+
+
+class TestQuestionObjectKey:
+    def test_key_is_the_path_below_the_corpus_root(self, tmp_path: Path) -> None:
+        image = tmp_path / "biology" / "2016" / "1" / "A" / "3.jpg"
+        assert question_object_key(tmp_path, image) == "biology/2016/1/A/3.jpg"
+
+    def test_key_uses_forward_slashes_on_every_platform(self, tmp_path: Path) -> None:
+        """The key is written on Windows and resolved on Linux."""
+        image = tmp_path.joinpath("biology", "2016", "1", "A", "3.jpg")
+        assert "\\" not in question_object_key(tmp_path, image)
+
+    def test_an_image_outside_the_corpus_has_no_key(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match=r"elsewhere"):
+            question_object_key(tmp_path / "output", tmp_path / "elsewhere" / "3.jpg")
+
+
+class TestFileDigest:
+    def test_same_bytes_hash_the_same(self, tmp_path: Path) -> None:
+        (tmp_path / "a.jpg").write_bytes(b"payload")
+        (tmp_path / "b.jpg").write_bytes(b"payload")
+        assert file_digest(tmp_path / "a.jpg") == file_digest(tmp_path / "b.jpg")
+
+    def test_changed_bytes_hash_differently(self, tmp_path: Path) -> None:
+        image = tmp_path / "a.jpg"
+        image.write_bytes(b"payload")
+        before = file_digest(image)
+        image.write_bytes(b"corrected payload")
+        assert file_digest(image) != before
 
 
 class TestIsImage:

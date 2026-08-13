@@ -149,10 +149,10 @@ class Question(BaseModel):
     question_id: int
     part: Part
     question_number: int
-    # Empty by default — repositories return metadata only. Bytes are fetched
-    # on demand via QuestionRepository.get_image when no telegram_file_id is
-    # cached (renderers must check before passing the question to send).
-    image_data: bytes = b""
+    # Where the image lives, relative to the corpus root the process serves from
+    # — the renderer joins the two. It rides along with the metadata because it
+    # is a short string; only a question with no image row at all has None.
+    image_key: str | None = None
     telegram_file_id: str | None = None
 
 

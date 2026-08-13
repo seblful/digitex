@@ -33,6 +33,8 @@ from digitex.bot.states import RandomTesting
 from digitex.core.db import UnitOfWork
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from aiogram.fsm.context import FSMContext
     from psycopg_pool import AsyncConnectionPool
 
@@ -59,6 +61,7 @@ async def start_random_question(
     state: FSMContext,
     bot: Bot,
     pool: AsyncConnectionPool,
+    questions_dir: Path,
 ) -> None:
     rnd = await fsm_data.load(state, RandomState)
 
@@ -78,6 +81,7 @@ async def start_random_question(
         message,
         state,
         question,
+        questions_dir,
         started_at=time.time(),
         caption=_build_caption(origin, rnd.topic_name),
         parse_mode="HTML",
@@ -157,9 +161,10 @@ async def on_random_feedback(
     msg: types.Message,
     bot: Bot,
     pool: AsyncConnectionPool,
+    questions_dir: Path,
 ) -> None:
     if callback_data.action == "next":
-        await start_random_question(msg, state, bot, pool)
+        await start_random_question(msg, state, bot, pool, questions_dir)
     else:
         await msg.answer(MSG_RANDOM_FINISH)
         await end_round(pool, state)
