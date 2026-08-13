@@ -15,8 +15,13 @@ For migration internals and schema conventions, see [database-reference.md](data
 ## 1. Install dependencies
 
 ```bash
-uv sync
+uv sync --extra cu130
 ```
+
+The extra picks the PyTorch wheel index. `cu130` is the CUDA build for a GPU
+box; on a machine without an NVIDIA GPU use `--extra cpu` instead. Plain
+`uv sync` installs *neither*, which leaves `ultralytics` to pull whatever torch
+PyPI offers — pass one of the two.
 
 ## 2. Configure environment
 

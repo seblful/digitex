@@ -88,8 +88,8 @@ See `.env.example` for all available variables and their defaults.
 This project uses `uv` for dependency management.
 
 ```bash
-# Install dependencies
-uv sync
+# Install dependencies (--extra cpu on a machine without an NVIDIA GPU)
+uv sync --extra cu130
 
 # Run extraction
 uv run digitex-extract --help
