@@ -20,22 +20,14 @@ from typing import TYPE_CHECKING, Annotated
 
 import typer
 from alembic import command
-from alembic.config import Config
 
-from digitex.config import BASE_DIR, get_settings
+from digitex.config import get_settings
+from digitex.db.schema import alembic_config as _cfg
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 app = typer.Typer(help="Alembic-backed migrations and corpus loading.")
-
-
-def _cfg() -> Config:
-    # BASE_DIR, not PathsSettings.root_dir: alembic.ini and migrations/ ship
-    # with the package, wherever the process happens to be running from.
-    cfg = Config(str(BASE_DIR / "alembic.ini"))
-    cfg.set_main_option("script_location", str(BASE_DIR / "migrations"))
-    return cfg
 
 
 @app.command()

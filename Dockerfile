@@ -23,17 +23,17 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-install-project
 
 # README.md is here because pyproject.toml names it as the project readme, and
-# the build backend reads it.
-COPY pyproject.toml uv.lock alembic.ini README.md ./
+# the build backend reads it. alembic.ini and migrations/ need no COPY of their
+# own — they live inside src/digitex/db/ and install with the package.
+COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
-COPY migrations/ ./migrations/
 
 # Installs the project itself, which puts digitex-bot and digitex-db on PATH.
-# The install stays editable on purpose: config.BASE_DIR walks up from
-# digitex/config.py to find alembic.ini and migrations/, and only the source
-# layout puts them where it looks.
+# --no-editable, so the venv holds a built copy of the package and nothing
+# resolves a path by walking up from a source file. That leaves /app/src
+# unreferenced at runtime; the final stage does not carry it.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev
+    uv sync --locked --no-dev --no-editable
 
 FROM ${PYTHON_IMAGE}
 

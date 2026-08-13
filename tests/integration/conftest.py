@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -23,8 +22,6 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator
 
     from psycopg_pool import AsyncConnectionPool
-
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 @pytest.fixture(scope="session")
@@ -103,11 +100,12 @@ def _external_dsn(dsn: str) -> Iterator[str]:
 
 def _run_migrations() -> None:
     from alembic import command
-    from alembic.config import Config
 
-    cfg = Config(str(_PROJECT_ROOT / "alembic.ini"))
-    cfg.set_main_option("script_location", str(_PROJECT_ROOT / "migrations"))
-    command.upgrade(cfg, "head")
+    from digitex.db.schema import alembic_config
+
+    # The same config the digitex-db CLI uses, so the suite migrates through
+    # the path production does rather than a copy of it.
+    command.upgrade(alembic_config(), "head")
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")

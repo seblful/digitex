@@ -9,7 +9,6 @@ reference data cannot delete out from under a student.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import psycopg
@@ -347,11 +346,10 @@ class TestDowngrade:
 
     async def test_the_schema_can_be_dropped_and_rebuilt(self, pg_dsn: str) -> None:
         from alembic import command
-        from alembic.config import Config
 
-        project_root = Path(__file__).resolve().parent.parent.parent
-        cfg = Config(str(project_root / "alembic.ini"))
-        cfg.set_main_option("script_location", str(project_root / "migrations"))
+        from digitex.db.schema import alembic_config
+
+        cfg = alembic_config()
 
         command.downgrade(cfg, "base")
         try:

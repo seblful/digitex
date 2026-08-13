@@ -5,7 +5,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Literal, Self
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 from pydantic import (
     AliasChoices,
     Field,
@@ -14,8 +14,6 @@ from pydantic import (
     field_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
@@ -28,9 +26,14 @@ def _load_env() -> None:
     second copy. Real environment variables win over the file: Compose passes
     ``DATABASE_URL`` and ``ENVIRONMENT`` that way, and CI passes everything
     that way.
+
+    Searched for upwards from the working directory rather than beside the
+    package, which is what makes an installed wheel workable: the container has
+    no ``.env`` at all and gets every value from Compose, while a checkout is
+    found from any subdirectory of it.
     """
-    env_file = BASE_DIR / ".env"
-    if env_file.exists():
+    env_file = find_dotenv(usecwd=True)
+    if env_file:
         load_dotenv(env_file, override=False)
 
 
