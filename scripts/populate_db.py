@@ -39,12 +39,6 @@ def _abort(message: str) -> typer.Exit:
     return typer.Exit(code=1)
 
 
-# A Question whose answers.json entry is missing or unusable is still loaded, so
-# its image is servable — but with an answer no reply can match. Part A answers
-# are integers and the option buttons start at 1, so 0 is unreachable; Part B
-# compares against text, and "" matches nothing.
-PLACEHOLDER_ANSWER = {"A": "0", "B": ""}
-
 SUBJECT_NAMES = {
     "biology": "Биология",
     "chemistry": "Химия",
@@ -123,16 +117,17 @@ async def _populate_year(
                         )
                         answers_loaded += 1
                     except ValueError as e:
-                        tqdm.write(f"  Warning: {e} — storing placeholder answer")
+                        tqdm.write(f"  Warning: {e} — storing it without a key")
 
                 if question_id is None:
+                    # A Question whose answers.json entry is missing or unusable
+                    # is still loaded, so its image is servable — with a NULL
+                    # key, which no reply can match.
                     question_id = await uow.questions.get_or_create(
-                        option_id, key, PLACEHOLDER_ANSWER[key.part]
+                        option_id, key, None
                     )
 
-                await uow.questions.insert_image(
-                    question_id, key.part, img_file.read_bytes()
-                )
+                await uow.questions.insert_image(question_id, img_file.read_bytes())
                 questions_loaded += 1
 
     return questions_loaded, answers_loaded
@@ -149,6 +144,9 @@ async def _populate_topics(pool, subject_id: int, subject_dir: Path) -> int:
 
     async with UnitOfWork(pool) as uow:
         for topic_name, years in tqdm(topics_data.items(), desc="topics"):
+            # The name is stored once, on the topic; the mappings below carry
+            # its id.
+            topic_id = await uow.questions.get_or_create_topic(subject_id, topic_name)
             for year_str, exam_types in years.items():
                 year = int(year_str)
                 book_id = await uow.books.get_book(subject_id, year)
@@ -170,7 +168,7 @@ async def _populate_topics(pool, subject_id: int, subject_dir: Path) -> int:
                                 option_id,
                                 question_key.number,
                                 question_key.part,
-                                topic_name,
+                                topic_id,
                             )
         return await uow.questions.count_topics()
 

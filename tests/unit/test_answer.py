@@ -36,30 +36,37 @@ def test_check_answer(
     assert check_answer(part, student, correct) is expected
 
 
-class TestPlaceholderAnswerIsUnmatchable:
-    """``scripts/populate_db.py`` stores a placeholder when no answer key exists.
+class TestAMissingAnswerKeyMatchesNothing:
+    """A question whose year shipped no answer key stores None for it.
 
-    It is only safe if nothing a Student can send matches it. The old Part A
-    placeholder was ``1``, which told anyone who tapped option 1 they were right
-    and scored it into their Session.
+    ``scripts/populate_db.py`` loads such a question anyway, so its image is
+    servable — which is only safe if nothing a Student can send scores right
+    against it, in either part.
     """
 
     @pytest.mark.parametrize("option", range(1, 11))
-    def test_no_selectable_part_a_option_matches_zero(self, option: int) -> None:
-        assert not check_answer("A", str(option), 0)
-
-    @pytest.mark.parametrize("num_options", range(1, 9))
-    def test_the_option_keyboard_never_offers_zero(self, num_options: int) -> None:
-        keyboard = part_a_kb(num_options)
-
-        labels = [button.text for row in keyboard.inline_keyboard for button in row]
-
-        assert labels == [str(n) for n in range(1, num_options + 1)]
+    def test_no_part_a_option_matches_a_missing_key(self, option: int) -> None:
+        assert not check_answer("A", str(option), None)
 
     @pytest.mark.parametrize(
         "reply",
         ["ВЕРНАДСКИЙ", "3", " ", ""],
         ids=["text", "digit", "whitespace-only", "empty"],
     )
-    def test_no_part_b_reply_matches_the_empty_placeholder(self, reply: str) -> None:
-        assert not check_answer("B", reply, "")
+    def test_no_part_b_reply_matches_a_missing_key(self, reply: str) -> None:
+        assert not check_answer("B", reply, None)
+
+    @pytest.mark.parametrize("reply", ["", "x", " "], ids=["empty", "text", "space"])
+    def test_a_blank_part_b_key_matches_nothing_either(self, reply: str) -> None:
+        """The same holds for a key that is stored but carries no value."""
+        assert not check_answer("B", reply, "  ")
+
+    @pytest.mark.parametrize("num_options", range(1, 9))
+    def test_the_option_keyboard_offers_only_real_options(
+        self, num_options: int
+    ) -> None:
+        keyboard = part_a_kb(num_options)
+
+        labels = [button.text for row in keyboard.inline_keyboard for button in row]
+
+        assert labels == [str(n) for n in range(1, num_options + 1)]

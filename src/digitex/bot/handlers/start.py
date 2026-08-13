@@ -76,21 +76,19 @@ class StartGate:
 
 
 async def open_registration_gate(uow: UnitOfWork, telegram_id: int) -> StartGate:
-    """Read the user's registration record, resetting a rejected one.
+    """Read the user's registration record.
 
-    One round-trip: ``get_request`` already carries both the status and the
-    submission date, so no separate status lookup is needed.
+    One round-trip, and a pure read: the student row carries both the status and
+    the submission date. A rejected student counts as new because re-applying
+    overwrites the decision — nothing has to be deleted to let them back in, so
+    the rejection stays on the record until they actually reapply.
     """
-    request = await uow.authorized_users.get_request(telegram_id)
+    student = await uow.students.get(telegram_id)
 
-    if request is None:
+    if student is None or student.status == "rejected":
         return StartGate(status="new")
-    if request.status == "pending":
-        return StartGate(status="pending", requested_at=request.created_at)
-    if request.status == "rejected":
-        # Drop the old decision so the user can apply again.
-        await uow.authorized_users.delete_request(telegram_id)
-        return StartGate(status="new")
+    if student.status == "pending":
+        return StartGate(status="pending", requested_at=student.created_at)
     return StartGate(status="approved")
 
 
@@ -102,15 +100,15 @@ async def _normal_start(
     async with UnitOfWork(pool) as uow:
         student = await uow.students.get_or_create(
             telegram_id=telegram_id,
-            name=name,
-            username=username,
+            telegram_name=name,
+            telegram_username=username,
         )
         subjects = await uow.books.list_subjects()
 
     # /start can land mid-test, where the last render may still owe a file_id
     # write; ending the round pays it before the state goes away.
     await end_round(pool, state)
-    await fsm_data.merge(state, student_id=student.student_id)
+    await fsm_data.merge(state, student_telegram_id=student.telegram_id)
     await message.answer(
         MSG_GREETING.format(name=name),
         reply_markup=subjects_kb(subjects),
@@ -163,7 +161,7 @@ async def process_name(
     admin_user_id: int,
     tz: ZoneInfo,
 ) -> None:
-    telegram_id, _, username = student_identity(message)
+    telegram_id, telegram_name, username = student_identity(message)
     full_name = (message.text or "").strip()
 
     if not full_name:
@@ -171,9 +169,10 @@ async def process_name(
         return
 
     async with UnitOfWork(pool) as uow:
-        request = await uow.authorized_users.create_request(
+        request = await uow.students.create_request(
             telegram_id=telegram_id,
             full_name=full_name,
+            telegram_name=telegram_name,
             telegram_username=username,
         )
     await state.clear()
@@ -212,19 +211,24 @@ async def handle_reg_callback(
         return
 
     target_id = callback_data.telegram_id
+    admin_id, admin_name, admin_username = student_identity(callback)
+
     async with UnitOfWork(pool) as uow:
+        # A decision names the student who made it, so the admin needs a row of
+        # their own before it can be recorded against them.
+        await uow.students.get_or_create(
+            telegram_id=admin_id,
+            telegram_name=admin_name,
+            telegram_username=admin_username,
+        )
         if callback_data.action == "approve":
-            user_record = await uow.authorized_users.approve(
-                target_id, callback.from_user.id
-            )
+            student = await uow.students.approve(target_id, admin_id)
             user_message = MSG_APPROVED_USER
-            admin_reply = MSG_APPROVED_ADMIN.format(full_name=user_record.full_name)
+            admin_reply = MSG_APPROVED_ADMIN.format(full_name=student.full_name)
         else:
-            user_record = await uow.authorized_users.reject(
-                target_id, callback.from_user.id
-            )
+            student = await uow.students.reject(target_id, admin_id)
             user_message = MSG_REJECTED_USER
-            admin_reply = MSG_REJECTED_ADMIN.format(full_name=user_record.full_name)
+            admin_reply = MSG_REJECTED_ADMIN.format(full_name=student.full_name)
 
     await bot.send_message(target_id, user_message)
     if isinstance(callback.message, TgMessage):

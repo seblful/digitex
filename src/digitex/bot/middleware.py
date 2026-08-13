@@ -56,7 +56,7 @@ class AuthMiddleware(BaseMiddleware):
             return
 
         async with UnitOfWork(self._pool) as uow:
-            authorized = await uow.authorized_users.is_authorized(telegram_id)
+            authorized = await uow.students.is_authorized(telegram_id)
         if not authorized:
             return
 

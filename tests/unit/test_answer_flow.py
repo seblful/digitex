@@ -34,45 +34,43 @@ if TYPE_CHECKING:
 
 @dataclass
 class FakeQuestions:
-    by_key: dict[tuple[int, str], Question] = field(default_factory=dict)
-    correct: dict[tuple[int, str], int | str] = field(default_factory=dict)
-    images: dict[tuple[int, str], bytes] = field(default_factory=dict)
-    full: dict[tuple[int, str], tuple[Question, QuestionOrigin]] = field(
-        default_factory=dict
-    )
-    random_result: tuple[int, str] | None = None
-    topic_result: tuple[int, str] | None = None
-    cached: list[tuple[int, str, str]] = field(default_factory=list)
-    image_fetches: list[tuple[int, str]] = field(default_factory=list)
+    """Keyed by question id alone — the part is a property of the row it names."""
 
-    async def cache_file_id(self, question_id: int, part: str, file_id: str) -> None:
-        self.cached.append((question_id, part, file_id))
+    by_id: dict[int, Question] = field(default_factory=dict)
+    correct: dict[int, int | str | None] = field(default_factory=dict)
+    images: dict[int, bytes] = field(default_factory=dict)
+    full: dict[int, tuple[Question, QuestionOrigin]] = field(default_factory=dict)
+    random_result: int | None = None
+    topic_result: int | None = None
+    cached: list[tuple[int, str]] = field(default_factory=list)
+    image_fetches: list[int] = field(default_factory=list)
 
-    async def get_correct_answer(self, question_id: int, part: str) -> int | str:
-        return self.correct[(question_id, part)]
+    async def cache_file_id(self, question_id: int, file_id: str) -> None:
+        self.cached.append((question_id, file_id))
 
-    async def get(self, question_id: int, part: str) -> Question:
-        return self.by_key[(question_id, part)]
+    async def get_correct_answer(self, question_id: int) -> int | str | None:
+        return self.correct[question_id]
 
-    async def get_image(self, question_id: int, part: str) -> bytes:
-        self.image_fetches.append((question_id, part))
-        return self.images[(question_id, part)]
+    async def get(self, question_id: int) -> Question:
+        return self.by_id[question_id]
 
-    async def get_full(
-        self, question_id: int, part: str
-    ) -> tuple[Question, QuestionOrigin]:
-        return self.full[(question_id, part)]
+    async def get_image(self, question_id: int) -> bytes:
+        self.image_fetches.append(question_id)
+        return self.images[question_id]
+
+    async def get_full(self, question_id: int) -> tuple[Question, QuestionOrigin]:
+        return self.full[question_id]
 
     async def get_random_question_id(
         self, subject_id: int, part: str, exam_type: str | None
     ) -> int:
         if self.random_result is None:
             raise KeyError("no questions")
-        return self.random_result[0]
+        return self.random_result
 
     async def get_random_question_id_by_topic(
         self, subject_id: int, topic_name: str
-    ) -> tuple[int, str]:
+    ) -> int:
         if self.topic_result is None:
             raise KeyError("no questions")
         return self.topic_result
@@ -182,9 +180,9 @@ def _question(question_id: int, part: Part, file_id: str | None = None) -> Quest
 class TestRunTestingRound:
     async def test_correct_answer_recorded_and_next_question_returned(self) -> None:
         uow = FakeUow()
-        uow.questions.correct[(10, "A")] = 3
+        uow.questions.correct[10] = 3
         next_q = _question(20, "B", file_id="cached")
-        uow.questions.by_key[(20, "B")] = next_q
+        uow.questions.by_id[20] = next_q
         testing = TestingState(
             session_id=7,
             question_ids=[(10, "A"), (20, "B")],
@@ -198,17 +196,17 @@ class TestRunTestingRound:
             {
                 "session_id": 7,
                 "question_id": 10,
-                "part": "A",
                 "student_answer": "3",
+                "correct_answer": 3,
                 "is_correct": True,
-                "time_spent": 12.5,
+                "time_spent_seconds": 12.5,
             }
         ]
         assert outcome == NextQuestion(question=next_q, next_index=1)
 
     async def test_wrong_answer_recorded_as_incorrect(self) -> None:
         uow = FakeUow()
-        uow.questions.correct[(10, "A")] = 3
+        uow.questions.correct[10] = 3
         testing = TestingState(session_id=7, question_ids=[(10, "A")])
 
         outcome = await run_testing_round(as_uow(uow), testing, "2", now=1.0)
@@ -216,36 +214,59 @@ class TestRunTestingRound:
         assert uow.sessions.recorded[0]["is_correct"] is False
         assert outcome == RoundFinished(next_index=1)
 
+    async def test_an_answer_is_recorded_with_the_key_it_was_judged_against(
+        self,
+    ) -> None:
+        """The verdict and the key it came from are written together."""
+        uow = FakeUow()
+        uow.questions.correct[10] = "neutron"
+        testing = TestingState(session_id=7, question_ids=[(10, "B")])
+
+        await run_testing_round(as_uow(uow), testing, "proton", now=1.0)
+
+        assert uow.sessions.recorded[0]["correct_answer"] == "neutron"
+        assert uow.sessions.recorded[0]["is_correct"] is False
+
+    async def test_a_question_with_no_key_is_recorded_wrong_with_no_key(self) -> None:
+        uow = FakeUow()
+        uow.questions.correct[10] = None
+        testing = TestingState(session_id=7, question_ids=[(10, "B")])
+
+        await run_testing_round(as_uow(uow), testing, "anything", now=1.0)
+
+        assert uow.sessions.recorded[0]["correct_answer"] is None
+        assert uow.sessions.recorded[0]["is_correct"] is False
+
     async def test_settles_pending_file_id_debt_first(self) -> None:
         uow = FakeUow()
-        uow.questions.correct[(10, "A")] = 1
+        uow.questions.correct[10] = 1
         testing = TestingState(
             session_id=7,
             question_ids=[(10, "A")],
-            pending_file_id_cache=(5, "A", "file123"),
+            pending_file_id_cache=(5, "file123"),
         )
 
         await run_testing_round(as_uow(uow), testing, "1", now=1.0)
 
-        assert uow.questions.cached == [(5, "A", "file123")]
+        assert uow.questions.cached == [(5, "file123")]
 
     async def test_next_question_image_fetched_only_on_cache_miss(self) -> None:
         uow = FakeUow()
-        uow.questions.correct[(10, "A")] = 1
-        uow.questions.by_key[(20, "B")] = _question(20, "B", file_id=None)
-        uow.questions.images[(20, "B")] = b"image-bytes"
+        uow.questions.correct[10] = 1
+        uow.questions.by_id[20] = _question(20, "B", file_id=None)
+        uow.questions.images[20] = b"image-bytes"
         testing = TestingState(session_id=7, question_ids=[(10, "A"), (20, "B")])
 
         outcome = await run_testing_round(as_uow(uow), testing, "1", now=1.0)
 
         assert isinstance(outcome, NextQuestion)
         assert outcome.question.image_data == b"image-bytes"
-        assert uow.questions.image_fetches == [(20, "B")]
+        assert uow.questions.image_fetches == [20]
 
     async def test_cached_next_question_skips_image_fetch(self) -> None:
         uow = FakeUow()
-        uow.questions.correct[(10, "A")] = 1
-        uow.questions.by_key[(20, "B")] = _question(20, "B", file_id="cached")
+        uow.questions.correct[10] = 1
+        uow.questions.by_id[20] = _question(20, "B", file_id="cached")
         testing = TestingState(session_id=7, question_ids=[(10, "A"), (20, "B")])
 
         await run_testing_round(as_uow(uow), testing, "1", now=1.0)
@@ -295,7 +316,7 @@ class TestShowQuestion:
     async def test_fresh_upload_parks_a_debt_carrying_question_identity(self) -> None:
         state, _, _ = await self._show(_question(10, "A"), fresh_file_id="new-id")
 
-        assert state.data["pending_file_id_cache"] == (10, "A", "new-id")
+        assert state.data["pending_file_id_cache"] == (10, "new-id")
 
     async def test_upload_without_a_photo_in_the_response_incurs_no_debt(self) -> None:
         state, _, _ = await self._show(_question(10, "A"), fresh_file_id=None)
@@ -303,7 +324,7 @@ class TestShowQuestion:
         assert state.data["pending_file_id_cache"] is None
 
     async def test_each_render_clears_the_debt_the_round_settled(self) -> None:
-        state = FakeState(data={"pending_file_id_cache": (5, "A", "stale")})
+        state = FakeState(data={"pending_file_id_cache": (5, "stale")})
 
         await self._show(_question(10, "A", file_id="cached"), state=state)
 
@@ -366,11 +387,11 @@ class TestEndRound:
     ) -> None:
         uow = FakeUow()
         self._install_uow(monkeypatch, uow)
-        state = FakeState(data={"pending_file_id_cache": (5, "A", "file9")})
+        state = FakeState(data={"pending_file_id_cache": (5, "file9")})
 
         await end_round(cast("Any", None), as_state(state))
 
-        assert uow.questions.cached == [(5, "A", "file9")]
+        assert uow.questions.cached == [(5, "file9")]
         assert state.cleared is True
         assert state.data == {}
 
@@ -395,13 +416,13 @@ class TestEndRound:
         testing = TestingState(
             session_id=7,
             question_ids=[(10, "A")],
-            pending_file_id_cache=(5, "B", "file9"),
+            pending_file_id_cache=(5, "file9"),
         )
         state = FakeState(data=testing.model_dump())
 
         await end_round(cast("Any", None), as_state(state))
 
-        assert uow.questions.cached == [(5, "B", "file9")]
+        assert uow.questions.cached == [(5, "file9")]
 
 
 class TestPickRandomQuestion:
@@ -424,23 +445,23 @@ class TestPickRandomQuestion:
         uow = FakeUow()
         question = _question(10, "A", file_id="cached")
         origin = QuestionOrigin(2023, 1, "CE")
-        uow.questions.random_result = (10, "A")
-        uow.questions.full[(10, "A")] = (question, origin)
+        uow.questions.random_result = 10
+        uow.questions.full[10] = (question, origin)
 
         picked = await pick_random_question(
             as_uow(uow),
-            self._random_state(pending_file_id_cache=(5, "B", "file9")),
+            self._random_state(pending_file_id_cache=(5, "file9")),
         )
 
         assert picked == (question, origin)
-        assert uow.questions.cached == [(5, "B", "file9")]
+        assert uow.questions.cached == [(5, "file9")]
 
     async def test_topic_mode_uses_topic_lookup(self) -> None:
         uow = FakeUow()
         question = _question(11, "B", file_id=None)
-        uow.questions.topic_result = (11, "B")
-        uow.questions.full[(11, "B")] = (question, QuestionOrigin(2020, 2, "CT"))
-        uow.questions.images[(11, "B")] = b"img"
+        uow.questions.topic_result = 11
+        uow.questions.full[11] = (question, QuestionOrigin(2020, 2, "CT"))
+        uow.questions.images[11] = b"img"
 
         picked = await pick_random_question(
             as_uow(uow), self._random_state(topic_name="Cells", random_part=None)
@@ -457,7 +478,7 @@ class TestEvaluateRandomAnswer:
 
     async def test_scores_part_b_alternatives(self) -> None:
         uow = FakeUow()
-        uow.questions.correct[(11, "B")] = "ANS1/ANS2"
+        uow.questions.correct[11] = "ANS1/ANS2"
         rnd = RandomState(subject_id=1, current_question_id=11, current_part="B")
 
         verdict = await evaluate_random_answer(as_uow(uow), rnd, "ANS2")

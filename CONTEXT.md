@@ -22,10 +22,18 @@ ______________________________________________________________________
   answer). Every Question belongs to exactly one Part.
 - **Answer** — the student's response. Part A answers are integers; Part B
   answers are strings normalized via `core.answer.check_answer`.
+- **Answer key** — the correct answer to a Question, or None when the year
+  shipped without one. A Question with no key is still stored so its image is
+  servable, and nothing a Student sends can match it.
+- **Topic** — a named subject-level tag on Questions (`topics`), mapped to
+  Questions through `question_topics`. Two subjects may use the same topic name
+  without sharing questions.
 - **TestResult** — a record of a Student's attempt at a set of Questions
   during one Session.
 - **Session** — a single Telegram-bot run-through of a Test by a Student.
-- **Student** — a Telegram user authorized to use the bot.
+- **Student** — a Telegram user, keyed by their `telegram_id`. The row is the
+  person: it exists from their first contact and carries their registration
+  status, so "authorized" is a state of a Student rather than a separate record.
 - **ExamType** — `"CE"` (Централизованный экзамен) or `"CT"`
   (Централизованное тестирование). Carried as `Literal["CE", "CT"]`.
 
@@ -65,12 +73,18 @@ ______________________________________________________________________
   autogenerate). The `digitex-db` CLI is the entry point.
 - **Repository** — the only layer that touches raw SQL. One per aggregate
   (`QuestionRepository`, `StudentRepository`, `SessionRepository`,
-  `AuthorizedUserRepository`, `BookRepository`). The shapes they return live in
-  `core/domain.py`, because callers outside the DB layer read them.
+  `BookRepository`). The shapes they return live in `core/domain.py`, because
+  callers outside the DB layer read them.
 - **`questions` table** — one table with a `part` column, not a table per Part.
   The part is always a bound parameter, never interpolated into SQL, and
-  `question_id` is unique across both Parts — so `images`, `question_topics`
-  and `session_answers` can carry a real foreign key.
+  `question_id` is unique across both Parts. Because the id alone names a
+  question, `images`, `question_topics` and `session_answers` reference it
+  alone — they do not carry a `part`, and neither do the repository methods that
+  address a question.
+- **Answer history** — `session_answers` rows are immutable records, not a view
+  of the corpus. Each stores the `correct_answer` it was judged against and
+  references its Question `ON DELETE RESTRICT`, so re-loading or correcting the
+  corpus can neither rewrite nor erase a finished test.
 - **Settings** — Pydantic-settings tree loaded once via `get_settings()`.
   Composed of `PathsSettings`, `BotSettings`, `DatabaseSettings`,
   `ExtractionSettings`, `OpenRouterSettings`, `LabelStudioSettings`,

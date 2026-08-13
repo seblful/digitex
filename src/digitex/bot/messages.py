@@ -54,6 +54,7 @@ MSG_NO_TOPIC_QUESTION = "Не удалось найти вопрос по это
 
 MSG_CORRECT_ANSWER = "✅ Правильно!"
 MSG_WRONG_ANSWER = "❌ Неправильно!\nПравильный ответ: <b>{correct_answer}</b>"
+MSG_ANSWER_UNKNOWN = "неизвестен"
 
 MSG_RANDOM_FINISH = (
     "Режим случайных вопросов завершен. Используйте /start для начала заново."
@@ -111,3 +112,13 @@ MSG_HELP = (
 
 CMD_START_DESC = "Начать / выбрать предмет"
 CMD_HELP_DESC = "Помощь"
+
+
+def format_answer(answer: int | str | None) -> str:
+    """Render a stored answer key for display.
+
+    A question whose year shipped without an answer key has none to name, and
+    both the random-mode verdict and the results screen have to say so — so the
+    wording for that case lives here once.
+    """
+    return MSG_ANSWER_UNKNOWN if answer is None else str(answer)

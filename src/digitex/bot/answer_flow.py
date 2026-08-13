@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
 
     from digitex.bot.fsm_data import RandomState, TestingState
-    from digitex.core.domain import Part, Question, QuestionOrigin
+    from digitex.core.domain import Question, QuestionOrigin
 
 
 @dataclass(frozen=True)
@@ -128,7 +128,7 @@ async def show_question(
     if new_file_id is not None:
         await fsm_data.merge(
             state,
-            pending_file_id_cache=(question.question_id, question.part, new_file_id),
+            pending_file_id_cache=(question.question_id, new_file_id),
         )
 
 
@@ -179,13 +179,13 @@ async def _attach_image_on_miss(uow: UnitOfWork, question: Question) -> Question
     """
     if question.telegram_file_id:
         return question
-    image_data = await uow.questions.get_image(question.question_id, question.part)
+    image_data = await uow.questions.get_image(question.question_id)
     return question.model_copy(update={"image_data": image_data})
 
 
-async def load_renderable(uow: UnitOfWork, question_id: int, part: Part) -> Question:
+async def load_renderable(uow: UnitOfWork, question_id: int) -> Question:
     """Fetch a question's metadata, plus image bytes only on a cache miss."""
-    question = await uow.questions.get(question_id, part)
+    question = await uow.questions.get(question_id)
     return await _attach_image_on_miss(uow, question)
 
 
@@ -207,22 +207,22 @@ async def run_testing_round(
 
     await _settle_file_id_debt(uow, testing)
 
-    correct = await uow.questions.get_correct_answer(question_id, part)
+    correct = await uow.questions.get_correct_answer(question_id)
     await uow.sessions.record_answer(
         session_id=testing.session_id,
         question_id=question_id,
-        part=part,
         student_answer=answer.strip(),
+        correct_answer=correct,
         is_correct=check_answer(part, answer, correct),
-        time_spent=now - started,
+        time_spent_seconds=now - started,
     )
 
     if next_index >= len(testing.question_ids):
         return RoundFinished(next_index=next_index)
 
-    next_qid, next_part = testing.question_ids[next_index]
+    next_qid, _next_part = testing.question_ids[next_index]
     return NextQuestion(
-        question=await load_renderable(uow, next_qid, next_part),
+        question=await load_renderable(uow, next_qid),
         next_index=next_index,
     )
 
@@ -239,33 +239,32 @@ async def pick_random_question(
 
     try:
         if rnd.topic_name:
-            qid, part = await uow.questions.get_random_question_id_by_topic(
+            qid = await uow.questions.get_random_question_id_by_topic(
                 rnd.subject_id, rnd.topic_name
             )
         elif rnd.random_part is not None:
-            part = rnd.random_part
             qid = await uow.questions.get_random_question_id(
-                rnd.subject_id, part, rnd.exam_type
+                rnd.subject_id, rnd.random_part, rnd.exam_type
             )
         else:
             return None
     except KeyError:
         return None
 
-    question, origin = await uow.questions.get_full(qid, part)
+    question, origin = await uow.questions.get_full(qid)
     return await _attach_image_on_miss(uow, question), origin
 
 
 async def evaluate_random_answer(
     uow: UnitOfWork, rnd: RandomState, answer: str
-) -> tuple[bool, int | str] | None:
+) -> tuple[bool, int | str | None] | None:
     """Score a random-mode reply. Returns (is_correct, correct_answer).
 
-    None when no question is active in the FSM state.
+    None when no question is active in the FSM state. The correct answer is
+    itself None for a question that has no key — nothing matches it, and the
+    feedback says so rather than naming a value.
     """
     if rnd.current_question_id is None or rnd.current_part is None:
         return None
-    correct = await uow.questions.get_correct_answer(
-        rnd.current_question_id, rnd.current_part
-    )
+    correct = await uow.questions.get_correct_answer(rnd.current_question_id)
     return check_answer(rnd.current_part, answer, correct), correct

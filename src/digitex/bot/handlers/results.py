@@ -27,6 +27,7 @@ from digitex.bot.messages import (
     MSG_RESULTS_TIME,
     MSG_RESULTS_TYPE,
     MSG_RESULTS_YEAR,
+    format_answer,
 )
 from digitex.bot.states import Navigation
 from digitex.core.db import UnitOfWork
@@ -111,8 +112,10 @@ def _format_result_lines(
             lines.extend(
                 MSG_RESULTS_ERROR_ITEM.format(
                     qnum=row.question_number,
-                    user_ans=html_decoration.quote(str(row.student_answer)),
-                    correct_ans=html_decoration.quote(str(row.correct_answer)),
+                    user_ans=html_decoration.quote(row.student_answer),
+                    correct_ans=html_decoration.quote(
+                        format_answer(row.correct_answer)
+                    ),
                 )
                 for row in rows
             )

@@ -27,6 +27,7 @@ from digitex.bot.messages import (
     MSG_RANDOM_ORIGIN,
     MSG_RANDOM_TOPIC,
     MSG_WRONG_ANSWER,
+    format_answer,
 )
 from digitex.bot.states import RandomTesting
 from digitex.core.db import UnitOfWork
@@ -140,7 +141,7 @@ async def process_random_answer(
         # would skip the state transition below, stranding the round.
         await message.answer(
             MSG_WRONG_ANSWER.format(
-                correct_answer=html_decoration.quote(str(correct_answer))
+                correct_answer=html_decoration.quote(format_answer(correct_answer))
             ),
             reply_markup=random_feedback_kb(),
             parse_mode="HTML",

@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 class NavigationState(BaseModel):
     """State carried while the user is picking subject / year / option."""
 
-    student_id: int | None = None
+    student_telegram_id: int | None = None
     subject_id: int | None = None
     year: int | None = None
     exam_type: ExamType | None = None
@@ -45,9 +45,9 @@ class TestingState(BaseModel):
     current_part: Part | None = None
     question_start_time: float | None = None
     waiting_for_answer: bool = False
-    # ``(question_id, part, telegram_file_id)`` from the just-rendered question.
+    # ``(question_id, telegram_file_id)`` from the just-rendered question.
     # Flushed on the next UoW so we avoid a dedicated round-trip per upload.
-    pending_file_id_cache: tuple[int, Part, str] | None = None
+    pending_file_id_cache: tuple[int, str] | None = None
 
 
 class RoundDebt(BaseModel):
@@ -57,7 +57,7 @@ class RoundDebt(BaseModel):
     settled without knowing which mode the conversation was in.
     """
 
-    pending_file_id_cache: tuple[int, Part, str] | None = None
+    pending_file_id_cache: tuple[int, str] | None = None
 
 
 class RandomState(BaseModel):
@@ -70,7 +70,7 @@ class RandomState(BaseModel):
     current_question_id: int | None = None
     current_part: Part | None = None
     question_start_time: float | None = None
-    pending_file_id_cache: tuple[int, Part, str] | None = None
+    pending_file_id_cache: tuple[int, str] | None = None
 
 
 async def load[T: BaseModel](state: FSMContext, model: type[T]) -> T:

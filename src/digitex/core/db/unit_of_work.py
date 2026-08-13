@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 from digitex.core.db.repositories import (
     REPOSITORIES,
-    AuthorizedUserRepository,
     BookRepository,
     QuestionRepository,
     SessionRepository,
@@ -45,7 +44,6 @@ class UnitOfWork:
     questions: QuestionRepository
     students: StudentRepository
     sessions: SessionRepository
-    authorized_users: AuthorizedUserRepository
 
     def __init__(self, pool: AsyncConnectionPool) -> None:
         self._pool = pool

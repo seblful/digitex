@@ -1,9 +1,9 @@
 """Domain types — the single home for entities and value objects.
 
 `ExamType` and `QuestionKey` are value objects (immutable, no identity).
-`Question`, `Session`, `Student`, `TestResult`, `AuthorizedUser` are repository
-return-shapes (Pydantic). Everything that crosses a module boundary should
-import from this file.
+`Question`, `Session`, `Student`, `TestResult` are repository return-shapes
+(Pydantic). Everything that crosses a module boundary should import from this
+file.
 """
 
 from __future__ import annotations
@@ -125,10 +125,24 @@ class QuestionKey:
 
 
 class Student(BaseModel):
-    student_id: int
+    """A Telegram user, and whether they may use the bot.
+
+    Identity and authorization are one record because a student has exactly one
+    status: there is no state in which a person is registered twice, or approved
+    without existing.
+
+    ``telegram_name`` is the display name Telegram reports. ``full_name`` is
+    what the student typed when applying, so it is None until they have.
+    """
+
     telegram_id: int
-    name: str
-    username: str | None = None
+    telegram_name: str
+    telegram_username: str | None = None
+    full_name: str | None = None
+    status: RegistrationStatus
+    created_at: datetime
+    handled_at: datetime | None = None
+    handled_by: int | None = None
 
 
 class Question(BaseModel):
@@ -144,7 +158,7 @@ class Question(BaseModel):
 
 class Session(BaseModel):
     session_id: int
-    student_id: int
+    student_telegram_id: int
     option_id: int
     started_at: datetime
     completed_at: datetime | None = None
@@ -159,18 +173,6 @@ class TestResult(BaseModel):
     max_score: int
     time_spent: float = Field(description="Total time in seconds")
     completed_at: datetime
-
-
-class AuthorizedUser(BaseModel):
-    """A user's registration/authorization record."""
-
-    telegram_id: int
-    full_name: str
-    telegram_username: str | None = None
-    status: RegistrationStatus
-    created_at: datetime
-    handled_at: datetime | None = None
-    handled_by: int | None = None
 
 
 # Narrow read-shapes the repositories hand back. They live here rather than
@@ -190,10 +192,17 @@ class SessionInfo(NamedTuple):
 
 
 class WrongAnswer(NamedTuple):
+    """One question a student got wrong, as it was scored at the time.
+
+    ``correct_answer`` is the snapshot taken when the answer was recorded, not
+    the current key — a later correction to the corpus must not rewrite what a
+    finished test reported. It is None when the question had no key at all.
+    """
+
     question_number: int
     part: Part
     student_answer: str
-    correct_answer: str
+    correct_answer: str | None
 
 
 class QuestionOrigin(NamedTuple):
@@ -208,7 +217,6 @@ __all__ = [
     "EXAM_TYPE_INTRO_YEAR",
     "OPTIONS_PER_BOOK",
     "PART_A_OPTION_COUNT",
-    "AuthorizedUser",
     "Detection",
     "ExamType",
     "NormalizedPolygon",

@@ -17,26 +17,52 @@ from digitex.core.domain import (
 
 
 class TestStudent:
-    def test_valid_student(self) -> None:
-        student = Student(student_id=1, telegram_id=12345, name="John")
-        assert student.student_id == 1
-        assert student.telegram_id == 12345
-        assert student.name == "John"
-        assert student.username is None
-
-    def test_student_with_username(self) -> None:
+    def test_a_student_who_has_not_applied_yet(self) -> None:
         student = Student(
-            student_id=2, telegram_id=67890, name="Jane", username="jane_doe"
+            telegram_id=12345,
+            telegram_name="John",
+            status="pending",
+            created_at=datetime.now(UTC),
         )
-        assert student.username == "jane_doe"
+        assert student.telegram_id == 12345
+        assert student.telegram_name == "John"
+        assert student.telegram_username is None
+        assert student.full_name is None
+        assert student.handled_at is None
+        assert student.handled_by is None
+
+    def test_a_student_carries_their_application_and_its_decision(self) -> None:
+        handled_at = datetime.now(UTC)
+        student = Student(
+            telegram_id=67890,
+            telegram_name="Jane",
+            telegram_username="jane_doe",
+            full_name="Jane Doe",
+            status="approved",
+            created_at=datetime.now(UTC),
+            handled_at=handled_at,
+            handled_by=1,
+        )
+        assert student.telegram_username == "jane_doe"
+        assert student.full_name == "Jane Doe"
+        assert student.status == "approved"
+        assert student.handled_at == handled_at
+        assert student.handled_by == 1
 
     def test_student_missing_required_fields(self) -> None:
         with pytest.raises(ValidationError):
             Student()  # type: ignore
         with pytest.raises(ValidationError):
-            Student(student_id=1, name="John")  # type: ignore
+            Student(telegram_id=1, telegram_name="John")  # type: ignore
+
+    def test_student_invalid_status(self) -> None:
         with pytest.raises(ValidationError):
-            Student(student_id=1, telegram_id=12345)  # type: ignore
+            Student(
+                telegram_id=1,
+                telegram_name="John",
+                status="maybe",  # type: ignore
+                created_at=datetime.now(UTC),
+            )
 
 
 class TestQuestion:
@@ -78,12 +104,12 @@ class TestSession:
         now = datetime.now(UTC)
         session = Session(
             session_id=1,
-            student_id=42,
+            student_telegram_id=42,
             option_id=3,
             started_at=now,
         )
         assert session.session_id == 1
-        assert session.student_id == 42
+        assert session.student_telegram_id == 42
         assert session.option_id == 3
         assert session.started_at == now
         assert session.completed_at is None
@@ -93,7 +119,7 @@ class TestSession:
         later = datetime.now(UTC)
         session = Session(
             session_id=2,
-            student_id=99,
+            student_telegram_id=99,
             option_id=1,
             started_at=now,
             completed_at=later,

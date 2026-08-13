@@ -67,7 +67,10 @@ async def on_subject_selected(
     nav = await fsm_data.load(state, NavigationState)
     await fsm_data.save(
         state,
-        NavigationState(subject_id=callback_data.subject_id, student_id=nav.student_id),
+        NavigationState(
+            subject_id=callback_data.subject_id,
+            student_telegram_id=nav.student_telegram_id,
+        ),
     )
     await msg.edit_text(MSG_MODE_SELECT, reply_markup=mode_kb())
     await state.set_state(Navigation.select_mode)
@@ -256,19 +259,22 @@ async def on_option_selected(
         await callback.answer()
         return
     book_id = nav.book_id
-    student_id = nav.student_id
+    student_telegram_id = nav.student_telegram_id
 
     async with UnitOfWork(pool) as uow:
-        if student_id is None:
+        # The session references the student, so the row has to exist. /start
+        # normally makes it and leaves the id in the FSM; this covers a tap that
+        # arrives without one.
+        if student_telegram_id is None:
             telegram_id, name, username = student_identity(callback)
             student = await uow.students.get_or_create(
                 telegram_id=telegram_id,
-                name=name,
-                username=username,
+                telegram_name=name,
+                telegram_username=username,
             )
-            student_id = student.student_id
+            student_telegram_id = student.telegram_id
         option_id = await uow.books.get_option_id(book_id, callback_data.option)
-        session = await uow.sessions.create(student_id, option_id)
+        session = await uow.sessions.create(student_telegram_id, option_id)
         question_ids = await uow.questions.list_ids_for_option(option_id)
         session_id = session.session_id
 

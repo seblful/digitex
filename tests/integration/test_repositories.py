@@ -42,6 +42,12 @@ async def _seed_option(
     return subject_id, book_id, option_id
 
 
+async def _seed_admin(uow, telegram_id: int = 999) -> int:
+    """Create the student row a decision's ``handled_by`` refers to."""
+    admin = await uow.students.get_or_create(telegram_id, "Admin")
+    return admin.telegram_id
+
+
 # ---------------------------------------------------------------------------
 # BookRepository
 # ---------------------------------------------------------------------------
@@ -138,8 +144,25 @@ class TestQuestionRepository:
             qid1 = await uow.questions.get_or_create(option_id, key, "3")
             qid2 = await uow.questions.get_or_create(option_id, key, "5")
             assert qid1 == qid2
-            answer = await uow.questions.get_correct_answer(qid2, "A")
+            answer = await uow.questions.get_correct_answer(qid2)
         assert answer == 5
+
+    async def test_a_question_with_no_answer_key_has_no_correct_answer(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        """``populate_db`` loads a question whose year shipped no answer key.
+
+        The question is stored so its image is servable; the key is NULL rather
+        than a value picked for being unreachable, so nothing can match it and
+        callers can see that there is nothing to match.
+        """
+        async with UnitOfWork(pg_pool) as uow:
+            _, _, option_id = await _seed_option(uow)
+            qid = await uow.questions.get_or_create(
+                option_id, QuestionKey(part="A", number=1), None
+            )
+            answer = await uow.questions.get_correct_answer(qid)
+        assert answer is None
 
     async def test_insert_image_idempotent_for_unchanged_payload(
         self, pg_pool: AsyncConnectionPool
@@ -149,10 +172,10 @@ class TestQuestionRepository:
             qid = await uow.questions.get_or_create(
                 option_id, QuestionKey(part="A", number=1), "1"
             )
-            await uow.questions.insert_image(qid, "A", b"payload")
-            await uow.questions.insert_image(qid, "A", b"payload")
-            await uow.questions.insert_image(qid, "A", b"new-payload")
-            image = await uow.questions.get_image(qid, "A")
+            await uow.questions.insert_image(qid, b"payload")
+            await uow.questions.insert_image(qid, b"payload")
+            await uow.questions.insert_image(qid, b"new-payload")
+            image = await uow.questions.get_image(qid)
         assert image == b"new-payload"
 
     async def test_get_random_question_id_raises_when_empty(
@@ -169,21 +192,52 @@ class TestQuestionRepository:
             await uow.questions.get_or_create(
                 option_id, QuestionKey(part="A", number=1), "1"
             )
-            await uow.questions.upsert_topic(option_id, 1, "A", "kinematics")
-            await uow.questions.upsert_topic(option_id, 1, "A", "kinematics")
+            topic_id = await uow.questions.get_or_create_topic(subject_id, "kinematics")
+            await uow.questions.upsert_topic(option_id, 1, "A", topic_id)
+            await uow.questions.upsert_topic(option_id, 1, "A", topic_id)
             count = await uow.questions.count_topics()
             topics = await uow.questions.get_topics_for_subject(subject_id)
         assert count == 1
         assert topics == ["kinematics"]
 
+    async def test_naming_a_topic_twice_returns_the_same_id(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            subject_id, _, _ = await _seed_option(uow)
+            first = await uow.questions.get_or_create_topic(subject_id, "optics")
+            second = await uow.questions.get_or_create_topic(subject_id, "optics")
+        assert first == second
+
+    async def test_a_topic_belongs_to_its_subject(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        """Two subjects can share a topic name without sharing questions."""
+        async with UnitOfWork(pg_pool) as uow:
+            physics, _, physics_option = await _seed_option(uow)
+            chemistry, _, _ = await _seed_option(uow, subject_name="Chemistry")
+
+            physics_topic = await uow.questions.get_or_create_topic(physics, "Атом")
+            chemistry_topic = await uow.questions.get_or_create_topic(chemistry, "Атом")
+            await uow.questions.get_or_create(
+                physics_option, QuestionKey(part="A", number=1), "1"
+            )
+            await uow.questions.upsert_topic(physics_option, 1, "A", physics_topic)
+
+            assert physics_topic != chemistry_topic
+            assert await uow.questions.get_topics_for_subject(physics) == ["Атом"]
+            # Named but unmapped, so it is not offered as a round to play.
+            assert await uow.questions.get_topics_for_subject(chemistry) == []
+
     async def test_delete_topic(self, pg_pool: AsyncConnectionPool) -> None:
         async with UnitOfWork(pg_pool) as uow:
-            _, _, option_id = await _seed_option(uow)
+            subject_id, _, option_id = await _seed_option(uow)
             await uow.questions.get_or_create(
                 option_id, QuestionKey(part="A", number=1), "1"
             )
-            await uow.questions.upsert_topic(option_id, 1, "A", "kinematics")
-            await uow.questions.delete_topic(option_id, 1, "A", "kinematics")
+            topic_id = await uow.questions.get_or_create_topic(subject_id, "kinematics")
+            await uow.questions.upsert_topic(option_id, 1, "A", topic_id)
+            await uow.questions.delete_topic(option_id, 1, "A", topic_id)
             count = await uow.questions.count_topics()
         assert count == 0
 
@@ -192,9 +246,9 @@ class TestQuestionRepository:
     ) -> None:
         """A1 and B1 are different questions with different ids.
 
-        Under the old two-table split they could share a ``question_id``, which
-        is what made a Part B answer collide with a Part A one in the same
-        session and be silently discarded.
+        One table and one identity sequence, so an id names exactly one
+        question — which is what lets everything referencing a question carry
+        the id alone.
         """
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
@@ -214,25 +268,20 @@ class TestQuestionRepository:
             qid = await uow.questions.get_or_create(
                 option_id, QuestionKey(part="B", number=1), "ВЕРНАДСКИЙ"
             )
-            answer = await uow.questions.get_correct_answer(qid, "B")
+            answer = await uow.questions.get_correct_answer(qid)
         assert answer == "ВЕРНАДСКИЙ"
 
-    async def test_the_unmatchable_part_a_placeholder_is_storable(
+    async def test_part_a_answer_comes_back_as_an_integer(
         self, pg_pool: AsyncConnectionPool
     ) -> None:
-        """``populate_db`` writes '0' when a year has no answer key.
-
-        The option buttons start at 1, so 0 can never be matched — but the old
-        ``CHECK (answer BETWEEN 1 AND 5)`` rejected the write and rolled back
-        the whole year's load.
-        """
+        """The part is read off the row, so no caller has to say which it is."""
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
             qid = await uow.questions.get_or_create(
-                option_id, QuestionKey(part="A", number=1), "0"
+                option_id, QuestionKey(part="A", number=1), "4"
             )
-            answer = await uow.questions.get_correct_answer(qid, "A")
-        assert answer == 0
+            answer = await uow.questions.get_correct_answer(qid)
+        assert answer == 4
 
     async def test_get_reads_metadata_and_cached_file_id(
         self, pg_pool: AsyncConnectionPool
@@ -242,17 +291,61 @@ class TestQuestionRepository:
             qid = await uow.questions.get_or_create(
                 option_id, QuestionKey(part="A", number=4), "2"
             )
-            await uow.questions.insert_image(qid, "A", b"payload")
+            await uow.questions.insert_image(qid, b"payload")
 
-            before = await uow.questions.get(qid, "A")
-            await uow.questions.cache_file_id(qid, "A", "tg-file-1")
-            after = await uow.questions.get(qid, "A")
+            before = await uow.questions.get(qid)
+            await uow.questions.cache_file_id(qid, "tg-file-1")
+            after = await uow.questions.get(qid)
 
         assert before.question_number == 4
         assert before.part == "A"
         assert before.telegram_file_id is None
         assert before.image_data == b""  # metadata only — no BYTEA payload
         assert after.telegram_file_id == "tg-file-1"
+
+    async def test_reseeding_the_same_bytes_keeps_the_cached_file_id(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        """An idempotent re-run must not throw away a working cache.
+
+        Re-seeding is routine, and discarding the file_id would make the bot
+        re-upload every image it had already cached.
+        """
+        async with UnitOfWork(pg_pool) as uow:
+            _, _, option_id = await _seed_option(uow)
+            qid = await uow.questions.get_or_create(
+                option_id, QuestionKey(part="A", number=5), "1"
+            )
+            await uow.questions.insert_image(qid, b"payload")
+            await uow.questions.cache_file_id(qid, "tg-file-1")
+
+            await uow.questions.insert_image(qid, b"payload")
+            question = await uow.questions.get(qid)
+
+        assert question.telegram_file_id == "tg-file-1"
+
+    async def test_reseeding_new_bytes_drops_the_stale_file_id(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        """A corrected image invalidates the id naming the old upload.
+
+        send_question prefers the cached id over the payload, so leaving it in
+        place would serve the superseded image forever.
+        """
+        async with UnitOfWork(pg_pool) as uow:
+            _, _, option_id = await _seed_option(uow)
+            qid = await uow.questions.get_or_create(
+                option_id, QuestionKey(part="A", number=6), "1"
+            )
+            await uow.questions.insert_image(qid, b"payload")
+            await uow.questions.cache_file_id(qid, "tg-file-1")
+
+            await uow.questions.insert_image(qid, b"corrected payload")
+            question = await uow.questions.get(qid)
+            image = await uow.questions.get_image(qid)
+
+        assert question.telegram_file_id is None
+        assert image == b"corrected payload"
 
     async def test_get_full_carries_the_question_origin(
         self, pg_pool: AsyncConnectionPool
@@ -264,23 +357,20 @@ class TestQuestionRepository:
             qid = await uow.questions.get_or_create(
                 option_id, QuestionKey(part="B", number=7), "photon"
             )
-            question, origin = await uow.questions.get_full(qid, "B")
+            question, origin = await uow.questions.get_full(qid)
 
         assert question.question_number == 7
+        assert question.part == "B"
         assert origin.year == 2023
         assert origin.option_number == 2
         assert origin.exam_type == "CE"
 
-    async def test_get_raises_for_the_wrong_part(
+    async def test_get_raises_for_an_unknown_question(
         self, pg_pool: AsyncConnectionPool
     ) -> None:
         async with UnitOfWork(pg_pool) as uow:
-            _, _, option_id = await _seed_option(uow)
-            qid = await uow.questions.get_or_create(
-                option_id, QuestionKey(part="A", number=1), "1"
-            )
             with pytest.raises(KeyError):
-                await uow.questions.get(qid, "B")
+                await uow.questions.get(999_999)
 
     async def test_playlist_is_ordered_part_a_then_b_by_number(
         self, pg_pool: AsyncConnectionPool
@@ -299,8 +389,7 @@ class TestQuestionRepository:
             playlist = await uow.questions.list_ids_for_option(option_id)
 
             numbers = [
-                (await uow.questions.get(qid, part)).question_number
-                for qid, part in playlist
+                (await uow.questions.get(qid)).question_number for qid, _ in playlist
             ]
             parts = [part for _, part in playlist]
 
@@ -340,7 +429,7 @@ class TestQuestionRepository:
             drawn = await uow.questions.get_random_question_id(subject_id, "A", "CE")
         assert drawn == expected
 
-    async def test_random_topic_question_returns_its_part(
+    async def test_random_topic_question_is_drawn_from_the_topic(
         self, pg_pool: AsyncConnectionPool
     ) -> None:
         async with UnitOfWork(pg_pool) as uow:
@@ -348,11 +437,12 @@ class TestQuestionRepository:
             expected = await uow.questions.get_or_create(
                 option_id, QuestionKey(part="B", number=3), "x"
             )
-            await uow.questions.upsert_topic(option_id, 3, "B", "optics")
-            qid, part = await uow.questions.get_random_question_id_by_topic(
+            topic_id = await uow.questions.get_or_create_topic(subject_id, "optics")
+            await uow.questions.upsert_topic(option_id, 3, "B", topic_id)
+            drawn = await uow.questions.get_random_question_id_by_topic(
                 subject_id, "optics"
             )
-        assert (qid, part) == (expected, "B")
+        assert drawn == expected
 
     async def test_topic_lookup_for_an_unknown_topic_raises(
         self, pg_pool: AsyncConnectionPool
@@ -364,20 +454,90 @@ class TestQuestionRepository:
 
 
 # ---------------------------------------------------------------------------
-# StudentRepository
+# StudentRepository — identity and the registration workflow
 # ---------------------------------------------------------------------------
 
 
 class TestStudentRepository:
-    async def test_get_or_create_returns_existing_row(
+    async def test_get_or_create_returns_the_existing_row(
         self, pg_pool: AsyncConnectionPool
     ) -> None:
         async with UnitOfWork(pg_pool) as uow:
-            s1 = await uow.students.get_or_create(1000, "Ada", "@ada")
-            s2 = await uow.students.get_or_create(1000, "Ada Renamed", "@ada2")
-        assert s1.student_id == s2.student_id
-        assert s2.name == "Ada Renamed"
-        assert s2.username == "@ada2"
+            first = await uow.students.get_or_create(1000, "Ada", "@ada")
+            second = await uow.students.get_or_create(1000, "Ada Renamed", "@ada2")
+        assert first.telegram_id == second.telegram_id
+        assert first.created_at == second.created_at
+        assert second.telegram_name == "Ada Renamed"
+        assert second.telegram_username == "@ada2"
+
+    async def test_get_or_create_leaves_authorization_alone(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        """An approved student running /start again stays approved."""
+        async with UnitOfWork(pg_pool) as uow:
+            admin_id = await _seed_admin(uow)
+            await uow.students.create_request(11, "Ann", "ann")
+            await uow.students.approve(11, admin_id)
+
+            refreshed = await uow.students.get_or_create(11, "Ann Renamed")
+
+        assert refreshed.status == "approved"
+        assert refreshed.full_name == "Ann"
+
+    async def test_get_returns_none_for_an_unknown_user(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            assert await uow.students.get(4321) is None
+
+    async def test_request_approve_then_authorized(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            admin_id = await _seed_admin(uow)
+            request = await uow.students.create_request(7, "Alice", "Alice", "@alice")
+            assert request.status == "pending"
+            assert request.created_at.tzinfo is not None
+
+            approved = await uow.students.approve(7, admin_id)
+            assert approved.status == "approved"
+            assert approved.handled_by == admin_id
+            assert approved.handled_at is not None
+            assert await uow.students.is_authorized(7) is True
+
+    async def test_request_reject_then_not_authorized(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            admin_id = await _seed_admin(uow)
+            await uow.students.create_request(8, "Eve", "Eve")
+            rejected = await uow.students.reject(8, admin_id)
+            assert rejected.status == "rejected"
+            assert await uow.students.is_authorized(8) is False
+
+    async def test_re_request_preserves_created_at_and_clears_the_decision(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        """How a rejected student applies again — no row is deleted to do it."""
+        async with UnitOfWork(pg_pool) as uow:
+            admin_id = await _seed_admin(uow)
+            first = await uow.students.create_request(9, "X", "X")
+            await uow.students.reject(9, admin_id)
+            second = await uow.students.create_request(9, "X Renamed", "X")
+
+        assert second.created_at == first.created_at
+        assert second.status == "pending"
+        assert second.handled_at is None
+        assert second.handled_by is None
+        assert second.full_name == "X Renamed"
+
+    async def test_a_decision_on_an_unknown_student_raises(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            admin_id = await _seed_admin(uow)
+            with pytest.raises(KeyError):
+                await uow.students.approve(12_345, admin_id)
 
 
 # ---------------------------------------------------------------------------
@@ -396,13 +556,23 @@ class TestSessionRepository:
                 option_id, QuestionKey(part="B", number=1), "neutron"
             )
             student = await uow.students.get_or_create(42, "Bob")
-            session = await uow.sessions.create(student.student_id, option_id)
+            session = await uow.sessions.create(student.telegram_id, option_id)
 
             await uow.sessions.record_answer(
-                session.session_id, qa, "A", "3", is_correct=True, time_spent=5.0
+                session.session_id,
+                qa,
+                student_answer="3",
+                correct_answer=3,
+                is_correct=True,
+                time_spent_seconds=5.0,
             )
             await uow.sessions.record_answer(
-                session.session_id, qb, "B", "wrong", is_correct=False, time_spent=10.0
+                session.session_id,
+                qb,
+                student_answer="wrong",
+                correct_answer="neutron",
+                is_correct=False,
+                time_spent_seconds=10.0,
             )
             result = await uow.sessions.complete(session.session_id)
             wrong = await uow.sessions.get_wrong_answers(session.session_id)
@@ -423,13 +593,12 @@ class TestSessionRepository:
     async def test_both_parts_are_recorded_even_with_the_same_number(
         self, pg_pool: AsyncConnectionPool
     ) -> None:
-        """The bug migration 0002 was written for, now unrepresentable.
+        """A1 and B1 both land in the same session.
 
-        The two part tables had separate identity sequences, so A1 and B1 could
-        share a ``question_id``; keyed on ``(session_id, question_id)`` alone,
-        the Part B row collided with the Part A row already recorded and
-        ``ON CONFLICT DO NOTHING`` discarded it — unscored and unreviewable.
-        One table means one sequence, so the two ids simply differ.
+        The answer key is ``(session_id, question_id)``, which is only sound
+        because an id names one question across both parts. Were that not so,
+        the second answer would collide and ``ON CONFLICT DO NOTHING`` would
+        drop it — unscored and unreviewable.
         """
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
@@ -440,13 +609,23 @@ class TestSessionRepository:
                 option_id, QuestionKey(part="B", number=1), "neutron"
             )
             student = await uow.students.get_or_create(43, "Cleo")
-            session = await uow.sessions.create(student.student_id, option_id)
+            session = await uow.sessions.create(student.telegram_id, option_id)
 
             await uow.sessions.record_answer(
-                session.session_id, qa, "A", "1", is_correct=False, time_spent=1.0
+                session.session_id,
+                qa,
+                student_answer="1",
+                correct_answer=3,
+                is_correct=False,
+                time_spent_seconds=1.0,
             )
             await uow.sessions.record_answer(
-                session.session_id, qb, "B", "proton", is_correct=False, time_spent=1.0
+                session.session_id,
+                qb,
+                student_answer="proton",
+                correct_answer="neutron",
+                is_correct=False,
+                time_spent_seconds=1.0,
             )
             result = await uow.sessions.complete(session.session_id)
             wrong = await uow.sessions.get_wrong_answers(session.session_id)
@@ -455,9 +634,59 @@ class TestSessionRepository:
         assert result.max_score == 2  # both answers landed, neither was dropped
         assert result.total_score == 0
         assert [(w.part, w.question_number) for w in wrong] == [("A", 1), ("B", 1)]
-        # Part A answers are stored as text now; the results screen shows them
-        # as-is rather than through a per-part cast.
         assert [w.correct_answer for w in wrong] == ["3", "neutron"]
+
+    async def test_a_recorded_answer_keeps_the_key_it_was_judged_against(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        """Correcting the corpus does not rewrite a finished test.
+
+        Without the snapshot, the results screen would read the current key and
+        could contradict the stored verdict — showing a student's answer as
+        wrong beside the very value they gave.
+        """
+        async with UnitOfWork(pg_pool) as uow:
+            _, _, option_id = await _seed_option(uow)
+            key = QuestionKey(part="B", number=1)
+            qid = await uow.questions.get_or_create(option_id, key, "neutron")
+            student = await uow.students.get_or_create(45, "Eli")
+            session = await uow.sessions.create(student.telegram_id, option_id)
+            await uow.sessions.record_answer(
+                session.session_id,
+                qid,
+                student_answer="proton",
+                correct_answer="neutron",
+                is_correct=False,
+                time_spent_seconds=1.0,
+            )
+
+            # The answer key is corrected after the test was taken.
+            await uow.questions.get_or_create(option_id, key, "neutrino")
+            wrong = await uow.sessions.get_wrong_answers(session.session_id)
+
+        assert [w.correct_answer for w in wrong] == ["neutron"]
+
+    async def test_an_answer_to_an_unkeyed_question_records_no_key(
+        self, pg_pool: AsyncConnectionPool
+    ) -> None:
+        async with UnitOfWork(pg_pool) as uow:
+            _, _, option_id = await _seed_option(uow)
+            qid = await uow.questions.get_or_create(
+                option_id, QuestionKey(part="B", number=1), None
+            )
+            student = await uow.students.get_or_create(46, "Fay")
+            session = await uow.sessions.create(student.telegram_id, option_id)
+            await uow.sessions.record_answer(
+                session.session_id,
+                qid,
+                student_answer="anything",
+                correct_answer=None,
+                is_correct=False,
+                time_spent_seconds=1.0,
+            )
+            wrong = await uow.sessions.get_wrong_answers(session.session_id)
+
+        assert [w.correct_answer for w in wrong] == [None]
 
     async def test_a_session_with_no_answers_scores_zero_of_zero(
         self, pg_pool: AsyncConnectionPool
@@ -465,53 +694,8 @@ class TestSessionRepository:
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
             student = await uow.students.get_or_create(44, "Dee")
-            session = await uow.sessions.create(student.student_id, option_id)
+            session = await uow.sessions.create(student.telegram_id, option_id)
             result = await uow.sessions.complete(session.session_id)
 
         assert (result.part_a_score, result.part_b_score) == (0, 0)
         assert result.max_score == 0
-
-
-# ---------------------------------------------------------------------------
-# AuthorizedUserRepository
-# ---------------------------------------------------------------------------
-
-
-class TestAuthorizedUserRepository:
-    async def test_request_approve_then_authorized(
-        self, pg_pool: AsyncConnectionPool
-    ) -> None:
-        async with UnitOfWork(pg_pool) as uow:
-            req = await uow.authorized_users.create_request(7, "Alice", "@alice")
-            assert req.status == "pending"
-            assert req.created_at.tzinfo is not None
-            approved = await uow.authorized_users.approve(7, admin_id=999)
-            assert approved.status == "approved"
-            assert await uow.authorized_users.is_authorized(7) is True
-
-    async def test_request_reject_then_not_authorized(
-        self, pg_pool: AsyncConnectionPool
-    ) -> None:
-        async with UnitOfWork(pg_pool) as uow:
-            await uow.authorized_users.create_request(8, "Eve", None)
-            rejected = await uow.authorized_users.reject(8, admin_id=999)
-            assert rejected.status == "rejected"
-            assert await uow.authorized_users.is_authorized(8) is False
-
-    async def test_re_request_preserves_created_at_clears_handled(
-        self, pg_pool: AsyncConnectionPool
-    ) -> None:
-        async with UnitOfWork(pg_pool) as uow:
-            first = await uow.authorized_users.create_request(9, "X", None)
-            await uow.authorized_users.reject(9, admin_id=999)
-            second = await uow.authorized_users.create_request(9, "X Renamed", None)
-        assert second.created_at == first.created_at
-        assert second.handled_at is None
-        assert second.handled_by is None
-        assert second.full_name == "X Renamed"
-
-    async def test_delete_request(self, pg_pool: AsyncConnectionPool) -> None:
-        async with UnitOfWork(pg_pool) as uow:
-            await uow.authorized_users.create_request(10, "Tmp")
-            await uow.authorized_users.delete_request(10)
-            assert await uow.authorized_users.get_request(10) is None

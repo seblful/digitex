@@ -40,9 +40,9 @@ async def send_current_question(
         await show_results(message, state, bot, pool)
         return
 
-    question_id, part = testing.question_ids[testing.current_index]
+    question_id, _part = testing.question_ids[testing.current_index]
     async with UnitOfWork(pool) as uow:
-        question = await load_renderable(uow, question_id, part)
+        question = await load_renderable(uow, question_id)
 
     await show_question(bot, message, state, question, started_at=time.time())
 

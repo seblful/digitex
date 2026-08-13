@@ -7,13 +7,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from digitex.bot.handlers.results import _format_result_lines, finish_session
 from digitex.bot.handlers.start import open_registration_gate
+from digitex.bot.messages import MSG_ANSWER_UNKNOWN
 from digitex.bot.renderer import send_question
 from digitex.core.db import UnitOfWork
 from digitex.core.domain import (
-    AuthorizedUser,
     ExamType,
     Question,
     SessionInfo,
+    Student,
     SubjectRow,
     TestResult,
     WrongAnswer,
@@ -57,6 +58,18 @@ class TestFormatResultLines:
         text = "\n".join(lines)
         assert "xyz" in text
         assert "abc" in text
+
+    def test_a_wrong_answer_with_no_key_says_the_answer_is_unknown(self) -> None:
+        """A question whose year shipped no key has no value to print."""
+        wrong = [
+            WrongAnswer(
+                question_number=5, part="B", student_answer="xyz", correct_answer=None
+            )
+        ]
+        lines = _format_result_lines(self._make_result(), wrong, self._make_info())
+        text = "\n".join(lines)
+        assert MSG_ANSWER_UNKNOWN in text
+        assert "None" not in text
 
     def test_exam_type_ce_label(self) -> None:
         lines = _format_result_lines(
@@ -106,24 +119,26 @@ class FakeBooks:
 
 
 @dataclass
-class FakeAuthorizedUsers:
-    request: AuthorizedUser | None = None
-    deleted: list[int] = field(default_factory=list)
+class FakeStudents:
+    student: Student | None = None
+    writes: list[str] = field(default_factory=list)
     lookups: int = 0
 
-    async def get_request(self, telegram_id: int) -> AuthorizedUser | None:
+    async def get(self, telegram_id: int) -> Student | None:
         self.lookups += 1
-        return self.request
+        return self.student
 
-    async def delete_request(self, telegram_id: int) -> None:
-        self.deleted.append(telegram_id)
+    async def create_request(self, *args: Any, **kwargs: Any) -> Student:
+        self.writes.append("create_request")
+        assert self.student is not None
+        return self.student
 
 
 @dataclass
 class FakeUow:
     sessions: FakeSessions = field(default_factory=FakeSessions)
     books: FakeBooks = field(default_factory=FakeBooks)
-    authorized_users: FakeAuthorizedUsers = field(default_factory=FakeAuthorizedUsers)
+    students: FakeStudents = field(default_factory=FakeStudents)
 
 
 def as_uow(fake: FakeUow) -> UnitOfWork:
@@ -144,15 +159,16 @@ def _test_result() -> TestResult:
     )
 
 
-def _authorized_user(status: str, **overrides: Any) -> AuthorizedUser:
+def _student(status: str, **overrides: Any) -> Student:
     defaults: dict[str, Any] = {
         "telegram_id": 42,
+        "telegram_name": "Иван",
         "full_name": "Иван Иванов",
         "status": status,
         "created_at": datetime(2026, 3, 4, 9, 30, tzinfo=UTC),
     }
     defaults.update(overrides)
-    return AuthorizedUser(**defaults)
+    return Student(**defaults)
 
 
 class TestFinishSession:
@@ -212,7 +228,7 @@ class TestOpenRegistrationGate:
 
     async def test_pending_user_carries_the_submission_date(self) -> None:
         uow = FakeUow()
-        uow.authorized_users.request = _authorized_user("pending")
+        uow.students.student = _student("pending")
 
         gate = await open_registration_gate(as_uow(uow), telegram_id=42)
 
@@ -221,28 +237,36 @@ class TestOpenRegistrationGate:
 
     async def test_approved_user_passes_the_gate(self) -> None:
         uow = FakeUow()
-        uow.authorized_users.request = _authorized_user("approved")
+        uow.students.student = _student("approved")
 
         gate = await open_registration_gate(as_uow(uow), telegram_id=42)
 
         assert gate.status == "approved"
 
-    async def test_rejected_user_is_reset_so_they_can_reapply(self) -> None:
+    async def test_rejected_user_may_reapply(self) -> None:
         uow = FakeUow()
-        uow.authorized_users.request = _authorized_user("rejected")
+        uow.students.student = _student("rejected")
 
         gate = await open_registration_gate(as_uow(uow), telegram_id=42)
 
         assert gate.status == "new"
-        assert uow.authorized_users.deleted == [42]
 
-    async def test_reads_the_registration_record_once(self) -> None:
+    async def test_the_gate_only_reads(self) -> None:
+        """Re-applying overwrites the decision, so nothing is deleted to reopen it."""
         uow = FakeUow()
-        uow.authorized_users.request = _authorized_user("pending")
+        uow.students.student = _student("rejected")
 
         await open_registration_gate(as_uow(uow), telegram_id=42)
 
-        assert uow.authorized_users.lookups == 1
+        assert uow.students.writes == []
+
+    async def test_reads_the_registration_record_once(self) -> None:
+        uow = FakeUow()
+        uow.students.student = _student("pending")
+
+        await open_registration_gate(as_uow(uow), telegram_id=42)
+
+        assert uow.students.lookups == 1
 
 
 class TestSendQuestion:

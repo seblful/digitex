@@ -4,17 +4,20 @@ from typing import Literal
 
 
 def check_answer(
-    part: Literal["A", "B"], student_answer: str, correct_answer: int | str
+    part: Literal["A", "B"], student_answer: str, correct_answer: int | str | None
 ) -> bool:
     """Return True if the student's answer matches the correct answer.
 
     Part A compares an integer option index; Part B allows multiple correct
     values separated by "/" (e.g. "ANS1/ANS2").
 
-    A Part B question with no stored answer matches nothing — a blank reply is
-    not a correct one. ``populate_db`` relies on that to load a Question whose
-    answer key is missing without ever scoring it right.
+    A question with no stored answer key — ``correct_answer`` None — matches
+    nothing, in either part. ``populate_db`` loads a Question whose key is
+    missing so that its image is servable, and this is what keeps such a
+    question from ever being scored right.
     """
+    if correct_answer is None:
+        return False
     if part == "A":
         return int(student_answer.strip()) == int(correct_answer)
     correct_options = [

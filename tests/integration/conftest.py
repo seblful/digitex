@@ -140,8 +140,8 @@ async def pg_pool(pg_dsn: str) -> AsyncIterator[AsyncConnectionPool]:
 _TABLES = (
     "session_answers",
     "test_sessions",
-    "authorized_users",
     "question_topics",
+    "topics",
     "images",
     "questions",
     "options",

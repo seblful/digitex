@@ -6,19 +6,18 @@ import secrets
 from typing import TYPE_CHECKING, Any
 
 from digitex.core.db.mapping import row_to_model
-from digitex.core.domain import Part, Question, QuestionOrigin
+from digitex.core.domain import Question, QuestionOrigin
 
 if TYPE_CHECKING:
     from digitex.core.db.mapping import DictConn
-    from digitex.core.domain import ExamType, QuestionKey
+    from digitex.core.domain import ExamType, Part, QuestionKey
 
-# Questions live in one table with a ``part`` column, so the part is always a
-# bound parameter and never interpolated into SQL.
+# ``question_id`` identifies a question on its own — the part is a column of the
+# row it names, so nothing that references a question restates it.
 _QUESTION_SELECT = (
     "SELECT q.question_id, q.part, q.question_number, i.telegram_file_id"
     "  FROM questions q"
-    "  LEFT JOIN images i"
-    "    ON i.question_id = q.question_id AND i.part = q.part"
+    "  LEFT JOIN images i ON i.question_id = q.question_id"
 )
 
 # Only the origin needs the book a question came from.
@@ -28,8 +27,15 @@ _QUESTION_WITH_ORIGIN_SELECT = (
     "  FROM questions q"
     "  JOIN options o ON q.option_id = o.option_id"
     "  JOIN books b ON o.book_id = b.book_id"
-    "  LEFT JOIN images i"
-    "    ON i.question_id = q.question_id AND i.part = q.part"
+    "  LEFT JOIN images i ON i.question_id = q.question_id"
+)
+
+# Topic mappings are addressed by the question's natural key: the populate
+# script walks options and question numbers off the filesystem and never holds
+# an id.
+_QUESTION_BY_KEY = (
+    " (SELECT question_id FROM questions"
+    "   WHERE option_id = %s AND part = %s AND question_number = %s)"
 )
 
 
@@ -59,14 +65,17 @@ class QuestionRepository:
 
     # -- CRUD ----------------------------------------------------------------
 
-    async def get_or_create(self, option_id: int, key: QuestionKey, answer: str) -> int:
+    async def get_or_create(
+        self, option_id: int, key: QuestionKey, answer: str | None
+    ) -> int:
         """Insert or update one question's answer key, returning its id.
 
-        Part A answers are option indices, so a non-numeric one is a bad answer
-        key rather than a storable value. Both parts are stored as text; the
-        numeric reading happens in :meth:`get_correct_answer`.
+        *answer* is None for a question whose key is missing or unusable: the
+        question is still stored, so its image is servable, and scoring can
+        never match it. Part A answers are option indices, so a non-numeric one
+        is a bad answer key rather than a storable value.
         """
-        if key.part == "A" and not answer.isdigit():
+        if key.part == "A" and answer is not None and not answer.isdigit():
             raise ValueError(f"Part A answer must be a digit, got {answer!r}")
 
         cur = await self._conn.execute(
@@ -81,37 +90,57 @@ class QuestionRepository:
         assert row is not None
         return row["question_id"]
 
-    async def insert_image(
-        self, question_id: int, part: Part, image_data: bytes
-    ) -> None:
+    async def insert_image(self, question_id: int, image_data: bytes) -> None:
         # Skip the write if the BYTEA payload hasn't changed; this avoids
         # rewriting multi-MB rows during idempotent re-runs.
+        #
+        # New bytes drop the cached file_id: it names an image already uploaded
+        # to Telegram, and send_question prefers it over the payload — so a
+        # re-seed that kept it would serve the old image forever. The DISTINCT
+        # guard is what makes this safe to pair with the update: an idempotent
+        # re-run never reaches the SET, so a valid cache survives it.
         await self._conn.execute(
-            "INSERT INTO images (question_id, part, image_data)"
-            " VALUES (%s, %s, %s)"
-            " ON CONFLICT (question_id, part)"
-            " DO UPDATE SET image_data = EXCLUDED.image_data"
+            "INSERT INTO images (question_id, image_data)"
+            " VALUES (%s, %s)"
+            " ON CONFLICT (question_id)"
+            " DO UPDATE SET image_data = EXCLUDED.image_data,"
+            " telegram_file_id = NULL"
             " WHERE images.image_data IS DISTINCT FROM EXCLUDED.image_data",
-            (question_id, part, image_data),
+            (question_id, image_data),
         )
 
-    async def cache_file_id(
-        self, question_id: int, part: Part, telegram_file_id: str
-    ) -> None:
+    async def cache_file_id(self, question_id: int, telegram_file_id: str) -> None:
         await self._conn.execute(
-            "UPDATE images SET telegram_file_id = %s"
-            " WHERE question_id = %s AND part = %s",
-            (telegram_file_id, question_id, part),
+            "UPDATE images SET telegram_file_id = %s WHERE question_id = %s",
+            (telegram_file_id, question_id),
         )
 
     # -- topic mappings (used by populate_db.py) -----------------------------
+
+    async def get_or_create_topic(self, subject_id: int, topic_name: str) -> int:
+        """Return the id of a subject's topic, naming it if it is new.
+
+        Topics are referenced by id, so the name is stored once: a rename is one
+        UPDATE, and a misspelling cannot become a second topic behind a mapping.
+        """
+        # DO UPDATE, not DO NOTHING: RETURNING is suppressed on a conflict that
+        # does nothing, and this needs the id either way. The update is a no-op.
+        cur = await self._conn.execute(
+            "INSERT INTO topics (subject_id, name) VALUES (%s, %s)"
+            " ON CONFLICT (subject_id, name) DO UPDATE SET name = EXCLUDED.name"
+            " RETURNING topic_id",
+            (subject_id, topic_name),
+        )
+        row = await cur.fetchone()
+        assert row is not None
+        return row["topic_id"]
 
     async def delete_topic(
         self,
         option_id: int,
         question_number: int,
         part: Part,
-        topic_name: str,
+        topic_id: int,
     ) -> None:
         """Unmap one topic from one question.
 
@@ -121,10 +150,8 @@ class QuestionRepository:
         """
         await self._conn.execute(
             "DELETE FROM question_topics"
-            " WHERE part = %s AND topic_name = %s AND question_id IN"
-            " (SELECT q.question_id FROM questions q"
-            "  WHERE q.option_id = %s AND q.part = %s AND q.question_number = %s)",
-            (part, topic_name, option_id, part, question_number),
+            " WHERE topic_id = %s AND question_id IN" + _QUESTION_BY_KEY,
+            (topic_id, option_id, part, question_number),
         )
 
     async def upsert_topic(
@@ -132,14 +159,14 @@ class QuestionRepository:
         option_id: int,
         question_number: int,
         part: Part,
-        topic_name: str,
+        topic_id: int,
     ) -> None:
         await self._conn.execute(
-            "INSERT INTO question_topics (question_id, part, topic_name)"
-            " SELECT q.question_id, q.part, %s FROM questions q"
-            "  WHERE q.option_id = %s AND q.part = %s AND q.question_number = %s"
-            " ON CONFLICT (question_id, part, topic_name) DO NOTHING",
-            (topic_name, option_id, part, question_number),
+            "INSERT INTO question_topics (question_id, topic_id)"
+            " SELECT question_id, %s FROM questions"
+            "  WHERE option_id = %s AND part = %s AND question_number = %s"
+            " ON CONFLICT (question_id, topic_id) DO NOTHING",
+            (topic_id, option_id, part, question_number),
         )
 
     async def count_topics(self) -> int:
@@ -150,10 +177,10 @@ class QuestionRepository:
 
     # -- queries -------------------------------------------------------------
 
-    async def get(self, question_id: int, part: Part) -> Question:
+    async def get(self, question_id: int) -> Question:
         cur = await self._conn.execute(
-            _QUESTION_SELECT + " WHERE q.question_id = %s AND q.part = %s",
-            (question_id, part),
+            _QUESTION_SELECT + " WHERE q.question_id = %s",
+            (question_id,),
         )
         row = await cur.fetchone()
         if row is None:
@@ -165,7 +192,8 @@ class QuestionRepository:
 
         Used to build the testing-loop playlist from the option screen — only
         ids are needed up front; metadata and images are fetched per-question
-        as the student advances.
+        as the student advances. The part rides along because the answer guards
+        need it before the question itself is loaded.
         """
         cur = await self._conn.execute(
             "SELECT question_id, part FROM questions"
@@ -176,34 +204,38 @@ class QuestionRepository:
         rows = await cur.fetchall()
         return [(r["question_id"], r["part"]) for r in rows]
 
-    async def get_image(self, question_id: int, part: Part) -> bytes:
+    async def get_image(self, question_id: int) -> bytes:
         """Fetch the raw image bytes for a question.
 
         Separate from :meth:`get` so callers that only need to render a cached
         Telegram ``file_id`` do not pull megabytes from the DB.
         """
         cur = await self._conn.execute(
-            "SELECT image_data FROM images WHERE question_id = %s AND part = %s",
-            (question_id, part),
-        )
-        row = await cur.fetchone()
-        if row is None or row["image_data"] is None:
-            raise KeyError(f"No image stored for question {question_id} part {part}")
-        return bytes(row["image_data"])
-
-    async def get_correct_answer(self, question_id: int, part: Part) -> int | str:
-        """Return the correct answer for a question.
-
-        Part A answers are integers (option index); Part B are free-form text.
-        """
-        cur = await self._conn.execute(
-            "SELECT answer FROM questions WHERE question_id = %s AND part = %s",
-            (question_id, part),
+            "SELECT image_data FROM images WHERE question_id = %s",
+            (question_id,),
         )
         row = await cur.fetchone()
         if row is None:
-            raise KeyError(f"No answer for question {question_id}")
-        return int(row["answer"]) if part == "A" else str(row["answer"])
+            raise KeyError(f"No image stored for question {question_id}")
+        return bytes(row["image_data"])
+
+    async def get_correct_answer(self, question_id: int) -> int | str | None:
+        """Return the correct answer for a question, or None if it has no key.
+
+        Part A answers are integers (option index); Part B are free-form text.
+        The part is read from the row rather than passed in, so a caller cannot
+        ask for the answer under the wrong one.
+        """
+        cur = await self._conn.execute(
+            "SELECT part, answer FROM questions WHERE question_id = %s",
+            (question_id,),
+        )
+        row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"Question {question_id} not found")
+        if row["answer"] is None:
+            return None
+        return int(row["answer"]) if row["part"] == "A" else str(row["answer"])
 
     async def get_random_question_id(
         self,
@@ -240,34 +272,35 @@ class QuestionRepository:
         return row["question_id"]
 
     async def get_topics_for_subject(self, subject_id: int) -> list[str]:
+        """Every topic of *subject_id* that has at least one question mapped.
+
+        A topic with no questions would open a round with nothing to ask, so it
+        is not offered.
+        """
         cur = await self._conn.execute(
-            "SELECT DISTINCT qt.topic_name"
-            " FROM questions q"
-            " JOIN options o ON q.option_id = o.option_id"
-            " JOIN books b ON o.book_id = b.book_id"
-            " JOIN question_topics qt"
-            "   ON qt.question_id = q.question_id AND qt.part = q.part"
-            " WHERE b.subject_id = %s"
-            " ORDER BY qt.topic_name",
+            "SELECT t.name FROM topics t"
+            " WHERE t.subject_id = %s"
+            "   AND EXISTS (SELECT 1 FROM question_topics qt"
+            "                WHERE qt.topic_id = t.topic_id)"
+            " ORDER BY t.name",
             (subject_id,),
         )
         rows = await cur.fetchall()
-        return [r["topic_name"] for r in rows]
+        return [r["name"] for r in rows]
 
     async def get_random_question_id_by_topic(
         self, subject_id: int, topic_name: str
-    ) -> tuple[int, Part]:
+    ) -> int:
         # Topic-filtered sets are small (rarely more than a few dozen rows).
         # Pull the candidate ids and pick one client-side — cheaper than
-        # ORDER BY RANDOM() over the topic join.
+        # ORDER BY RANDOM() over the topic join. The topic carries its subject
+        # and the mapping carries the ids, so neither the questions table nor
+        # the books above it has to be visited to make the draw.
         cur = await self._conn.execute(
-            "SELECT qt.question_id, qt.part"
-            " FROM questions q"
-            " JOIN options o ON q.option_id = o.option_id"
-            " JOIN books b ON o.book_id = b.book_id"
-            " JOIN question_topics qt"
-            "   ON qt.question_id = q.question_id AND qt.part = q.part"
-            " WHERE b.subject_id = %s AND qt.topic_name = %s",
+            "SELECT qt.question_id"
+            " FROM topics t"
+            " JOIN question_topics qt ON qt.topic_id = t.topic_id"
+            " WHERE t.subject_id = %s AND t.name = %s",
             (subject_id, topic_name),
         )
         rows = await cur.fetchall()
@@ -275,15 +308,12 @@ class QuestionRepository:
             raise KeyError(
                 f"No questions found for topic {topic_name!r} in subject {subject_id}"
             )
-        pick = rows[secrets.randbelow(len(rows))]
-        return pick["question_id"], pick["part"]
+        return rows[secrets.randbelow(len(rows))]["question_id"]
 
-    async def get_full(
-        self, question_id: int, part: Part
-    ) -> tuple[Question, QuestionOrigin]:
+    async def get_full(self, question_id: int) -> tuple[Question, QuestionOrigin]:
         cur = await self._conn.execute(
-            _QUESTION_WITH_ORIGIN_SELECT + " WHERE q.question_id = %s AND q.part = %s",
-            (question_id, part),
+            _QUESTION_WITH_ORIGIN_SELECT + " WHERE q.question_id = %s",
+            (question_id,),
         )
         row = await cur.fetchone()
         if row is None:

@@ -18,12 +18,13 @@ class SessionRepository:
     def __init__(self, conn: DictConn) -> None:
         self._conn = conn
 
-    async def create(self, student_id: int, option_id: int) -> Session:
+    async def create(self, student_telegram_id: int, option_id: int) -> Session:
         cur = await self._conn.execute(
-            "INSERT INTO test_sessions (student_id, option_id)"
+            "INSERT INTO test_sessions (student_telegram_id, option_id)"
             " VALUES (%s, %s)"
-            " RETURNING session_id, student_id, option_id, started_at, completed_at",
-            (student_id, option_id),
+            " RETURNING session_id, student_telegram_id, option_id,"
+            "           started_at, completed_at",
+            (student_telegram_id, option_id),
         )
         row = await cur.fetchone()
         assert row is not None
@@ -33,17 +34,31 @@ class SessionRepository:
         self,
         session_id: int,
         question_id: int,
-        part: Part,
         student_answer: str,
+        correct_answer: int | str | None,
         is_correct: bool,
-        time_spent: float,
+        time_spent_seconds: float,
     ) -> None:
+        """Record one answer, together with the key it was judged against.
+
+        The key is stored rather than looked up on read: a correction to the
+        corpus afterwards must not change what a finished test reported, and
+        ``is_correct`` must not come to disagree with the answer shown beside it.
+        """
         await self._conn.execute(
             "INSERT INTO session_answers"
-            "  (session_id, question_id, part, student_answer, is_correct, time_spent)"
+            "  (session_id, question_id, student_answer, correct_answer,"
+            "   is_correct, time_spent_seconds)"
             " VALUES (%s, %s, %s, %s, %s, %s)"
-            " ON CONFLICT (session_id, question_id, part) DO NOTHING",
-            (session_id, question_id, part, student_answer, is_correct, time_spent),
+            " ON CONFLICT (session_id, question_id) DO NOTHING",
+            (
+                session_id,
+                question_id,
+                student_answer,
+                None if correct_answer is None else str(correct_answer),
+                is_correct,
+                time_spent_seconds,
+            ),
         )
 
     async def complete(self, session_id: int) -> TestResult:
@@ -72,10 +87,9 @@ class SessionRepository:
         """Every question the student got wrong, Part A first."""
         cur = await self._conn.execute(
             "SELECT q.part, q.question_number,"
-            "       sa.student_answer, q.answer AS correct_answer"
+            "       sa.student_answer, sa.correct_answer"
             "  FROM session_answers sa"
-            "  JOIN questions q"
-            "    ON q.question_id = sa.question_id AND q.part = sa.part"
+            "  JOIN questions q ON q.question_id = sa.question_id"
             " WHERE sa.session_id = %s AND sa.is_correct = FALSE"
             " ORDER BY q.part, q.question_number",
             (session_id,),
@@ -121,14 +135,20 @@ class SessionRepository:
         )
 
     async def _scores_by_part(self, session_id: int) -> dict[Part, tuple[int, int]]:
-        """``{part: (correct, total)}`` over the answers recorded for a session."""
+        """``{part: (correct, total)}`` over the answers recorded for a session.
+
+        The part comes from the question, which is the only place it is stored.
+        A session holds at most a couple of dozen answers, so the join costs
+        nothing worth denormalizing for.
+        """
         cur = await self._conn.execute(
-            "SELECT sa.part,"
+            "SELECT q.part,"
             "       COUNT(*) FILTER (WHERE sa.is_correct) AS correct,"
             "       COUNT(*) AS total"
             "  FROM session_answers sa"
+            "  JOIN questions q ON q.question_id = sa.question_id"
             " WHERE sa.session_id = %s"
-            " GROUP BY sa.part",
+            " GROUP BY q.part",
             (session_id,),
         )
         rows = await cur.fetchall()
