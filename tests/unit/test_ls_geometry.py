@@ -29,6 +29,17 @@ class TestLocalFilePath:
         assert path is not None
         assert path.name == "my file.jpg"
 
+    def test_backslash_uri_splits_on_every_platform(self) -> None:
+        """The separators are the Label Studio host's, not this machine's.
+
+        Asserting ``.name`` alone passed on Windows while the whole URI stayed
+        one filename on Linux, which is how this reached CI unnoticed.
+        """
+        uri = "/data/local-files/?d=training%5Cdata%5Cimages%5Cpage.jpg"
+        path = local_file_path(uri)
+        assert path is not None
+        assert path.parts == ("training", "data", "images", "page.jpg")
+
     def test_empty_uri(self) -> None:
         assert local_file_path("") is None
 

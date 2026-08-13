@@ -8,9 +8,8 @@ space, happens here. The spaces themselves are named in
 :mod:`digitex.ml.predictors`, which is where masks come from.
 """
 
-from pathlib import Path
-from urllib.parse import parse_qs, urlparse
-from urllib.request import url2pathname
+from pathlib import Path, PureWindowsPath
+from urllib.parse import parse_qs, unquote, urlparse
 
 from digitex.core.domain import NormalizedPolygon, PercentPolygon, PixelPolygon
 
@@ -21,6 +20,12 @@ def local_file_path(image_uri: str) -> Path | None:
     Handles URIs of the form ``/data/local-files/?d=...`` and
     ``/data/local-files/?file=...``. Returns None when the URI is empty or
     has no local-file parameter.
+
+    The separators in the URI are the ones the Label Studio host indexed its
+    files with — backslashes from a Windows server — and have nothing to do
+    with the machine reading it. ``PureWindowsPath`` accepts both kinds, so
+    the split is the same here, in CI, and in a container; ``url2pathname``
+    was not, and left a Windows URI as one long filename on Linux.
     """
     if not image_uri:
         return None
@@ -28,7 +33,7 @@ def local_file_path(image_uri: str) -> Path | None:
     params = parse_qs(urlparse(image_uri).query)
     for key in ("file", "d"):
         if key in params:
-            return Path(url2pathname(params[key][0]))
+            return Path(PureWindowsPath(unquote(params[key][0])).as_posix())
     return None
 
 
