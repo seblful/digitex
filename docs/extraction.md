@@ -79,7 +79,7 @@ Numbering updates live as you edit, and is computed by the same code that
 writes the files — the preview cannot disagree with what lands on disk. The
 same goes for **Crop preview** under the region list: it is the extractor's own
 cropping pipeline run on the selected question, so what it shows is the image
-file that approving would write, deskewed and cleaned exactly as it will be
+file that approving would write, deskewed exactly as it will be
 saved. Selecting a marker shows what OCR was pointed at instead.
 
 The status bar under the page carries the run's position — which page of how

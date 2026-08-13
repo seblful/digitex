@@ -12,10 +12,6 @@ from digitex.domain.entities import PixelPolygon
 
 logger = structlog.get_logger()
 
-DEFAULT_BG_THRESHOLD = 200
-DEFAULT_SATURATION_THRESHOLD = 100
-DEFAULT_DILATE_ITERATIONS = 2
-DEFAULT_GAMMA = 0.6
 DEFAULT_SKEW_MAX_DIM = 400
 
 
@@ -25,97 +21,27 @@ def resize_image(image: Image.Image, max_width: int, max_height: int) -> Image.I
     )
 
 
-# --- segment processing ---
+# --- background flatten ---
 
 
-def remove_color(
-    img: np.ndarray,
-    saturation_threshold: int = DEFAULT_SATURATION_THRESHOLD,
-    dilate_iterations: int = DEFAULT_DILATE_ITERATIONS,
-) -> np.ndarray:
-    """Remove all colored pixels, keeping only grayscale (gray/black/white).
+def add_white_background(image: Image.Image) -> Image.Image:
+    """Composite an image onto a white background.
 
-    Args:
-        img: Input RGBA numpy array.
-        saturation_threshold: Maximum saturation value to consider grayscale (0-255).
-        dilate_iterations: Number of dilation iterations for color mask.
-
-    Returns:
-        RGBA numpy array with colored pixels made transparent.
-    """
-    hsv = cv2.cvtColor(img[:, :, :3], cv2.COLOR_RGB2HSV)
-    color_mask = hsv[:, :, 1] > saturation_threshold
-
-    if dilate_iterations > 0:
-        kernel = np.ones((3, 3), np.uint8)
-        color_mask = cv2.dilate(
-            color_mask.astype(np.uint8), kernel, iterations=dilate_iterations
-        ).astype(bool)
-
-    img = img.copy()
-    img[color_mask, 3] = 0
-    return img
-
-
-def remove_bg(img: np.ndarray, threshold: int = DEFAULT_BG_THRESHOLD) -> np.ndarray:
-    """Remove background using white-pixel threshold.
+    A crop's polygon mask leaves everything outside the region transparent, and
+    JPEG has no alpha channel — the transparency must be flattened onto white
+    before saving.
 
     Args:
-        img: Input RGBA numpy array.
-        threshold: Brightness threshold (0-255).
+        image: Input PIL Image.
 
     Returns:
-        RGBA numpy array with bright pixels made transparent.
+        RGB image suitable for JPG format.
     """
-    if not (0 <= threshold <= 255):
-        raise ValueError(
-            f"Threshold must be an integer in range 0-255, got {threshold}"
-        )
-
-    img = img.copy()
-    gray = cv2.cvtColor(img[:, :, :3], cv2.COLOR_RGB2GRAY)
-    _, new_mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY_INV)
-    img[:, :, 3] = cv2.bitwise_and(img[:, :, 3], new_mask)
-    return img
-
-
-def increase_darkness(img: np.ndarray, gamma: float = DEFAULT_GAMMA) -> np.ndarray:
-    """Apply gamma correction to darken mid-tones and increase contrast.
-
-    Args:
-        img: Input RGBA numpy array.
-        gamma: Gamma value. Values < 1.0 darken, > 1.0 lighten.
-
-    Returns:
-        RGBA numpy array with gamma correction applied.
-
-    Raises:
-        ValueError: If gamma is not positive.
-    """
-    if gamma <= 0:
-        raise ValueError(f"gamma must be positive, got {gamma}")
-
-    img = img.copy()
-    rgb = img[:, :, :3].astype(np.float32) / 255.0
-    corrected = np.power(rgb, 1.0 / gamma) * 255.0
-    corrected = np.clip(corrected, 0, 255).astype(np.uint8)
-    img[:, :, :3] = corrected
-    return img
-
-
-def add_white_background(img: np.ndarray) -> np.ndarray:
-    """Composite RGBA image onto white background.
-
-    Args:
-        img: Input RGBA numpy array.
-
-    Returns:
-        RGB numpy array with white background replacing transparency.
-    """
+    img = np.array(image.convert("RGBA"))
     alpha = img[:, :, 3:4] / 255.0
     white_bg = np.ones_like(img[:, :, :3]) * 255
     rgb = img[:, :, :3] * alpha + white_bg * (1 - alpha)
-    return rgb.astype(np.uint8)
+    return Image.fromarray(rgb.astype(np.uint8), mode="RGB")
 
 
 # --- image cropping helpers ---
@@ -229,37 +155,3 @@ class ImageCropper:
             warped = _rotate(warped, angle)
 
         return Image.fromarray(warped, mode="RGBA")
-
-
-class SegmentProcessor:
-    """Processor for image segment background removal.
-
-    ``process`` is the whole interface. The four stages it composes stay
-    module-level functions in this file — import them directly if you need one
-    in isolation.
-    """
-
-    def process(
-        self,
-        image: Image.Image,
-        saturation_threshold: int = DEFAULT_SATURATION_THRESHOLD,
-        bg_threshold: int = DEFAULT_BG_THRESHOLD,
-        gamma: float = DEFAULT_GAMMA,
-    ) -> Image.Image:
-        """Apply color removal, bg removal, darkness, and white-background composite.
-
-        Args:
-            image: Input PIL Image.
-            saturation_threshold: Max saturation to keep (higher = removes more colors).
-            bg_threshold: Brightness threshold for bg removal (higher = keeps more).
-            gamma: Gamma for darkness adjustment. < 1.0 darkens, 1.0 = no change.
-
-        Returns:
-            RGB image suitable for JPG format.
-        """
-        img = np.array(image.convert("RGBA"))
-        img = remove_color(img, saturation_threshold)
-        img = remove_bg(img, bg_threshold)
-        img = increase_darkness(img, gamma)
-        rgb = add_white_background(img)
-        return Image.fromarray(rgb, mode="RGB")

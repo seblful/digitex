@@ -17,7 +17,7 @@ from digitex.domain.corpus import question_image_path, question_slot_taken
 from digitex.domain.entities import Detection, PixelPolygon, normalize_option_number
 from digitex.imaging import (
     ImageCropper,
-    SegmentProcessor,
+    add_white_background,
     resize_image,
 )
 from digitex.imaging.ocr import TextExtractor
@@ -44,7 +44,6 @@ class PageExtractor:
         self,
         config: ExtractionConfig,
         predictor: YOLO_SegmentationPredictor | None = None,
-        segment_processor: SegmentProcessor | None = None,
         image_cropper: ImageCropper | None = None,
         text_extractor: TextExtractor | None = None,
         on_review: PageReviewer | None = None,
@@ -52,7 +51,6 @@ class PageExtractor:
         self.config = config
 
         self._predictor = predictor
-        self._segment_processor = segment_processor or SegmentProcessor()
         self._image_cropper = image_cropper or ImageCropper()
         self._text_extractor = text_extractor or TextExtractor(language=OCR_LANGUAGE)
         self._on_review = on_review or accept_page
@@ -70,7 +68,7 @@ class PageExtractor:
         cropped = resize_image(
             cropped, self.config.question_max_width, self.config.question_max_height
         )
-        return self._segment_processor.process(cropped)
+        return add_white_background(cropped)
 
     def _extract_option_number(
         self, image: Image.Image, polygon: PixelPolygon

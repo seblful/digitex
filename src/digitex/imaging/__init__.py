@@ -12,12 +12,12 @@ it.
 
 from .image import (
     ImageCropper,
-    SegmentProcessor,
+    add_white_background,
     resize_image,
 )
 
 __all__ = [
     "ImageCropper",
-    "SegmentProcessor",
+    "add_white_background",
     "resize_image",
 ]
