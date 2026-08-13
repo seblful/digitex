@@ -24,12 +24,17 @@ if TYPE_CHECKING:
 
     from PIL import Image
 
+    from digitex.core.domain import PixelPolygon
     from digitex.extractors.placement import (
         PageExtractionState,
         PageRegion,
         PlacedQuestion,
         QuestionPlacement,
     )
+
+
+QuestionCrop = Callable[["PixelPolygon"], "Image.Image"]
+"""Cut one region out of the page exactly as saving it would."""
 
 
 @dataclass(frozen=True)
@@ -40,6 +45,16 @@ class PageProposal:
     edits them in place and approves gets exactly that written. One that means
     to skip should leave them alone. ``output_dir`` is the year directory the
     crops land in, which is also what a reviewer counts to show its progress.
+
+    ``crop`` is the extractor's own cropping pipeline, bound to this page. A
+    reviewer showing a question's crop shows the file that would be written,
+    not its own idea of one — the same reason the numbering preview replays
+    :func:`place_questions` rather than reimplementing it. None when the
+    extractor was not asked for one.
+
+    ``page_number`` and ``page_count`` are the page's place in its book, for a
+    reviewer that wants to say how far along the run is. Both are 0 when the
+    caller extracts a page on its own, outside a book.
     """
 
     image: Image.Image
@@ -47,6 +62,9 @@ class PageProposal:
     state: PageExtractionState
     output_dir: Path
     page_name: str = ""
+    crop: QuestionCrop | None = None
+    page_number: int = 0
+    page_count: int = 0
 
 
 @dataclass(frozen=True)

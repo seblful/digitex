@@ -71,12 +71,18 @@ class BookExtractor:
         processed_count = 0
         errors: list[str] = []
 
-        for image_path in tqdm(
-            images, desc=f"Processing {image_dir.name}", leave=False
+        for page_number, image_path in enumerate(
+            tqdm(images, desc=f"Processing {image_dir.name}", leave=False), start=1
         ):
             try:
                 with Image.open(image_path) as image:
-                    self._page_extractor.extract(image, output_dir, state)
+                    self._page_extractor.extract(
+                        image,
+                        output_dir,
+                        state,
+                        page_number=page_number,
+                        page_count=len(images),
+                    )
                 processed_count += 1
             except ReviewAborted:
                 # Not a page failure: the reviewer stopped the run. Let it out

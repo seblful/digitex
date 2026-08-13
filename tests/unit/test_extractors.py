@@ -29,6 +29,7 @@ class _RecordingPageExtractor:
     def __init__(self, fail_on: str | None = None, abort_on: str | None = None) -> None:
         self.pages: list[str] = []
         self.questions_on_arrival: list[int] = []
+        self.positions: list[tuple[int, int]] = []
         self._fail_on = fail_on
         self._abort_on = abort_on
 
@@ -37,6 +38,8 @@ class _RecordingPageExtractor:
         image: Image.Image,
         output_dir: Path,
         state: PageExtractionState,
+        page_number: int = 0,
+        page_count: int = 0,
     ) -> None:
         # BookExtractor opens pages from disk, so PIL knows the filename —
         # though only ImageFile declares it, hence the defaulted lookup.
@@ -47,6 +50,7 @@ class _RecordingPageExtractor:
             raise ValueError("unreadable page")
         self.pages.append(name)
         self.questions_on_arrival.append(state.question)
+        self.positions.append((page_number, page_count))
         state.next_question()
         state.commit_question()
 
@@ -87,6 +91,19 @@ class TestBookExtractor:
         assert pages.pages == ["page_1.jpg", "page_2.jpg", "page_10.jpg"]
         assert result.success
         assert result.processed == 3
+
+    def test_each_page_is_told_its_place_in_the_book(self, tmp_path: Path) -> None:
+        """Numbered in reading order, so a reviewer can say how far it has got."""
+        image_dir = tmp_path / "book"
+        image_dir.mkdir()
+        for name in ("page_10.jpg", "page_2.jpg", "page_1.jpg"):
+            _write_page(image_dir, name)
+        pages = _RecordingPageExtractor()
+        extractor = BookExtractor(_config(), page_extractor=pages.as_page_extractor())
+
+        extractor.extract(image_dir, tmp_path / "output")
+
+        assert pages.positions == [(1, 3), (2, 3), (3, 3)]
 
     def test_extract_counts_failed_pages_and_continues(self, tmp_path: Path) -> None:
         image_dir = tmp_path / "book"

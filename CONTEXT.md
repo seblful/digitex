@@ -50,7 +50,10 @@ ______________________________________________________________________
 - **Review** — checking a Page's detected regions by hand before its crops are
   written. A `PageReviewer` is a callable
   `(PageProposal) -> ReviewedPage | None` — a callable, not a Protocol class,
-  and the interactive one is a Tk window.
+  and the interactive one is a Tk window. The Proposal carries the extractor's
+  own `crop` callable, so a reviewer previews the file that would be written
+  rather than its own likeness of it — the same rule the numbering preview
+  follows by replaying `place_questions`.
 - **Placement** — the Option/Part/number one detected Question is written as.
   Handed out by `PageExtractionState` and applied by `place_questions`, the one
   walk shared by the review preview and the write.
@@ -108,6 +111,20 @@ ______________________________________________________________________
 - **Polygon spaces** — `PixelPolygon` (source-image pixels), `PercentPolygon`
   (Label Studio's 0-100), `NormalizedPolygon` (YOLO label files' 0-1). Distinct
   types, so a conversion cannot be applied twice by accident.
+
+## GUI terms
+
+- **Review window** — the one Tk window a `--review` run uses. Built once and
+  loaded with one Page after another, which is what carries the zoom, the pan
+  and the selected tab across pages. `digitex.gui` is the only package that
+  imports tkinter.
+- **Snapshot** — one entry in the review window's undo timeline: a copy of the
+  Page's Regions, its entry state and the selection. Undo is a stack of copies
+  rather than of inverse operations, because the window edits Regions in place.
+- **DPI scale** — the factor the display is scaled by, read once before the Tk
+  root exists. Sizes in `gui` are written for a 100% display and passed through
+  `scaled()`; without the awareness call Windows stretches the whole window and
+  its text renders soft.
 
 ## Naming conventions worth preserving
 

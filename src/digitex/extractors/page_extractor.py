@@ -200,6 +200,8 @@ class PageExtractor:
         image: Image.Image,
         output_dir: Path,
         state: PageExtractionState,
+        page_number: int = 0,
+        page_count: int = 0,
     ) -> None:
         """Extract questions from a single page image, advancing *state*.
 
@@ -218,6 +220,9 @@ class PageExtractor:
             image: PIL Image of the page.
             output_dir: Base output directory.
             state: Question-numbering state, advanced by this call.
+            page_number: This page's 1-based place in its book, for the
+                reviewer to report progress with. 0 outside a book.
+            page_count: How many pages the book holds. 0 outside a book.
 
         Raises:
             ValueError: If the page has no detections, or a question comes
@@ -235,6 +240,11 @@ class PageExtractor:
                 # BookExtractor opens pages from disk, so PIL knows the
                 # filename — though only ImageFile declares it.
                 page_name=Path(str(getattr(image, "filename", ""))).name,
+                # Bound to this page, so a reviewer previewing a region sees
+                # the file that would be written rather than a lookalike.
+                crop=lambda polygon: self._crop(image, polygon),
+                page_number=page_number,
+                page_count=page_count,
             )
         )
         if reviewed is None:

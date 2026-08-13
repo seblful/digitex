@@ -61,17 +61,30 @@ nothing is written until you approve it.
 | :------ | :-------- |
 | Move a polygon | drag inside it |
 | Reshape one | drag a white handle (selected polygon only) |
+| Nudge one | select it, then `←` `→` `↑` `↓` — `Shift` for 10px steps |
 | Add / remove a point | right-click → *Insert point here* / *Delete point* |
 | Draw a missing region | *Draw: question / option / part*, then drag a box |
 | Delete a region | select it, press `Del` |
-| Fix a misread marker | right-click → *Set option number…* / *Set part* |
-| Relabel a region | right-click → *Label* |
-| Fix reading order | select a row, then `↑` `↓`, or *Sort by position* |
+| Undo / redo | `Ctrl+Z` / `Ctrl+Y`, or the toolbar arrows |
+| Fix a misread marker | right-click → *Set option number…* / *Set part*, or double-click its row |
+| Relabel a region | right-click → *Label*, or press `1` `2` `3` (question / option / part) |
+| Fix reading order | select a row, then `↑` `↓`, or *Sort by position* (`s`) |
 | Move where the page starts | edit *Page starts at* — option, part, questions done |
-| Zoom | mouse wheel, or `-` `+` `Fit` |
+| Zoom | wheel (at the cursor), `+` `-` `Fit` `1:1`, or `f` to fit |
+| Fill the view with one region | right-click → *Zoom to region*, or `z` |
+| Pan | middle-drag, the scrollbars, or the arrow keys with nothing selected |
+| Step through the regions | `Tab` / `Shift+Tab` |
 
 Numbering updates live as you edit, and is computed by the same code that
-writes the files — the preview cannot disagree with what lands on disk.
+writes the files — the preview cannot disagree with what lands on disk. The
+same goes for **Crop preview** under the region list: it is the extractor's own
+cropping pipeline run on the selected question, so what it shows is the image
+file that approving would write, deskewed and cleaned exactly as it will be
+saved. Selecting a marker shows what OCR was pointed at instead.
+
+The status bar under the page carries the run's position — which page of how
+many, how many questions and markers are on it, and the range they would be
+saved as.
 
 **Numbering that would break the output tree is refused.** Every question's
 file has to be the next one in its `{option}/{part}` folder. Land on a number
@@ -94,12 +107,19 @@ read — approve is disabled until you say where the page starts.
 **Extracted so far** tab is the count and the answer check, per subject:
 per-year option/part counts with anything off its year's mode in red, *Recount*
 to refresh after approving pages, and *Check answers* to validate every
-`answers.json` against the images on disk.
+`answers.json` against the images on disk. It recounts when you open the tab
+rather than on every page — walking the whole output tree per page would make
+each one slower than the last.
 
 Finally: **Approve & save** writes the crops (`Ctrl+Enter`), **Skip page**
 writes nothing and leaves numbering where it was, **Abort run** stops
-everything. Pages already approved keep their images and the year is not marked
-complete, so re-running continues where you left off.
+everything. Aborting leaves the year unfinished, so approved pages keep their
+images and re-running continues where you left off.
+
+One window serves the whole run — pages are loaded into it rather than each
+opening its own — so the zoom, the pan, the window size and the tab you are on
+carry from page to page. The zoom is only reset when a page turns up in a
+different size from the one before it.
 
 ### `extract-answers`
 

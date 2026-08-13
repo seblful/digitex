@@ -345,3 +345,51 @@ class TestPageExtractorReview:
             ("question", None),
         ]
         assert seen[0].image is image
+
+    def test_the_reviewer_is_told_where_the_page_sits_in_its_book(
+        self, tmp_path: Path
+    ) -> None:
+        detections = _dets(("question", QUESTION_REGION))
+        image = Image.new("RGB", (300, 300), color="white")
+        seen: list[PageProposal] = []
+
+        _extractor(detections, on_review=seen.append).extract(
+            image,
+            tmp_path,
+            PageExtractionState(option=1, part="A"),
+            page_number=7,
+            page_count=42,
+        )
+
+        assert (seen[0].page_number, seen[0].page_count) == (7, 42)
+
+    def test_a_page_extracted_outside_a_book_has_no_position(
+        self, tmp_path: Path
+    ) -> None:
+        detections = _dets(("question", QUESTION_REGION))
+        image = Image.new("RGB", (300, 300), color="white")
+        seen: list[PageProposal] = []
+
+        _extractor(detections, on_review=seen.append).extract(
+            image, tmp_path, PageExtractionState(option=1, part="A")
+        )
+
+        assert (seen[0].page_number, seen[0].page_count) == (0, 0)
+
+    def test_the_reviewer_can_crop_exactly_what_would_be_saved(
+        self, tmp_path: Path
+    ) -> None:
+        """A preview built any other way could disagree with the file written."""
+        detections = _dets(("question", QUESTION_REGION))
+        image = Image.new("RGB", (300, 300), color="white")
+        seen: list[PageProposal] = []
+
+        extractor = _extractor(detections, on_review=seen.append)
+        extractor.extract(image, tmp_path, PageExtractionState(option=1, part="A"))
+
+        crop = seen[0].crop
+        assert crop is not None
+        # The same pipeline the write goes through, on the same page.
+        assert (
+            crop(QUESTION_REGION).size == extractor._crop(image, QUESTION_REGION).size
+        )
