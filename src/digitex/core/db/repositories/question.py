@@ -44,9 +44,9 @@ _QUESTION_BY_KEY = (
 def _row_to_question(row: dict[str, Any]) -> Question:
     """Build a ``Question``, image key and all.
 
-    The key is a short string, so unlike the BYTEA payload it replaced there is
-    no reason to leave it behind and fetch it in a second round-trip: every
-    question select carries everything a render needs.
+    The key is a short string, so there is no reason to leave it behind and
+    fetch it in a second round-trip the way an image payload would deserve:
+    every question select carries everything a render needs.
     """
     return row_to_model(
         {
