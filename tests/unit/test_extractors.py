@@ -8,8 +8,9 @@ from PIL import Image
 
 from digitex.extractors.base import ExtractionConfig, ExtractionResult
 from digitex.extractors.book_extractor import BookExtractor
-from digitex.extractors.exceptions import DirectoryNotFoundError
-from digitex.extractors.page_extractor import PageExtractionState, PageExtractor
+from digitex.extractors.exceptions import DirectoryNotFoundError, ReviewAborted
+from digitex.extractors.page_extractor import PageExtractor
+from digitex.extractors.placement import PageExtractionState
 from digitex.extractors.tests_extractor import PROGRESS_FILE, TestsExtractor
 
 
@@ -25,10 +26,11 @@ class _RecordingPageExtractor:
     cross-page numbering test observe the state being threaded.
     """
 
-    def __init__(self, fail_on: str | None = None) -> None:
+    def __init__(self, fail_on: str | None = None, abort_on: str | None = None) -> None:
         self.pages: list[str] = []
         self.questions_on_arrival: list[int] = []
         self._fail_on = fail_on
+        self._abort_on = abort_on
 
     def extract(
         self,
@@ -39,6 +41,8 @@ class _RecordingPageExtractor:
         # BookExtractor opens pages from disk, so PIL knows the filename —
         # though only ImageFile declares it, hence the defaulted lookup.
         name = Path(getattr(image, "filename", "")).name
+        if name == self._abort_on:
+            raise ReviewAborted(name)
         if name == self._fail_on:
             raise ValueError("unreadable page")
         self.pages.append(name)
@@ -132,6 +136,22 @@ class TestBookExtractor:
         assert pages.questions_on_arrival == [0, 1]
         assert result.processed == 2
         assert len(result.errors) == 1
+
+    def test_an_aborted_review_stops_the_book_instead_of_counting_a_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """A run the reviewer walked away from must not look like a finished one."""
+        image_dir = tmp_path / "book"
+        image_dir.mkdir()
+        for name in ("page_1.jpg", "page_2.jpg", "page_3.jpg"):
+            _write_page(image_dir, name)
+        pages = _RecordingPageExtractor(abort_on="page_2.jpg")
+        extractor = BookExtractor(_config(), page_extractor=pages.as_page_extractor())
+
+        with pytest.raises(ReviewAborted, match=r"page_2\.jpg"):
+            extractor.extract(image_dir, tmp_path / "output")
+
+        assert pages.pages == ["page_1.jpg"]
 
 
 class TestTestsExtractor:

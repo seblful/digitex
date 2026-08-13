@@ -8,14 +8,14 @@ Extract question images from test books using YOLO segmentation.
 # Extract questions from a specific subject
 digitex-extract extract-questions biology
 
+# Same, checking every page in a window before its crops are saved
+digitex-extract extract-questions biology --review
+
 # Count extracted questions for a subject
 digitex-extract count-questions biology
 
 # Fix numbering gaps for a subject
 digitex-extract renumber-questions biology
-
-# Add manually cropped questions for a subject
-digitex-extract add-questions-manually biology
 
 # Extract answers for a subject
 digitex-extract extract-answers biology
@@ -31,19 +31,62 @@ digitex-extract check-answers biology
 Extract question images from a specific subject.
 
 ```bash
-digitex-extract extract-questions <SUBJECT>
+digitex-extract extract-questions <SUBJECT> [--review]
 ```
 
 **Arguments:**
 
 - `<SUBJECT>` - Subject name (e.g., `biology`, `chemistry`)
 
+**Options:**
+
+- `--review` - Check every page in a window before its crops are saved
+
 **Process:**
 
 1. Reads images from `books/{subject}/images/{year}/`
 1. Uses YOLO model to detect questions, options, and parts
+1. Reads the option number and part letter off their markers with OCR
+1. Numbers each question from those markers, continuing across pages
 1. Crops and saves to `extraction/data/output/{subject}/{year}/{option}/{part}/`
 1. Tracks progress in `extraction/data/progress.json`
+
+### The review window (`--review`)
+
+Every step above is a guess that can go wrong silently — a polygon that clips
+the question, a misread option number that re-files the rest of the book. With
+`--review`, each page stops in a window showing the page, its detected polygons
+and the `{option}/{part}/{number}` every question would be saved as, and
+nothing is written until you approve it.
+
+**This page** tab:
+
+| Do this | Like this |
+| :------ | :-------- |
+| Move a polygon | drag inside it |
+| Reshape one | drag a white handle (selected polygon only) |
+| Add / remove a point | right-click → *Insert point here* / *Delete point* |
+| Draw a missing region | *Draw: question / option / part*, then drag a box |
+| Delete a region | select it, press `Del` |
+| Fix a misread marker | right-click → *Set option number…* / *Set part* |
+| Relabel a region | right-click → *Label* |
+| Fix reading order | select a row, then `↑` `↓`, or *Sort by position* |
+| Move where the page starts | edit *Page starts at* — option, part, questions done |
+| Zoom | mouse wheel, or `-` `+` `Fit` |
+
+Numbering updates live as you edit, and is computed by the same code that
+writes the files — the preview cannot disagree with what lands on disk. A page
+that starts with a question before any option/part marker is reported in red
+and cannot be approved until you say where the page starts.
+
+**Extracted so far** tab carries what `count-questions` and `check-answers`
+print: per-year option/part counts, with anything off its year's mode in red,
+and the answers.json check on demand.
+
+Finally: **Approve & save** writes the crops (`Ctrl+Enter`), **Skip page**
+writes nothing and leaves numbering where it was, **Abort run** stops
+everything. Pages already approved keep their images and the year is not marked
+complete, so re-running continues where you left off.
 
 ### `count-questions`
 
@@ -72,28 +115,6 @@ digitex-extract renumber-questions <SUBJECT> [--dry-run]
 **Options:**
 
 - `--dry-run` - Preview changes without applying (default: true)
-
-### `add-questions-manually`
-
-Integrate manually cropped question images for a specific subject.
-
-```bash
-digitex-extract add-questions-manually <SUBJECT> [--dry-run]
-```
-
-**Arguments:**
-
-- `<SUBJECT>` - Subject name (e.g., `biology`, `chemistry`)
-
-**Manual Image Format:**
-
-- Place in: `extraction/data/manual/{subject}/`
-- Filename: `YYYY_OPTION_PART_QUESTION.png`
-- Example: `biology/2016_3_A_20.png`
-
-**Options:**
-
-- `--dry-run` - Preview changes without applying
 
 ### `extract-answers`
 
@@ -140,7 +161,6 @@ books/
 extraction/
 ├── data/
 │   ├── progress.json
-│   ├── manual/
 │   └── output/
 │       └── {subject}/
 │           └── {year}/
@@ -195,7 +215,10 @@ Common errors and solutions:
 
 ## Best Practices
 
-1. **Always use `--dry-run`** first with renumber/manual commands
+1. **Always use `--dry-run`** first with `renumber-questions`
+1. **Extract with `--review`** on a subject the model has not been trained on;
+   the run is only as good as its worst page, and a misread option marker
+   re-files every question after it
 1. **Check progress** before re-running extraction
 1. **Validate answers** with `check-answers` after extraction
 1. **Backup data** before bulk operations

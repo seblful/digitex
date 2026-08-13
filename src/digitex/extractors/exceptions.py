@@ -43,3 +43,17 @@ class APIError(ExtractionError):
     def __init__(self, service: str, message: str) -> None:
         super().__init__(f"{service} API error: {message}")
         self.service = service
+
+
+class ReviewAborted(ExtractionError):
+    """Raised by a page reviewer to stop the whole run, not just this page.
+
+    Deliberately not caught by the per-page error handling in BookExtractor: a
+    run the reviewer walked away from must not mark its year completed, or the
+    unreviewed pages would be skipped forever.
+    """
+
+    def __init__(self, page_name: str = "") -> None:
+        at = f" at {page_name}" if page_name else ""
+        super().__init__(f"Review aborted{at}")
+        self.page_name = page_name

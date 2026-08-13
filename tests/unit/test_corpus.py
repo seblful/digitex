@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from digitex.core.corpus import (
-    ManualImageName,
     QuestionImage,
     is_image,
     natural_sort_key,
@@ -51,18 +50,6 @@ class TestWalkQuestionImages:
         (tmp_path / "answers.json").touch()
 
         assert list(walk_question_images(tmp_path)) == []
-
-
-class TestManualImageName:
-    def test_parses_valid_name(self) -> None:
-        parsed = ManualImageName.parse("2016_3_A_20.png")
-        assert parsed == ManualImageName(year=2016, option=3, part="A", question=20)
-
-    def test_rejects_bad_part_missing_fields_and_wrong_extension(self) -> None:
-        assert ManualImageName.parse("2016_3_C_20.png") is None
-        assert ManualImageName.parse("2016_3_20.png") is None
-        assert ManualImageName.parse("2016_3_A_.png") is None
-        assert ManualImageName.parse("2016_3_A_20.jpg") is None
 
 
 class TestAnswerSheetStem:

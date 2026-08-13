@@ -16,8 +16,7 @@ Operational and workflow docs for Digitex. Source files live under `docs/`.
 
 ## Workflows
 
-- [Extraction](extraction.md) — books → question images via YOLO
-- [Manual extraction](manual-extraction.md) — integrating hand-cropped questions
+- [Extraction](extraction.md) — books → question images via YOLO, with the review window
 - [Training](training.md) — YOLO model training
 - [Label Studio](label-studio.md) — annotation server
 

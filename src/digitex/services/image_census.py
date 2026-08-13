@@ -108,7 +108,7 @@ class ImageCensus:
             raise FileNotFoundError(subject_dir)
 
         years = [
-            self._year_census(year_dir)
+            self.take_year(year_dir)
             for year_dir in sorted(subject_dir.iterdir(), key=_year_key)
             if year_dir.is_dir()
         ]
@@ -117,7 +117,8 @@ class ImageCensus:
         )
 
     @staticmethod
-    def _year_census(year_dir: Path) -> YearCensus:
+    def take_year(year_dir: Path) -> YearCensus:
+        """Count one year's output tree. Empty when the directory does not exist."""
         counts: defaultdict[str, dict[str, int]] = defaultdict(dict)
         for image in walk_question_images(year_dir):
             per_part = counts[image.option]

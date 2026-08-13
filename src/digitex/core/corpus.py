@@ -25,7 +25,6 @@ IMAGE_EXTENSIONS: Final = frozenset(
     {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tiff"}
 )
 
-_MANUAL_NAME = re.compile(r"^(\d{4})_(\d+)_([AB])_(\d+)\.png$")
 _ANSWER_SHEET_STEM = re.compile(r"(\d{4})_(\d+)")
 
 
@@ -85,28 +84,6 @@ def walk_question_images(year_dir: Path) -> Iterator[QuestionImage]:
                 if number is None:
                     continue
                 yield QuestionImage(option_dir.name, part_dir.name, number, img)
-
-
-@dataclass(frozen=True)
-class ManualImageName:
-    """Parsed ``{year}_{option}_{part}_{question}.png`` manual-image filename."""
-
-    year: int
-    option: int
-    part: str
-    question: int
-
-    @classmethod
-    def parse(cls, filename: str) -> ManualImageName | None:
-        match = _MANUAL_NAME.match(filename)
-        if not match:
-            return None
-        return cls(
-            year=int(match.group(1)),
-            option=int(match.group(2)),
-            part=match.group(3),
-            question=int(match.group(4)),
-        )
 
 
 def parse_answer_sheet_stem(stem: str) -> tuple[int, int] | None:

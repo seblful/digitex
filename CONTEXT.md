@@ -45,15 +45,18 @@ ______________________________________________________________________
     `PageExtractor` using YOLO segmentation.
   - **Book extraction** — every Page in a Book.
   - **Tests extraction** — every Book in the books directory.
-  - **Manual extraction** — integrating hand-cropped Question images that
-    YOLO missed.
   - **Answers extraction** — pulling the answer key off the back of a Book
     via the OpenRouter vision API.
+- **Review** — checking a Page's detected regions by hand before its crops are
+  written. A `PageReviewer` is a callable `(PageProposal) -> ReviewedPage | None`, mirroring `ConflictResolver`; the interactive one is a Tk window.
+- **Placement** — the Option/Part/number one detected Question is written as.
+  Handed out by `PageExtractionState` and applied by `place_questions`, the one
+  walk shared by the review preview and the write.
 - **Conflict** — an extraction collision: a new Question image would overwrite
   an existing file. Resolved by a `ConflictResolver` — a callable
   `(Conflict) -> int`, not a Protocol class.
 - **Renumbering** — adjusting Question file numbers within an Option/Part to
-  fill gaps left after manual additions.
+  fill gaps left by deleted or skipped crops.
 
 ## Bot conversation shapes
 

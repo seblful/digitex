@@ -10,8 +10,9 @@ from tqdm import tqdm
 
 from digitex.core.corpus import is_image, natural_sort_key
 from digitex.extractors.base import ExtractionResult
-from digitex.extractors.exceptions import DirectoryNotFoundError
-from digitex.extractors.page_extractor import PageExtractionState, PageExtractor
+from digitex.extractors.exceptions import DirectoryNotFoundError, ReviewAborted
+from digitex.extractors.page_extractor import PageExtractor
+from digitex.extractors.placement import PageExtractionState
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -77,6 +78,10 @@ class BookExtractor:
                 with Image.open(image_path) as image:
                     self._page_extractor.extract(image, output_dir, state)
                 processed_count += 1
+            except ReviewAborted:
+                # Not a page failure: the reviewer stopped the run. Let it out
+                # so no caller counts this book as finished.
+                raise
             except Exception as e:
                 msg = f"Failed to process {image_path.name}: {e}"
                 logger.error(

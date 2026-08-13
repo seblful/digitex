@@ -1,6 +1,12 @@
-"""Page extractor for extracting question images from a single page."""
+"""Page extractor for extracting question images from a single page.
 
-from dataclasses import dataclass
+Reading a page is split from writing it: :meth:`PageExtractor.read_page` turns
+a page image into labelled regions (YOLO + OCR), and :meth:`PageExtractor.extract`
+walks those regions through the numbering in `placement`, saving a crop for
+each question. A `PageReviewer` sits between the two, which is where a human
+gets to correct a polygon or a misread marker before anything is written.
+"""
+
 from pathlib import Path
 
 import structlog
@@ -19,87 +25,20 @@ from digitex.extractors.conflict_resolution import (
     ConflictResolver,
     keep_current_option,
 )
+from digitex.extractors.placement import (
+    CORRECTED_PART,
+    PageExtractionState,
+    PageRegion,
+    QuestionPlacement,
+    place_questions,
+    reading_order_key,
+)
+from digitex.extractors.review import PageProposal, PageReviewer, accept_page
 from digitex.ml.predictors import YOLO_SegmentationPredictor
 
 logger = structlog.get_logger()
 
 OCR_LANGUAGE = "rus"
-
-# A conflict-resolver correction moves the question to a different option, and
-# an option always starts at Part A. Named once so the state machine and the
-# path it lands at cannot disagree.
-CORRECTED_PART = "A"
-
-
-@dataclass(frozen=True)
-class QuestionPlacement:
-    """Where one detected question lands in the extraction output."""
-
-    option: int
-    part: str
-    number: int
-
-
-@dataclass
-class PageExtractionState:
-    """Question-numbering state machine, threaded across a book's pages.
-
-    Owns every decision about which option/part/number a detection belongs
-    to. Consumes the page's markers in reading order (``on_option`` /
-    ``on_part``), hands out placements as values (``next_question`` +
-    ``commit_question``), and takes conflict-resolver corrections back via
-    ``correct_option``. Performs no I/O — reading markers off the page and
-    saving crops belong to PageExtractor.
-    """
-
-    option: int = 0
-    part: str = ""
-    question: int = 0
-
-    def on_option(self, new_option: int | None) -> bool:
-        """Advance when a marker continues the option sequence.
-
-        Anything that is not exactly the next option number is treated as an
-        OCR misread and ignored. Returns True on change.
-        """
-        if new_option is not None and new_option == self.option + 1:
-            self.option = new_option
-            self.part = "A"
-            self.question = 0
-            return True
-        return False
-
-    def on_part(self, new_part: str | None) -> bool:
-        """Switch part when a different part marker is read. Returns True on change."""
-        if new_part is not None and new_part != self.part:
-            self.part = new_part
-            self.question = 0
-            return True
-        return False
-
-    def next_question(self) -> QuestionPlacement:
-        """Return the placement the next question will get, without committing.
-
-        The caller commits via :meth:`commit_question` only after the crop is
-        saved, so a failed save doesn't consume a question number.
-        """
-        return QuestionPlacement(self.option, self.part, self.question + 1)
-
-    def commit_question(self) -> None:
-        """Consume the question number handed out by :meth:`next_question`."""
-        self.question += 1
-
-    def correct_option(self, resolved_option: int) -> bool:
-        """Apply a conflict-resolver decision. Returns True if the option moved.
-
-        The question counter deliberately keeps running — the corrected
-        question retains its number under the new option.
-        """
-        if resolved_option == self.option:
-            return False
-        self.option = resolved_option
-        self.part = CORRECTED_PART
-        return True
 
 
 class PageExtractor:
@@ -113,6 +52,7 @@ class PageExtractor:
         image_cropper: ImageCropper | None = None,
         text_extractor: TextExtractor | None = None,
         on_conflict: ConflictResolver | None = None,
+        on_review: PageReviewer | None = None,
     ) -> None:
         self.config = config
 
@@ -121,6 +61,7 @@ class PageExtractor:
         self._image_cropper = image_cropper or ImageCropper()
         self._text_extractor = text_extractor or TextExtractor(language=OCR_LANGUAGE)
         self._on_conflict = on_conflict or keep_current_option
+        self._on_review = on_review or accept_page
 
     @property
     def predictor(self) -> YOLO_SegmentationPredictor:
@@ -128,12 +69,6 @@ class PageExtractor:
         if self._predictor is None:
             self._predictor = YOLO_SegmentationPredictor(str(self.config.model_path))
         return self._predictor
-
-    def _get_polygon_bounding_box(self, polygon: PixelPolygon) -> tuple[int, int]:
-        """Get bounding box position from polygon."""
-        min_y = min(p[1] for p in polygon)
-        min_x = min(p[0] for p in polygon)
-        return (min_y, min_x)
 
     def _crop_and_save(
         self,
@@ -250,8 +185,66 @@ class PageExtractor:
             class_counts[det.label] = class_counts.get(det.label, 0) + 1
         logger.debug("Predictions", class_counts=class_counts)
 
-        return sorted(
-            detections, key=lambda det: self._get_polygon_bounding_box(det.polygon)
+        return sorted(detections, key=lambda det: reading_order_key(det.polygon))
+
+    def read_page(self, image: Image.Image) -> list[PageRegion]:
+        """Detect the page's regions and read what its markers say.
+
+        Returned in reading order, which is the order the numbering consumes
+        them in. A detection carrying a label the model's class map doesn't
+        cover is dropped — it has no place in the numbering either way.
+
+        Raises:
+            ValueError: If the page has no detections.
+        """
+        regions: list[PageRegion] = []
+
+        for det in self._detect(image):
+            if det.label == "option":
+                regions.append(
+                    PageRegion(
+                        label="option",
+                        polygon=det.polygon,
+                        reading=self._extract_option_number(image, det.polygon),
+                    )
+                )
+            elif det.label == "part":
+                regions.append(
+                    PageRegion(
+                        label="part",
+                        polygon=det.polygon,
+                        reading=self._extract_part_letter(image, det.polygon),
+                    )
+                )
+            elif det.label == "question":
+                regions.append(PageRegion(label="question", polygon=det.polygon))
+            else:
+                logger.warning("Ignoring region with unknown label", label=det.label)
+
+        return regions
+
+    def _write_question(
+        self,
+        image: Image.Image,
+        region: PageRegion,
+        placement: QuestionPlacement,
+        output_dir: Path,
+    ) -> int:
+        """Save one placed question's crop. Returns the option it landed under."""
+        logger.debug(
+            "Extracting question",
+            option=placement.option,
+            part=placement.part,
+            question=placement.number,
+        )
+        output_path = (
+            output_dir
+            / str(placement.option)
+            / placement.part
+            / f"{placement.number}.{self.config.image_format}"
+        )
+        return self._crop_and_save(
+            image, region.polygon, output_path, placement.option, output_dir
         )
 
     def extract(
@@ -268,57 +261,41 @@ class PageExtractor:
         the detections handled up to that point; the caller decides whether
         that is recoverable.
 
+        The reviewer sees the page's regions before any of them is cropped, and
+        may correct them, move where the page starts numbering, or skip the
+        page entirely — in which case nothing is written and *state* is left
+        exactly where it was.
+
         Args:
             image: PIL Image of the page.
             output_dir: Base output directory.
             state: Question-numbering state, advanced by this call.
 
         Raises:
-            ValueError: If the page has no detections.
+            ValueError: If the page has no detections, or a question comes
+                before any option/part marker.
+            ReviewAborted: If the reviewer stopped the run.
         """
-        detections = self._detect(image)
+        regions = self.read_page(image)
 
-        for det in detections:
-            if det.label == "option":
-                new_option = self._extract_option_number(image, det.polygon)
-                if state.on_option(new_option):
-                    logger.debug("Option changed", option_counter=state.option)
-            elif det.label == "part":
-                new_part = self._extract_part_letter(image, det.polygon)
-                if state.on_part(new_part):
-                    logger.debug("Part changed", part_letter=state.part)
-            elif det.label == "question":
-                placement = state.next_question()
-                if not placement.option or not placement.part:
-                    # pathlib drops an empty segment, so this would land one
-                    # directory short of {option}/{part}/ and be invisible to
-                    # every reader of the output tree.
-                    raise ValueError(
-                        "Question detected before any option/part marker was read"
-                    )
-                output_path = (
-                    output_dir
-                    / str(placement.option)
-                    / placement.part
-                    / f"{placement.number}.{self.config.image_format}"
-                )
-                resolved_option = self._crop_and_save(
-                    image,
-                    det.polygon,
-                    output_path,
-                    placement.option,
-                    output_dir,
-                )
-                state.commit_question()
-                if state.correct_option(resolved_option):
-                    logger.info(
-                        "Option corrected",
-                        from_option=placement.option,
-                        to_option=resolved_option,
-                    )
-                logger.debug(
-                    "Extracting question",
-                    option=state.option,
-                    part=state.part,
-                    question=state.question,
-                )
+        reviewed = self._on_review(
+            PageProposal(
+                image=image,
+                regions=regions,
+                state=state,
+                output_dir=output_dir,
+                # BookExtractor opens pages from disk, so PIL knows the
+                # filename — though only ImageFile declares it.
+                page_name=Path(str(getattr(image, "filename", ""))).name,
+            )
+        )
+        if reviewed is None:
+            logger.info("Page skipped by reviewer")
+            return
+
+        state.adopt(reviewed.state)
+
+        def write(region: PageRegion, placement: QuestionPlacement) -> int:
+            return self._write_question(image, region, placement, output_dir)
+
+        place_questions(reviewed.regions, state, write=write)

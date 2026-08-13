@@ -13,8 +13,7 @@ import typer
 from digitex.config import Settings, get_settings
 from digitex.extractors.answers_extractor import AnswersExtractor
 from digitex.extractors.base import ExtractionConfig
-from digitex.extractors.exceptions import APIError, ModelNotFoundError
-from digitex.extractors.manual_extractor import ManualExtractor
+from digitex.extractors.exceptions import APIError, ModelNotFoundError, ReviewAborted
 from digitex.extractors.tests_extractor import TestsExtractor
 from digitex.extractors.utils import renumber_directory_tree
 from digitex.logging import setup_logging
@@ -51,21 +50,35 @@ def _extraction_config(settings: Settings) -> ExtractionConfig:
     )
 
 
-def _tests_extractor(settings: Settings) -> TestsExtractor:
+def _tests_extractor(
+    settings: Settings, subject: str = "", *, review: bool = False
+) -> TestsExtractor:
+    config = _extraction_config(settings)
+    book_extractor = None
+
+    if review:
+        # Reaching the reviewer means building the chain from the bottom, the
+        # same way a custom conflict resolver is threaded in. Imported here so
+        # a machine with no display can still run every other command.
+        from digitex.extractors.book_extractor import BookExtractor
+        from digitex.extractors.page_extractor import PageExtractor
+        from digitex.gui.page_review import TkPageReviewer
+
+        output_dir = settings.paths.extraction_output_dir
+        reviewer = TkPageReviewer(
+            subject=subject,
+            census=ImageCensus(output_dir),
+            validator=AnswerValidator(output_dir),
+        )
+        book_extractor = BookExtractor(
+            config, page_extractor=PageExtractor(config, on_review=reviewer)
+        )
+
     return TestsExtractor(
-        config=_extraction_config(settings),
+        config=config,
         books_dir=settings.paths.books_dir,
         extraction_dir=settings.paths.extraction_output_dir,
-    )
-
-
-def _manual_extractor(settings: Settings, manual_dir: Path) -> ManualExtractor:
-    return ManualExtractor(
-        image_format=settings.extraction.image_format,
-        question_max_width=settings.extraction.question_max_width,
-        question_max_height=settings.extraction.question_max_height,
-        manual_dir=manual_dir,
-        output_dir=settings.paths.extraction_output_dir,
+        book_extractor=book_extractor,
     )
 
 
@@ -100,17 +113,37 @@ SUBJECT_ARGUMENT = typer.Argument(help="Subject name (e.g., biology, chemistry)"
 
 
 @app.command(name="extract-questions")
-def extract_questions(subject: Annotated[str, SUBJECT_ARGUMENT]) -> None:
+def extract_questions(
+    subject: Annotated[str, SUBJECT_ARGUMENT],
+    review: Annotated[
+        bool,
+        typer.Option(
+            "--review",
+            help="Check every page in a window before its crops are saved",
+        ),
+    ] = False,
+) -> None:
     """Extract question images from a specific subject.
 
     SUBJECT is the name of the subject folder in the books directory.
+
+    With --review, each page opens in a window showing its detected polygons
+    and the option/part/number every question would be saved as. Correct them
+    with the mouse, then approve, skip the page, or abort the run. The window's
+    second tab carries the same counts and answer check the count-questions and
+    check-answers commands print.
     """
     try:
-        extractor = _tests_extractor(get_settings())
+        extractor = _tests_extractor(get_settings(), subject, review=review)
     except ModelNotFoundError as exc:
         raise _abort(f"✗ {exc}") from None
 
-    result = extractor.extract(subject=subject)
+    try:
+        result = extractor.extract(subject=subject)
+    except ReviewAborted as exc:
+        # Approved pages keep their images and the year stays unfinished, so
+        # re-running picks up where the reviewer left off.
+        raise _abort(f"✗ {exc}. Re-run to continue.") from None
 
     if not result.success:
         typer.echo(typer.style("✗ Extraction failed:", fg="red", bold=True), err=True)
@@ -198,48 +231,6 @@ def renumber_questions(
         typer.echo(f"Renamed {total} files successfully")
     else:
         typer.echo("All images are already sequential")
-
-
-@app.command(name="add-questions-manually")
-def add_questions_manually(
-    subject: Annotated[str, SUBJECT_ARGUMENT],
-    dry_run: Annotated[
-        bool, typer.Option("--dry-run", help="Preview changes without applying")
-    ] = False,
-) -> None:
-    """Add manually cropped question images for a specific subject.
-
-    Manual images should be placed in extraction/data/manual/{subject}/
-    with filename format: YYYY_OPTION_PART_QUESTION.png
-    Example: biology/2016_3_A_20.png
-    """
-    settings = get_settings()
-    manual_dir = settings.paths.extraction_manual_dir / subject
-
-    if not manual_dir.exists():
-        raise _abort(f"Error: Manual directory '{subject}' not found")
-
-    result = _manual_extractor(settings, manual_dir).extract(dry_run=dry_run)
-
-    if not result.success:
-        typer.echo(
-            typer.style("✗ Manual extraction failed:", fg="red", bold=True), err=True
-        )
-        _echo_errors(result.errors)
-        raise typer.Exit(code=1)
-
-    if dry_run:
-        typer.echo(
-            typer.style(
-                f"[DRY RUN] Would process {result.processed} files", fg="yellow"
-            )
-        )
-    else:
-        typer.echo(
-            typer.style(f"✓ Processed {result.processed} manual images", fg="green")
-        )
-    if result.failed:
-        typer.echo(typer.style(f"  Failed: {result.failed}", fg="red", bold=True))
 
 
 @app.command(name="extract-answers")

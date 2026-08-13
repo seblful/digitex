@@ -271,11 +271,6 @@ class PathsSettings(BaseSettings):
 
     @computed_field
     @cached_property
-    def extraction_manual_dir(self) -> Path:
-        return self.extraction_data_dir / "manual"
-
-    @computed_field
-    @cached_property
     def extraction_model_path(self) -> Path:
         return self.extraction_dir / "models" / "page.pt"
 

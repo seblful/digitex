@@ -134,11 +134,3 @@ class TestCheckAnswers:
         assert "CHECKING ANSWERS FOR: biology" in result.output
         assert "answers.json NOT FOUND" in result.output
         assert "issue(s) found" in result.output
-
-
-class TestAddQuestionsManually:
-    def test_missing_manual_directory_exits_nonzero(self, settings: Settings) -> None:
-        result = runner.invoke(extraction.app, ["add-questions-manually", "biology"])
-
-        assert result.exit_code == 1
-        assert "Manual directory" in result.output

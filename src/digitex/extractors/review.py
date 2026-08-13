@@ -1,0 +1,59 @@
+"""Checking a page's regions by hand before anything is cropped.
+
+A `PageReviewer` is a callable that, given what the extractor is about to do to
+one page, returns the version to actually carry out — or None to skip the page
+and write nothing. The default accepts the proposal untouched, so extraction
+without a reviewer behaves exactly as it did before there was one.
+
+The shape mirrors `conflict_resolution`: a type alias rather than a Protocol,
+because a callable is the smallest thing that expresses "given a page, approve
+it". The one interactive reviewer lives in `digitex.gui.page_review`; nothing
+in this package imports it, so the extractors stay free of any GUI toolkit.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from PIL import Image
+
+    from digitex.extractors.placement import PageExtractionState, PageRegion
+
+
+@dataclass(frozen=True)
+class PageProposal:
+    """What the extractor is about to write for one page, before it writes it.
+
+    ``regions`` and ``state`` are the extractor's own objects: a reviewer that
+    edits them in place and approves gets exactly that written. One that means
+    to skip should leave them alone. ``output_dir`` is the year directory the
+    crops land in, which is also what a reviewer counts to show its progress.
+    """
+
+    image: Image.Image
+    regions: list[PageRegion]
+    state: PageExtractionState
+    output_dir: Path
+    page_name: str = ""
+
+
+@dataclass(frozen=True)
+class ReviewedPage:
+    """A reviewer's verdict: what to write, and where to start numbering it."""
+
+    regions: list[PageRegion]
+    state: PageExtractionState
+
+
+PageReviewer = Callable[[PageProposal], "ReviewedPage | None"]
+"""Approve a page as-is, hand back a corrected one, or return None to skip it."""
+
+
+def accept_page(proposal: PageProposal) -> ReviewedPage:
+    """Default reviewer: take the proposal as it stands, no interaction."""
+    return ReviewedPage(regions=proposal.regions, state=proposal.state)
