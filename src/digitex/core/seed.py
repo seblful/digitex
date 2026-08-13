@@ -1,43 +1,29 @@
-"""Populate the database from extraction output.
+"""Load extraction output into the database.
 
-Runs ``alembic upgrade head`` before populating so the schema is always at the
-latest revision. Idempotent — safe to re-run.
+The on-disk corpus (``{subject}/{year}/{option}/{part}/{n}.png`` plus its
+``answers.json`` and ``topic_to_year.json``) becomes rows. Every write goes
+through ``get_or_create``, so a re-run of the same output is a no-op rather
+than a duplicate — which is what makes re-seeding after new extractions safe.
 
-Usage::
-
-    uv run python scripts/populate_db.py              # all subjects
-    uv run python scripts/populate_db.py biology      # single subject
-    uv run python scripts/populate_db.py --help
+The caller supplies the pool and the output directory; migrating the schema
+first is :mod:`digitex.cli.db`'s job.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
-import sys
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING
 
-import typer
-from alembic import command
-from alembic.config import Config
 from tqdm import tqdm
 
-from digitex.config import BASE_DIR, get_settings
 from digitex.core.corpus import question_image_number
-from digitex.core.db import UnitOfWork, null_pool_lifespan
+from digitex.core.db import UnitOfWork
 from digitex.core.domain import QuestionKey, exam_type_for, parse_exam_type
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-app = typer.Typer(help="Load extraction output into the database.")
-
-
-def _abort(message: str) -> typer.Exit:
-    """Render *message* on stderr and return the exit to raise."""
-    typer.echo(typer.style(message, fg="red", bold=True), err=True)
-    return typer.Exit(code=1)
-
+    from psycopg_pool import AsyncConnectionPool
 
 SUBJECT_NAMES = {
     "biology": "Биология",
@@ -53,14 +39,6 @@ SUBJECT_NAMES = {
 def get_subject_name(subject: str) -> str:
     """Translate subject name to Russian if mapping exists."""
     return SUBJECT_NAMES.get(subject.lower(), subject.capitalize())
-
-
-def _alembic_upgrade() -> None:
-    # BASE_DIR, not this file's parent: alembic.ini and migrations/ ship with
-    # the package, wherever the process happens to be running from.
-    cfg = Config(str(BASE_DIR / "alembic.ini"))
-    cfg.set_main_option("script_location", str(BASE_DIR / "migrations"))
-    command.upgrade(cfg, "head")
 
 
 async def _populate_year(
@@ -133,7 +111,9 @@ async def _populate_year(
     return questions_loaded, answers_loaded
 
 
-async def _populate_topics(pool, subject_id: int, subject_dir: Path) -> int:
+async def _populate_topics(
+    pool: AsyncConnectionPool, subject_id: int, subject_dir: Path
+) -> int:
     """Populate question_topics from topic_to_year.json. Returns mapping count."""
     topics_file = subject_dir / "topic_to_year.json"
     if not topics_file.exists():
@@ -173,7 +153,10 @@ async def _populate_topics(pool, subject_id: int, subject_dir: Path) -> int:
         return await uow.questions.count_topics()
 
 
-async def populate_subject(pool, output_dir: Path, subject: str) -> None:
+async def populate_subject(
+    pool: AsyncConnectionPool, output_dir: Path, subject: str
+) -> None:
+    """Load one subject's years, then its topic mappings."""
     subject_dir = output_dir / subject
     if not subject_dir.exists():
         print(f"Not found: {subject_dir}")
@@ -202,41 +185,18 @@ async def populate_subject(pool, output_dir: Path, subject: str) -> None:
         print(f"  {topic_count} topic mappings loaded")
 
 
-async def _amain(subject: str | None) -> None:
-    _alembic_upgrade()
-
-    settings = get_settings()
-    output_dir = settings.paths.extraction_output_dir
-
-    if not output_dir.exists():
-        raise _abort(f"Extraction output not found: {output_dir}")
-
-    async with null_pool_lifespan(settings.database) as pool:
-        if subject is not None:
-            await populate_subject(pool, output_dir, subject)
-        else:
-            subjects = sorted(d.name for d in output_dir.iterdir() if d.is_dir())
-            if not subjects:
-                typer.echo("No subjects found in extraction output.")
-                return
-            for name in subjects:
-                await populate_subject(pool, output_dir, name)
-
-    typer.echo("\nDone.")
-
-
-@app.command()
-def populate(
-    subject: Annotated[
-        str | None,
-        typer.Argument(help="Subject to load; omit to load every subject"),
-    ] = None,
+async def populate(
+    pool: AsyncConnectionPool, output_dir: Path, subject: str | None = None
 ) -> None:
-    """Load extraction output into the database, migrating the schema first."""
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    asyncio.run(_amain(subject))
+    """Load *subject* from *output_dir*, or every subject found there."""
+    if subject is not None:
+        await populate_subject(pool, output_dir, subject)
+        return
 
+    subjects = sorted(d.name for d in output_dir.iterdir() if d.is_dir())
+    if not subjects:
+        print("No subjects found in extraction output.")
+        return
 
-if __name__ == "__main__":
-    app()
+    for name in subjects:
+        await populate_subject(pool, output_dir, name)

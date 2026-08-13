@@ -39,7 +39,7 @@ def test_check_answer(
 class TestAMissingAnswerKeyMatchesNothing:
     """A question whose year shipped no answer key stores None for it.
 
-    ``scripts/populate_db.py`` loads such a question anyway, so its image is
+    ``digitex-db populate`` loads such a question anyway, so its image is
     servable — which is only safe if nothing a Student can send scores right
     against it, in either part.
     """

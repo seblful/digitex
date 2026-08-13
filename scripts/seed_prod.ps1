@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Wraps the manual flow from docs/production.md: opens an SSH tunnel to the
-    VPS's Postgres, runs populate_db.py through it (which migrates first), then
+    VPS's Postgres, runs digitex-db populate through it (which migrates first), then
     closes the tunnel. Idempotent - re-running is safe.
 
     Question images live only on this machine (extraction/data/ is gitignored),
@@ -62,7 +62,7 @@ if (Test-PortOpen -Port $LocalPort) {
     throw "Local port $LocalPort is already in use - pass a free -LocalPort."
 }
 
-# populate_db.py resolves extraction output relative to the working directory.
+# uv needs the project root to resolve the digitex-db entry point.
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $repoRoot
 
@@ -92,13 +92,13 @@ try {
     # config.py loads .env with override=False, so this wins over any local DSN.
     $env:DATABASE_URL = "postgresql://${DbUser}:${DbPassword}@127.0.0.1:${LocalPort}/${DbName}"
 
-    $seedArgs = @('run', 'python', 'scripts/populate_db.py')
+    $seedArgs = @('run', 'digitex-db', 'populate')
     if ($Subject) { $seedArgs += $Subject }
 
     Write-Host 'seeding (migrations run first) ...' -ForegroundColor Cyan
     & uv @seedArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "populate_db.py failed with exit code $LASTEXITCODE."
+        throw "digitex-db populate failed with exit code $LASTEXITCODE."
     }
     Write-Host 'done.' -ForegroundColor Green
 } finally {
