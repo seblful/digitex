@@ -5,6 +5,11 @@ so it can be exercised without loading a model. ``YOLO_SegmentationPredictor``
 adds the lazily loaded model and nothing else.
 """
 
+import os
+import pathlib
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -21,6 +26,44 @@ logger = structlog.get_logger()
 
 # Douglas-Peucker tolerance, in source-image pixels.
 SIMPLIFY_EPSILON = 3.0
+
+
+# Where a pickle can name the concrete path classes. 3.13 moved them into
+# ``pathlib._local`` and re-exported them, and a checkpoint names whichever
+# module the Python that wrote it called home — so both spellings must answer.
+_PATH_MODULES = ("pathlib", "pathlib._local")
+
+
+@contextmanager
+def foreign_paths_readable() -> Iterator[None]:
+    """Let a checkpoint pickled on another platform unpickle on this one.
+
+    A YOLO checkpoint carries the paths of the run that produced it, and
+    pickle rebuilds each one by calling the class it was saved as. A
+    ``PosixPath`` cannot be instantiated on Windows, so a model trained on
+    Linux fails to load here with "cannot instantiate 'PosixPath' on your
+    system" — before a single image is looked at.
+
+    Nothing in inference reads those paths, so pointing the name at the local
+    flavour for the duration of the load is enough. Only the direction that is
+    actually broken is patched: ``Path`` picks the *local* class, so the name
+    being redirected is never the one it resolves to.
+    """
+    foreign = "PosixPath" if os.name == "nt" else "WindowsPath"
+    patched = [
+        module
+        for name in _PATH_MODULES
+        if (module := sys.modules.get(name)) is not None and hasattr(module, foreign)
+    ]
+    originals = [getattr(module, foreign) for module in patched]
+
+    for module in patched:
+        setattr(module, foreign, pathlib.Path)
+    try:
+        yield
+    finally:
+        for module, original in zip(patched, originals, strict=True):
+            setattr(module, foreign, original)
 
 
 def _simplify(polygon: PixelPolygon, epsilon: float = SIMPLIFY_EPSILON) -> PixelPolygon:
@@ -130,7 +173,8 @@ class YOLO_SegmentationPredictor:
                 if not model_path.is_absolute():
                     model_path = Path.cwd() / model_path
                 model_str = str(model_path.resolve())
-                self._model = YOLO(model_str, verbose=False)
+                with foreign_paths_readable():
+                    self._model = YOLO(model_str, verbose=False)
                 logger.info("Model loaded successfully", model_path=self.model_path)
             except Exception as e:
                 raise RuntimeError(

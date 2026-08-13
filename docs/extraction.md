@@ -169,6 +169,12 @@ path with no environment variable of its own. Pointing `PATH_ROOT_DIR` at a
 scratch corpus is how you try a run without touching the real tree; it moves
 the books, the model and the output together.
 
+A checkpoint carries the paths of the run that trained it, so one trained on
+Linux used to fail to load on Windows with `cannot instantiate 'PosixPath'`
+before a single page was read. Those paths mean nothing to inference, so the
+predictor now maps them onto the local kind while the model loads — a model
+trains on either platform and runs on both.
+
 ## Progress Tracking
 
 Progress is automatically tracked in `extraction/data/progress.json`:
@@ -190,7 +196,6 @@ Common errors and solutions:
 | No images folder | Create `books/{subject}/images/` |
 | API key not set | Set `OPENROUTER_API_KEY` environment variable |
 | Model not found | Put it at `{PATH_ROOT_DIR}/extraction/models/page.pt` |
-| `cannot instantiate 'PosixPath'` | The model was trained on Linux and cannot be unpickled on Windows — retrain, convert it, or use one trained here |
 
 ## Best Practices
 

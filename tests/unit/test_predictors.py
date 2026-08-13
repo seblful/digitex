@@ -8,6 +8,9 @@ class map as an argument, so exercising it needs no model at all.
 
 from __future__ import annotations
 
+import os
+import pathlib
+import pickle
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import patch
@@ -17,7 +20,11 @@ import pytest
 from PIL import Image
 from structlog.testing import capture_logs
 
-from digitex.ml.predictors import YOLO_SegmentationPredictor, detections_from
+from digitex.ml.predictors import (
+    YOLO_SegmentationPredictor,
+    detections_from,
+    foreign_paths_readable,
+)
 
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
@@ -25,6 +32,22 @@ if TYPE_CHECKING:
 
     from ultralytics import YOLO
     from ultralytics.engine.results import Results
+
+
+_FOREIGN = "PosixPath" if os.name == "nt" else "WindowsPath"
+
+# Where a checkpoint can name the class, depending on the Python that wrote it.
+_SPELLINGS = ("pathlib", "pathlib._local")
+
+
+def _foreign_path_payload(module: str) -> bytes:
+    """A pickle that rebuilds a path by calling ``module.PosixPath("runs")``.
+
+    Written out as protocol-0 opcodes rather than pickled from a real object,
+    because a real one cannot be built on this platform — which is the very
+    problem under test. Nothing here is read from disk or from a caller.
+    """
+    return f"c{module}\n{_FOREIGN}\n(S'runs'\ntR.".encode()
 
 
 class _Scalar:
@@ -125,6 +148,60 @@ class TestYOLOSegmentationPredictorModelLoading:
             pytest.raises(RuntimeError, match="Failed to load model"),
         ):
             _ = predictor.model
+
+
+class TestForeignPathsReadable:
+    """A checkpoint pickled on the other kind of platform still has to load."""
+
+    @pytest.mark.parametrize("module", _SPELLINGS)
+    def test_a_foreign_path_can_be_unpickled_inside(self, module: str) -> None:
+        """The failure this exists for: a Linux-trained model, loaded here.
+
+        The checkpoint holds the training run's directory, which pickle
+        rebuilds by calling the class it was saved as — and that class refuses
+        to instantiate on the other platform. Which module it names depends on
+        the Python that trained the model, so both are covered.
+        """
+        payload = _foreign_path_payload(module)
+
+        with pytest.raises(NotImplementedError):
+            pickle.loads(payload)
+
+        with foreign_paths_readable():
+            restored = pickle.loads(payload)
+
+        assert restored.name == "runs"
+
+    def test_the_name_is_put_back_afterwards(self) -> None:
+        original = getattr(pathlib, _FOREIGN)
+
+        with foreign_paths_readable():
+            assert getattr(pathlib, _FOREIGN) is not original
+
+        assert getattr(pathlib, _FOREIGN) is original
+
+    def test_the_name_is_put_back_after_a_failed_load(self) -> None:
+        original = getattr(pathlib, _FOREIGN)
+
+        with pytest.raises(RuntimeError), foreign_paths_readable():
+            raise RuntimeError("corrupt checkpoint")
+
+        assert getattr(pathlib, _FOREIGN) is original
+
+    def test_a_model_is_loaded_with_the_names_patched(self, tmp_path: Path) -> None:
+        """The guard is worth nothing if the load happens outside it."""
+        model_path = tmp_path / "model.pt"
+        model_path.touch()
+        predictor = YOLO_SegmentationPredictor(model_path=str(model_path))
+        seen: list[object] = []
+
+        with patch(
+            "digitex.ml.predictors.YOLO",
+            side_effect=lambda *_a, **_k: seen.append(getattr(pathlib, _FOREIGN)),
+        ):
+            _ = predictor.model
+
+        assert seen == [pathlib.Path]
 
 
 class TestDetectionsFrom:
