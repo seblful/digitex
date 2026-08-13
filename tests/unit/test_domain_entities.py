@@ -1,4 +1,12 @@
-"""Tests for the domain models and value objects in ``digitex.domain.entities``."""
+"""Tests for the domain types in ``digitex.domain.entities``.
+
+What is worth pinning here is the domain's own rules: which values a field is
+allowed to take, what a record looks like before anything has happened to it,
+and the CE/CT rule that decides which exam an option belongs to. Field
+round-trips through Pydantic are not — those check the library, not the domain.
+"""
+
+from __future__ import annotations
 
 from datetime import UTC, datetime
 
@@ -6,136 +14,74 @@ import pytest
 from pydantic import ValidationError
 
 from digitex.domain.entities import (
+    OPTIONS_PER_BOOK,
     Question,
     QuestionKey,
-    Session,
     Student,
     TestResult,
     exam_type_for,
+    normalize_option_number,
+    parse_exam_type,
     year_has_exam_types,
 )
 
 
 class TestStudent:
-    def test_a_student_who_has_not_applied_yet(self) -> None:
+    def test_a_student_who_has_not_applied_yet_carries_no_application(self) -> None:
+        """``full_name`` is what they typed when applying, so it is None until then.
+
+        The schema mirrors this as a CHECK: a decision without an application
+        is a state the database refuses too.
+        """
         student = Student(
             telegram_id=12345,
             telegram_name="John",
             status="pending",
             created_at=datetime.now(UTC),
         )
-        assert student.telegram_id == 12345
-        assert student.telegram_name == "John"
-        assert student.telegram_username is None
+
         assert student.full_name is None
+        assert student.telegram_username is None
         assert student.handled_at is None
         assert student.handled_by is None
 
-    def test_a_student_carries_their_application_and_its_decision(self) -> None:
-        handled_at = datetime.now(UTC)
-        student = Student(
-            telegram_id=67890,
-            telegram_name="Jane",
-            telegram_username="jane_doe",
-            full_name="Jane Doe",
-            status="approved",
-            created_at=datetime.now(UTC),
-            handled_at=handled_at,
-            handled_by=1,
-        )
-        assert student.telegram_username == "jane_doe"
-        assert student.full_name == "Jane Doe"
-        assert student.status == "approved"
-        assert student.handled_at == handled_at
-        assert student.handled_by == 1
-
-    def test_student_missing_required_fields(self) -> None:
-        with pytest.raises(ValidationError):
-            Student()  # type: ignore
-        with pytest.raises(ValidationError):
-            Student(telegram_id=1, telegram_name="John")  # type: ignore
-
-    def test_student_invalid_status(self) -> None:
+    @pytest.mark.parametrize(
+        "status", ["maybe", "APPROVED", ""], ids=["unknown", "wrong-case", "empty"]
+    )
+    def test_only_the_three_registration_states_are_accepted(self, status: str) -> None:
         with pytest.raises(ValidationError):
             Student(
                 telegram_id=1,
                 telegram_name="John",
-                status="maybe",  # type: ignore
+                status=status,  # ty: ignore[invalid-argument-type]
                 created_at=datetime.now(UTC),
             )
 
 
 class TestQuestion:
-    def test_valid_question(self) -> None:
-        q = Question(
-            question_id=1,
-            part="A",
-            question_number=5,
-            image_key="biology/2016/1/A/5.jpg",
-        )
-        assert q.question_id == 1
-        assert q.part == "A"
-        assert q.question_number == 5
-        assert q.image_key == "biology/2016/1/A/5.jpg"
-        assert q.telegram_file_id is None
-
-    def test_question_with_optional_fields(self) -> None:
-        q = Question(
-            question_id=2,
-            part="B",
-            question_number=10,
-            image_key="biology/2016/1/B/10.jpg",
-            telegram_file_id="AgAC...",
-        )
-        assert q.telegram_file_id == "AgAC..."
-
-    def test_question_invalid_part(self) -> None:
+    @pytest.mark.parametrize(
+        "part", ["C", "a", ""], ids=["unknown", "lowercase", "empty"]
+    )
+    def test_a_question_belongs_to_part_a_or_part_b(self, part: str) -> None:
         with pytest.raises(ValidationError):
             Question(
                 question_id=1,
-                part="C",  # type: ignore
+                part=part,  # ty: ignore[invalid-argument-type]
                 question_number=1,
                 image_key="biology/2016/1/A/1.jpg",
             )
 
+    def test_a_question_starts_with_nothing_cached(self) -> None:
+        """The file_id is filled in by the first upload, not by the corpus."""
+        question = Question(question_id=1, part="A", question_number=5)
 
-class TestSession:
-    def test_valid_session(self) -> None:
-        now = datetime.now(UTC)
-        session = Session(
-            session_id=1,
-            student_telegram_id=42,
-            option_id=3,
-            started_at=now,
-        )
-        assert session.session_id == 1
-        assert session.student_telegram_id == 42
-        assert session.option_id == 3
-        assert session.started_at == now
-        assert session.completed_at is None
-
-    def test_session_with_completed_at(self) -> None:
-        now = datetime.now(UTC)
-        later = datetime.now(UTC)
-        session = Session(
-            session_id=2,
-            student_telegram_id=99,
-            option_id=1,
-            started_at=now,
-            completed_at=later,
-        )
-        assert session.completed_at == later
-
-    def test_session_missing_required_fields(self) -> None:
-        with pytest.raises(ValidationError):
-            Session()  # type: ignore
-        with pytest.raises(ValidationError):
-            Session(session_id=1)  # type: ignore
+        assert question.telegram_file_id is None
+        assert question.image_key is None
 
 
 class TestTestResult:
-    def test_valid_test_result(self) -> None:
-        now = datetime.now(UTC)
+    def test_a_result_is_a_ct_result_unless_it_says_otherwise(self) -> None:
+        """Most of the corpus predates the CE/CT split, so CT is the default."""
         result = TestResult(
             session_id=1,
             part_a_score=8,
@@ -143,74 +89,48 @@ class TestTestResult:
             total_score=15,
             max_score=20,
             time_spent=1200.0,
-            completed_at=now,
+            completed_at=datetime.now(UTC),
         )
-        assert result.session_id == 1
+
         assert result.exam_type == "CT"
-        assert result.part_a_score == 8
-        assert result.part_b_score == 7
-        assert result.total_score == 15
-        assert result.max_score == 20
-        assert result.time_spent == 1200.0
-        assert result.completed_at == now
-
-    def test_test_result_custom_exam_type(self) -> None:
-        now = datetime.now(UTC)
-        result = TestResult(
-            session_id=2,
-            exam_type="CE",
-            part_a_score=10,
-            part_b_score=10,
-            total_score=20,
-            max_score=20,
-            time_spent=600.0,
-            completed_at=now,
-        )
-        assert result.exam_type == "CE"
-
-    def test_test_result_missing_required_fields(self) -> None:
-        with pytest.raises(ValidationError):
-            TestResult(session_id=1)  # type: ignore
 
 
 class TestQuestionKey:
-    def test_valid_question_key(self) -> None:
-        key = QuestionKey(part="A", number=1)
-        assert key.part == "A"
-        assert key.number == 1
-
-    def test_question_key_string_representation(self) -> None:
+    def test_a_key_renders_as_it_is_written_in_answers_json(self) -> None:
         assert str(QuestionKey(part="A", number=1)) == "A1"
         assert str(QuestionKey(part="B", number=12)) == "B12"
 
-    def test_question_key_parse(self) -> None:
-        key = QuestionKey.parse("B5")
-        assert key.part == "B"
-        assert key.number == 5
-
-        key = QuestionKey.parse(" a3 ")
-        assert key.part == "A"
-        assert key.number == 3
+    @pytest.mark.parametrize(
+        "raw", ["B5", " b5 ", "b5"], ids=["plain", "padded", "lowercase"]
+    )
+    def test_parsing_tolerates_case_and_padding(self, raw: str) -> None:
+        assert QuestionKey.parse(raw) == QuestionKey(part="B", number=5)
 
     @pytest.mark.parametrize(
         ("raw", "part"),
         [("А1", "A"), ("В2", "B"), ("а3", "A")],
         ids=["cyrillic-a", "cyrillic-ve", "lowercase-cyrillic-a"],
     )
-    def test_parse_accepts_cyrillic_part_letters(self, raw: str, part: str) -> None:
-        """Hand-typed keys in a Russian corpus carry Cyrillic А/В."""
+    def test_parsing_accepts_cyrillic_part_letters(self, raw: str, part: str) -> None:
+        """Hand-typed keys in a Russian corpus carry Cyrillic А/В.
+
+        On screen they are indistinguishable from Latin A/B, so without the
+        fold a hand-corrected answers.json rejects every key in it.
+        """
         assert QuestionKey.parse(raw).part == part
 
     @pytest.mark.parametrize(
-        "raw", ["", "C1", "A"], ids=["empty", "bad-part", "no-number"]
+        "raw",
+        ["", "C1", "A", "1A", "A1B"],
+        ids=["empty", "bad-part", "no-number", "reversed", "trailing-letter"],
     )
-    def test_question_key_parse_invalid(self, raw: str) -> None:
+    def test_anything_but_part_plus_number_is_refused(self, raw: str) -> None:
         with pytest.raises(ValueError, match="Invalid question key"):
             QuestionKey.parse(raw)
 
 
 class TestExamTypeRule:
-    """The CE/CT exam-type domain rule."""
+    """Which exam an option belongs to — the CE/CT split introduced in 2023."""
 
     def test_years_before_2023_are_ct_only(self) -> None:
         assert year_has_exam_types(2022) is False
@@ -228,3 +148,35 @@ class TestExamTypeRule:
     def test_options_above_five_are_ct(self) -> None:
         assert exam_type_for(2023, 6) == "CT"
         assert exam_type_for(2023, 10) == "CT"
+
+
+class TestParseExamType:
+    @pytest.mark.parametrize("raw", ["CE", "CT"])
+    def test_the_two_exam_types_narrow_to_themselves(self, raw: str) -> None:
+        assert parse_exam_type(raw) == raw
+
+    @pytest.mark.parametrize(
+        "raw", ["ce", "ЦТ", "", "CX"], ids=["lowercase", "cyrillic", "empty", "unknown"]
+    )
+    def test_anything_else_is_refused(self, raw: str) -> None:
+        """The narrowing is what lets callers treat the result as an ExamType."""
+        with pytest.raises(ValueError, match="Unknown exam type"):
+            parse_exam_type(raw)
+
+
+class TestNormalizeOptionNumber:
+    @pytest.mark.parametrize(
+        ("raw", "folded"),
+        [(1, 1), (10, 10), (11, 1), (20, 10), (31, 1), (40, 10)],
+        ids=["1", "10", "11-to-1", "20-to-10", "31-to-1", "40-to-10"],
+    )
+    def test_every_block_of_ten_is_the_same_ten_options(
+        self, raw: int, folded: int
+    ) -> None:
+        """Sheets number options 1-10, then 11-20 — 11 and 21 both mean Option 1."""
+        assert normalize_option_number(raw) == folded
+
+    def test_the_fold_never_leaves_the_books_option_range(self) -> None:
+        assert {normalize_option_number(n) for n in range(1, 101)} == set(
+            range(1, OPTIONS_PER_BOOK + 1)
+        )

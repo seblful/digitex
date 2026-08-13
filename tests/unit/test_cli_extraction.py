@@ -31,9 +31,9 @@ runner = CliRunner()
 def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
     """A Settings rooted in tmp_path, installed for the CLI's get_settings.
 
-    Every value a test asserts on is set here rather than inherited: something
-    earlier in the session may have called ``Settings.load()``, which pulls the
-    developer's ``.env`` into ``os.environ`` where pydantic-settings finds it.
+    Every value a test asserts on is set here rather than defaulted, so the
+    paths point somewhere disposable. ``conftest`` keeps the environment out of
+    it; this fixture decides what goes in.
     """
     resolved = Settings(
         paths=PathsSettings(data_root=tmp_path),

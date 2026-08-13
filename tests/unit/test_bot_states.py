@@ -1,41 +1,46 @@
-"""Tests for bot FSM states."""
+"""Tests for the bot's FSM state groups.
 
-from aiogram.fsm.state import State
+aiogram routes an update by the *name* a state resolves to, so the one thing
+worth pinning is that no two states share one. ``Testing`` and ``RandomTesting``
+both declare ``answering``: were the group prefix ever dropped, a random-mode
+reply would match the standard-mode handler and be scored against a question
+from a different round.
 
-from digitex.bot.states import Navigation, RandomTesting, Testing
+That the declarations are ``State`` objects is guaranteed by ``StatesGroup``
+itself, so there is nothing to check there.
+"""
 
+from __future__ import annotations
 
-class TestNavigationStates:
-    def test_all_states_are_states(self) -> None:
-        assert isinstance(Navigation.select_subject, State)
-        assert isinstance(Navigation.select_mode, State)
-        assert isinstance(Navigation.select_year, State)
-        assert isinstance(Navigation.select_exam_type, State)
-        assert isinstance(Navigation.select_option, State)
-        assert isinstance(Navigation.select_random_part, State)
-        assert isinstance(Navigation.select_random_exam_type, State)
-        assert isinstance(Navigation.select_topic, State)
+from typing import TYPE_CHECKING
 
-    def test_states_are_distinct(self) -> None:
-        states = {
-            Navigation.select_subject,
-            Navigation.select_mode,
-            Navigation.select_year,
-            Navigation.select_exam_type,
-            Navigation.select_option,
-            Navigation.select_random_part,
-            Navigation.select_random_exam_type,
-            Navigation.select_topic,
-        }
-        assert len(states) == 8
+from digitex.bot.states import Navigation, RandomTesting, Registration, Testing
+
+if TYPE_CHECKING:
+    from aiogram.fsm.state import State, StatesGroup
+
+GROUPS: tuple[type[StatesGroup], ...] = (
+    Registration,
+    Navigation,
+    Testing,
+    RandomTesting,
+)
 
 
-class TestTestingStates:
-    def test_answering_is_state(self) -> None:
-        assert isinstance(Testing.answering, State)
+def _states() -> list[State]:
+    return [state for group in GROUPS for state in group.__all_states__]
 
 
-class TestRandomTestingStates:
-    def test_states_are_distinct(self) -> None:
-        states = {RandomTesting.answering, RandomTesting.feedback}
-        assert len(states) == 2
+class TestStateNames:
+    def test_the_sweep_found_every_group(self) -> None:
+        """Guard the guard: a group left out of GROUPS would not be checked."""
+        assert len(_states()) == 12
+
+    def test_no_two_states_resolve_to_the_same_name(self) -> None:
+        names = [state.state for state in _states()]
+
+        assert len(set(names)) == len(names), f"duplicate state name in {names}"
+
+    def test_the_two_answering_states_stay_apart(self) -> None:
+        """The collision the group prefix exists to prevent, pinned by name."""
+        assert Testing.answering.state != RandomTesting.answering.state

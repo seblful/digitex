@@ -1,11 +1,56 @@
-"""Tests for the Creators module."""
+"""Tests for the training pool — the book pages copied out for annotation.
 
-from pathlib import Path
+Both entry points (``create``, which samples a books tree, and
+``add_from_file``, which takes a hand-written list) funnel into the same
+per-page save, so what each page is worth is the same question either way:
+saved, already there, or a path the corpus layout does not recognize.
+
+``create`` samples at random, so tests that assert on a particular output file
+offer exactly one page to choose from.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import pytest
 from PIL import Image
 
 from digitex.pipeline.training_pool import PageDataCreator, PageOutcome
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+def _page(
+    root: Path,
+    rel: str,
+    *,
+    size: tuple[int, int] = (400, 400),
+    mode: str = "RGB",
+) -> Path:
+    """Write one page image at *rel* under *root*, creating its parents."""
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new(mode, size, "red").save(path)
+    return path
+
+
+@pytest.fixture
+def books_dir(tmp_path: Path) -> Path:
+    return tmp_path / "books"
+
+
+@pytest.fixture
+def output_dir(tmp_path: Path) -> Path:
+    out = tmp_path / "output"
+    out.mkdir(parents=True)
+    return out
+
+
+@pytest.fixture
+def creator() -> PageDataCreator:
+    return PageDataCreator(image_size=100)
 
 
 class TestSaveOutcome:
@@ -15,20 +60,11 @@ class TestSaveOutcome:
     an operator read the total as "already added".
     """
 
-    def _page(self, tmp_path: Path, rel: str) -> Path:
-        page = tmp_path / rel
-        page.parent.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (10, 10), "white").save(page)
-        return page
-
     def test_an_unrecognized_path_is_counted_apart_from_an_existing_one(
-        self, tmp_path: Path
+        self, tmp_path: Path, output_dir: Path, creator: PageDataCreator
     ) -> None:
-        recognized = self._page(tmp_path, "books/biology/images/2016/1.jpg")
-        unrecognized = self._page(tmp_path, "scans/2016/1.jpg")
-        output_dir = tmp_path / "out"
-        output_dir.mkdir()
-        creator = PageDataCreator(image_size=64)
+        recognized = _page(tmp_path, "books/biology/images/2016/1.jpg")
+        unrecognized = _page(tmp_path, "scans/2016/1.jpg")
 
         first = creator._save_images([recognized], output_dir, "t")
         again = creator._save_images([recognized, unrecognized], output_dir, "t")
@@ -38,115 +74,173 @@ class TestSaveOutcome:
         assert again[PageOutcome.UNRECOGNIZED_PATH] == 1
         assert again[PageOutcome.SAVED] == 0
 
-    def test_a_directory_path_is_unrecognized_not_a_crash(self, tmp_path: Path) -> None:
+    def test_a_directory_path_is_unrecognized_not_a_crash(
+        self, tmp_path: Path, output_dir: Path, creator: PageDataCreator
+    ) -> None:
         """``books/biology/images`` passes an exists() check and used to raise."""
         directory = tmp_path / "books" / "biology" / "images"
         directory.mkdir(parents=True)
-        output_dir = tmp_path / "out"
-        output_dir.mkdir()
 
-        counts = PageDataCreator(image_size=64)._save_images(
-            [directory], output_dir, "t"
-        )
+        counts = creator._save_images([directory], output_dir, "t")
 
         assert counts[PageOutcome.UNRECOGNIZED_PATH] == 1
 
 
-class TestPageDataCreator:
-    """Test suite for PageDataCreator class."""
+class TestCreate:
+    def test_a_page_is_named_for_the_book_it_came_from(
+        self, books_dir: Path, output_dir: Path, creator: PageDataCreator
+    ) -> None:
+        """The pool is flat, so subject and year have to survive in the name."""
+        _page(books_dir, "math/images/2024/page1.jpg")
 
-    def test_page_data_creator_initialization(self) -> None:
-        """Test that PageDataCreator stores image_size."""
-        creator = PageDataCreator(image_size=640)
-        assert creator.image_size == 640
-
-    def test_create_resizes_images(self, tmp_path: Path) -> None:
-        """Test that images are resized to train_image_size."""
-        books_dir = tmp_path / "books"
-        subject_dir = books_dir / "math" / "images" / "2024"
-        subject_dir.mkdir(parents=True)
-        img = Image.new("RGB", (400, 400), color="red")
-        img.save(subject_dir / "page1.jpg")
-
-        output_dir = tmp_path / "output"
-        creator = PageDataCreator(image_size=100)
         creator.create(books_dir, output_dir, num_images=1)
 
-        output_file = output_dir / "math_2024_page1.jpg"
-        assert output_file.exists()
-        result_img = Image.open(output_file)
-        assert result_img.size == (100, 100)
+        assert (output_dir / "math_2024_page1.jpg").exists()
 
-    def test_create_raises_when_no_images(self, tmp_path: Path) -> None:
-        """Test that FileNotFoundError is raised when no images found."""
-        books_dir = tmp_path / "books"
-        books_dir.mkdir()
+    def test_pages_are_resized_to_the_training_size(
+        self, books_dir: Path, output_dir: Path, creator: PageDataCreator
+    ) -> None:
+        _page(books_dir, "math/images/2024/page1.jpg", size=(400, 400))
 
-        output_dir = tmp_path / "output"
-        creator = PageDataCreator(image_size=100)
-        with pytest.raises(FileNotFoundError):
-            creator.create(books_dir, output_dir, num_images=1)
+        creator.create(books_dir, output_dir, num_images=1)
 
-    def test_create_respects_num_images(self, tmp_path: Path) -> None:
-        """Test that exactly num_images are created."""
-        books_dir = tmp_path / "books"
-        subject_dir = books_dir / "math" / "images" / "2024"
-        subject_dir.mkdir(parents=True)
+        with Image.open(output_dir / "math_2024_page1.jpg") as saved:
+            assert saved.size == (100, 100)
 
+    def test_resizing_preserves_the_aspect_ratio(
+        self, books_dir: Path, output_dir: Path, creator: PageDataCreator
+    ) -> None:
+        """A squashed page would teach the model the wrong proportions."""
+        _page(books_dir, "math/images/2024/page1.jpg", size=(400, 200))
+
+        creator.create(books_dir, output_dir, num_images=1)
+
+        with Image.open(output_dir / "math_2024_page1.jpg") as saved:
+            assert saved.size == (100, 50)
+
+    def test_a_transparent_page_is_flattened_to_rgb(
+        self, books_dir: Path, output_dir: Path, creator: PageDataCreator
+    ) -> None:
+        """The pool is written as JPEG, which has no alpha channel to write."""
+        _page(books_dir, "math/images/2024/page1.png", mode="RGBA", size=(100, 100))
+
+        creator.create(books_dir, output_dir, num_images=1)
+
+        with Image.open(output_dir / "math_2024_page1.jpg") as saved:
+            assert saved.mode == "RGB"
+
+    def test_exactly_the_requested_number_is_taken(
+        self, books_dir: Path, output_dir: Path, creator: PageDataCreator
+    ) -> None:
         for i in range(5):
-            img = Image.new("RGB", (100, 100), color="red")
-            img.save(subject_dir / f"page{i}.jpg")
+            _page(books_dir, f"math/images/2024/page{i}.jpg", size=(100, 100))
 
-        output_dir = tmp_path / "output"
-        creator = PageDataCreator(image_size=100)
         creator.create(books_dir, output_dir, num_images=3)
 
-        output_files = list(output_dir.glob("*.jpg"))
-        assert len(output_files) == 3
+        assert len(list(output_dir.glob("*.jpg"))) == 3
 
-    def test_create_converts_to_rgb(self, tmp_path: Path) -> None:
-        """Test that RGBA images are converted to RGB."""
-        books_dir = tmp_path / "books"
-        subject_dir = books_dir / "math" / "images" / "2024"
-        subject_dir.mkdir(parents=True)
-        img = Image.new("RGBA", (100, 100), color="red")
-        img.save(subject_dir / "page1.png")
+    def test_asking_for_more_pages_than_exist_takes_them_all(
+        self, books_dir: Path, output_dir: Path, creator: PageDataCreator
+    ) -> None:
+        for i in range(2):
+            _page(books_dir, f"math/images/2024/page{i}.jpg", size=(100, 100))
 
-        output_dir = tmp_path / "output"
-        creator = PageDataCreator(image_size=100)
-        creator.create(books_dir, output_dir, num_images=1)
+        creator.create(books_dir, output_dir, num_images=99)
 
-        output_file = output_dir / "math_2024_page1.jpg"
-        result_img = Image.open(output_file)
-        assert result_img.mode == "RGB"
+        assert len(list(output_dir.glob("*.jpg"))) == 2
 
-    def test_create_preserves_aspect_ratio(self, tmp_path: Path) -> None:
-        """Test that aspect ratio is preserved when resizing."""
-        books_dir = tmp_path / "books"
-        subject_dir = books_dir / "math" / "images" / "2024"
-        subject_dir.mkdir(parents=True)
-        img = Image.new("RGB", (400, 200), color="red")
-        img.save(subject_dir / "page1.jpg")
+    def test_the_output_directory_is_created_when_missing(
+        self, books_dir: Path, tmp_path: Path, creator: PageDataCreator
+    ) -> None:
+        _page(books_dir, "math/images/2024/page1.jpg", size=(100, 100))
+        nested = tmp_path / "output" / "nested"
 
-        output_dir = tmp_path / "output"
-        creator = PageDataCreator(image_size=100)
-        creator.create(books_dir, output_dir, num_images=1)
+        creator.create(books_dir, nested, num_images=1)
 
-        output_file = output_dir / "math_2024_page1.jpg"
-        result_img = Image.open(output_file)
-        assert result_img.size == (100, 50)
+        assert (nested / "math_2024_page1.jpg").exists()
 
-    def test_create_output_dir_created(self, tmp_path: Path) -> None:
-        """Test that output directory is created if it doesn't exist."""
-        books_dir = tmp_path / "books"
-        subject_dir = books_dir / "math" / "images" / "2024"
-        subject_dir.mkdir(parents=True)
-        img = Image.new("RGB", (100, 100), color="red")
-        img.save(subject_dir / "page1.jpg")
+    def test_an_empty_books_tree_is_a_failure_not_an_empty_run(
+        self, books_dir: Path, output_dir: Path, creator: PageDataCreator
+    ) -> None:
+        """Silently producing nothing reads as "the pool is up to date"."""
+        books_dir.mkdir(parents=True)
 
-        output_dir = tmp_path / "output" / "nested"
-        creator = PageDataCreator(image_size=100)
-        creator.create(books_dir, output_dir, num_images=1)
+        with pytest.raises(FileNotFoundError, match="No images found"):
+            creator.create(books_dir, output_dir, num_images=1)
 
-        assert output_dir.exists()
+
+class TestAddFromFile:
+    """The hand-written list, whose paths nothing has validated."""
+
+    def test_the_listed_pages_are_added(
+        self,
+        tmp_path: Path,
+        books_dir: Path,
+        output_dir: Path,
+        creator: PageDataCreator,
+    ) -> None:
+        page = _page(books_dir, "math/images/2024/page1.jpg", size=(100, 100))
+        listing = tmp_path / "pages.txt"
+        listing.write_text(f"{page}\n", encoding="utf-8")
+
+        creator.add_from_file(listing, output_dir)
+
+        assert (output_dir / "math_2024_page1.jpg").exists()
+
+    def test_a_path_that_is_not_there_is_skipped_not_fatal(
+        self,
+        tmp_path: Path,
+        books_dir: Path,
+        output_dir: Path,
+        creator: PageDataCreator,
+    ) -> None:
+        """The list is typed by hand, so one bad line must not lose the rest."""
+        page = _page(books_dir, "math/images/2024/page1.jpg", size=(100, 100))
+        listing = tmp_path / "pages.txt"
+        listing.write_text(
+            f"{books_dir / 'math/images/2024/gone.jpg'}\n{page}\n", encoding="utf-8"
+        )
+
+        creator.add_from_file(listing, output_dir)
+
+        assert (output_dir / "math_2024_page1.jpg").exists()
         assert len(list(output_dir.glob("*.jpg"))) == 1
+
+    def test_a_blank_line_between_entries_is_ignored(
+        self,
+        tmp_path: Path,
+        books_dir: Path,
+        output_dir: Path,
+        creator: PageDataCreator,
+    ) -> None:
+        """It has to sit between two entries — the file's own ends are stripped."""
+        first = _page(books_dir, "math/images/2024/page1.jpg", size=(100, 100))
+        second = _page(books_dir, "math/images/2024/page2.jpg", size=(100, 100))
+        listing = tmp_path / "pages.txt"
+        listing.write_text(f"{first}\n\n   \n{second}\n", encoding="utf-8")
+
+        creator.add_from_file(listing, output_dir)
+
+        assert len(list(output_dir.glob("*.jpg"))) == 2
+
+    def test_an_empty_listing_writes_nothing(
+        self, tmp_path: Path, output_dir: Path, creator: PageDataCreator
+    ) -> None:
+        listing = tmp_path / "pages.txt"
+        listing.write_text("", encoding="utf-8")
+
+        creator.add_from_file(listing, output_dir)
+
+        assert list(output_dir.iterdir()) == []
+
+    def test_the_destination_is_created_when_missing(
+        self, tmp_path: Path, books_dir: Path, creator: PageDataCreator
+    ) -> None:
+        page = _page(books_dir, "math/images/2024/page1.jpg", size=(100, 100))
+        listing = tmp_path / "pages.txt"
+        listing.write_text(f"{page}\n", encoding="utf-8")
+        destination = tmp_path / "pool" / "nested"
+
+        creator.add_from_file(listing, destination)
+
+        assert (destination / "math_2024_page1.jpg").exists()
