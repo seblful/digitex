@@ -11,9 +11,12 @@ from digitex.config import (
     DataSettings,
     ExtractionSettings,
     LabelStudioSettings,
+    OpenRouterSettings,
     PathsSettings,
+    PipelineSettings,
     Settings,
     get_settings,
+    reset_settings_cache,
 )
 
 
@@ -177,10 +180,21 @@ class TestSettings:
         """Test that Settings composes all sub-settings correctly."""
         settings = Settings()
         assert isinstance(settings.database, DatabaseSettings)
-        assert isinstance(settings.data, DataSettings)
         assert isinstance(settings.paths, PathsSettings)
-        assert isinstance(settings.extraction, ExtractionSettings)
-        assert isinstance(settings.label_studio, LabelStudioSettings)
+        assert isinstance(settings.pipeline, PipelineSettings)
+
+    def test_pipeline_only_settings_sit_behind_pipeline(self) -> None:
+        """The groups no deployed code reads are grouped, not flat on Settings."""
+        settings = Settings()
+        assert isinstance(settings.pipeline.data, DataSettings)
+        assert isinstance(settings.pipeline.extraction, ExtractionSettings)
+        assert isinstance(settings.pipeline.label_studio, LabelStudioSettings)
+        assert isinstance(settings.pipeline.openrouter, OpenRouterSettings)
+
+        for name in ("data", "extraction", "label_studio", "openrouter"):
+            assert not hasattr(settings, name), (
+                f"{name} is still reachable flat on Settings"
+            )
 
     def test_settings_load_method(self) -> None:
         """Test Settings.load() class method."""
@@ -220,8 +234,14 @@ class TestGetSettings:
     def test_get_settings_has_all_categories(self) -> None:
         """Test that get_settings returns settings with all categories."""
         settings = get_settings()
-        assert hasattr(settings, "database")
-        assert hasattr(settings, "data")
-        assert hasattr(settings, "paths")
-        assert hasattr(settings, "extraction")
-        assert hasattr(settings, "label_studio")
+        for name in ("app", "bot", "database", "logging", "paths", "timezone"):
+            assert hasattr(settings, name)
+        assert hasattr(settings.pipeline, "extraction")
+        assert hasattr(settings.pipeline, "label_studio")
+
+    def test_reset_clears_the_cache(self) -> None:
+        """Tests that repoint the environment need the next call to re-read."""
+        first = get_settings()
+        reset_settings_cache()
+
+        assert get_settings() is not first

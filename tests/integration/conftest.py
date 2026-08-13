@@ -63,9 +63,9 @@ def pg_dsn() -> Iterator[str]:
     os.environ["DATABASE_URL"] = dsn
 
     # Clear cached settings so the new DSN is picked up.
-    from digitex import config as _settings_mod
+    from digitex.config import reset_settings_cache
 
-    _settings_mod._settings = None
+    reset_settings_cache()
 
     try:
         _run_migrations()
@@ -75,7 +75,7 @@ def pg_dsn() -> Iterator[str]:
             os.environ.pop("DATABASE_URL", None)
         else:
             os.environ["DATABASE_URL"] = prev_db_url
-        _settings_mod._settings = None
+        reset_settings_cache()
         container.stop()
 
 
@@ -84,9 +84,9 @@ def _external_dsn(dsn: str) -> Iterator[str]:
     prev_db_url = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = dsn
 
-    from digitex import config as _settings_mod
+    from digitex.config import reset_settings_cache
 
-    _settings_mod._settings = None
+    reset_settings_cache()
     try:
         _run_migrations()
         yield dsn
@@ -95,7 +95,7 @@ def _external_dsn(dsn: str) -> Iterator[str]:
             os.environ.pop("DATABASE_URL", None)
         else:
             os.environ["DATABASE_URL"] = prev_db_url
-        _settings_mod._settings = None
+        reset_settings_cache()
 
 
 def _run_migrations() -> None:

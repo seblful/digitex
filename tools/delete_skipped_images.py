@@ -91,8 +91,8 @@ def delete_skipped_images(
     """
     settings = get_settings()
     client = LabelStudioClient(
-        url=settings.label_studio.url,
-        api_key=settings.label_studio.api_key,
+        url=settings.pipeline.label_studio.url,
+        api_key=settings.pipeline.label_studio.api_key,
     )
 
     cancelled = _collect_cancelled(client, project_id)

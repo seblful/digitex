@@ -38,9 +38,9 @@ def _require_model(path: Path) -> Path:
 def _extraction_config(settings: Settings) -> ExtractionConfig:
     return ExtractionConfig(
         model_path=_require_model(settings.paths.extraction_model_path),
-        image_format=settings.extraction.image_format,
-        question_max_width=settings.extraction.question_max_width,
-        question_max_height=settings.extraction.question_max_height,
+        image_format=settings.pipeline.extraction.image_format,
+        question_max_width=settings.pipeline.extraction.question_max_width,
+        question_max_height=settings.pipeline.extraction.question_max_height,
     )
 
 
@@ -77,7 +77,7 @@ def _tests_extractor(
 
 
 def _answers_extractor(settings: Settings) -> AnswersExtractor:
-    api_key = settings.openrouter.api_key
+    api_key = settings.pipeline.openrouter.api_key
     if not api_key:
         raise APIError(
             service="OpenRouter",
@@ -85,8 +85,8 @@ def _answers_extractor(settings: Settings) -> AnswersExtractor:
         )
     return AnswersExtractor(
         api_key=api_key,
-        model=settings.openrouter.model,
-        base_url=settings.openrouter.base_url,
+        model=settings.pipeline.openrouter.model,
+        base_url=settings.pipeline.openrouter.base_url,
         books_dir=settings.paths.books_dir,
         output_dir=settings.paths.extraction_output_dir,
     )

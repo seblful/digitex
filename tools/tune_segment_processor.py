@@ -21,8 +21,8 @@ LABEL_MARGIN = 280
 ROW_PADDING = 4
 
 PAGES: list[Path] = [
-    Path("books/biology/images/2016/30.jpg"),
-    Path("books/biology/images/2024/10.jpg"),
+    Path("var/books/biology/images/2016/30.jpg"),
+    Path("var/books/biology/images/2024/10.jpg"),
 ]
 
 
@@ -123,7 +123,7 @@ def tune(
     settings = get_settings()
     model_path = settings.paths.extraction_model_path
     if output_dir is None:
-        output_dir = Path("extraction/tuning")
+        output_dir = settings.paths.data_root / "tuning"
 
     if not model_path.exists():
         typer.echo(f"Model not found: {model_path}")
@@ -162,8 +162,8 @@ def tune(
             processor,
             combos,
             font,
-            settings.extraction.question_max_width,
-            settings.extraction.question_max_height,
+            settings.pipeline.extraction.question_max_width,
+            settings.pipeline.extraction.question_max_height,
             output_dir,
         )
 

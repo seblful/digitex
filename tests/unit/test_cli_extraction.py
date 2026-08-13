@@ -14,7 +14,12 @@ import pytest
 from typer.testing import CliRunner
 
 from digitex.cli import extraction
-from digitex.config import OpenRouterSettings, PathsSettings, Settings
+from digitex.config import (
+    OpenRouterSettings,
+    PathsSettings,
+    PipelineSettings,
+    Settings,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -32,7 +37,7 @@ def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
     """
     resolved = Settings(
         paths=PathsSettings(data_root=tmp_path),
-        openrouter=OpenRouterSettings(api_key=""),
+        pipeline=PipelineSettings(openrouter=OpenRouterSettings(api_key="")),
     )
     monkeypatch.setattr(extraction, "get_settings", lambda: resolved)
     # The Typer callback configures logging from the real settings; keep it

@@ -46,8 +46,8 @@ def create_dataset(
     settings = get_settings()
     data_dir = _data_dir(settings, data_type_dir_name)
     annotations_file = data_dir / "annotations.json"
-    images_dir = data_dir / settings.data.images_dir_name
-    dataset_dir = data_dir / settings.data.dataset_dir_name
+    images_dir = data_dir / settings.pipeline.data.images_dir_name
+    dataset_dir = data_dir / settings.pipeline.data.dataset_dir_name
 
     if not annotations_file.exists():
         raise _abort(f"Error: annotations file not found: {annotations_file}")
@@ -96,8 +96,8 @@ def add_images(
         typer.echo("images.txt is empty.")
         raise typer.Exit(code=0)
 
-    output_dir = data_dir / settings.data.images_dir_name
-    PageDataCreator(image_size=settings.data.image_size).add_from_file(
+    output_dir = data_dir / settings.pipeline.data.images_dir_name
+    PageDataCreator(image_size=settings.pipeline.data.image_size).add_from_file(
         paths_file=paths_file,
         output_dir=output_dir,
     )
@@ -114,9 +114,10 @@ def select_random_pages(
     from digitex.creators import PageDataCreator
 
     settings = get_settings()
-    page_train_dir = _data_dir(settings, "page") / settings.data.images_dir_name
+    data = settings.pipeline.data
+    page_train_dir = _data_dir(settings, "page") / data.images_dir_name
 
-    PageDataCreator(image_size=settings.data.image_size).create(
+    PageDataCreator(image_size=data.image_size).create(
         books_dir=settings.paths.books_dir,
         output_dir=page_train_dir,
         num_images=num_images,
@@ -167,8 +168,8 @@ def ls_predict(
     settings = get_settings()
     predictor = TaskPredictor(
         model_path=model_path,
-        url=settings.label_studio.url,
-        api_key=settings.label_studio.api_key,
+        url=settings.pipeline.label_studio.url,
+        api_key=settings.pipeline.label_studio.api_key,
     )
 
     count = predictor.predict_tasks(project_id)
