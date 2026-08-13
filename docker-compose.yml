@@ -24,6 +24,10 @@ services:
 
   bot:
     build: .
+    # CI builds this image and pushes it per-commit; the VPS pulls the tag the
+    # deploy pins in .env.production. `build:` stays so local `up` still builds
+    # from source instead of reaching for the registry.
+    image: ghcr.io/seblful/digitex-bot:${TAG:-latest}
     container_name: digitex-bot
     restart: unless-stopped
     env_file: .env

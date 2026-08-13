@@ -4,6 +4,7 @@ Single source of truth for everything VPS-side: first-time deploy, day-2 ops
 (code/schema/data updates), database access, backups, troubleshooting.
 
 For laptop dev setup, see [local-setup.md](local-setup.md).
+For the pipeline that does most of this for you, see [ci-cd.md](ci-cd.md).
 For schema/migration internals, see [database-reference.md](database-reference.md).
 
 ______________________________________________________________________
@@ -74,8 +75,9 @@ docker compose run --rm bot python -m digitex.cli.db upgrade
 
 ### 1.5 Seed the database (from your laptop)
 
-Open an SSH tunnel from your PC (see [§3 Database access](#3-database-access-from-your-pc)
-for why a tunnel), then seed through it:
+`./scripts/seed_prod.ps1 -VpsHost <vps-ip>` does all of this in one command.
+The manual equivalent, for when you want the tunnel open anyway (see
+[§3 Database access](#3-database-access-from-your-pc) for why a tunnel):
 
 ```powershell
 # Terminal 1 — PC, keep open
@@ -102,46 +104,59 @@ ______________________________________________________________________
 
 ## 2. Day-2 operations
 
-Pick the scenario that matches what changed. **If multiple things changed,
-follow the order in §2.4.**
+**Code and schema ship by merging to `main`** — GitHub Actions builds the image
+and releases it. See [ci-cd.md](ci-cd.md) for the pipeline, its secrets, and
+rollback. Data still ships from your laptop, because the images never enter git.
 
-### 2.1 Code change only (no schema, no data)
+| What changed | How it ships |
+| ------------------ | ---------------------------------------------------------- |
+| Code | merge to `main` |
+| Schema (migration) | merge to `main` — the release migrates before restarting |
+| Extracted data | `./scripts/seed_prod.ps1` from your PC ([§2.2](#22-new-extracted-data)) |
+
+If all three changed: merge to `main`, wait for the release, then seed.
+
+### 2.1 Release by hand
+
+Only needed when Actions is unavailable. `scripts/deploy.sh` is the same script
+CI runs — it pins the tag, migrates, restarts, and rolls back if the bot never
+becomes healthy:
 
 ```bash
 # on the VPS
 cd /opt/digitex
-git pull
+TAG=sha-abc1234 bash scripts/deploy.sh      # a tag from the GHCR package page
+```
+
+To build on the VPS instead of pulling a published image (last resort — it
+compiles on the box):
+
+```bash
+cd /opt/digitex
+git fetch origin main && git checkout -f origin/main
 docker compose build --no-cache bot
+docker compose run --rm bot python -m digitex.cli.db upgrade
 docker compose up -d bot
 ```
 
-### 2.2 New migration (schema change)
+> A release leaves the checkout detached at the deployed commit, so `git pull`
+> reports "not currently on a branch" — fetch and check out explicitly, as
+> above. `docker compose build` also overwrites the tagged image the pinned
+> `TAG` names, which is what makes the locally built one run.
 
-```bash
-# on the VPS
-cd /opt/digitex
-git pull
-docker compose run --rm bot python -m digitex.cli.db upgrade
-docker compose up -d bot          # restart picks up any code changes too
+### 2.2 New extracted data
+
+```powershell
+# on your PC, from the repo root
+$env:VPS_HOST = "<vps-ip>"
+./scripts/seed_prod.ps1                     # or -Subject biology
 ```
 
-### 2.3 New extracted data (no schema change)
+Opens the SSH tunnel, migrates, seeds, closes the tunnel. Idempotent
+(`get_or_create`), so re-running is safe. The manual equivalent is
+[§1.5](#15-seed-the-database-from-your-laptop).
 
-Seed through the SSH tunnel — same flow as [§1.5](#15-seed-the-database-from-your-laptop).
-
-### 2.4 Combined: code + schema + data
-
-Order matters: **schema before data**, code last.
-
-1. **VPS** — pull and migrate (see [§2.2](#22-new-migration-schema-change)).
-1. **PC** — seed through the SSH tunnel (see [§1.5](#15-seed-the-database-from-your-laptop)).
-1. **VPS** — rebuild + restart bot:
-   ```bash
-   docker compose build --no-cache bot
-   docker compose up -d bot
-   ```
-
-### 2.5 Manage / inspect
+### 2.3 Manage / inspect
 
 ```bash
 docker compose logs -f bot       # follow bot logs
@@ -226,13 +241,17 @@ ______________________________________________________________________
 
 ### Rollback a bad deploy
 
+A release that never becomes healthy rolls itself back. To undo one that came up
+healthy but misbehaves, re-release the previous tag — `Actions → Deploy → Run workflow`, or on the VPS:
+
 ```bash
 cd /opt/digitex
-git log --oneline -n 10               # find the previous good SHA
-git checkout <sha>
-docker compose build --no-cache bot
-docker compose up -d bot
+grep '^TAG=' .env.production          # what is deployed now
+TAG=sha-abc1234 bash scripts/deploy.sh
 ```
+
+Published tags are listed on the GHCR package page; each deploy run's summary
+names the one it released.
 
 If the bad deploy included a migration, you'll also need a backup restore
 (§4.2) — Alembic has no automated downgrade for hand-written SQL revisions.

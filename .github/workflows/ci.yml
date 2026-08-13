@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main, develop]
+  # deploy.yml calls this as its gate, so a push to main runs these checks once
+  # rather than twice.
+  workflow_call:
+
+# A newer push to the same branch makes the in-flight run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Torch lives in a per-index extra (see pyproject.toml). CI has no GPU, so it
+  # takes the ~200MB CPU wheels rather than the ~3GB CUDA ones.
+  UV_TORCH_EXTRA: cpu
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+
+      # The same hooks that run on commit: ruff, ruff-format, mdformat,
+      # whitespace/YAML/TOML checks. Hook versions are pinned in the config, so
+      # this cannot drift from local runs.
+      - name: Cache pre-commit environments
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Run pre-commit
+        run: uvx pre-commit run --all-files --show-diff-on-failure --color=always
+
+  types:
+    name: types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked --extra "$UV_TORCH_EXTRA" --group dev
+
+      - name: Type check
+        run: uv run --no-sync ty check
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+
+    # The integration suite talks to a real Postgres. Handing it one here is
+    # cheaper than letting testcontainers start its own inside the runner.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: digitex
+          POSTGRES_PASSWORD: digitex
+          POSTGRES_DB: digitex_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U digitex -d digitex_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # conftest migrates this database and truncates it between tests.
+      DIGITEX_TEST_DSN: postgresql://digitex:digitex@localhost:5432/digitex_test
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+
+      # opencv-python links against these; the runner image does not always
+      # ship them, and `import cv2` fails at collection time without them.
+      - name: Install OpenCV system libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0
+
+      - name: Install dependencies
+        run: uv sync --locked --extra "$UV_TORCH_EXTRA" --group dev
+
+      - name: Run tests
+        run: uv run --no-sync pytest
+
+  build:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Build only — publishing happens in deploy.yml, on main. This catches a
+      # broken Dockerfile on a PR instead of at release time.
+      - name: Build bot image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          load: true
+          tags: digitex-bot:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The image is only useful if the entrypoint's imports resolve, so prove
+      # the CLI starts. `--help` exits 0 without a bot token or a database.
+      - name: Smoke test the image
+        run: docker run --rm digitex-bot:ci python -m digitex.cli.db --help
