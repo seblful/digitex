@@ -4,46 +4,58 @@ version = "0.1.0"
 description = "Document digitization toolkit"
 readme = "README.md"
 requires-python = ">=3.13"
+# What production runs — the bot process and the migrations it applies on
+# deploy, and nothing else. The Dockerfile installs exactly this list from
+# uv.lock, so anything added here lands in the deployed image.
 dependencies = [
-  "pillow",
-  "numpy",
-  "opencv-python",
-  "ultralytics",
-  "supervision",
-  "albumentations",
-  "tqdm",
-  "pyyaml",
-  "doxapy",
-  "typer",
-  "pytest",
+  "aiogram>=3.27.0",
+  "alembic>=1.13",
+  "psycopg[binary,pool]>=3.2",
   "pydantic>=2.0",
   "pydantic-settings>=2.0",
-  "pytesseract",
-  "deskew",
-  "label-studio-sdk",
-  "nvidia-ml-py>=12.0.0",
-  "structlog>=25.5.0",
-  "shapely>=2.1.2",
-  "legacy-cgi>=2.6.4",
-  "label-studio>=1.23.0",
-  "aiogram>=3.27.0",
-  "graphifyy>=0.7.11",
-  "psycopg[binary,pool]>=3.2",
-  "alembic>=1.13",
   "python-dotenv>=1.0",
+  "structlog>=25.5.0",
+  "tqdm",
+  "typer",
 ]
 
-
-# Torch lives in an extra, not in `dependencies`, so the wheel index can be
-# chosen per environment: `cu130` for a GPU box, `cpu` for CI (~200MB instead of
-# ~3GB). Exactly one of them must be selected — `uv sync` alone installs no
-# torch at all, and ultralytics would then pull the default PyPI build.
+# Everything else belongs to one of the local workflows, and is an extra so it
+# stays out of the image. Sync what you work on:
 #
-#     uv sync --extra cu130    # laptop / GPU
-#     uv sync --extra cpu      # CI, or any machine without CUDA
+#     uv sync --all-extras --no-extra cpu     # laptop / GPU: everything
+#     uv sync --extra extraction              # books -> question images
+#     uv sync --all-extras --no-extra cu130   # CI, or any machine without CUDA
 [project.optional-dependencies]
-cpu = ["torch", "torchvision", "torchaudio"]
-cu130 = ["torch", "torchvision", "torchaudio"]
+# Question images out of book scans — docs/extraction.md
+extraction = [
+  "deskew",
+  "numpy",
+  "openai",
+  "opencv-python",
+  "pillow",
+  "pytesseract",
+]
+# YOLO segmentation, training and prediction — docs/training.md
+ml = [
+  "numpy",
+  "pillow",
+  "pyyaml",
+  "shapely>=2.1.2",
+  "ultralytics",
+]
+# Annotation server and its SDK — docs/label-studio.md
+labeling = [
+  "label-studio>=1.23.0",
+  "label-studio-sdk",
+  "legacy-cgi>=2.6.4",
+]
+
+# `ml` needs torch, and these two decide which wheel index it comes from:
+# `cu130` is the CUDA build, `cpu` is ~200MB instead of ~3GB. They conflict, so
+# exactly one can be active — and with neither, ultralytics pulls whatever
+# build PyPI offers.
+cpu = ["torch", "torchvision"]
+cu130 = ["torch", "torchvision"]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
@@ -67,10 +79,6 @@ torchvision = [
   { index = "pytorch-cpu", extra = "cpu" },
   { index = "pytorch-cu130", extra = "cu130" },
 ]
-torchaudio = [
-  { index = "pytorch-cpu", extra = "cpu" },
-  { index = "pytorch-cu130", extra = "cu130" },
-]
 
 [tool.uv.extra-build-dependencies]
 htmlmin = ["legacy-cgi"]
@@ -81,6 +89,7 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "graphifyy>=0.7.11",
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.0.0",

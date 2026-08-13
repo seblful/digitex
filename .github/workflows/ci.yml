@@ -15,9 +15,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Torch lives in a per-index extra (see pyproject.toml). CI has no GPU, so it
-  # takes the ~200MB CPU wheels rather than the ~3GB CUDA ones.
-  UV_TORCH_EXTRA: cpu
+  # The suite imports every extra — OpenCV, ultralytics, the Label Studio SDK —
+  # so CI installs all of them. Excluding cu130 leaves the conflicting `cpu`
+  # extra to supply torch: ~200MB of CPU wheels rather than ~3GB of CUDA ones,
+  # on a runner that has no GPU to use them.
+  UV_SYNC_ARGS: --locked --all-extras --no-extra cu130 --group dev
 
 jobs:
   lint:
@@ -53,7 +55,9 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --locked --extra "$UV_TORCH_EXTRA" --group dev
+        run: |
+          # shellcheck disable=SC2086  # the flags are meant to split
+          uv sync $UV_SYNC_ARGS
 
       - name: Type check
         run: uv run --no-sync ty check
@@ -96,7 +100,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0
 
       - name: Install dependencies
-        run: uv sync --locked --extra "$UV_TORCH_EXTRA" --group dev
+        run: |
+          # shellcheck disable=SC2086  # the flags are meant to split
+          uv sync $UV_SYNC_ARGS
 
       - name: Run tests
         run: uv run --no-sync pytest
@@ -124,4 +130,4 @@ jobs:
       # The image is only useful if the entrypoint's imports resolve, so prove
       # the CLI starts. `--help` exits 0 without a bot token or a database.
       - name: Smoke test the image
-        run: docker run --rm digitex-bot:ci python -m digitex.cli.db --help
+        run: docker run --rm digitex-bot:ci digitex-db --help
