@@ -10,18 +10,7 @@ from digitex.db.repositories.question import QuestionRepository
 from digitex.db.repositories.session import SessionRepository
 from digitex.db.repositories.student import StudentRepository
 
-# Registry consumed by UnitOfWork to wire up all repositories on entry.
-# Adding a new aggregate is "create the file, add one line here."
-REPOSITORIES = {
-    "books": BookRepository,
-    "questions": QuestionRepository,
-    "students": StudentRepository,
-    "sessions": SessionRepository,
-}
-
-
 __all__ = [
-    "REPOSITORIES",
     "BookRepository",
     "QuestionRepository",
     "SessionRepository",

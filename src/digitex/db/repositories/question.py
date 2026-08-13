@@ -32,14 +32,6 @@ _QUESTION_WITH_ORIGIN_SELECT = (
     "  LEFT JOIN images i ON i.question_id = q.question_id"
 )
 
-# Topic mappings are addressed by the question's natural key: the populate
-# script walks options and question numbers off the filesystem and never holds
-# an id.
-_QUESTION_BY_KEY = (
-    " (SELECT question_id FROM questions"
-    "   WHERE option_id = %s AND part = %s AND question_number = %s)"
-)
-
 
 def _row_to_question(row: dict[str, Any]) -> Question:
     """Build a ``Question``, image key and all.
@@ -143,25 +135,6 @@ class QuestionRepository:
         row = await cur.fetchone()
         assert row is not None
         return row["topic_id"]
-
-    async def delete_topic(
-        self,
-        option_id: int,
-        question_number: int,
-        part: Part,
-        topic_id: int,
-    ) -> None:
-        """Unmap one topic from one question.
-
-        No production caller today — ``upsert_topic`` is idempotent, so the
-        populate script needs no delete-before-insert. Kept as the topic
-        mapping's other half.
-        """
-        await self._conn.execute(
-            "DELETE FROM question_topics"
-            " WHERE topic_id = %s AND question_id IN" + _QUESTION_BY_KEY,
-            (topic_id, option_id, part, question_number),
-        )
 
     async def upsert_topic(
         self,

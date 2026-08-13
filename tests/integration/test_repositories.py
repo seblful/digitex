@@ -229,18 +229,6 @@ class TestQuestionRepository:
             # Named but unmapped, so it is not offered as a round to play.
             assert await uow.questions.get_topics_for_subject(chemistry) == []
 
-    async def test_delete_topic(self, pg_pool: AsyncConnectionPool) -> None:
-        async with UnitOfWork(pg_pool) as uow:
-            subject_id, _, option_id = await _seed_option(uow)
-            await uow.questions.get_or_create(
-                option_id, QuestionKey(part="A", number=1), "1"
-            )
-            topic_id = await uow.questions.get_or_create_topic(subject_id, "kinematics")
-            await uow.questions.upsert_topic(option_id, 1, "A", topic_id)
-            await uow.questions.delete_topic(option_id, 1, "A", topic_id)
-            count = await uow.questions.count_topics()
-        assert count == 0
-
     async def test_same_number_in_both_parts_are_distinct_questions(
         self, pg_pool: AsyncConnectionPool
     ) -> None:

@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 import pytest_asyncio
@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator
 
     from psycopg_pool import AsyncConnectionPool
+
+    from digitex.db.mapping import DictConn
 
 
 @pytest.fixture(scope="session")
@@ -59,23 +61,9 @@ def pg_dsn() -> Iterator[str]:
     dsn = url.replace("postgresql+psycopg2://", "postgresql://").replace(
         "postgres+psycopg2://", "postgresql://"
     )
-    prev_db_url = os.environ.get("DATABASE_URL")
-    os.environ["DATABASE_URL"] = dsn
-
-    # Clear cached settings so the new DSN is picked up.
-    from digitex.config import reset_settings_cache
-
-    reset_settings_cache()
-
     try:
-        _run_migrations()
-        yield dsn
+        yield from _external_dsn(dsn)
     finally:
-        if prev_db_url is None:
-            os.environ.pop("DATABASE_URL", None)
-        else:
-            os.environ["DATABASE_URL"] = prev_db_url
-        reset_settings_cache()
         container.stop()
 
 
@@ -135,29 +123,27 @@ async def pg_pool(pg_dsn: str) -> AsyncIterator[AsyncConnectionPool]:
         await pool.close()
 
 
-_TABLES = (
-    "session_answers",
-    "test_sessions",
-    "question_topics",
-    "topics",
-    "images",
-    "questions",
-    "options",
-    "books",
-    "subjects",
-    "students",
-)
-
-
 @pytest_asyncio.fixture
 async def clean_db(pg_pool: AsyncConnectionPool) -> AsyncIterator[None]:
     """Truncate every table after each test to give per-test isolation.
 
     Cheaper than dropping/re-creating the schema; ``RESTART IDENTITY`` resets
-    sequences so id assignments are deterministic per test.
+    sequences so id assignments are deterministic per test. The table list
+    comes from the live schema, so a table added by a migration cannot be
+    forgotten here and leak rows between tests. ``alembic_version`` stays, or
+    the next session would re-apply every migration.
     """
     yield
     async with pg_pool.connection() as conn, conn.transaction():
-        await conn.execute(
-            "TRUNCATE TABLE " + ", ".join(_TABLES) + " RESTART IDENTITY CASCADE"
+        # The pool rows are dicts (``row_factory=dict_row``); the stubs
+        # default to tuples — the same single-boundary cast UnitOfWork makes.
+        dict_conn = cast("DictConn", conn)
+        cur = await dict_conn.execute(
+            "SELECT tablename FROM pg_tables"
+            " WHERE schemaname = 'public' AND tablename <> 'alembic_version'"
         )
+        tables = [row["tablename"] for row in await cur.fetchall()]
+        if tables:
+            await conn.execute(
+                "TRUNCATE TABLE " + ", ".join(tables) + " RESTART IDENTITY CASCADE"
+            )

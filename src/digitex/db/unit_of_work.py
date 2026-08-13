@@ -1,8 +1,5 @@
 """Async Unit of Work — one pool connection, one transaction, the repos.
 
-Repositories are wired up from the :data:`REPOSITORIES` registry, so adding a
-new aggregate doesn't require editing this file.
-
 Usage::
 
     async with UnitOfWork(pool) as uow:
@@ -12,10 +9,10 @@ Usage::
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from contextlib import AsyncExitStack
+from typing import TYPE_CHECKING, cast
 
 from digitex.db.repositories import (
-    REPOSITORIES,
     BookRepository,
     QuestionRepository,
     SessionRepository,
@@ -38,38 +35,26 @@ class UnitOfWork:
     ``commit()`` / ``rollback()`` manually.
     """
 
-    # Typed attributes for editor/Pyright/ty completion. Values are assigned in
-    # ``__aenter__`` via the REPOSITORIES registry.
-    books: BookRepository
-    questions: QuestionRepository
-    students: StudentRepository
-    sessions: SessionRepository
-
     def __init__(self, pool: AsyncConnectionPool) -> None:
         self._pool = pool
-        self._conn_cm: Any = None
-        self._tx_cm: Any = None
+        self._stack = AsyncExitStack()
         self._conn: DictConn | None = None
 
     async def __aenter__(self) -> UnitOfWork:
-        conn_cm = self._pool.connection()
-        raw_conn = await conn_cm.__aenter__()
-        try:
-            tx_cm = raw_conn.transaction()
-            await tx_cm.__aenter__()
-        except BaseException:
-            await conn_cm.__aexit__(None, None, None)
-            raise
+        async with AsyncExitStack() as stack:
+            raw_conn = await stack.enter_async_context(self._pool.connection())
+            await stack.enter_async_context(raw_conn.transaction())
+            self._stack = stack.pop_all()
         # The pool is configured with ``row_factory=dict_row`` in
         # ``build_pool``, but psycopg's type stubs default the row type to
         # ``tuple``. Cast at this single boundary so every repository sees
         # ``dict[str, Any]`` rows without per-call ``cast`` noise.
         conn = cast("DictConn", raw_conn)
-        self._conn_cm = conn_cm
-        self._tx_cm = tx_cm
         self._conn = conn
-        for attr, repo_cls in REPOSITORIES.items():
-            setattr(self, attr, repo_cls(conn))
+        self.books = BookRepository(conn)
+        self.questions = QuestionRepository(conn)
+        self.students = StudentRepository(conn)
+        self.sessions = SessionRepository(conn)
         return self
 
     async def __aexit__(
@@ -77,8 +62,5 @@ class UnitOfWork:
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
-    ) -> None:
-        try:
-            await self._tx_cm.__aexit__(exc_type, exc_val, exc_tb)
-        finally:
-            await self._conn_cm.__aexit__(exc_type, exc_val, exc_tb)
+    ) -> bool:
+        return bool(await self._stack.__aexit__(exc_type, exc_val, exc_tb))

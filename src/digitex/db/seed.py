@@ -134,7 +134,7 @@ async def _populate_topics(
     """Populate question_topics from topic_to_year.json. Returns mapping count."""
     topics_file = subject_dir / "topic_to_year.json"
     if not topics_file.exists():
-        print(f"  No topic_to_year.json in {subject_dir}, skipping topics")
+        tqdm.write(f"  No topic_to_year.json in {subject_dir}, skipping topics")
         return 0
 
     topics_data = json.loads(topics_file.read_text(encoding="utf-8"))
@@ -176,7 +176,7 @@ async def populate_subject(
     """Load one subject's years, then its topic mappings."""
     subject_dir = output_dir / subject
     if not subject_dir.exists():
-        print(f"Not found: {subject_dir}")
+        tqdm.write(f"Not found: {subject_dir}")
         return
 
     year_dirs = sorted(
@@ -184,10 +184,10 @@ async def populate_subject(
         key=lambda d: int(d.name),
     )
     if not year_dirs:
-        print(f"No year directories found under {subject_dir}")
+        tqdm.write(f"No year directories found under {subject_dir}")
         return
 
-    print(f"\n{subject} — {len(year_dirs)} year(s)")
+    tqdm.write(f"\n{subject} — {len(year_dirs)} year(s)")
 
     async with UnitOfWork(pool) as uow:
         subject_id = await uow.books.get_or_create_subject(get_subject_name(subject))
@@ -201,7 +201,7 @@ async def populate_subject(
 
     topic_count = await _populate_topics(pool, subject_id, subject_dir)
     if topic_count:
-        print(f"  {topic_count} topic mappings loaded")
+        tqdm.write(f"  {topic_count} topic mappings loaded")
 
 
 async def populate(
@@ -214,7 +214,7 @@ async def populate(
 
     subjects = sorted(d.name for d in output_dir.iterdir() if d.is_dir())
     if not subjects:
-        print("No subjects found in extraction output.")
+        tqdm.write("No subjects found in extraction output.")
         return
 
     for name in subjects:
