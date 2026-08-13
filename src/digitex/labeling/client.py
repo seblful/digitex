@@ -26,7 +26,7 @@ class LabelStudioClient:
     ones, and uploading predictions are the only operations callers perform, so
     they are the whole seam. Reading a task's local image path is not here —
     that is pure URI parsing and lives in
-    :mod:`digitex.labeling.geometry`.
+    :mod:`digitex.domain.geometry`.
 
     Args:
         url: Label Studio server URL.

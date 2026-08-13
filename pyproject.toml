@@ -23,11 +23,14 @@ dependencies = [
 # stays out of the image. Sync what you work on:
 #
 #     uv sync --all-extras --no-extra cpu     # laptop / GPU: everything
-#     uv sync --extra extraction              # books -> question images
+#     uv sync --extra pipeline                # books -> question images
 #     uv sync --all-extras --no-extra cu130   # CI, or any machine without CUDA
+#
+# Each extra names the package it installs the dependencies of, so
+# [tool.importlinter] can state which ones the deployed bot may not reach.
 [project.optional-dependencies]
-# Question images out of book scans — docs/extraction.md
-extraction = [
+# digitex.pipeline, digitex.imaging, digitex.ui — docs/extraction.md
+pipeline = [
   "deskew",
   "numpy",
   "openai",
@@ -90,6 +93,7 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "graphifyy>=0.7.11",
+    "import-linter>=2.0",
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.0.0",
@@ -98,6 +102,13 @@ dev = [
     "mdformat>=1.0.0",
     "pre-commit>=4.0.0",
     "testcontainers[postgres]>=4.0",
+]
+# Just enough to run tests/contracts in an environment built the way production
+# is — `uv sync --no-dev --group contracts`, no extras. Adding anything from an
+# extra here would defeat the point of the job that uses it.
+contracts = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -127,6 +138,80 @@ filterwarnings = [
     # told to leave them alone.
     "ignore:cannot collect test class 'TestResult':pytest.PytestCollectionWarning",
     "ignore:cannot collect test class 'TestingState':pytest.PytestCollectionWarning",
+]
+
+# The deploy boundary, enforced. Only the bot ships, so nothing it reaches may
+# touch a dependency the production image does not install — and an accidental
+# import is otherwise invisible until the bot ImportErrors on the VPS, because
+# CI installs every extra and the Docker build imports nothing.
+#
+# Run with `uv run lint-imports`; also a pre-commit hook and a CI job.
+[tool.importlinter]
+root_package = "digitex"
+# Needed by the third contract, which names third-party packages.
+include_external_packages = true
+
+# Two contracts rather than one list: the bot and the pipeline are parallel
+# branches over db/domain, and a single ordering would quietly grant the
+# pipeline permission to import the bot.
+[[tool.importlinter.contracts]]
+name = "Deploy branch is layered"
+type = "layers"
+layers = ["digitex.cli", "digitex.bot", "digitex.db", "digitex.domain"]
+
+[[tool.importlinter.contracts]]
+name = "Pipeline branch is layered"
+type = "layers"
+layers = [
+    "digitex.cli",
+    "digitex.ui",
+    "digitex.pipeline",
+    "digitex.labeling",
+    "digitex.ml",
+    "digitex.imaging",
+    "digitex.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "The deployed bot cannot reach the pipeline"
+type = "forbidden"
+source_modules = [
+    "digitex.bot",
+    "digitex.db",
+    "digitex.domain",
+    "digitex.config",
+]
+forbidden_modules = [
+    "digitex.imaging",
+    "digitex.labeling",
+    "digitex.ml",
+    "digitex.pipeline",
+    "digitex.ui",
+]
+
+# The contract that actually protects the image: the production dependency list
+# in [project.dependencies] is the whole of what gets installed, so reaching any
+# of these from the deploy layer is an ImportError in production.
+[[tool.importlinter.contracts]]
+name = "The deployed bot cannot reach a non-production dependency"
+type = "forbidden"
+source_modules = [
+    "digitex.bot",
+    "digitex.db",
+    "digitex.domain",
+    "digitex.config",
+]
+forbidden_modules = [
+    "cv2",
+    "deskew",
+    "label_studio_sdk",
+    "numpy",
+    "openai",
+    "PIL",
+    "pytesseract",
+    "tkinter",
+    "torch",
+    "ultralytics",
 ]
 
 [tool.ty.environment]

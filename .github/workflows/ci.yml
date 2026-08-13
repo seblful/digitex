@@ -42,6 +42,10 @@ jobs:
           key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Run pre-commit
+        env:
+          # lint-imports needs the project environment, which this job does not
+          # build. The deploy-boundary job runs it against a real one.
+          SKIP: lint-imports
         run: uvx pre-commit run --all-files --show-diff-on-failure --color=always
 
   types:
@@ -106,6 +110,46 @@ jobs:
 
       - name: Run tests
         run: uv run --no-sync pytest
+
+  # Only the bot deploys, and its image installs [project.dependencies] alone.
+  # An accidental import of an extras-only module is otherwise invisible until
+  # the bot ImportErrors on the VPS: the test job above installs every extra,
+  # and the docker build imports no application code. Both halves of the check
+  # live here because both need an environment built on purpose.
+  deploy-boundary:
+    name: deploy boundary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.0.0
+        with:
+          enable-cache: true
+
+      - name: Install OpenCV system libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0
+
+      # The static half: which package may import which, transitively, plus the
+      # third-party packages the deploy layer may not reach. Needs the full
+      # environment so the forbidden externals resolve.
+      - name: Install full environment
+        run: |
+          # shellcheck disable=SC2086  # the flags are meant to split
+          uv sync $UV_SYNC_ARGS
+
+      - name: Check import contracts
+        run: uv run --no-sync lint-imports
+
+      # The empirical half: build the environment production actually gets —
+      # no dev group, no extras — and import every module the bot can reach.
+      # addopts carries --cov, and pytest-cov is a dev dependency that this
+      # environment deliberately lacks.
+      - name: Import every deployed module with production dependencies only
+        env:
+          UV_PROJECT_ENVIRONMENT: .venv-prod
+        run: |
+          uv sync --locked --no-dev --group contracts
+          uv run --no-sync pytest tests/contracts -o addopts="" -q
 
   build:
     name: docker build

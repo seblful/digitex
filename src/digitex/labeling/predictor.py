@@ -6,8 +6,8 @@ import structlog
 from PIL import Image
 
 from digitex.domain.entities import Detection
+from digitex.domain.geometry import local_file_path, pixel_to_percent
 from digitex.labeling.client import LabelStudioClient, LabelStudioTask
-from digitex.labeling.geometry import local_file_path, pixel_to_percent
 from digitex.ml.predictors import YOLO_SegmentationPredictor
 
 logger = structlog.get_logger()

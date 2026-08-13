@@ -1,10 +1,17 @@
-"""Label Studio geometry — local-file URIs and the percent point space.
+"""Annotation geometry — local-file URIs and the percent point space.
 
 Label Studio references local images as ``/data/local-files/?d=...`` (or
 ``?file=...``) URIs and stores polygon points as percentages (0-100) of the
 image size. Parsing those URIs, and every conversion into or out of the percent
-space, happens here. The spaces themselves are named in
-:mod:`digitex.domain.entities`; scaling a YOLO mask up to pixels belongs to
+space, happens here.
+
+Lives in ``domain`` rather than ``labeling`` because both sides of the
+annotation round trip need it — ``labeling.predictor`` converts pixels up to
+percent when posting predictions, and ``ml.yolo.dataset`` converts percent down
+to normalized when reading an export back. Homed in either one, the two
+packages would import each other. It earns the place: the polygon spaces
+themselves are named in :mod:`digitex.domain.entities` and nothing here imports
+beyond them. Scaling a YOLO mask up to pixels belongs to
 :mod:`digitex.ml.predictors`, which is where masks come from.
 """
 

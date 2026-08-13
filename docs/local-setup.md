@@ -32,7 +32,7 @@ layer, and the migration CLI. The rest is grouped by workflow:
 `cpu` and `cu130` conflict, so exactly one can be active — which is why the
 command above takes everything *except* `cpu`. On a machine without an NVIDIA
 GPU, swap it: `uv sync --all-extras --no-extra cu130`. Working on one thing
-only? `uv sync --extra extraction` is enough.
+only? `uv sync --extra pipeline` is enough.
 
 ## 2. Configure environment
 

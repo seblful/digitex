@@ -5,8 +5,8 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-# Lazy imports keep ``labeling.geometry`` importable without pulling in the
-# Label Studio SDK and the YOLO predictor stack.
+# Lazy imports, so naming this package does not pull in the Label Studio SDK
+# and the YOLO predictor stack behind it.
 _MODULES: dict[str, str] = {
     "LabelStudioClient": ".client",
     "TaskPredictor": ".predictor",
