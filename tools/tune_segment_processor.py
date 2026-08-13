@@ -20,9 +20,11 @@ GAMMA_VALUES = [0.4, 0.6, 0.8, 1.0]
 LABEL_MARGIN = 280
 ROW_PADDING = 4
 
-PAGES: list[Path] = [
-    Path("var/books/biology/images/2016/30.jpg"),
-    Path("var/books/biology/images/2024/10.jpg"),
+# (subject, year, page) samples the grids are built from — resolved against
+# ``settings.paths.books_dir`` when the command runs.
+SAMPLE_PAGES: list[tuple[str, str, str]] = [
+    ("biology", "2016", "30.jpg"),
+    ("biology", "2024", "10.jpg"),
 ]
 
 
@@ -129,11 +131,15 @@ def tune(
         typer.echo(f"Model not found: {model_path}")
         raise typer.Exit(code=1)
 
-    if not PAGES:
-        typer.echo("No pages listed in PAGES, add paths to the script")
+    pages = [
+        settings.paths.books_dir / subject / "images" / year / name
+        for subject, year, name in SAMPLE_PAGES
+    ]
+    if not pages:
+        typer.echo("No pages listed in SAMPLE_PAGES, add entries to the script")
         raise typer.Exit(code=1)
 
-    for p in PAGES:
+    for p in pages:
         if not p.exists():
             typer.echo(f"Path not found: {p}")
             raise typer.Exit(code=1)
@@ -149,12 +155,12 @@ def tune(
 
     combos = _generate_combinations()
     typer.echo(
-        f"Testing {len(combos)} parameter combinations across {len(PAGES)} page(s)"
+        f"Testing {len(combos)} parameter combinations across {len(pages)} page(s)"
     )
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for page_path in PAGES:
+    for page_path in pages:
         _process_page(
             page_path,
             predictor,
