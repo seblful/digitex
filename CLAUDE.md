@@ -53,6 +53,13 @@ ______________________________________________________________________
 - **Code**: Follow patterns in `python-patterns` — see `python-testing` for tests, `commits` for git
 - **Tests**: All features and bug fixes require tests
 - **Commits**: Only commit when explicitly asked
+- **Layers**: Only `bot`, `db`, `domain` and `config` deploy. Never import
+  `imaging`, `ml`, `labeling`, `pipeline` or `ui` from them — the production
+  image does not install those dependencies, so it is an ImportError on the
+  VPS. `uv run lint-imports` checks it; `[tool.importlinter]` in
+  `pyproject.toml` is the contract, `CONTEXT.md` explains it
+- **Paths**: Non-code paths derive from `settings.paths.data_root`, never from
+  a module's `__file__`
 
 | Tool | Purpose |
 | :--- | :------ |

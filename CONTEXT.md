@@ -80,7 +80,10 @@ ______________________________________________________________________
   single transaction. Every DB write goes through a UoW. Handlers acquire the
   pool from aiogram's `workflow_data` (injected by `cli/bot.py`).
 - **Schema migrations** — Alembic, hand-written raw SQL (no ORM, no
-  autogenerate). The `digitex-db` CLI is the entry point.
+  autogenerate). The `digitex-db` CLI is the entry point. The scripts and
+  `alembic.ini` live *inside* the package at `db/migrations/`, resolved through
+  `importlib.resources` by `db.schema.alembic_config()` — which is what lets the
+  image install the project as an ordinary wheel with no copy of `src/`.
 - **Repository** — the only layer that touches raw SQL. One per aggregate
   (`QuestionRepository`, `StudentRepository`, `SessionRepository`,
   `BookRepository`). The shapes they return live in `domain/entities.py`, because
@@ -95,12 +98,23 @@ ______________________________________________________________________
   of the corpus. Each stores the `correct_answer` it was judged against and
   references its Question `ON DELETE RESTRICT`, so re-loading or correcting the
   corpus can neither rewrite nor erase a finished test.
-- **Settings** — Pydantic-settings tree loaded once via `get_settings()`.
-  Composed of `PathsSettings`, `BotSettings`, `DatabaseSettings`,
-  `ExtractionSettings`, `OpenRouterSettings`, `LabelStudioSettings`,
-  `LoggingSettings`, `DataSettings`, `TimezoneSettings`, `AppSettings`.
-  Resolved per command inside the CLI entrypoints and threaded in — never
-  imported deep in the call stack, and never at module import.
+- **Settings** — Pydantic-settings tree loaded once via `get_settings()`, one
+  module per layer under `config/`. Top level: `app`, `bot`, `database`,
+  `logging`, `paths`, `timezone`, and `pipeline`. Resolved per command inside
+  the CLI entrypoints and threaded in — never imported deep in the call stack,
+  and never at module import.
+- **`Settings.pipeline`** — the groups only the local workflows read
+  (`extraction`, `openrouter`, `label_studio`, `data`), grouped so the call site
+  says which layer owns the value. Nothing the deployed bot runs reads it.
+- **Data root** — `PathsSettings.data_root` (`PATH_DATA_ROOT`, default `var/`).
+  Every non-code input and output hangs off it. No path is ever derived from the
+  package's own location, which is why there is no `BASE_DIR`.
+- **Deploy boundary** — only `bot`, `db`, `domain` and `config` ship. Enforced
+  two ways, because neither covers the other: `[tool.importlinter]` states which
+  packages and which third-party distributions the deploy layer may reach, and
+  `tests/contracts/` imports every deployed module in an environment built the
+  way production is. Adding an import from `bot` to `imaging`, `ml`, `labeling`,
+  `pipeline` or `ui` fails both.
 
 ## ML terms
 
