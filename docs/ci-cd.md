@@ -87,12 +87,12 @@ ready. Confirm:
 ```bash
 cd /opt/digitex
 git remote -v          # must point at the GitHub repo
-readlink -f .env       # must resolve to .env.production
+cat .env               # the box's only env file, with its secrets
 docker compose ps
 ```
 
 > `scripts/deploy.sh` checks out the exact deployed commit, so **local edits
-> under `/opt/digitex` other than `.env.production` are discarded** on release.
+> under `/opt/digitex` other than `.env` are discarded** on release.
 
 Optional: make the GHCR package public
 (`github.com/users/seblful/packages` → `digitex-bot` → visibility) so manual
@@ -157,7 +157,7 @@ migration, restore from a backup — production.md §4.2.
 | `Host key verification failed` | `VPS_KNOWN_HOSTS` missing or stale | Re-run `ssh-keyscan -H <vps-ip>` and update the secret |
 | `Permission denied (publickey)` | `VPS_SSH_KEY` wrong or not installed | Re-run `ssh-copy-id`; the secret needs the whole PEM |
 | `denied` / `unauthorized` on `docker pull` | GHCR package not visible to the VPS | Make the package public, or check the release job's login step |
-| `no .env in /opt/digitex` | `.env` symlink missing | `ln -s .env.production .env` (production.md §1.3) |
+| `no .env in /opt/digitex` | env file never created | `cp .env.example .env` and fill it in (production.md §1.3) |
 | Release rolled itself back | Bot never reported healthy | Read the job log's `docker compose logs` tail — usually config |
 | `uv.lock` out of date in CI | Dependency change not locked | `uv lock` locally and commit the result |
-| Local `import torch` breaks after a `uv sync` | torch now lives in an extra | `uv sync --extra cu130` (local-setup.md §1) |
+| Local `import cv2` / `import torch` breaks after a `uv sync` | those live in extras now | `uv sync --all-extras --no-extra cpu` (local-setup.md §1) |

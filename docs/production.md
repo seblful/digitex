@@ -45,12 +45,11 @@ git clone https://github.com/seblful/digitex.git /opt/digitex
 cd /opt/digitex
 mkdir -p logs
 
-cp .env.example .env.production
-micro .env.production            # fill in the values below
-ln -s .env.production .env       # so docker compose auto-loads it
+cp .env.example .env
+micro .env                       # fill in the values below
 ```
 
-Required in `.env.production`:
+Required in `.env`:
 
 | Variable | Value | Required |
 | ----------------------- | --------------------------------------------------- | -------- |
@@ -63,14 +62,15 @@ Required in `.env.production`:
 `DATABASE_URL` is derived automatically from `POSTGRES_PASSWORD` by Compose —
 no need to set it manually. Full env reference: `.env.example`.
 
-> The `ln -s .env.production .env` step is what lets every subsequent
-> `docker compose …` command work without `--env-file .env.production`.
+> This is the only env file on the box. Compose auto-loads `.env` for both
+> variable substitution and the bot's environment, and the deploy pins the
+> released image tag in it.
 
 ### 1.4 Start Postgres + apply schema
 
 ```bash
 docker compose up -d postgres
-docker compose run --rm bot python -m digitex.cli.db upgrade
+docker compose run --rm bot digitex-db upgrade
 ```
 
 ### 1.5 Seed the database (from your laptop)
@@ -87,10 +87,12 @@ ssh -L 5433:localhost:5432 root@<vps-ip>
 ```powershell
 # Terminal 2 — PC
 $env:DATABASE_URL = "postgresql://digitex:<password>@localhost:5433/digitex"
-uv run python scripts/populate_db.py
+uv run digitex-db populate
 ```
 
-`populate_db.py` is idempotent (`get_or_create`), so re-running is safe.
+`populate` is idempotent (`get_or_create`), so re-running is safe. It
+migrates the schema first, so it is also a valid way to apply a pending
+migration.
 
 ### 1.6 Start the bot
 
@@ -135,7 +137,7 @@ compiles on the box):
 cd /opt/digitex
 git fetch origin main && git checkout -f origin/main
 docker compose build --no-cache bot
-docker compose run --rm bot python -m digitex.cli.db upgrade
+docker compose run --rm bot digitex-db upgrade
 docker compose up -d bot
 ```
 
@@ -232,10 +234,10 @@ ______________________________________________________________________
 
 | Symptom | Likely cause | Fix |
 | ------- | ------------ | --- |
-| `POSTGRES_PASSWORD must be set` | `.env` symlink missing or empty | `ln -s .env.production .env`, verify with `cat .env` |
-| Bot exits immediately, no logs | `BOT_TOKEN` missing/invalid | Check `.env.production`, `docker compose logs bot` |
-| `relation "…" does not exist` | Migrations not applied after `git pull` | `docker compose run --rm bot python -m digitex.cli.db upgrade` |
-| `populate_db.py` says "connection refused" | SSH tunnel closed | Reopen terminal 1; check tunnel command is still running |
+| `POSTGRES_PASSWORD must be set` | `.env` missing or empty | `cp .env.example .env` and fill it in, verify with `cat .env` |
+| Bot exits immediately, no logs | `BOT_TOKEN` missing/invalid | Check `.env`, `docker compose logs bot` |
+| `relation "…" does not exist` | Migrations not applied | `docker compose run --rm bot digitex-db upgrade` |
+| `digitex-db populate` says "connection refused" | SSH tunnel closed | Reopen terminal 1; check tunnel command is still running |
 | Bot can't reach DB inside container | Postgres healthcheck failing | `docker compose logs postgres` — usually wrong `POSTGRES_PASSWORD` |
 | Disk full on VPS | Old backups + docker images piling up | `docker system prune -a`, prune `/opt/digitex/backups` |
 
@@ -246,7 +248,7 @@ healthy but misbehaves, re-release the previous tag — `Actions → Deploy → 
 
 ```bash
 cd /opt/digitex
-grep '^TAG=' .env.production          # what is deployed now
+grep '^TAG=' .env                     # what is deployed now
 TAG=sha-abc1234 bash scripts/deploy.sh
 ```
 

@@ -47,7 +47,7 @@ digitex-bot
 uv run digitex-db upgrade
 
 # Populate database from extraction output
-uv run python scripts/populate_db.py
+uv run digitex-db populate
 ```
 
 ## Telegram Bot
@@ -69,17 +69,17 @@ Full doc index: [docs/README.md](docs/README.md).
 
 ## Configuration
 
-This project uses Pydantic Settings with environment-specific `.env` files:
+This project uses Pydantic Settings with one `.env` file per machine:
 
 ```
-.env.development      # Complete dev config (gitignored)
-.env.production       # Complete prod config (gitignored)
-.env                  # Per-machine secrets and overrides (gitignored)
+.env                  # This machine's config (gitignored)
 .env.example          # Reference template (committed)
 ```
 
-`ENVIRONMENT` switches which file loads — defaults to `development` locally,
-set to `production` by Docker on the VPS. You never need to set it manually.
+Your laptop's `.env` holds development values, the server's holds production
+ones — there is no second file to keep in sync. Real environment variables win
+over the file, which is how Compose injects `DATABASE_URL` and sets
+`ENVIRONMENT=production` to select the JSON log renderer.
 
 See `.env.example` for all available variables and their defaults.
 
@@ -88,8 +88,8 @@ See `.env.example` for all available variables and their defaults.
 This project uses `uv` for dependency management.
 
 ```bash
-# Install dependencies (--extra cpu on a machine without an NVIDIA GPU)
-uv sync --extra cu130
+# Install dependencies (--no-extra cu130 on a machine without an NVIDIA GPU)
+uv sync --all-extras --no-extra cpu
 
 # Run extraction
 uv run digitex-extract --help

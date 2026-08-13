@@ -15,25 +15,35 @@ For migration internals and schema conventions, see [database-reference.md](data
 ## 1. Install dependencies
 
 ```bash
-uv sync --extra cu130
+uv sync --all-extras --no-extra cpu
 ```
 
-The extra picks the PyTorch wheel index. `cu130` is the CUDA build for a GPU
-box; on a machine without an NVIDIA GPU use `--extra cpu` instead. Plain
-`uv sync` installs *neither*, which leaves `ultralytics` to pull whatever torch
-PyPI offers — pass one of the two.
+Plain `uv sync` installs only what production runs — the bot, its database
+layer, and the migration CLI. The rest is grouped by workflow:
+
+| Extra | For | Notable weight |
+| ------------ | ---------------------------------- | ------------------------- |
+| `extraction` | books → question images | OpenCV, Pillow, Tesseract |
+| `ml` | YOLO training and prediction | ultralytics (needs torch) |
+| `labeling` | the Label Studio annotation server | a whole Django app |
+| `cu130` | torch from the CUDA wheel index | ~3GB |
+| `cpu` | torch from the CPU wheel index | ~200MB |
+
+`cpu` and `cu130` conflict, so exactly one can be active — which is why the
+command above takes everything *except* `cpu`. On a machine without an NVIDIA
+GPU, swap it: `uv sync --all-extras --no-extra cu130`. Working on one thing
+only? `uv sync --extra extraction` is enough.
 
 ## 2. Configure environment
 
 ```powershell
-cp .env.example .env.development
-# Edit .env.development — set BOT_TOKEN, BOT_ADMIN_USER_ID, POSTGRES_PASSWORD
-cp .env.development .env
+cp .env.example .env
+# Edit .env — set BOT_TOKEN, BOT_ADMIN_USER_ID, POSTGRES_PASSWORD
 ```
 
-The second copy gives Docker Compose a `.env` to auto-load — so you never need
-the `--env-file .env.development` flag. Keep `.env` and `.env.development` in
-sync (re-copy whenever you edit one).
+One file per machine: this one holds your development values, the server's
+holds production ones. Both the app and Docker Compose read `.env` and nothing
+else, so there is no second copy to keep in sync.
 
 Minimum required values:
 
@@ -63,7 +73,7 @@ uv run digitex-db upgrade
 ## 5. Seed data
 
 ```bash
-uv run python scripts/populate_db.py
+uv run digitex-db populate
 ```
 
 Idempotent — re-running is safe (`get_or_create`).
