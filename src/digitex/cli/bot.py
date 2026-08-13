@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import sys
 from zoneinfo import ZoneInfo
 
 import structlog
 
 from digitex.bot.dispatcher import create_dispatcher
+from digitex.cli._shared import run_async
 from digitex.config import get_settings
 from digitex.db import null_pool_lifespan, pool_lifespan
 from digitex.logging import setup_logging
@@ -32,12 +32,9 @@ def main() -> None:
     tz = ZoneInfo(settings.timezone.name)
     questions_dir = settings.paths.question_images_dir
 
-    # Local Windows dev only: psycopg rejects ProactorEventLoop, and
-    # AsyncConnectionPool's background workers stall on SelectorEventLoop too —
-    # so use the SelectorEventLoop policy AND NullConnectionPool (which has no
-    # background workers). Linux production uses the real pool.
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    # Local Windows dev only: AsyncConnectionPool's background workers stall
+    # even on the SelectorEventLoop run_async installs, so use the
+    # NullConnectionPool (which has none). Linux production uses the real pool.
     _pool_lifespan = null_pool_lifespan if sys.platform == "win32" else pool_lifespan
 
     async def _main() -> None:
@@ -76,7 +73,7 @@ def main() -> None:
                 questions_dir=questions_dir,
             )
 
-    asyncio.run(_main())
+    run_async(_main())
 
 
 # typer-compatible app object for the project script entry point.

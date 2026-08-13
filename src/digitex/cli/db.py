@@ -14,13 +14,12 @@ Examples:
 
 from __future__ import annotations
 
-import asyncio
-import sys
 from typing import TYPE_CHECKING, Annotated
 
 import typer
 from alembic import command
 
+from digitex.cli._shared import abort, run_async
 from digitex.config import get_settings
 from digitex.db.schema import alembic_config as _cfg
 
@@ -63,10 +62,7 @@ def revision(message: str) -> None:
 def _require_dir(path: Path, what: str) -> None:
     """Exit with a message rather than a traceback when the corpus is absent."""
     if not path.is_dir():
-        typer.echo(
-            typer.style(f"{what} not found: {path}", fg="red", bold=True), err=True
-        )
-        raise typer.Exit(code=1)
+        raise abort(f"{what} not found: {path}")
 
 
 @app.command()
@@ -98,9 +94,7 @@ def populate(
         async with null_pool_lifespan(settings.database) as pool:
             await populate_db(pool, output_dir, subject)
 
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    asyncio.run(_run())
+    run_async(_run())
     typer.echo("\nDone.")
 
 
@@ -124,9 +118,7 @@ def check_images() -> None:
         async with null_pool_lifespan(settings.database) as pool:
             return await run_check(pool, questions_dir)
 
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    result = asyncio.run(_run())
+    result = run_async(_run())
 
     for label, keys in (
         ("missing on disk (sync the corpus)", result.missing),

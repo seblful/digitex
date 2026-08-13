@@ -10,6 +10,7 @@ from typing import Annotated
 
 import typer
 
+from digitex.cli._shared import abort
 from digitex.config import Settings, get_settings
 from digitex.logging import setup_logging
 from digitex.pipeline.answers import AnswersExtractor
@@ -92,12 +93,6 @@ def _answers_extractor(settings: Settings) -> AnswersExtractor:
     )
 
 
-def _abort(message: str) -> typer.Exit:
-    """Render *message* on stderr and return the exit to raise."""
-    typer.echo(typer.style(message, fg="red", bold=True), err=True)
-    return typer.Exit(code=1)
-
-
 def _echo_errors(errors: list[str]) -> None:
     for error in errors:
         typer.echo(f"  - {error}", err=True)
@@ -124,20 +119,19 @@ def extract_questions(
     With --review, each page opens in a window showing its detected polygons
     and the option/part/number every question would be saved as. Correct them
     with the mouse, then approve, skip the page, or abort the run. The window's
-    second tab carries the same counts and answer check the count-questions and
-    check-answers commands print.
+    second tab shows the subject's per-year counts and the answers.json check.
     """
     try:
         extractor = _subject_extractor(get_settings(), subject, review=review)
     except ModelNotFoundError as exc:
-        raise _abort(f"✗ {exc}") from None
+        raise abort(f"✗ {exc}") from None
 
     try:
         result = extractor.extract(subject=subject)
     except ReviewAborted as exc:
         # Approved pages keep their images and the year stays unfinished, so
         # re-running picks up where the reviewer left off.
-        raise _abort(f"✗ {exc}. Re-run to continue.") from None
+        raise abort(f"✗ {exc}. Re-run to continue.") from None
 
     if not result.success:
         typer.echo(typer.style("✗ Extraction failed:", fg="red", bold=True), err=True)
@@ -176,7 +170,7 @@ def extract_answers(subject: Annotated[str, SUBJECT_ARGUMENT]) -> None:
     try:
         extractor = _answers_extractor(get_settings())
     except APIError as exc:
-        raise _abort(f"✗ {exc}") from None
+        raise abort(f"✗ {exc}") from None
 
     result = extractor.extract(subject=subject)
 
@@ -194,9 +188,6 @@ def extract_answers(subject: Annotated[str, SUBJECT_ARGUMENT]) -> None:
             fg="green",
         )
     )
-    if result.errors:
-        typer.echo(typer.style("\nErrors:", fg="red"), err=True)
-        _echo_errors(result.errors)
 
 
 if __name__ == "__main__":
