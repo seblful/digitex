@@ -52,6 +52,9 @@ class _FakeTextExtractor:
     def extract_text(self, image: Image.Image) -> str:
         return self._text
 
+    def detect_skew(self, image: Image.Image) -> float:
+        return 0.0
+
 
 def _extractor(
     detections: list[Detection],

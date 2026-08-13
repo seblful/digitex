@@ -19,6 +19,7 @@ from digitex.imaging import (
     ImageCropper,
     add_white_background,
     resize_image,
+    rotate_image,
 )
 from digitex.imaging.ocr import TextExtractor
 from digitex.ml.predictors import YOLO_SegmentationPredictor
@@ -63,12 +64,23 @@ class PageExtractor:
         return self._predictor
 
     def _crop(self, image: Image.Image, polygon: PixelPolygon) -> Image.Image:
-        """Cut *polygon* out of the page and process it into a question image."""
+        """Cut *polygon* out of the page and process it into a question image.
+
+        Deskew comes from tesseract: the crop is flattened first so the
+        baseline read sees white behind the polygon mask, and rotated before
+        the resize so the grown canvas still fits the size cap.
+        """
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
-        cropped = resize_image(
-            cropped, self.config.question_max_width, self.config.question_max_height
+        question = add_white_background(cropped)
+
+        angle = self._text_extractor.detect_skew(question)
+        if angle:
+            logger.debug("Correcting skew", angle=angle)
+            question = rotate_image(question, angle)
+
+        return resize_image(
+            question, self.config.question_max_width, self.config.question_max_height
         )
-        return add_white_background(cropped)
 
     def _extract_option_number(
         self, image: Image.Image, polygon: PixelPolygon

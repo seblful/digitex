@@ -14,10 +14,12 @@ from .image import (
     ImageCropper,
     add_white_background,
     resize_image,
+    rotate_image,
 )
 
 __all__ = [
     "ImageCropper",
     "add_white_background",
     "resize_image",
+    "rotate_image",
 ]

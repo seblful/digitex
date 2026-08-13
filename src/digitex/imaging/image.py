@@ -4,15 +4,9 @@ import math
 
 import cv2
 import numpy as np
-import structlog
-from deskew import determine_skew
 from PIL import Image, ImageOps
 
 from digitex.domain.entities import PixelPolygon
-
-logger = structlog.get_logger()
-
-DEFAULT_SKEW_MAX_DIM = 400
 
 
 def resize_image(image: Image.Image, max_width: int, max_height: int) -> Image.Image:
@@ -45,6 +39,11 @@ def add_white_background(image: Image.Image) -> Image.Image:
 
 
 # --- image cropping helpers ---
+
+
+def rotate_image(image: Image.Image, angle: float) -> Image.Image:
+    """Rotate by *angle* degrees counterclockwise, growing the canvas to fit."""
+    return Image.fromarray(_rotate(np.array(image), angle))
 
 
 def _rotate(img: np.ndarray, angle: float) -> np.ndarray:
@@ -105,24 +104,6 @@ def _perspective_transform(pts: np.ndarray) -> tuple[int, int, np.ndarray]:
     return w, h, cv2.getPerspectiveTransform(pts, dst)
 
 
-def _prepare_for_skew_detection(img: np.ndarray) -> np.ndarray:
-    gray = cv2.cvtColor(img[:, :, :3], cv2.COLOR_RGB2GRAY)
-    alpha = img[:, :, 3]
-    if not np.all(alpha == 255):
-        a = alpha.astype(np.float32) / 255.0
-        gray = (gray.astype(np.float32) * a + 255.0 * (1.0 - a)).astype(np.uint8)
-
-    h, w = gray.shape
-    if max(h, w) > DEFAULT_SKEW_MAX_DIM:
-        scale = DEFAULT_SKEW_MAX_DIM / max(h, w)
-        gray = cv2.resize(
-            gray, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA
-        )
-
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-    return thresh
-
-
 # --- public classes ---
 
 
@@ -147,11 +128,5 @@ class ImageCropper:
         mask = np.zeros((h, w), dtype=np.uint8)
         cv2.fillPoly(mask, [tr_pts], 255)
         warped[:, :, 3] = cv2.bitwise_and(warped[:, :, 3], mask)
-
-        thresh = _prepare_for_skew_detection(warped)
-        angle = determine_skew(thresh, sigma=0.0, num_peaks=20, min_deviation=0.01)
-        if angle is not None and angle != 0.0:
-            logger.debug("Detected skew angle, applying rotation", angle=angle)
-            warped = _rotate(warped, angle)
 
         return Image.fromarray(warped, mode="RGBA")

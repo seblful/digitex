@@ -31,7 +31,6 @@ dependencies = [
 [project.optional-dependencies]
 # digitex.pipeline, digitex.imaging, digitex.ui — docs/extraction.md
 pipeline = [
-  "deskew",
   "numpy",
   "openai",
   "opencv-python",
@@ -214,7 +213,6 @@ source_modules = [
 ]
 forbidden_modules = [
     "cv2",
-    "deskew",
     "label_studio_sdk",
     "numpy",
     "openai",

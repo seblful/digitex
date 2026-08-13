@@ -1,17 +1,34 @@
-"""Tests for the image processors: ImageCropper, add_white_background, resize_image."""
+"""Tests for the image processors: cropping, rotation, flattening, resizing."""
 
 import numpy as np
 import pytest
 from PIL import Image
 
 from digitex.domain.entities import PixelPolygon
-from digitex.imaging import add_white_background, resize_image
+from digitex.imaging import add_white_background, resize_image, rotate_image
 from digitex.imaging.image import (
     ImageCropper,
     _order_quad_points,
     _perspective_transform,
     _polygon_to_quad,
 )
+
+
+class TestRotateImage:
+    def test_ninety_degrees_swaps_the_dimensions(self) -> None:
+        img = Image.new("RGB", (100, 50), color="white")
+
+        result = rotate_image(img, 90.0)
+
+        assert result.size == (50, 100)
+
+    def test_the_canvas_grows_to_hold_the_rotated_image(self) -> None:
+        """Nothing may be cut off — a tilted crop's corners stay inside."""
+        img = Image.new("RGB", (100, 100), color="white")
+
+        result = rotate_image(img, 45.0)
+
+        assert result.size == (141, 141)
 
 
 class TestAddWhiteBackground:
@@ -40,10 +57,14 @@ class TestAddWhiteBackground:
     def test_partial_transparency_blends_toward_white(self) -> None:
         img = Image.new("RGBA", (10, 10), color=(255, 0, 0, 128))
         result = add_white_background(img)
-        r, g, b = result.getpixel((0, 0))
-        assert r > 127
-        assert g < 128
-        assert b < 128
+        pixel = result.getpixel((0, 0))
+        # RGB, so a 3-tuple — narrowed because getpixel also describes the
+        # single-band and out-of-bounds cases this image cannot produce.
+        assert isinstance(pixel, tuple)
+        red, green, blue = pixel
+        assert red > 127
+        assert green < 128
+        assert blue < 128
 
 
 class TestResizeImage:
