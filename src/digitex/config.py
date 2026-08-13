@@ -1,6 +1,5 @@
 """Application settings using Pydantic for configuration management."""
 
-import os
 from functools import cached_property
 from pathlib import Path
 from threading import Lock
@@ -16,19 +15,17 @@ LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
 def _load_env() -> None:
-    env_name = os.environ.get("ENVIRONMENT") or os.environ.get(
-        "APP_ENVIRONMENT", "development"
-    )
+    """Load this machine's ``.env``, if it has one.
 
-    # .env is loaded first — real secrets and local overrides always win
+    One file per machine — the laptop's carries development values, the
+    server's production ones — so nothing has to be kept in sync with a
+    second copy. Real environment variables win over the file: Compose passes
+    ``DATABASE_URL`` and ``ENVIRONMENT`` that way, and CI passes everything
+    that way.
+    """
     env_file = BASE_DIR / ".env"
     if env_file.exists():
         load_dotenv(env_file, override=False)
-
-    # env-specific file provides defaults for anything not set above
-    env_specific = BASE_DIR / f".env.{env_name}"
-    if env_specific.exists():
-        load_dotenv(env_specific, override=False)
 
 
 class ExtractionSettings(BaseSettings):
@@ -191,9 +188,9 @@ class AppSettings(BaseSettings):
 
     environment: str = Field(
         default="development",
-        # ``_load_env`` picks the .env file off ``ENVIRONMENT``; without it here
-        # the deployment sets that one variable and this field stays at its
-        # default, so production never selects the JSON log renderer.
+        # Compose sets the bare ``ENVIRONMENT``; without it in this list the
+        # deployment sets that one variable and the field stays at its default,
+        # so production never selects the JSON log renderer.
         validation_alias=AliasChoices("environment", "APP_ENVIRONMENT", "ENVIRONMENT"),
         description="Application environment (development, production)",
     )
@@ -232,13 +229,16 @@ class TimezoneSettings(BaseSettings):
 class PathsSettings(BaseSettings):
     """Directory path settings.
 
-    All paths derive from root_dir, which defaults to cwd() and can be
-    overridden via the PATH_ROOT_DIR environment variable.
+    All paths derive from root_dir, which defaults to the project root and can
+    be overridden via the PATH_ROOT_DIR environment variable.
     """
 
     model_config = SettingsConfigDict(env_prefix="PATH_", extra="ignore")
 
-    root_dir: Path = Field(default_factory=Path.cwd)
+    # BASE_DIR, not cwd(): the corpus lives at a fixed place in the checkout,
+    # so running a command from a subdirectory must not silently point the
+    # extractors at a books/ that isn't there.
+    root_dir: Path = BASE_DIR
 
     # Top-level directories
 

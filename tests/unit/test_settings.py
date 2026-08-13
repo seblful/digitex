@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from digitex.config import (
+    BASE_DIR,
     DatabaseSettings,
     DataSettings,
     ExtractionSettings,
@@ -122,11 +123,18 @@ class TestLabelStudioSettings:
 class TestPathsSettings:
     """Test PathsSettings class."""
 
-    def test_root_dir(self) -> None:
-        """Test that root_dir returns current working directory."""
+    def test_root_dir_is_the_project_root(self) -> None:
+        """root_dir is fixed to the checkout, not wherever a command was run."""
         settings = PathsSettings()
-        assert isinstance(settings.root_dir, Path)
-        assert settings.root_dir.exists()
+        assert settings.root_dir == BASE_DIR
+        assert (settings.root_dir / "pyproject.toml").exists()
+
+    def test_root_dir_ignores_the_working_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Running from elsewhere must not relocate books/ and extraction/."""
+        monkeypatch.chdir(tmp_path)
+        assert PathsSettings().root_dir == BASE_DIR
 
     def test_training_dir(self) -> None:
         """Test that training_dir is computed correctly."""
