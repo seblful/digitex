@@ -12,6 +12,7 @@ import pytest
 from digitex.core.domain import PixelPolygon
 from digitex.extractors.placement import (
     PageExtractionState,
+    PageLabel,
     PageRegion,
     QuestionPlacement,
     place_questions,
@@ -25,20 +26,18 @@ def _question() -> PageRegion:
     return PageRegion(label="question", polygon=POLYGON)
 
 
-def _marker(label: str, reading: int | str | None) -> PageRegion:
-    return PageRegion(label=label, polygon=POLYGON, reading=reading)  # type: ignore[arg-type]
+def _marker(label: PageLabel, reading: int | str | None) -> PageRegion:
+    return PageRegion(label=label, polygon=POLYGON, reading=reading)
 
 
 class _Writer:
-    """Records what it was asked to write, and can move a question elsewhere."""
+    """Records what it was asked to write, in the order it was asked."""
 
-    def __init__(self, move_to: dict[int, int] | None = None) -> None:
+    def __init__(self) -> None:
         self.written: list[QuestionPlacement] = []
-        self._move_to = move_to or {}
 
-    def __call__(self, region: PageRegion, placement: QuestionPlacement) -> int:
+    def __call__(self, region: PageRegion, placement: QuestionPlacement) -> None:
         self.written.append(placement)
-        return self._move_to.get(len(self.written) - 1, placement.option)
 
 
 class TestPageExtractionState:
@@ -76,17 +75,6 @@ class TestPageExtractionState:
         state = PageExtractionState(option=1, part="A")
         assert state.next_question().number == 1
         assert state.next_question().number == 1
-
-    def test_correct_option_moves_and_keeps_numbering(self) -> None:
-        state = PageExtractionState(option=1, part="B", question=3)
-        assert state.correct_option(2) is True
-        assert (state.option, state.part, state.question) == (2, "A", 3)
-        assert state.next_question() == QuestionPlacement(option=2, part="A", number=4)
-
-    def test_correct_option_same_option_is_noop(self) -> None:
-        state = PageExtractionState(option=1, part="A", question=3)
-        assert state.correct_option(1) is False
-        assert (state.option, state.part, state.question) == (1, "A", 3)
 
     def test_adopt_moves_the_book_state_to_another_position(self) -> None:
         """A reviewer corrects where a page starts by handing back its own state."""
@@ -140,18 +128,6 @@ class TestPlaceQuestions:
         place_questions([_question()], replace(state))
 
         assert state.question == 4
-
-    def test_a_writer_that_moves_a_question_moves_the_rest_of_the_page(self) -> None:
-        """The conflict resolver's correction reaches the numbering through this."""
-        writer = _Writer(move_to={0: 2})
-        state = PageExtractionState(option=1, part="B")
-
-        placed = place_questions([_question(), _question()], state, write=writer)
-
-        assert [p.placement for p in placed] == [
-            QuestionPlacement(1, "B", 1),
-            QuestionPlacement(2, "A", 2),
-        ]
 
     def test_question_before_any_marker_raises_without_writing(self) -> None:
         writer = _Writer()

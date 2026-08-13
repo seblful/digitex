@@ -7,11 +7,14 @@ import pytest
 from digitex.core.corpus import (
     QuestionImage,
     file_digest,
+    highest_question_number,
     is_image,
     natural_sort_key,
     parse_answer_sheet_stem,
     parse_book_page_path,
+    question_image_path,
     question_object_key,
+    question_slot_taken,
     training_page_name,
     walk_question_images,
 )
@@ -57,6 +60,45 @@ class TestIsImage:
         (tmp_path / "folder").mkdir()
         assert is_image(tmp_path / "notes.txt") is False
         assert is_image(tmp_path / "folder") is False
+
+
+class TestQuestionSlots:
+    """Where a question is written, and what is already sitting there.
+
+    These are what keeps the output tree in order: the review window refuses
+    numbering that does not continue from `highest_question_number`, and the
+    extractor refuses to overwrite a slot `question_slot_taken` reports.
+    """
+
+    def test_path_follows_the_output_tree_layout(self, tmp_path: Path) -> None:
+        assert question_image_path(tmp_path, 3, "A", 7, "jpg") == (
+            tmp_path / "3" / "A" / "7.jpg"
+        )
+
+    def test_slot_is_taken_whatever_format_holds_it(self, tmp_path: Path) -> None:
+        (tmp_path / "3" / "A").mkdir(parents=True)
+        (tmp_path / "3" / "A" / "7.png").touch()
+
+        assert question_slot_taken(tmp_path, 3, "A", 7) is True
+
+    def test_free_slot_and_missing_folder_are_both_free(self, tmp_path: Path) -> None:
+        (tmp_path / "3" / "A").mkdir(parents=True)
+        (tmp_path / "3" / "A" / "7.jpg").touch()
+
+        assert question_slot_taken(tmp_path, 3, "A", 8) is False
+        assert question_slot_taken(tmp_path, 4, "A", 1) is False
+
+    def test_highest_number_ignores_gaps_and_strays(self, tmp_path: Path) -> None:
+        (tmp_path / "3" / "A").mkdir(parents=True)
+        for name in ("1.jpg", "2.jpg", "9.jpg", "draft.jpg", "10.txt"):
+            (tmp_path / "3" / "A" / name).touch()
+
+        assert highest_question_number(tmp_path, 3, "A") == 9
+
+    def test_highest_number_is_zero_for_an_untouched_folder(
+        self, tmp_path: Path
+    ) -> None:
+        assert highest_question_number(tmp_path, 1, "A") == 0
 
 
 class TestWalkQuestionImages:

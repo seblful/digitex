@@ -11,18 +11,14 @@ digitex-extract extract-questions biology
 # Same, checking every page in a window before its crops are saved
 digitex-extract extract-questions biology --review
 
-# Count extracted questions for a subject
-digitex-extract count-questions biology
-
-# Fix numbering gaps for a subject
-digitex-extract renumber-questions biology
-
 # Extract answers for a subject
 digitex-extract extract-answers biology
-
-# Check answers for a subject
-digitex-extract check-answers biology
 ```
+
+Counting what came out and checking it against `answers.json` are both in the
+review window's second tab — see [below](#the-review-window---review). There is
+no renumbering command either: the window refuses numbering that would leave a
+gap, so there is nothing to repair afterwards.
 
 ## Commands
 
@@ -75,46 +71,35 @@ nothing is written until you approve it.
 | Zoom | mouse wheel, or `-` `+` `Fit` |
 
 Numbering updates live as you edit, and is computed by the same code that
-writes the files — the preview cannot disagree with what lands on disk. A page
-that starts with a question before any option/part marker is reported in red
-and cannot be approved until you say where the page starts.
+writes the files — the preview cannot disagree with what lands on disk.
 
-**Extracted so far** tab carries what `count-questions` and `check-answers`
-print: per-year option/part counts, with anything off its year's mode in red,
-and the answers.json check on demand.
+**Numbering that would break the output tree is refused.** Every question's
+file has to be the next one in its `{option}/{part}` folder. Land on a number
+that already exists and it would overwrite an extracted question; land past the
+end and the folder is left with a hole. Either way the offending question turns
+red, *Approve & save* is disabled, and the message names the free number. Two
+ways out:
+
+- **Continue from disk** sets the entry counter so the page picks up right
+  where the folder left off. Offered only when it would help — a page whose
+  first question follows an option or part marker takes its numbering from that
+  marker, not from the entry state.
+- **Skip page**, when the page is simply already extracted.
+
+This is why there is no renumbering command: gaps never get written.
+
+The same rule blocks a question detected before any option/part marker has been
+read — approve is disabled until you say where the page starts.
+
+**Extracted so far** tab is the count and the answer check, per subject:
+per-year option/part counts with anything off its year's mode in red, *Recount*
+to refresh after approving pages, and *Check answers* to validate every
+`answers.json` against the images on disk.
 
 Finally: **Approve & save** writes the crops (`Ctrl+Enter`), **Skip page**
 writes nothing and leaves numbering where it was, **Abort run** stops
 everything. Pages already approved keep their images and the year is not marked
 complete, so re-running continues where you left off.
-
-### `count-questions`
-
-Count extracted images by year/option/part for a specific subject.
-
-```bash
-digitex-extract count-questions <SUBJECT>
-```
-
-**Arguments:**
-
-- `<SUBJECT>` - Subject name (e.g., `biology`, `chemistry`)
-
-### `renumber-questions`
-
-Renumber images to fill gaps (e.g., 1,2,4,5 → 1,2,3,4) for a specific subject.
-
-```bash
-digitex-extract renumber-questions <SUBJECT> [--dry-run]
-```
-
-**Arguments:**
-
-- `<SUBJECT>` - Subject name (e.g., `biology`, `chemistry`)
-
-**Options:**
-
-- `--dry-run` - Preview changes without applying (default: true)
 
 ### `extract-answers`
 
@@ -129,20 +114,6 @@ digitex-extract extract-answers <SUBJECT>
 - Set `OPENROUTER_API_KEY` environment variable
 - Answer images in `books/{subject}/answers/`
 - Filename format: `YYYY_N.jpg` (e.g., `2016_1.jpg`)
-
-### `check-answers`
-
-Validate answers.json against extracted images.
-
-```bash
-digitex-extract check-answers <SUBJECT>
-```
-
-**Checks:**
-
-- Each year has answers.json
-- Questions match between images and answers
-- All options have same questions
 
 ## Directory Structure
 
@@ -181,15 +152,22 @@ Set environment variables or use `.env`:
 
 ```bash
 # Extraction settings
-EXTRACTION_MODEL_PATH=extraction/models/page.pt
 EXTRACTION_IMAGE_FORMAT=jpg
 EXTRACTION_QUESTION_MAX_WIDTH=2000
 EXTRACTION_QUESTION_MAX_HEIGHT=2000
+
+# Every path derives from this one, which defaults to the project root
+PATH_ROOT_DIR=/path/to/corpus
 
 # OpenRouter (for answers)
 OPENROUTER_API_KEY=your_api_key
 OPENROUTER_MODEL=moonshotai/kimi-k2.6
 ```
+
+The model is always `{PATH_ROOT_DIR}/extraction/models/page.pt` — a computed
+path with no environment variable of its own. Pointing `PATH_ROOT_DIR` at a
+scratch corpus is how you try a run without touching the real tree; it moves
+the books, the model and the output together.
 
 ## Progress Tracking
 
@@ -211,15 +189,15 @@ Common errors and solutions:
 | Subject not found | Check subject name matches folder |
 | No images folder | Create `books/{subject}/images/` |
 | API key not set | Set `OPENROUTER_API_KEY` environment variable |
-| Model not found | Check `EXTRACTION_MODEL_PATH` |
+| Model not found | Put it at `{PATH_ROOT_DIR}/extraction/models/page.pt` |
+| `cannot instantiate 'PosixPath'` | The model was trained on Linux and cannot be unpickled on Windows — retrain, convert it, or use one trained here |
 
 ## Best Practices
 
-1. **Always use `--dry-run`** first with `renumber-questions`
 1. **Extract with `--review`** on a subject the model has not been trained on;
    the run is only as good as its worst page, and a misread option marker
    re-files every question after it
 1. **Check progress** before re-running extraction
-1. **Validate answers** with `check-answers` after extraction
+1. **Validate answers** in the review window's second tab after extraction
 1. **Backup data** before bulk operations
 1. **Use subject filtering** to process one subject at a time

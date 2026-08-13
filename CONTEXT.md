@@ -48,15 +48,18 @@ ______________________________________________________________________
   - **Answers extraction** — pulling the answer key off the back of a Book
     via the OpenRouter vision API.
 - **Review** — checking a Page's detected regions by hand before its crops are
-  written. A `PageReviewer` is a callable `(PageProposal) -> ReviewedPage | None`, mirroring `ConflictResolver`; the interactive one is a Tk window.
+  written. A `PageReviewer` is a callable
+  `(PageProposal) -> ReviewedPage | None` — a callable, not a Protocol class,
+  and the interactive one is a Tk window.
 - **Placement** — the Option/Part/number one detected Question is written as.
   Handed out by `PageExtractionState` and applied by `place_questions`, the one
   walk shared by the review preview and the write.
-- **Conflict** — an extraction collision: a new Question image would overwrite
-  an existing file. Resolved by a `ConflictResolver` — a callable
-  `(Conflict) -> int`, not a Protocol class.
-- **Renumbering** — adjusting Question file numbers within an Option/Part to
-  fill gaps left by deleted or skipped crops.
+- **Numbering fault** — a Placement that does not continue its Option/Part
+  folder: its number is already on disk (the crop would overwrite an extracted
+  Question) or past the end (the folder would keep a hole). `numbering_fault`
+  finds the first one, the review window refuses to approve it, and the
+  extractor refuses to overwrite. Between them the output tree is never allowed
+  out of order, which is why there is no renumbering pass.
 
 ## Bot conversation shapes
 
@@ -108,12 +111,12 @@ ______________________________________________________________________
 
 ## Naming conventions worth preserving
 
-- `on_conflict` (not `conflict_strategy`) for a `ConflictResolver` callable
-  parameter — matches the callable-not-class shape.
+- `on_review` (not `review_strategy`) for a `PageReviewer` callable parameter —
+  matches the callable-not-class shape.
 - `ask_question` (not `send_question_with_cache`) for the bot's "render a
   Question and surface any new file_id" recipe. It returns the new file_id
   to the caller, which folds the cache write into the next UoW via the
   `pending_file_id_cache` FSM field. `send_question` is the lower-level
   primitive in `bot.renderer`.
 - `extract` (the verb) is reserved for the top-level operation of an
-  Extractor; internal helpers use `_crop_and_save`, `_detect`, etc.
+  Extractor; internal helpers use `_crop`, `_detect`, `read_page`, etc.

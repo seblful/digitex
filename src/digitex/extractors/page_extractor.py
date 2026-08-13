@@ -13,6 +13,7 @@ import structlog
 from PIL import Image
 
 from digitex.core import TextExtractor
+from digitex.core.corpus import question_image_path, question_slot_taken
 from digitex.core.domain import Detection, PixelPolygon, normalize_option_number
 from digitex.core.processors import (
     ImageCropper,
@@ -20,13 +21,7 @@ from digitex.core.processors import (
     resize_image,
 )
 from digitex.extractors.base import ExtractionConfig
-from digitex.extractors.conflict_resolution import (
-    Conflict,
-    ConflictResolver,
-    keep_current_option,
-)
 from digitex.extractors.placement import (
-    CORRECTED_PART,
     PageExtractionState,
     PageRegion,
     QuestionPlacement,
@@ -51,7 +46,6 @@ class PageExtractor:
         segment_processor: SegmentProcessor | None = None,
         image_cropper: ImageCropper | None = None,
         text_extractor: TextExtractor | None = None,
-        on_conflict: ConflictResolver | None = None,
         on_review: PageReviewer | None = None,
     ) -> None:
         self.config = config
@@ -60,7 +54,6 @@ class PageExtractor:
         self._segment_processor = segment_processor or SegmentProcessor()
         self._image_cropper = image_cropper or ImageCropper()
         self._text_extractor = text_extractor or TextExtractor(language=OCR_LANGUAGE)
-        self._on_conflict = on_conflict or keep_current_option
         self._on_review = on_review or accept_page
 
     @property
@@ -70,76 +63,13 @@ class PageExtractor:
             self._predictor = YOLO_SegmentationPredictor(str(self.config.model_path))
         return self._predictor
 
-    def _crop_and_save(
-        self,
-        image: Image.Image,
-        polygon: PixelPolygon,
-        output_path: Path,
-        current_option: int,
-        output_dir: Path,
-    ) -> int:
-        """Crop, process, and save extracted image. Returns resolved option number."""
+    def _crop(self, image: Image.Image, polygon: PixelPolygon) -> Image.Image:
+        """Cut *polygon* out of the page and process it into a question image."""
         cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
         cropped = resize_image(
             cropped, self.config.question_max_width, self.config.question_max_height
         )
-        processed = self._segment_processor.process(cropped)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if output_path.exists():
-            return self._handle_existing_file(
-                output_path, processed, current_option, output_dir
-            )
-
-        processed.save(output_path)
-        return current_option
-
-    def _handle_existing_file(
-        self,
-        output_path: Path,
-        new_image: Image.Image,
-        current_option: int,
-        output_dir: Path,
-    ) -> int:
-        """Ask the resolver where a colliding question belongs.
-
-        Returns the option the question ended up under — *current_option* when
-        the existing file is kept, which is also what happens when the resolver
-        names an option whose slot is taken too.
-        """
-        resolved_option = self._on_conflict(
-            Conflict(
-                new_image=new_image,
-                existing_path=output_path,
-                current_option=current_option,
-            )
-        )
-
-        if resolved_option == current_option:
-            return current_option
-
-        correct_path = (
-            output_dir / str(resolved_option) / CORRECTED_PART / output_path.name
-        )
-        if correct_path.exists():
-            # Moving the crop here would overwrite another question's image, so
-            # the collision stands and the state is left where it was.
-            logger.error(
-                "Corrected path already taken, keeping existing file",
-                from_path=str(output_path),
-                to_path=str(correct_path),
-            )
-            return current_option
-
-        correct_path.parent.mkdir(parents=True, exist_ok=True)
-        logger.info(
-            "Saving corrected image",
-            from_path=str(output_path),
-            to_path=str(correct_path),
-        )
-        new_image.save(str(correct_path))
-        output_path.unlink()
-        return resolved_option
+        return self._segment_processor.process(cropped)
 
     def _extract_option_number(
         self, image: Image.Image, polygon: PixelPolygon
@@ -229,23 +159,41 @@ class PageExtractor:
         region: PageRegion,
         placement: QuestionPlacement,
         output_dir: Path,
-    ) -> int:
-        """Save one placed question's crop. Returns the option it landed under."""
+    ) -> None:
+        """Save one placed question's crop, unless its slot is already taken.
+
+        A taken slot means this page's numbering has run into output an earlier
+        page already wrote. Overwriting would destroy an extracted question, so
+        the existing file wins and the collision is logged — and `--review`
+        marks it on the page before anything is written.
+        """
         logger.debug(
             "Extracting question",
             option=placement.option,
             part=placement.part,
             question=placement.number,
         )
-        output_path = (
-            output_dir
-            / str(placement.option)
-            / placement.part
-            / f"{placement.number}.{self.config.image_format}"
+
+        if question_slot_taken(
+            output_dir, placement.option, placement.part, placement.number
+        ):
+            logger.error(
+                "Question slot already taken, keeping the existing image",
+                option=placement.option,
+                part=placement.part,
+                question=placement.number,
+            )
+            return
+
+        output_path = question_image_path(
+            output_dir,
+            placement.option,
+            placement.part,
+            placement.number,
+            self.config.image_format,
         )
-        return self._crop_and_save(
-            image, region.polygon, output_path, placement.option, output_dir
-        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        self._crop(image, region.polygon).save(output_path)
 
     def extract(
         self,
@@ -295,7 +243,7 @@ class PageExtractor:
 
         state.adopt(reviewed.state)
 
-        def write(region: PageRegion, placement: QuestionPlacement) -> int:
-            return self._write_question(image, region, placement, output_dir)
+        def write(region: PageRegion, placement: QuestionPlacement) -> None:
+            self._write_question(image, region, placement, output_dir)
 
         place_questions(reviewed.regions, state, write=write)

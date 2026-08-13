@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Literal
 import structlog
 from PIL import Image, ImageTk
 
+from digitex.core.corpus import highest_question_number
 from digitex.core.domain import PixelPolygon
 from digitex.extractors.exceptions import ReviewAborted
 from digitex.extractors.placement import (
@@ -34,7 +35,12 @@ from digitex.extractors.placement import (
     place_questions,
     reading_order_key,
 )
-from digitex.extractors.review import PageProposal, ReviewedPage
+from digitex.extractors.review import (
+    NumberingFault,
+    PageProposal,
+    ReviewedPage,
+    numbering_fault,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -55,6 +61,10 @@ COLORS: dict[PageLabel, str] = {
 }
 
 LABELS: tuple[PageLabel, ...] = ("question", "option", "part")
+
+# Overrides a region's own colour when its number would collide with, or leave
+# a gap after, what the output tree already holds.
+MISNUMBERED = "#c00000"
 
 # Half-width of a vertex handle, in screen pixels.
 HANDLE = 4
@@ -176,8 +186,10 @@ class _ReviewWindow:
         self.geometry = geometry
 
         self._image = proposal.image.convert("RGB")
+        self._output_dir = proposal.output_dir
         self._selected: int | None = None
         self._placements: dict[int, QuestionPlacement] = {}
+        self._misnumbered: set[int] = set()
         self._problem: str | None = None
         self._fitted = False
         self._scale = 1.0
@@ -330,6 +342,13 @@ class _ReviewWindow:
         self._ends_at = ttk.Label(entry, text="", foreground="#555")
         self._ends_at.grid(row=3, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
+        self._continue_button = ttk.Button(
+            entry, text="Continue from disk", command=self._continue_from_disk
+        )
+        self._continue_button.grid(
+            row=4, column=0, columnspan=2, sticky="ew", pady=(6, 0)
+        )
+
         tree_frame = ttk.Frame(panel)
         tree_frame.grid(row=1, column=0, sticky="nsew", pady=(8, 4))
         tree_frame.rowconfigure(0, weight=1)
@@ -346,6 +365,7 @@ class _ReviewWindow:
         self._tree.heading("where", text="saved as")
         self._tree.column("kind", width=110, anchor="w")
         self._tree.column("where", width=110, anchor="w")
+        self._tree.tag_configure("misnumbered", foreground=MISNUMBERED)
         self._tree.grid(row=0, column=0, sticky="nsew")
         self._tree.bind("<<TreeviewSelect>>", self._on_tree_select)
 
@@ -479,7 +499,7 @@ class _ReviewWindow:
         self._canvas.delete("region")
 
         for index, region in enumerate(self.regions):
-            color = COLORS[region.label]
+            color = MISNUMBERED if index in self._misnumbered else COLORS[region.label]
             selected = index == self._selected
             coords = [c for point in region.polygon for c in self._to_canvas(point)]
 
@@ -523,6 +543,7 @@ class _ReviewWindow:
         """Replay the regions through a copy of the entry state and redraw."""
         preview = replace(self.state)
         self._placements = {}
+        self._misnumbered = set()
         self._problem = None
 
         try:
@@ -535,6 +556,12 @@ class _ReviewWindow:
                 index: item.placement
                 for index, item in zip(questions, placed, strict=True)
             }
+
+            fault = numbering_fault(placed, self._output_dir)
+            if fault is not None:
+                self._misnumbered = {questions[fault.position]}
+                self._problem = self._fault_message(fault)
+
             part = preview.part or "?"
             self._ends_at.configure(
                 text=f"ends at {preview.option}/{part}/{preview.question}"
@@ -542,8 +569,51 @@ class _ReviewWindow:
 
         self._problem_label.configure(text=self._problem or "")
         self._approve.configure(state="disabled" if self._problem else "normal")
+        self._continue_button.configure(
+            state="normal"
+            if self._problem and self._entry_state_reaches_first_question()
+            else "disabled"
+        )
         self._render_regions()
         self._fill_tree()
+
+    def _fault_message(self, fault: NumberingFault) -> str:
+        """Say what is wrong with a number, and which remedy applies."""
+        wrong = "already exists" if fault.collides else "would leave a gap"
+        remedy = (
+            "Use 'Continue from disk'."
+            if self._entry_state_reaches_first_question()
+            else "A marker starts this group, so the page's own numbering is"
+            " right — skip the page if it is already extracted, or correct the"
+            " marker above it."
+        )
+        return (
+            f"{fault.placement} {wrong} — the next free number in"
+            f" {fault.placement.option}/{fault.placement.part} is {fault.free}."
+            f" {remedy}"
+        )
+
+    def _entry_state_reaches_first_question(self) -> bool:
+        """True when nothing resets the numbering before the first question.
+
+        An option or part marker sets the counter itself, so moving where the
+        page starts cannot move a group that begins after one.
+        """
+        for region in self.regions:
+            if region.label == "question":
+                return True
+            if region.label in ("option", "part"):
+                return False
+        return False
+
+    def _continue_from_disk(self) -> None:
+        """Set the entry counter so the page's first question takes the free slot."""
+        first = next(iter(self._placements.values()), None)
+        if first is None:
+            return
+        free = highest_question_number(self._output_dir, first.option, first.part) + 1
+        # next_question() hands out question + 1, so the counter sits one below.
+        self._question_var.set(str(max(free - 1, 0)))
 
     def _fill_tree(self) -> None:
         self._tree.delete(*self._tree.get_children())
@@ -554,6 +624,7 @@ class _ReviewWindow:
                 "end",
                 iid=str(index),
                 values=(f"{index + 1}. {region.label}", where),
+                tags=("misnumbered",) if index in self._misnumbered else (),
             )
         if self._selected is not None and self._selected < len(self.regions):
             self._tree.selection_set(str(self._selected))

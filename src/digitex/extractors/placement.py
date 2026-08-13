@@ -22,11 +22,6 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
-# A conflict-resolver correction moves the question to a different option, and
-# an option always starts at Part A. Named once so the state machine and the
-# path it lands at cannot disagree.
-CORRECTED_PART = "A"
-
 PageLabel = Literal["option", "part", "question"]
 """What the segmentation model can find on a page."""
 
@@ -92,18 +87,6 @@ class PageExtractionState:
         """Consume the question number handed out by :meth:`next_question`."""
         self.question += 1
 
-    def correct_option(self, resolved_option: int) -> bool:
-        """Apply a conflict-resolver decision. Returns True if the option moved.
-
-        The question counter deliberately keeps running — the corrected
-        question retains its number under the new option.
-        """
-        if resolved_option == self.option:
-            return False
-        self.option = resolved_option
-        self.part = CORRECTED_PART
-        return True
-
     def adopt(self, other: PageExtractionState) -> None:
         """Take *other*'s position — how a reviewer corrects where a page starts.
 
@@ -138,18 +121,12 @@ class PlacedQuestion:
     placement: QuestionPlacement
 
 
-QuestionWriter = Callable[[PageRegion, QuestionPlacement], int]
-"""Persist one question's crop; returns the option it actually landed under.
-
-A writer that returns anything other than ``placement.option`` has moved the
-question, and every later question on the page follows it — that is how the
-conflict resolver's correction reaches the numbering.
-"""
+QuestionWriter = Callable[[PageRegion, QuestionPlacement], None]
+"""Persist one placed question's crop."""
 
 
-def place_only(region: PageRegion, placement: QuestionPlacement) -> int:  # noqa: ARG001
+def write_nothing(region: PageRegion, placement: QuestionPlacement) -> None:
     """Writer that writes nothing — the preview the review GUI draws."""
-    return placement.option
 
 
 def reading_order_key(polygon: PixelPolygon) -> tuple[int, int]:
@@ -160,13 +137,12 @@ def reading_order_key(polygon: PixelPolygon) -> tuple[int, int]:
 def place_questions(
     regions: Iterable[PageRegion],
     state: PageExtractionState,
-    write: QuestionWriter = place_only,
+    write: QuestionWriter = write_nothing,
 ) -> list[PlacedQuestion]:
     """Replay *regions* through *state*, handing each question its placement.
 
-    *state* is mutated: markers advance it, questions consume numbers from it,
-    and a writer reporting a different option corrects it. Pass a copy to
-    preview a page without committing to it.
+    *state* is mutated: markers advance it and questions consume numbers from
+    it. Pass a copy to preview a page without committing to it.
 
     Args:
         regions: The page's labelled regions, in reading order.
@@ -200,14 +176,8 @@ def place_questions(
                     "Question detected before any option/part marker was read"
                 )
 
-            resolved = write(region, placement)
+            write(region, placement)
             state.commit_question()
-            if state.correct_option(resolved):
-                logger.info(
-                    "Option corrected",
-                    from_option=placement.option,
-                    to_option=resolved,
-                )
             placed.append(PlacedQuestion(region=region, placement=placement))
 
     return placed

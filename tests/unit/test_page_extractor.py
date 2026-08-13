@@ -58,7 +58,6 @@ def _extractor(
     *,
     digits: list[int] | None = None,
     text: str = "",
-    on_conflict=None,
     on_review=None,
 ) -> PageExtractor:
     # The fakes satisfy the collaborators' contracts structurally.
@@ -72,7 +71,6 @@ def _extractor(
         text_extractor=cast(
             "TextExtractor", _FakeTextExtractor(digits=digits, text=text)
         ),
-        on_conflict=on_conflict,
         on_review=on_review,
     )
 
@@ -234,9 +232,10 @@ class TestPageExtractorExtract:
 
         assert (tmp_path / "1" / "B" / "1.jpg").exists()
 
-    def test_conflict_with_default_resolver_keeps_existing_file(
+    def test_a_taken_slot_keeps_the_image_that_is_already_there(
         self, tmp_path: Path
     ) -> None:
+        """Overwriting would destroy an extracted question, so the page yields."""
         detections = _dets(("question", QUESTION_REGION))
         existing = tmp_path / "1" / "A" / "1.jpg"
         existing.parent.mkdir(parents=True)
@@ -248,48 +247,26 @@ class TestPageExtractorExtract:
         _extractor(detections).extract(image, tmp_path, state)
 
         assert existing.read_bytes() == b"original"
+        # The number is still consumed: the question exists, it just was not
+        # this run that wrote it.
         assert (state.option, state.question) == (1, 1)
 
-    def test_conflict_resolver_correction_moves_question_and_state(
+    def test_a_slot_taken_in_another_format_is_still_taken(
         self, tmp_path: Path
     ) -> None:
+        """An earlier run's png must not be shadowed by a second jpg copy."""
         detections = _dets(("question", QUESTION_REGION))
-        existing = tmp_path / "1" / "A" / "1.jpg"
+        existing = tmp_path / "1" / "A" / "1.png"
         existing.parent.mkdir(parents=True)
         existing.write_bytes(b"original")
         image = Image.new("RGB", (300, 300), color="white")
 
-        state = PageExtractionState(option=1, part="A")
-
-        _extractor(detections, on_conflict=lambda conflict: 2).extract(
-            image, tmp_path, state
+        _extractor(detections).extract(
+            image, tmp_path, PageExtractionState(option=1, part="A")
         )
 
-        assert not existing.exists()
-        assert (tmp_path / "2" / "A" / "1.jpg").exists()
-        assert (state.option, state.part, state.question) == (2, "A", 1)
-
-    def test_correction_into_an_occupied_slot_keeps_both_files(
-        self, tmp_path: Path
-    ) -> None:
-        """The resolver's option is already taken, so nothing is overwritten."""
-        detections = _dets(("question", QUESTION_REGION))
-        existing = tmp_path / "1" / "A" / "1.jpg"
-        existing.parent.mkdir(parents=True)
-        existing.write_bytes(b"original")
-        occupied = tmp_path / "2" / "A" / "1.jpg"
-        occupied.parent.mkdir(parents=True)
-        occupied.write_bytes(b"someone else")
-        image = Image.new("RGB", (300, 300), color="white")
-        state = PageExtractionState(option=1, part="A")
-
-        _extractor(detections, on_conflict=lambda conflict: 2).extract(
-            image, tmp_path, state
-        )
-
+        assert not (tmp_path / "1" / "A" / "1.jpg").exists()
         assert existing.read_bytes() == b"original"
-        assert occupied.read_bytes() == b"someone else"
-        assert (state.option, state.part) == (1, "A")
 
 
 class TestPageExtractorReview:

@@ -6,7 +6,7 @@ that happens in the Typer callback, once a command is actually running.
 """
 
 from pathlib import Path
-from typing import Annotated, Final
+from typing import Annotated
 
 import typer
 
@@ -15,15 +15,9 @@ from digitex.extractors.answers_extractor import AnswersExtractor
 from digitex.extractors.base import ExtractionConfig
 from digitex.extractors.exceptions import APIError, ModelNotFoundError, ReviewAborted
 from digitex.extractors.tests_extractor import TestsExtractor
-from digitex.extractors.utils import renumber_directory_tree
 from digitex.logging import setup_logging
-from digitex.services.answer_validator import (
-    AnswerValidator,
-    PartBCoverage,
-    ValidationReport,
-    YearReport,
-)
-from digitex.services.image_census import ImageCensus, SubjectCensus, YearCensus
+from digitex.services.answer_validator import AnswerValidator
+from digitex.services.image_census import ImageCensus
 
 app = typer.Typer(help="Extraction commands for processing test books.")
 
@@ -170,69 +164,6 @@ def extract_questions(
         _echo_errors(result.errors)
 
 
-def _render_year_census(year: YearCensus) -> None:
-    label = f"  {year.year}: {year.options} options"
-    if year.missing_options:
-        label = typer.style(label, fg="red", bold=True)
-    elif year.is_complete:
-        label = typer.style(label, fg="green")
-    typer.echo(label)
-
-    for part in year.parts:
-        line = f"    {part.option}/{part.part}: {part.images} images"
-        if part.off_mode:
-            line = typer.style(line, fg="red", bold=True)
-        typer.echo(line)
-
-
-def _render_census(census: SubjectCensus) -> None:
-    for year in census.years:
-        _render_year_census(year)
-    typer.echo(
-        f"\nTotal: {census.images} images in {census.folders} folders"
-        f" (subject: {census.subject})"
-    )
-
-
-@app.command(name="count-questions")
-def count_questions(subject: Annotated[str, SUBJECT_ARGUMENT]) -> None:
-    """Count images in a specific subject's extraction output."""
-    census_taker = ImageCensus(get_settings().paths.extraction_output_dir)
-    try:
-        census = census_taker.take(subject)
-    except FileNotFoundError:
-        raise _abort(f"Error: Subject '{subject}' not found") from None
-
-    if census.is_empty:
-        typer.echo(f"No images found for subject '{subject}'")
-        return
-
-    _render_census(census)
-
-
-@app.command(name="renumber-questions")
-def renumber_questions(
-    subject: Annotated[str, SUBJECT_ARGUMENT],
-    dry_run: Annotated[
-        bool, typer.Option(help="Preview changes without renaming")
-    ] = True,
-) -> None:
-    """Renumber images in a specific subject's extraction output to fill gaps."""
-    folder = get_settings().paths.extraction_output_dir / subject
-
-    if not folder.is_dir():
-        raise _abort(f"Error: Subject '{subject}' not found")
-
-    total = renumber_directory_tree(folder, dry_run=dry_run)
-
-    if dry_run and total:
-        typer.echo(f"\n{total} files would be renamed")
-    elif total:
-        typer.echo(f"Renamed {total} files successfully")
-    else:
-        typer.echo("All images are already sequential")
-
-
 @app.command(name="extract-answers")
 def extract_answers(subject: Annotated[str, SUBJECT_ARGUMENT]) -> None:
     """Extract answer keys from answer sheet images using OpenRouter.
@@ -266,84 +197,6 @@ def extract_answers(subject: Annotated[str, SUBJECT_ARGUMENT]) -> None:
     if result.errors:
         typer.echo(typer.style("\nErrors:", fg="red"), err=True)
         _echo_errors(result.errors)
-
-
-# One row per coverage state, keyed by the Literal itself: a new state fails to
-# type-check here instead of raising a KeyError at render time.
-_PART_B_COVERAGE: Final[dict[PartBCoverage, tuple[str, str, bool]]] = {
-    "none": ("red", "NO option has Б", True),
-    "partial": ("yellow", "{covered}/{total} options have Б", False),
-    "all": ("green", "all options have Б", False),
-}
-
-
-def _render_year_report(year: YearReport) -> None:
-    """Emit the colored year-level rendering of a validation outcome."""
-    if not year.answers_file_present:
-        typer.echo(f"\n{year.year}: ✗ answers.json NOT FOUND")
-        return
-
-    if not year.answers_file_valid:
-        typer.echo(f"\n{year.year}: ✗ answers.json IS UNREADABLE (bad JSON or shape)")
-        return
-
-    if year.has_mismatch:
-        status = "❌ MISMATCH"
-    elif year.options_differ:
-        status = "❌ OPTIONS DIFFER"
-    else:
-        status = "✅ OK"
-
-    typer.echo(f"\n{year.year}: {status}")
-    typer.echo(f"  A-part: {year.a_count}, B-part: {year.b_count}")
-    typer.echo(f"  Questions in images: {year.image_question_count}")
-    typer.echo(f"  Questions in answers.json: {year.answer_question_count}")
-
-    if year.options_differ:
-        typer.echo(
-            "  Options with different questions:"
-            f" {year.options_with_differing_questions}"
-        )
-    if year.missing_in_answers:
-        typer.echo(f"  Missing in answers.json: {year.missing_in_answers}")
-    if year.missing_in_images:
-        typer.echo(f"  Missing in images: {year.missing_in_images}")
-
-    color, label, bold = _PART_B_COVERAGE[year.part_b_coverage]
-    styled = typer.style(
-        label.format(covered=year.options_with_b, total=year.total_options),
-        fg=color,
-        bold=bold,
-    )
-    typer.echo(f"  Part B 'Б' check: {styled}")
-
-
-def _render_validation_report(report: ValidationReport) -> None:
-    typer.echo("=" * 60)
-    typer.echo(f"CHECKING ANSWERS FOR: {report.subject}")
-    typer.echo("=" * 60)
-
-    for year in report.years:
-        _render_year_report(year)
-
-    typer.echo("\n" + "=" * 60)
-    if report.total_issues == 0:
-        typer.echo("RESULT: All years match ✅")
-    else:
-        typer.echo(f"RESULT: {report.total_issues} issue(s) found ❌")
-    typer.echo("=" * 60)
-
-
-@app.command(name="check-answers")
-def check_answers(subject: Annotated[str, SUBJECT_ARGUMENT]) -> None:
-    """Check that answers.json files correspond to extracted question images."""
-    validator = AnswerValidator(get_settings().paths.extraction_output_dir)
-    try:
-        report = validator.validate(subject)
-    except FileNotFoundError as exc:
-        raise _abort(f"Error: {exc} does not exist") from None
-
-    _render_validation_report(report)
 
 
 if __name__ == "__main__":

@@ -15,7 +15,6 @@ from typer.testing import CliRunner
 
 from digitex.cli import extraction
 from digitex.config import OpenRouterSettings, PathsSettings, Settings
-from digitex.core.domain import OPTIONS_PER_BOOK
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -50,55 +49,6 @@ def _seed_output(settings: Settings, subject: str, year: str, options: int) -> N
         (part_dir / "1.jpg").write_bytes(b"x")
 
 
-class TestCountQuestions:
-    def test_unknown_subject_exits_nonzero(self, settings: Settings) -> None:
-        result = runner.invoke(extraction.app, ["count-questions", "biology"])
-
-        assert result.exit_code == 1
-        assert "not found" in result.output
-
-    def test_empty_subject_says_so(self, settings: Settings) -> None:
-        (settings.paths.extraction_output_dir / "biology").mkdir(parents=True)
-
-        result = runner.invoke(extraction.app, ["count-questions", "biology"])
-
-        assert result.exit_code == 0
-        assert "No images found" in result.output
-
-    def test_reports_options_and_totals(self, settings: Settings) -> None:
-        _seed_output(settings, "biology", "2020", OPTIONS_PER_BOOK)
-
-        result = runner.invoke(extraction.app, ["count-questions", "biology"])
-
-        assert result.exit_code == 0
-        assert f"2020: {OPTIONS_PER_BOOK} options" in result.output
-        assert f"Total: {OPTIONS_PER_BOOK} images" in result.output
-
-    def test_flags_a_year_missing_options(self, settings: Settings) -> None:
-        _seed_output(settings, "biology", "2020", 3)
-
-        result = runner.invoke(extraction.app, ["count-questions", "biology"])
-
-        assert result.exit_code == 0
-        assert "2020: 3 options" in result.output
-
-
-class TestRenumberQuestions:
-    def test_unknown_subject_exits_nonzero(self, settings: Settings) -> None:
-        result = runner.invoke(extraction.app, ["renumber-questions", "biology"])
-
-        assert result.exit_code == 1
-        assert "not found" in result.output
-
-    def test_already_sequential_says_so(self, settings: Settings) -> None:
-        _seed_output(settings, "biology", "2020", 1)
-
-        result = runner.invoke(extraction.app, ["renumber-questions", "biology"])
-
-        assert result.exit_code == 0
-        assert "already sequential" in result.output
-
-
 class TestExtractQuestions:
     def test_missing_model_is_reported_not_raised(self, settings: Settings) -> None:
         """A missing model exits like every other failure, not with a traceback."""
@@ -118,19 +68,8 @@ class TestExtractAnswers:
         assert "API key" in result.output
 
 
-class TestCheckAnswers:
-    def test_unknown_subject_exits_nonzero(self, settings: Settings) -> None:
-        result = runner.invoke(extraction.app, ["check-answers", "biology"])
-
-        assert result.exit_code == 1
-        assert "does not exist" in result.output
-
-    def test_reports_a_year_without_answers(self, settings: Settings) -> None:
-        _seed_output(settings, "biology", "2020", 1)
-
-        result = runner.invoke(extraction.app, ["check-answers", "biology"])
-
-        assert result.exit_code == 0
-        assert "CHECKING ANSWERS FOR: biology" in result.output
-        assert "answers.json NOT FOUND" in result.output
-        assert "issue(s) found" in result.output
+class TestCommandSurface:
+    def test_counting_and_renumbering_are_the_review_window_s_job_now(self) -> None:
+        """They were removed, not renamed — a stale habit should fail loudly."""
+        for gone in ("count-questions", "check-answers", "renumber-questions"):
+            assert runner.invoke(extraction.app, [gone, "biology"]).exit_code != 0

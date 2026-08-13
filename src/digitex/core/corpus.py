@@ -47,6 +47,40 @@ def question_image_number(path: Path) -> int | None:
     return int(path.stem)
 
 
+def question_image_path(
+    year_dir: Path, option: int | str, part: str, number: int, image_format: str
+) -> Path:
+    """Where one question's image is written under a year's output tree."""
+    return year_dir / str(option) / part / f"{number}.{image_format}"
+
+
+def question_slot_taken(
+    year_dir: Path, option: int | str, part: str, number: int
+) -> bool:
+    """True when a question image already occupies this option/part/number.
+
+    Format-agnostic on purpose: one run can have written ``1.png`` and the next
+    be configured for jpg, and either file means the slot is taken.
+    """
+    folder = year_dir / str(option) / part
+    return folder.is_dir() and any(
+        question_image_number(path) == number for path in folder.glob(f"{number}.*")
+    )
+
+
+def highest_question_number(year_dir: Path, option: int | str, part: str) -> int:
+    """The highest question number already written to one option/part, 0 if none.
+
+    What the next question written there must be numbered, minus one — so a
+    caller can tell a continuation from a collision or a gap before writing.
+    """
+    folder = year_dir / str(option) / part
+    if not folder.is_dir():
+        return 0
+    numbers = (question_image_number(path) for path in folder.iterdir())
+    return max((number for number in numbers if number is not None), default=0)
+
+
 def question_object_key(output_dir: Path, image_path: Path) -> str:
     """The stored key for a question image: its path relative to the corpus root.
 
