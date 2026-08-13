@@ -51,11 +51,14 @@ class Numbering:
     walk refused it outright, or one question's number would collide with the
     output tree or leave a hole in it. ``misnumbered`` indexes into the regions
     list so the offending row and polygon can be drawn in red.
+    ``continue_helps`` says the fault sits in the entry group, so moving where
+    the page starts — the 'Continue from disk' button — can actually fix it.
     """
 
     placements: dict[int, QuestionPlacement] = field(default_factory=dict)
     misnumbered: frozenset[int] = frozenset()
     problem: str | None = None
+    continue_helps: bool = False
     ends_at: str = ""
 
     @property
@@ -115,25 +118,28 @@ class PageEdits:
 
         misnumbered: frozenset[int] = frozenset()
         problem: str | None = None
+        continue_helps = False
         fault = numbering_fault(placed, self.output_dir)
         if fault is not None:
             misnumbered = frozenset({questions[fault.position]})
-            problem = self._fault_message(fault)
+            continue_helps = fault.position < self._entry_group_size
+            problem = self._fault_message(fault, continue_helps=continue_helps)
 
         part = preview.part or "?"
         return Numbering(
             placements=placements,
             misnumbered=misnumbered,
             problem=problem,
+            continue_helps=continue_helps,
             ends_at=f"page ends at {preview.option}/{part}/{preview.question}",
         )
 
-    def _fault_message(self, fault: NumberingFault) -> str:
+    def _fault_message(self, fault: NumberingFault, *, continue_helps: bool) -> str:
         """Say what is wrong with a number, and which remedy applies."""
         wrong = "already exists" if fault.collides else "would leave a gap"
         remedy = (
             "Use 'Continue from disk'."
-            if self.entry_state_reaches_first_question
+            if continue_helps
             else "A marker starts this group, so the page's own numbering is"
             " right — skip the page if it is already extracted, or correct the"
             " marker above it."
@@ -145,18 +151,24 @@ class PageEdits:
         )
 
     @property
+    def _entry_group_size(self) -> int:
+        """Questions before the first marker — the group the entry state numbers."""
+        count = 0
+        for region in self.regions:
+            if region.label in ("option", "part"):
+                break
+            if region.label == "question":
+                count += 1
+        return count
+
+    @property
     def entry_state_reaches_first_question(self) -> bool:
         """True when nothing resets the numbering before the first question.
 
         An option or part marker sets the counter itself, so moving where the
         page starts cannot move a group that begins after one.
         """
-        for region in self.regions:
-            if region.label == "question":
-                return True
-            if region.label in ("option", "part"):
-                return False
-        return False
+        return self._entry_group_size > 0
 
     def continue_from_disk(self) -> int | None:
         """The entry counter that puts the first question in the free slot.

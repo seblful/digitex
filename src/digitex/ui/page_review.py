@@ -840,9 +840,7 @@ class _ReviewWindow:
         self._problem_label.configure(text=numbering.problem or "")
         self._set_approve_enabled(numbering.ok)
         self._continue_button.configure(
-            state="normal"
-            if numbering.problem and self.edits.entry_state_reaches_first_question
-            else "disabled"
+            state="normal" if numbering.continue_helps else "disabled"
         )
         self._undo_button.configure(
             state="normal" if self.edits.history.can_undo else "disabled"
@@ -957,6 +955,8 @@ class _ReviewWindow:
         try:
             image = self._crop_for(region)
         except Exception as exc:  # a polygon can be degenerate mid-edit
+            # A real cropping bug lands here too, so keep its traceback.
+            logger.debug("Preview crop failed", exc_info=True)
             self._preview_caption.configure(text=f"cannot crop this polygon: {exc}")
             return
 
@@ -1344,10 +1344,10 @@ class _ReviewWindow:
     def _refresh_stats_if_shown(self) -> None:
         """Recount only when the tab is in front — it walks the whole tree."""
         try:
-            current = self._notebook.index(self._notebook.select())
+            current = self._notebook.select()
         except tk.TclError:
             return
-        if current == 1:
+        if current == str(self._stats):
             self._stats.refresh_if_stale()
 
     # --- verdict ---

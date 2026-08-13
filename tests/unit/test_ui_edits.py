@@ -158,6 +158,55 @@ class TestWhereThePageStarts:
         """The marker sets the counter itself, so moving the entry state is no help."""
         assert edits.entry_state_reaches_first_question is False
 
+    def test_the_remedy_names_continue_only_for_the_entry_group(
+        self, tmp_path: Path
+    ) -> None:
+        """A fault after a marker cannot be fixed by moving the entry state.
+
+        Here the entry group continues cleanly and the Part B group collides —
+        recommending 'Continue from disk' would point the reviewer at a button
+        that changes nothing.
+        """
+        taken = tmp_path / "1" / "B"
+        taken.mkdir(parents=True)
+        (taken / "1.jpg").write_bytes(b"x")
+
+        edits = PageEdits()
+        edits.load(
+            [
+                _region("question", 100),
+                _region("part", 200, "B"),
+                _region("question", 300),
+            ],
+            PageExtractionState(option=1, part="A", question=0),
+            tmp_path,
+        )
+
+        numbering = edits.numbering()
+
+        assert numbering.ok is False
+        assert numbering.continue_helps is False
+        assert "Continue from disk" not in (numbering.problem or "")
+
+    def test_the_remedy_names_continue_for_a_fault_in_the_entry_group(
+        self, tmp_path: Path
+    ) -> None:
+        taken = tmp_path / "1" / "A"
+        taken.mkdir(parents=True)
+        (taken / "1.jpg").write_bytes(b"x")
+
+        edits = PageEdits()
+        edits.load(
+            [_region("question", 100)],
+            PageExtractionState(option=1, part="A", question=0),
+            tmp_path,
+        )
+
+        numbering = edits.numbering()
+
+        assert numbering.continue_helps is True
+        assert "Continue from disk" in (numbering.problem or "")
+
     def test_continue_from_disk_picks_up_where_the_folder_left_off(
         self, tmp_path: Path
     ) -> None:
