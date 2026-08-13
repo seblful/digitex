@@ -168,10 +168,10 @@ def extract_questions(
 def extract_answers(subject: Annotated[str, SUBJECT_ARGUMENT]) -> None:
     """Extract answer keys from answer sheet images using OpenRouter.
 
-    Answer images should be placed in books/{subject}/answers/
+    Answer images should be placed in var/books/{subject}/answers/
     with filename format: YYYY_N.jpg (e.g., 2016_1.jpg, 2016_2.jpg)
 
-    Results are saved to extraction/data/output/{subject}/{year}/answers.json
+    Results are saved to var/extraction/output/{subject}/{year}/answers.json
     """
     try:
         extractor = _answers_extractor(get_settings())

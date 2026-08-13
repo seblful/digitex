@@ -40,12 +40,12 @@ digitex-extract extract-questions <SUBJECT> [--review]
 
 **Process:**
 
-1. Reads images from `books/{subject}/images/{year}/`
+1. Reads images from `var/books/{subject}/images/{year}/`
 1. Uses YOLO model to detect questions, options, and parts
 1. Reads the option number and part letter off their markers with OCR
 1. Numbers each question from those markers, continuing across pages
-1. Crops and saves to `extraction/data/output/{subject}/{year}/{option}/{part}/`
-1. Tracks progress in `extraction/data/progress.json`
+1. Crops and saves to `var/extraction/output/{subject}/{year}/{option}/{part}/`
+1. Tracks progress in `var/extraction/progress.json`
 
 ### The review window (`--review`)
 
@@ -132,25 +132,27 @@ digitex-extract extract-answers <SUBJECT>
 **Requirements:**
 
 - Set `OPENROUTER_API_KEY` environment variable
-- Answer images in `books/{subject}/answers/`
+- Answer images in `var/books/{subject}/answers/`
 - Filename format: `YYYY_N.jpg` (e.g., `2016_1.jpg`)
 
 ## Directory Structure
 
-```
-books/
-└── {subject}/
-    ├── images/
-    │   ├── 2020/
-    │   │   ├── page1.jpg
-    │   │   └── page2.jpg
-    │   └── 2021/
-    └── answers/
-        ├── 2020_1.jpg
-        └── 2020_2.jpg
+Everything below lives under the data root — `var/` by default, or wherever
+`PATH_DATA_ROOT` points. None of it is in version control.
 
-extraction/
-├── data/
+```
+var/
+├── books/
+│   └── {subject}/
+│       ├── images/
+│       │   ├── 2020/
+│       │   │   ├── page1.jpg
+│       │   │   └── page2.jpg
+│       │   └── 2021/
+│       └── answers/
+│           ├── 2020_1.jpg
+│           └── 2020_2.jpg
+├── extraction/
 │   ├── progress.json
 │   └── output/
 │       └── {subject}/
@@ -176,18 +178,22 @@ EXTRACTION_IMAGE_FORMAT=jpg
 EXTRACTION_QUESTION_MAX_WIDTH=2000
 EXTRACTION_QUESTION_MAX_HEIGHT=2000
 
-# Every path derives from this one, which defaults to the project root
-PATH_ROOT_DIR=/path/to/corpus
+# Every data path derives from this one, which defaults to ./var
+PATH_DATA_ROOT=/path/to/corpus
 
 # OpenRouter (for answers)
 OPENROUTER_API_KEY=your_api_key
 OPENROUTER_MODEL=moonshotai/kimi-k2.6
 ```
 
-The model is always `{PATH_ROOT_DIR}/extraction/models/page.pt` — a computed
-path with no environment variable of its own. Pointing `PATH_ROOT_DIR` at a
-scratch corpus is how you try a run without touching the real tree; it moves
-the books, the model and the output together.
+The model is always `{PATH_DATA_ROOT}/models/page.pt` — a computed path with no
+environment variable of its own. Pointing `PATH_DATA_ROOT` at a scratch corpus
+is how you try a run without touching the real tree; it moves the books, the
+model and the output together.
+
+`PATH_DATA_ROOT` is resolved against the working directory when relative, so
+run these commands from the repo root or set it to an absolute path. Nothing is
+derived from where the package itself is installed.
 
 A checkpoint carries the paths of the run that trained it, so one trained on
 Linux used to fail to load on Windows with `cannot instantiate 'PosixPath'`
@@ -197,7 +203,7 @@ trains on either platform and runs on both.
 
 ## Progress Tracking
 
-Progress is automatically tracked in `extraction/data/progress.json`:
+Progress is automatically tracked in `var/extraction/progress.json`:
 
 ```json
 {
@@ -213,9 +219,9 @@ Common errors and solutions:
 | Error | Solution |
 | ----------------- | ------------------------------------------ |
 | Subject not found | Check subject name matches folder |
-| No images folder | Create `books/{subject}/images/` |
+| No images folder | Create `var/books/{subject}/images/` |
 | API key not set | Set `OPENROUTER_API_KEY` environment variable |
-| Model not found | Put it at `{PATH_ROOT_DIR}/extraction/models/page.pt` |
+| Model not found | Put it at `{PATH_DATA_ROOT}/models/page.pt` |
 
 ## Best Practices
 

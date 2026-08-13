@@ -7,7 +7,6 @@ import pytest
 from pydantic import ValidationError
 
 from digitex.config import (
-    BASE_DIR,
     DatabaseSettings,
     DataSettings,
     ExtractionSettings,
@@ -123,33 +122,52 @@ class TestLabelStudioSettings:
 class TestPathsSettings:
     """Test PathsSettings class."""
 
-    def test_root_dir_is_the_project_root(self) -> None:
-        """root_dir is fixed to the checkout, not wherever a command was run."""
-        settings = PathsSettings()
-        assert settings.root_dir == BASE_DIR
-        assert (settings.root_dir / "pyproject.toml").exists()
-
-    def test_root_dir_ignores_the_working_directory(
+    def test_data_root_defaults_beside_the_working_directory(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Running from elsewhere must not relocate books/ and extraction/."""
+        """``var/`` under the cwd — never derived from the package's location."""
         monkeypatch.chdir(tmp_path)
-        assert PathsSettings().root_dir == BASE_DIR
+        assert PathsSettings().data_root == tmp_path.resolve() / "var"
 
-    def test_training_dir(self) -> None:
-        """Test that training_dir is computed correctly."""
-        settings = PathsSettings()
-        assert settings.training_dir == settings.root_dir / "training"
+    def test_relative_data_root_is_resolved_at_load_time(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """So errors name an absolute path, and a later chdir cannot move it."""
+        monkeypatch.chdir(tmp_path)
+        settings = PathsSettings(data_root=Path("corpus"))
 
-    def test_books_dir(self) -> None:
-        """Test that books_dir is computed correctly."""
-        settings = PathsSettings()
-        assert settings.books_dir == settings.root_dir / "books"
+        assert settings.data_root.is_absolute()
+        assert settings.books_dir == tmp_path.resolve() / "corpus" / "books"
 
-    def test_extraction_dir(self) -> None:
-        """Test that extraction_dir is computed correctly."""
-        settings = PathsSettings()
-        assert settings.extraction_dir == settings.root_dir / "extraction"
+    def test_books_dir(self, tmp_path: Path) -> None:
+        settings = PathsSettings(data_root=tmp_path)
+        assert settings.books_dir == tmp_path / "books"
+
+    def test_extraction_output_dir(self, tmp_path: Path) -> None:
+        settings = PathsSettings(data_root=tmp_path)
+        assert settings.extraction_output_dir == tmp_path / "extraction" / "output"
+
+    def test_extraction_model_path(self, tmp_path: Path) -> None:
+        settings = PathsSettings(data_root=tmp_path)
+        assert settings.extraction_model_path == tmp_path / "models" / "page.pt"
+
+    def test_training_data_dir(self, tmp_path: Path) -> None:
+        settings = PathsSettings(data_root=tmp_path)
+        assert settings.training_data_dir == tmp_path / "training" / "data"
+
+    def test_question_images_dir_defaults_to_the_extraction_output(
+        self, tmp_path: Path
+    ) -> None:
+        """A laptop serves the tree the object_keys were written from."""
+        settings = PathsSettings(data_root=tmp_path)
+        assert settings.question_images_dir == settings.extraction_output_dir
+
+    def test_questions_dir_overrides_it(self, tmp_path: Path) -> None:
+        """Production bind-mounts the corpus somewhere data_root cannot reach."""
+        corpus = tmp_path / "mnt" / "questions"
+        settings = PathsSettings(data_root=tmp_path, questions_dir=corpus)
+
+        assert settings.question_images_dir == corpus
 
 
 class TestSettings:

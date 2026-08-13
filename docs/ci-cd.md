@@ -118,7 +118,7 @@ new image before starting it. Write the migration per
 
 ### Data (new extracted questions)
 
-Images live only on your machine (`extraction/data/` is gitignored), so this
+Images live only on your machine (`var/extraction/` is gitignored), so this
 one path stays laptop-driven:
 
 ```powershell

@@ -45,8 +45,8 @@ class TestsExtractor:
     ) -> None:
         self.books_dir = books_dir
         self.extraction_dir = extraction_dir
-        # ``extraction_dir`` is the output tree (``extraction/data/output``), so
-        # the progress log belongs beside it in ``extraction/data``.
+        # ``extraction_dir`` is the output tree (``var/extraction/output``), so
+        # the progress log belongs beside it in ``var/extraction``.
         self.data_dir = data_dir or extraction_dir.parent
 
         self._progress = JSONProgressTracker(self.data_dir / PROGRESS_FILE)

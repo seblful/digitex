@@ -15,7 +15,7 @@
     bot pointing at images that have not arrived yet. Both steps are idempotent
     - re-running is safe.
 
-    Question images live only on this machine (extraction/data/ is gitignored),
+    Question images live only on this machine (var/extraction/ is gitignored),
     so data reaches production from here rather than through CI.
 
     Requires rsync on PATH (choco install rsync).
@@ -82,7 +82,7 @@ if (-not (Get-Command rsync -ErrorAction SilentlyContinue)) {
 
 # uv needs the project root to resolve the digitex-db entry point.
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$imagesDir = Join-Path $repoRoot 'extraction/data/output'
+$imagesDir = Join-Path $repoRoot 'var/extraction/output'
 if (-not (Test-Path $imagesDir)) {
     throw "No extraction output at $imagesDir - nothing to sync."
 }

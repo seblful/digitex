@@ -1,6 +1,6 @@
 # YOLO Validation Configuration
 task: segment
-data: training/data/page/dataset/data.yaml
+data: var/training/data/page/dataset/data.yaml
 imgsz: 640
 batch: 4
 save_json: false

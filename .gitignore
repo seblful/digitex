@@ -1,15 +1,10 @@
-# Data
-books/
+# Data root — the book archive, extraction output, model weights, training data
+# and runs. Everything the project reads or writes that is not source lives
+# here, so one entry covers all of it. Override with PATH_DATA_ROOT.
+var/
+
+# Legacy SQLite databases, from before Postgres
 data/
-
-# Training outputs
-training/runs/
-training/output/
-training/data/
-
-# Extraction outputs
-extraction/models/
-extraction/data/
 
 # Drafts
 draft*.py

@@ -15,7 +15,7 @@ ______________________________________________________________________
 
 - A VPS (Ubuntu/Debian, ~$5/mo is enough)
 - Telegram bot token from [@BotFather](https://t.me/BotFather)
-- Extraction output (`extraction/data/output/`) on your local machine, ready
+- Extraction output (`var/extraction/output/`) on your local machine, ready
   to seed the production database
 - `rsync` on your PC (`choco install rsync`) — question images are files, and
   this is what ships them
@@ -89,7 +89,7 @@ equivalent, for when you want the tunnel open anyway (see
 ```powershell
 # PC — 1. the images. --delete is what removes what you deleted locally.
 ssh root@<vps-ip> "mkdir -p /opt/digitex/data/questions"
-cd extraction/data/output
+cd var/extraction/output
 rsync -rlt --delete --chmod=D755,F644 --info=progress2 `
     ./ root@<vps-ip>:/opt/digitex/data/questions/
 cd ../../..
@@ -110,7 +110,7 @@ uv run digitex-db populate
 migrates the schema first, so it is also a valid way to apply a pending
 migration.
 
-> Run rsync from *inside* `extraction/data/output` and pass `./`. A Windows
+> Run rsync from *inside* `var/extraction/output` and pass `./`. A Windows
 > rsync reads a `C:\…` source as a remote host spec; a relative path has no
 > drive letter to misread.
 
@@ -250,7 +250,7 @@ ______________________________________________________________________
 
 The dump covers the database only. Question images are files under
 `/opt/digitex/data/questions`, and they are not backed up here on purpose —
-your laptop's `extraction/data/output/` is their source of truth, and
+your laptop's `var/extraction/output/` is their source of truth, and
 `scripts/seed_prod.ps1` puts them back. A restore is therefore: restore the
 dump, re-run the seed script, then `digitex-db check-images`.
 

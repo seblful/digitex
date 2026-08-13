@@ -27,7 +27,7 @@ Get your API key from **Label Studio > Account & Settings > Access Token**.
 
 ## Data Flow
 
-Annotations are stored in `training/data/<task>/` (see [Training](training.md) for full directory structure).
+Annotations are stored in `var/training/data/<task>/` (see [Training](training.md) for full directory structure).
 
 Export annotations from Label Studio as JSON to `annotations.json` in the task directory.
 
@@ -40,7 +40,7 @@ Images are referenced in Label Studio as `data/page/images/<filename>.jpg` via l
 Run a trained model on unannotated tasks and upload predictions back to Label Studio:
 
 ```bash
-uv run digitex-train ls-predict --project-id 1 --model-path extraction/models/page.pt
+uv run digitex-train ls-predict --project-id 1 --model-path var/models/page.pt
 ```
 
 **How it works:**

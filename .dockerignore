@@ -23,11 +23,13 @@ htmlcov/
 # Data
 data/
 
-# Large files not needed at runtime
+# Large files not needed at runtime. var/ is the data root — the book archive,
+# model weights and the extraction output tree; the bot is served its corpus
+# through a bind mount, never from the image.
 *.pt
+var/
 logs/
-training/
-books/
-extraction/
+configs/
+tools/
 docs/
 drafts/

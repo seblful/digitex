@@ -54,12 +54,12 @@ uv run digitex-train add-images page
 
 **Requirements:**
 
-- `images.txt` in `training/data/<task>/` with one relative path per line:
+- `images.txt` in `var/training/data/<task>/` with one relative path per line:
 
 ```
-books/biology/images/2024/10.jpg
-books/biology/images/2024/15.jpg
-books/biology/images/2023/5.jpg
+var/books/biology/images/2024/10.jpg
+var/books/biology/images/2024/15.jpg
+var/books/biology/images/2023/5.jpg
 ```
 
 **Behavior:**
@@ -87,12 +87,12 @@ uv run digitex-train create-dataset <task> --train-split 0.8
 
 **Requirements:**
 
-- `annotations.json` in `training/data/<task>/`
-- Images in `training/data/<task>/images/`
+- `annotations.json` in `var/training/data/<task>/`
+- Images in `var/training/data/<task>/images/`
 
 ### 4. Train Model
 
-Train YOLO segmentation model using configuration from `training/configs/<config>.yaml`:
+Train YOLO segmentation model using configuration from `configs/training/<config>.yaml`:
 
 ```bash
 uv run digitex-train train --config page
@@ -104,10 +104,10 @@ uv run digitex-train train --config page
 
 **Configuration:**
 
-All training parameters are managed in `training/configs/<config>.yaml`:
+All training parameters are managed in `configs/training/<config>.yaml`:
 
 - `model`: Model architecture (e.g., `yolo26m-seg.yaml`)
-- `data`: Path to dataset YAML (e.g., `training/data/page/dataset/data.yaml`)
+- `data`: Path to dataset YAML (e.g., `var/training/data/page/dataset/data.yaml`)
 - `epochs`: Number of training epochs
 - `batch`: Batch size
 - `imgsz`: Input image size
@@ -118,7 +118,7 @@ All training parameters are managed in `training/configs/<config>.yaml`:
 - `seed`: Random seed
 - etc.
 
-To modify training parameters, edit `training/configs/<config>.yaml`.
+To modify training parameters, edit `configs/training/<config>.yaml`.
 
 ### 5. Predict Label Studio Tasks
 

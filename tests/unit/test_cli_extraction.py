@@ -31,7 +31,7 @@ def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
     developer's ``.env`` into ``os.environ`` where pydantic-settings finds it.
     """
     resolved = Settings(
-        paths=PathsSettings(root_dir=tmp_path),
+        paths=PathsSettings(data_root=tmp_path),
         openrouter=OpenRouterSettings(api_key=""),
     )
     monkeypatch.setattr(extraction, "get_settings", lambda: resolved)

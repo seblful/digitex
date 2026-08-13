@@ -6,6 +6,7 @@ import codecs
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
@@ -25,9 +26,13 @@ def setup_logging(settings: Settings) -> None:
     f_level = levels[settings.logging.file_level]
     c_level = levels[settings.logging.console_level]
 
+    # Relative to the working directory, which is what both callers want: a
+    # laptop run from the checkout writes ./logs/, and the container's cwd is
+    # /app with ./logs bind-mounted from the host. Neither needs to know where
+    # the package itself was installed.
     file_path = settings.logging.log_file
     if not file_path.is_absolute():
-        file_path = settings.paths.root_dir / file_path
+        file_path = Path.cwd() / file_path
 
     file_path.parent.mkdir(parents=True, exist_ok=True)
 

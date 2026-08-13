@@ -15,7 +15,6 @@ import structlog
 from digitex.config import (
     LoggingSettings,
     LogLevel,
-    PathsSettings,
     Settings,
 )
 from digitex.logging import setup_logging
@@ -54,11 +53,10 @@ def _settings(
     tmp_path: Path, *, file_level: LogLevel, console_level: LogLevel
 ) -> Settings:
     return Settings(
-        paths=PathsSettings(root_dir=tmp_path),
         logging=LoggingSettings(
             file_level=file_level,
             console_level=console_level,
-            log_file=Path("logs/app.log"),
+            log_file=tmp_path / "logs" / "app.log",
         ),
     )
 
@@ -102,7 +100,28 @@ class TestFileLevelIsHonored:
 
 
 class TestLogFileLocation:
-    def test_relative_log_file_resolves_under_root_dir(self, tmp_path: Path) -> None:
+    def test_absolute_log_file_is_used_as_given(self, tmp_path: Path) -> None:
         _configure(_settings(tmp_path, file_level="INFO", console_level="INFO"))
+
+        assert (tmp_path / "logs" / "app.log").exists()
+
+    def test_relative_log_file_resolves_against_the_working_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The container runs from /app with ./logs bind-mounted, so cwd is the anchor.
+
+        Nothing may resolve it against the package's own location — the image
+        installs the package outside any checkout.
+        """
+        monkeypatch.chdir(tmp_path)
+        _configure(
+            Settings(
+                logging=LoggingSettings(
+                    file_level="INFO",
+                    console_level="INFO",
+                    log_file=Path("logs/app.log"),
+                )
+            )
+        )
 
         assert (tmp_path / "logs" / "app.log").exists()

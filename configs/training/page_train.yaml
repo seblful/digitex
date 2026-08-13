@@ -1,7 +1,7 @@
 # YOLO Training Configuration
 task: segment
-model: yolo26m-seg.pt
-data: training/data/page/dataset/data.yaml
+model: var/models/yolo26m-seg.pt
+data: var/training/data/page/dataset/data.yaml
 epochs: 200
 patience: 25
 batch: 4
