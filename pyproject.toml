@@ -172,14 +172,21 @@ layers = [
     "digitex.domain",
 ]
 
+# Both forbidden contracts guard the same module set: everything the deployed
+# bot can reach. Keep their source_modules in sync with each other and with
+# DEPLOY_PACKAGES in tests/contracts/test_deploy_boundary.py.
 [[tool.importlinter.contracts]]
 name = "The deployed bot cannot reach the pipeline"
 type = "forbidden"
 source_modules = [
     "digitex.bot",
+    "digitex.cli._shared",
+    "digitex.cli.bot",
+    "digitex.cli.db",
+    "digitex.config",
     "digitex.db",
     "digitex.domain",
-    "digitex.config",
+    "digitex.logging",
 ]
 forbidden_modules = [
     "digitex.imaging",
@@ -197,9 +204,13 @@ name = "The deployed bot cannot reach a non-production dependency"
 type = "forbidden"
 source_modules = [
     "digitex.bot",
+    "digitex.cli._shared",
+    "digitex.cli.bot",
+    "digitex.cli.db",
+    "digitex.config",
     "digitex.db",
     "digitex.domain",
-    "digitex.config",
+    "digitex.logging",
 ]
 forbidden_modules = [
     "cv2",

@@ -37,8 +37,11 @@ import pytest
 
 # The packages the production image installs and the bot process runs. Anything
 # absent from this list is a local-workflow package, and is not in the image.
+# Keep in sync with the source_modules of both forbidden [tool.importlinter]
+# contracts in pyproject.toml.
 DEPLOY_PACKAGES = (
     "digitex.bot",
+    "digitex.cli._shared",
     "digitex.cli.bot",
     "digitex.cli.db",
     "digitex.config",
