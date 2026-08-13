@@ -10,7 +10,7 @@ import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, TypeGuard
 
-from digitex.core.corpus import walk_question_images
+from digitex.domain.corpus import walk_question_images
 
 if TYPE_CHECKING:
     from pathlib import Path

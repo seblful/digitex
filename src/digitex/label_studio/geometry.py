@@ -4,14 +4,14 @@ Label Studio references local images as ``/data/local-files/?d=...`` (or
 ``?file=...``) URIs and stores polygon points as percentages (0-100) of the
 image size. Parsing those URIs, and every conversion into or out of the percent
 space, happens here. The spaces themselves are named in
-:mod:`digitex.core.domain`; scaling a YOLO mask up to pixels belongs to
+:mod:`digitex.domain.entities`; scaling a YOLO mask up to pixels belongs to
 :mod:`digitex.ml.predictors`, which is where masks come from.
 """
 
 from pathlib import Path, PureWindowsPath
 from urllib.parse import parse_qs, unquote, urlparse
 
-from digitex.core.domain import NormalizedPolygon, PercentPolygon, PixelPolygon
+from digitex.domain.entities import NormalizedPolygon, PercentPolygon, PixelPolygon
 
 
 def local_file_path(image_uri: str) -> Path | None:

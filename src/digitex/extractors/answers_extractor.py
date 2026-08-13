@@ -9,8 +9,8 @@ from openai import OpenAI
 from pydantic import BaseModel
 from tqdm import tqdm
 
-from digitex.core.corpus import is_image, parse_answer_sheet_stem
-from digitex.core.domain import normalize_option_number
+from digitex.domain.corpus import is_image, parse_answer_sheet_stem
+from digitex.domain.entities import normalize_option_number
 from digitex.extractors.base import ExtractionResult
 from digitex.extractors.exceptions import APIError, DirectoryNotFoundError
 

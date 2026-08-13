@@ -29,8 +29,8 @@ from typing import TYPE_CHECKING, Literal
 import structlog
 from PIL import Image, ImageTk
 
-from digitex.core.corpus import highest_question_number
-from digitex.core.domain import PixelPolygon
+from digitex.domain.corpus import highest_question_number
+from digitex.domain.entities import PixelPolygon
 from digitex.extractors.exceptions import ReviewAborted
 from digitex.extractors.placement import (
     PageExtractionState,

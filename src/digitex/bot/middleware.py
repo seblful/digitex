@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, cast
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
-from digitex.core.db import UnitOfWork
+from digitex.db import UnitOfWork
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable

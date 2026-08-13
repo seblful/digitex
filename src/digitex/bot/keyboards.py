@@ -39,7 +39,7 @@ from digitex.bot.messages import (
     MSG_KB_TOPICS,
     MSG_OPTION_PREFIX,
 )
-from digitex.core.domain import PART_A_OPTION_COUNT
+from digitex.domain.entities import PART_A_OPTION_COUNT
 
 if TYPE_CHECKING:
     from collections.abc import Iterable

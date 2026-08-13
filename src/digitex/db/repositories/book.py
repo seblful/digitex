@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from digitex.core.domain import SubjectRow
+from digitex.domain.entities import SubjectRow
 
 if TYPE_CHECKING:
-    from digitex.core.db.mapping import DictConn
-    from digitex.core.domain import ExamType
+    from digitex.db.mapping import DictConn
+    from digitex.domain.entities import ExamType
 
 
 class BookRepository:

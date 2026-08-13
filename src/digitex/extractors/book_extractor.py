@@ -8,7 +8,7 @@ import structlog
 from PIL import Image
 from tqdm import tqdm
 
-from digitex.core.corpus import is_image, natural_sort_key
+from digitex.domain.corpus import is_image, natural_sort_key
 from digitex.extractors.base import ExtractionResult
 from digitex.extractors.exceptions import DirectoryNotFoundError, ReviewAborted
 from digitex.extractors.page_extractor import PageExtractor

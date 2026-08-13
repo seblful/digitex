@@ -21,7 +21,7 @@ ______________________________________________________________________
 - **Part** — `"A"` (multiple-choice with numbered answers) or `"B"` (free-text
   answer). Every Question belongs to exactly one Part.
 - **Answer** — the student's response. Part A answers are integers; Part B
-  answers are strings normalized via `core.answer.check_answer`.
+  answers are strings normalized via `domain.answer.check_answer`.
 - **Answer key** — the correct answer to a Question, or None when the year
   shipped without one. A Question with no key is still stored so its image is
   servable, and nothing a Student sends can match it.
@@ -82,7 +82,7 @@ ______________________________________________________________________
   autogenerate). The `digitex-db` CLI is the entry point.
 - **Repository** — the only layer that touches raw SQL. One per aggregate
   (`QuestionRepository`, `StudentRepository`, `SessionRepository`,
-  `BookRepository`). The shapes they return live in `core/domain.py`, because
+  `BookRepository`). The shapes they return live in `domain/entities.py`, because
   callers outside the DB layer read them.
 - **`questions` table** — one table with a `part` column, not a table per Part.
   The part is always a bound parameter, never interpolated into SQL, and

@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from digitex.core.db.mapping import row_to_model
-from digitex.core.domain import Student
+from digitex.db.mapping import row_to_model
+from digitex.domain.entities import Student
 
 if TYPE_CHECKING:
-    from digitex.core.db.mapping import DictConn
-    from digitex.core.domain import RegistrationStatus
+    from digitex.db.mapping import DictConn
+    from digitex.domain.entities import RegistrationStatus
 
 # Every Student field, spelled once — a field added to the model but not here
 # comes back as a ValidationError at runtime rather than a type error.

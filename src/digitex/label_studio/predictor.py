@@ -5,7 +5,7 @@ from pathlib import Path
 import structlog
 from PIL import Image
 
-from digitex.core.domain import Detection
+from digitex.domain.entities import Detection
 from digitex.label_studio.client import LabelStudioClient, LabelStudioTask
 from digitex.label_studio.geometry import local_file_path, pixel_to_percent
 from digitex.ml.predictors import YOLO_SegmentationPredictor

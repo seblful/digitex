@@ -42,8 +42,8 @@ from digitex.bot.messages import (
     MSG_YEAR_SELECT,
 )
 from digitex.bot.states import Navigation, Testing
-from digitex.core.db import UnitOfWork
-from digitex.core.domain import year_has_exam_types
+from digitex.db import UnitOfWork
+from digitex.domain.entities import year_has_exam_types
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from aiogram.fsm.context import FSMContext
     from psycopg_pool import AsyncConnectionPool
 
-    from digitex.core.domain import ExamType
+    from digitex.domain.entities import ExamType
 
 router = Router()
 

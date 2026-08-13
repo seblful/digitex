@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from digitex.core.db.repositories import (
+from digitex.db.repositories import (
     REPOSITORIES,
     BookRepository,
     QuestionRepository,
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
     from psycopg_pool import AsyncConnectionPool
 
-    from digitex.core.db.mapping import DictConn
+    from digitex.db.mapping import DictConn
 
 
 class UnitOfWork:

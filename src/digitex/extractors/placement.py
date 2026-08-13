@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Literal
 import structlog
 
 if TYPE_CHECKING:
-    from digitex.core.domain import PixelPolygon
+    from digitex.domain.entities import PixelPolygon
 
 logger = structlog.get_logger()
 

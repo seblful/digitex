@@ -22,15 +22,15 @@ from digitex.bot.answer_flow import (
 )
 from digitex.bot.fsm_data import RandomState, TestingState
 from digitex.bot.messages import MSG_ENTER_ANSWER
-from digitex.core.domain import Question, QuestionOrigin
+from digitex.domain.entities import Question, QuestionOrigin
 
 if TYPE_CHECKING:
     import pytest
     from aiogram import Bot, types
     from aiogram.fsm.context import FSMContext
 
-    from digitex.core.db import UnitOfWork
-    from digitex.core.domain import Part
+    from digitex.db import UnitOfWork
+    from digitex.domain.entities import Part
 
 
 @dataclass

@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
 
 from digitex.config import get_settings
-from digitex.core.processors import ImageCropper, SegmentProcessor, resize_image
+from digitex.imaging import ImageCropper, SegmentProcessor, resize_image
 from digitex.ml.predictors import YOLO_SegmentationPredictor
 
 app = typer.Typer()

@@ -12,14 +12,8 @@ from pathlib import Path
 import structlog
 from PIL import Image
 
-from digitex.core import TextExtractor
-from digitex.core.corpus import question_image_path, question_slot_taken
-from digitex.core.domain import Detection, PixelPolygon, normalize_option_number
-from digitex.core.processors import (
-    ImageCropper,
-    SegmentProcessor,
-    resize_image,
-)
+from digitex.domain.corpus import question_image_path, question_slot_taken
+from digitex.domain.entities import Detection, PixelPolygon, normalize_option_number
 from digitex.extractors.base import ExtractionConfig
 from digitex.extractors.placement import (
     PageExtractionState,
@@ -29,6 +23,12 @@ from digitex.extractors.placement import (
     reading_order_key,
 )
 from digitex.extractors.review import PageProposal, PageReviewer, accept_page
+from digitex.imaging import (
+    ImageCropper,
+    SegmentProcessor,
+    resize_image,
+)
+from digitex.imaging.ocr import TextExtractor
 from digitex.ml.predictors import YOLO_SegmentationPredictor
 
 logger = structlog.get_logger()

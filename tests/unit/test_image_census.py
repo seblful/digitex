@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from digitex.core.domain import OPTIONS_PER_BOOK
+from digitex.domain.entities import OPTIONS_PER_BOOK
 from digitex.services.image_census import ImageCensus
 
 if TYPE_CHECKING:

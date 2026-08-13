@@ -20,7 +20,7 @@ from shapely.geometry import Polygon
 from ultralytics import YOLO  # type: ignore[import-untyped]
 from ultralytics.engine.results import Results
 
-from digitex.core.domain import Detection, PixelPolygon
+from digitex.domain.entities import Detection, PixelPolygon
 
 logger = structlog.get_logger()
 

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import pytest
 from PIL import Image
 
-from digitex.core.domain import PixelPolygon
+from digitex.domain.entities import PixelPolygon
 from digitex.extractors.placement import PageExtractionState, PageLabel, PageRegion
 from digitex.extractors.review import PageProposal
 from digitex.gui.page_review import _ReviewWindow

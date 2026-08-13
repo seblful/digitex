@@ -23,14 +23,14 @@ from typing import TYPE_CHECKING
 
 from tqdm import tqdm
 
-from digitex.core.corpus import (
+from digitex.db import UnitOfWork
+from digitex.domain.corpus import (
     file_digest,
     question_image_number,
     question_object_key,
     walk_question_images,
 )
-from digitex.core.db import UnitOfWork
-from digitex.core.domain import QuestionKey, exam_type_for, parse_exam_type
+from digitex.domain.entities import QuestionKey, exam_type_for, parse_exam_type
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

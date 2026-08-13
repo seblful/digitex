@@ -15,8 +15,8 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from digitex.core.corpus import walk_question_images
-from digitex.core.domain import OPTIONS_PER_BOOK
+from digitex.domain.corpus import walk_question_images
+from digitex.domain.entities import OPTIONS_PER_BOOK
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -5,12 +5,12 @@ from __future__ import annotations
 import secrets
 from typing import TYPE_CHECKING, Any
 
-from digitex.core.db.mapping import row_to_model
-from digitex.core.domain import Question, QuestionOrigin
+from digitex.db.mapping import row_to_model
+from digitex.domain.entities import Question, QuestionOrigin
 
 if TYPE_CHECKING:
-    from digitex.core.db.mapping import DictConn
-    from digitex.core.domain import ExamType, Part, QuestionKey
+    from digitex.db.mapping import DictConn
+    from digitex.domain.entities import ExamType, Part, QuestionKey
 
 # ``question_id`` identifies a question on its own — the part is a column of the
 # row it names, so nothing that references a question restates it.

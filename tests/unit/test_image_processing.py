@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from digitex.core.domain import PixelPolygon
-from digitex.core.processors import SegmentProcessor, resize_image
-from digitex.core.processors.image import (
+from digitex.domain.entities import PixelPolygon
+from digitex.imaging import SegmentProcessor, resize_image
+from digitex.imaging.image import (
     ImageCropper,
     _order_quad_points,
     _perspective_transform,

@@ -91,8 +91,8 @@ def populate(
     """
     # Imported here, not at module scope: `upgrade` runs in a container that
     # has no corpus, and this pulls the whole data-access layer in with it.
-    from digitex.core.db import null_pool_lifespan
-    from digitex.core.seed import populate as populate_db
+    from digitex.db import null_pool_lifespan
+    from digitex.db.seed import populate as populate_db
 
     command.upgrade(_cfg(), "head")
 
@@ -120,9 +120,9 @@ def check_images() -> None:
     sync ran without a re-seed, or the other way round. Exits non-zero when
     anything is off, so a deploy can gate on it.
     """
-    from digitex.core.db import null_pool_lifespan
-    from digitex.core.seed import ImageCheck
-    from digitex.core.seed import check_images as run_check
+    from digitex.db import null_pool_lifespan
+    from digitex.db.seed import ImageCheck
+    from digitex.db.seed import check_images as run_check
 
     settings = get_settings()
     questions_dir = settings.paths.question_images_dir

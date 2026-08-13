@@ -9,7 +9,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from digitex.core.domain import PixelPolygon
+from digitex.domain.entities import PixelPolygon
 from digitex.extractors.placement import (
     PageExtractionState,
     PageRegion,

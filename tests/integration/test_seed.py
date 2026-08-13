@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from digitex.core.seed import check_images, populate
+from digitex.db.seed import check_images, populate
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -54,7 +54,7 @@ class TestPopulateAndCheck:
         self, pg_pool: AsyncConnectionPool, corpus: Path
     ) -> None:
         """Nothing absolute, or the rows would only resolve on this machine."""
-        from digitex.core.db import UnitOfWork
+        from digitex.db import UnitOfWork
 
         await populate(pg_pool, corpus, "biology")
 

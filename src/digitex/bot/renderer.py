@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from aiogram import Bot
     from aiogram.types import InlineKeyboardMarkup
 
-    from digitex.core.domain import Question
+    from digitex.domain.entities import Question
 
 logger = structlog.get_logger()
 

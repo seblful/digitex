@@ -12,8 +12,8 @@ from digitex.bot.handlers.results import _format_result_lines, finish_session
 from digitex.bot.handlers.start import open_registration_gate
 from digitex.bot.messages import MSG_ANSWER_UNKNOWN
 from digitex.bot.renderer import send_question
-from digitex.core.db import UnitOfWork
-from digitex.core.domain import (
+from digitex.db import UnitOfWork
+from digitex.domain.entities import (
     ExamType,
     Question,
     SessionInfo,

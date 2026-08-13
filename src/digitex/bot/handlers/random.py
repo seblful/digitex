@@ -30,7 +30,7 @@ from digitex.bot.messages import (
     format_answer,
 )
 from digitex.bot.states import RandomTesting
-from digitex.core.db import UnitOfWork
+from digitex.db import UnitOfWork
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from aiogram.fsm.context import FSMContext
     from psycopg_pool import AsyncConnectionPool
 
-    from digitex.core.domain import QuestionOrigin
+    from digitex.domain.entities import QuestionOrigin
 
 router = Router()
 

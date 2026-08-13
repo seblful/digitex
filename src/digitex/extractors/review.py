@@ -17,14 +17,14 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from digitex.core.corpus import highest_question_number
+from digitex.domain.corpus import highest_question_number
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from PIL import Image
 
-    from digitex.core.domain import PixelPolygon
+    from digitex.domain.entities import PixelPolygon
     from digitex.extractors.placement import (
         PageExtractionState,
         PageRegion,

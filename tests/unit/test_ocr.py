@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PIL import Image
 
-from digitex.core.ocr import (
+from digitex.imaging.ocr import (
     _TESSERACT_CONFIG_DEFAULT,
     _TESSERACT_CONFIG_DIGITS,
     TextExtractor,
@@ -28,7 +28,7 @@ class TestTextExtractor:
     def test_custom_language(self) -> None:
         assert TextExtractor(language="eng").language == "eng"
 
-    @patch("digitex.core.ocr.pytesseract.image_to_string")
+    @patch("digitex.imaging.ocr.pytesseract.image_to_string")
     def test_extract_text_uses_instance_language_and_default_config(
         self, mock_pytesseract: MagicMock
     ) -> None:
@@ -42,12 +42,12 @@ class TestTextExtractor:
             image, lang="eng", config=_TESSERACT_CONFIG_DEFAULT
         )
 
-    @patch("digitex.core.ocr.pytesseract.image_to_string")
+    @patch("digitex.imaging.ocr.pytesseract.image_to_string")
     def test_extract_text_strips_whitespace(self, mock_pytesseract: MagicMock) -> None:
         mock_pytesseract.return_value = "  Hello World  \n"
         assert TextExtractor().extract_text(_image()) == "Hello World"
 
-    @patch("digitex.core.ocr.pytesseract.image_to_string")
+    @patch("digitex.imaging.ocr.pytesseract.image_to_string")
     def test_extract_text_custom_config_overrides_default(
         self, mock_pytesseract: MagicMock
     ) -> None:
@@ -58,7 +58,7 @@ class TestTextExtractor:
 
         mock_pytesseract.assert_called_once_with(image, lang="rus", config="--psm 6")
 
-    @patch("digitex.core.ocr.pytesseract.image_to_string")
+    @patch("digitex.imaging.ocr.pytesseract.image_to_string")
     def test_extract_text_lang_parameter_overrides_instance(
         self, mock_pytesseract: MagicMock
     ) -> None:
@@ -71,7 +71,7 @@ class TestTextExtractor:
             image, lang="eng", config=_TESSERACT_CONFIG_DEFAULT
         )
 
-    @patch("digitex.core.ocr.pytesseract.image_to_string")
+    @patch("digitex.imaging.ocr.pytesseract.image_to_string")
     @pytest.mark.parametrize(
         ("ocr_text", "expected"),
         [
@@ -94,7 +94,7 @@ class TestTextExtractor:
             image, lang="rus", config=_TESSERACT_CONFIG_DIGITS
         )
 
-    @patch("digitex.core.ocr.pytesseract.image_to_string")
+    @patch("digitex.imaging.ocr.pytesseract.image_to_string")
     def test_extract_digits_lang_parameter_overrides_instance(
         self, mock_pytesseract: MagicMock
     ) -> None:

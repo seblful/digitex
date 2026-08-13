@@ -1,6 +1,6 @@
 """Tests for the Label Studio geometry seam."""
 
-from digitex.core.domain import PercentPolygon, PixelPolygon
+from digitex.domain.entities import PercentPolygon, PixelPolygon
 from digitex.label_studio.geometry import (
     local_file_path,
     percent_to_normalized,

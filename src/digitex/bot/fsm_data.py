@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
-from digitex.core.domain import (  # noqa: TC001 — Pydantic needs runtime types
+from digitex.domain.entities import (  # noqa: TC001 — Pydantic needs runtime types
     ExamType,
     Part,
 )

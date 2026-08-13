@@ -13,7 +13,7 @@ from urllib.parse import quote
 import pytest
 from PIL import Image
 
-from digitex.core.domain import Detection, PixelPolygon
+from digitex.domain.entities import Detection, PixelPolygon
 from digitex.label_studio.client import LabelStudioClient
 from digitex.label_studio.predictor import TaskPredictor
 

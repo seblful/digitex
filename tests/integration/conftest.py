@@ -119,7 +119,7 @@ async def pg_pool(pg_dsn: str) -> AsyncIterator[AsyncConnectionPool]:
     ``cli/bot.py`` makes for the same reason.
     """
     from digitex.config import get_settings
-    from digitex.core.db import build_pool, null_pool_lifespan
+    from digitex.db import build_pool, null_pool_lifespan
 
     settings = get_settings().database
 

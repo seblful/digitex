@@ -17,7 +17,7 @@ from digitex.bot.callbacks import AnswerCB
 from digitex.bot.fsm_data import TestingState
 from digitex.bot.handlers.results import show_results
 from digitex.bot.states import Testing
-from digitex.core.db import UnitOfWork
+from digitex.db import UnitOfWork
 
 if TYPE_CHECKING:
     from pathlib import Path

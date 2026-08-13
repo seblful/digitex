@@ -1,10 +1,10 @@
-"""Tests for the pure answer-checking logic in ``digitex.core.answer``."""
+"""Tests for the pure answer-checking logic in ``digitex.domain.answer``."""
 
 import pytest
 
 from digitex.bot.keyboards import part_a_kb
-from digitex.core.answer import check_answer
-from digitex.core.domain import Part
+from digitex.domain.answer import check_answer
+from digitex.domain.entities import Part
 
 
 @pytest.mark.parametrize(

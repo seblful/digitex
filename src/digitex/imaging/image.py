@@ -8,7 +8,7 @@ import structlog
 from deskew import determine_skew
 from PIL import Image, ImageOps
 
-from digitex.core.domain import PixelPolygon
+from digitex.domain.entities import PixelPolygon
 
 logger = structlog.get_logger()
 

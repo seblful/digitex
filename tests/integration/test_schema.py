@@ -16,15 +16,15 @@ import psycopg
 import pytest
 import pytest_asyncio
 
-from digitex.core.db import UnitOfWork
-from digitex.core.domain import QuestionKey
+from digitex.db import UnitOfWork
+from digitex.domain.entities import QuestionKey
 
 if TYPE_CHECKING:
     from typing import LiteralString
 
     from psycopg_pool import AsyncConnectionPool
 
-    from digitex.core.db.mapping import DictConn
+    from digitex.db.mapping import DictConn
 
 pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("clean_db")]
 

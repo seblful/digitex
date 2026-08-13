@@ -31,9 +31,9 @@ from digitex.bot.fsm_data import RoundDebt
 from digitex.bot.keyboards import part_a_kb
 from digitex.bot.messages import MSG_ENTER_ANSWER
 from digitex.bot.renderer import send_question
-from digitex.core.answer import check_answer
-from digitex.core.db import UnitOfWork
-from digitex.core.domain import PART_A_OPTION_COUNT
+from digitex.db import UnitOfWork
+from digitex.domain.answer import check_answer
+from digitex.domain.entities import PART_A_OPTION_COUNT
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool
 
     from digitex.bot.fsm_data import RandomState, TestingState
-    from digitex.core.domain import Question, QuestionOrigin
+    from digitex.domain.entities import Question, QuestionOrigin
 
 
 @dataclass(frozen=True)

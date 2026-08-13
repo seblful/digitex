@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from digitex.core.db.mapping import row_to_model
-from digitex.core.domain import Session, SessionInfo, TestResult, WrongAnswer
+from digitex.db.mapping import row_to_model
+from digitex.domain.entities import Session, SessionInfo, TestResult, WrongAnswer
 
 if TYPE_CHECKING:
-    from digitex.core.db.mapping import DictConn
-    from digitex.core.domain import Part
+    from digitex.db.mapping import DictConn
+    from digitex.domain.entities import Part
 
 
 class SessionRepository:

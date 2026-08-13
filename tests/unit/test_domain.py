@@ -1,11 +1,11 @@
-"""Tests for the domain models and value objects in ``digitex.core.domain``."""
+"""Tests for the domain models and value objects in ``digitex.domain.entities``."""
 
 from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
 
-from digitex.core.domain import (
+from digitex.domain.entities import (
     Question,
     QuestionKey,
     Session,

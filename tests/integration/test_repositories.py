@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from digitex.core.db import UnitOfWork
-from digitex.core.domain import QuestionKey
+from digitex.db import UnitOfWork
+from digitex.domain.entities import QuestionKey
 
 if TYPE_CHECKING:
     from psycopg_pool import AsyncConnectionPool

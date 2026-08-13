@@ -6,7 +6,7 @@ are checked here, because a shared polygon would make undo look like it worked
 and then quietly move with the next drag.
 """
 
-from digitex.core.domain import PixelPolygon
+from digitex.domain.entities import PixelPolygon
 from digitex.extractors.placement import PageExtractionState, PageLabel, PageRegion
 from digitex.gui.history import EditHistory, copy_regions
 

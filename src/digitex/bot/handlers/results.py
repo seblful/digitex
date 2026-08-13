@@ -30,14 +30,14 @@ from digitex.bot.messages import (
     format_answer,
 )
 from digitex.bot.states import Navigation
-from digitex.core.db import UnitOfWork
+from digitex.db import UnitOfWork
 
 if TYPE_CHECKING:
     from aiogram import Bot, types
     from aiogram.fsm.context import FSMContext
     from psycopg_pool import AsyncConnectionPool
 
-    from digitex.core.domain import (
+    from digitex.domain.entities import (
         SessionInfo,
         SubjectRow,
         TestResult,

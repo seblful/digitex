@@ -19,7 +19,7 @@ def _connection_kwargs(settings: DatabaseSettings) -> dict[str, Any]:
     """The psycopg connection arguments every pool here must be built with.
 
     ``row_factory=dict_row`` is not a preference: the repositories index rows by
-    column name and :class:`~digitex.core.db.unit_of_work.UnitOfWork` casts on
+    column name and :class:`~digitex.db.unit_of_work.UnitOfWork` casts on
     the strength of it. A pool built without it fails deep inside a query.
     """
     return {

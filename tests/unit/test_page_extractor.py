@@ -12,14 +12,14 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from PIL import Image
 
-from digitex.core.domain import Detection, PixelPolygon
+from digitex.domain.entities import Detection, PixelPolygon
 from digitex.extractors.base import ExtractionConfig
 from digitex.extractors.page_extractor import PageExtractor
 from digitex.extractors.placement import PageExtractionState, PageRegion
 from digitex.extractors.review import PageProposal, ReviewedPage
 
 if TYPE_CHECKING:
-    from digitex.core import TextExtractor
+    from digitex.imaging.ocr import TextExtractor
     from digitex.ml.predictors import YOLO_SegmentationPredictor
 
 OPTION_REGION = PixelPolygon([(10, 0), (40, 0), (40, 10), (10, 10)])

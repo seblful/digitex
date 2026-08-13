@@ -30,7 +30,7 @@ from digitex.bot.messages import (
     MSG_REQUEST_SENT,
 )
 from digitex.bot.states import Navigation, Registration
-from digitex.core.db import UnitOfWork
+from digitex.db import UnitOfWork
 
 if TYPE_CHECKING:
     from datetime import datetime

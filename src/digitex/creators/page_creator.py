@@ -9,12 +9,12 @@ import structlog
 from PIL import Image
 from tqdm import tqdm
 
-from digitex.core.corpus import (
+from digitex.domain.corpus import (
     is_image,
     parse_book_page_path,
     training_page_name,
 )
-from digitex.core.processors import resize_image
+from digitex.imaging import resize_image
 
 logger = structlog.get_logger()
 

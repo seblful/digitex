@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from digitex.core.corpus import (
+from digitex.domain.corpus import (
     QuestionImage,
     file_digest,
     highest_question_number,

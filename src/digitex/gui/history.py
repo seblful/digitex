@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from digitex.core.domain import PixelPolygon
+from digitex.domain.entities import PixelPolygon
 from digitex.extractors.placement import PageRegion
 
 if TYPE_CHECKING:
