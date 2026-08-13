@@ -30,8 +30,7 @@ main() {
   cd "$APP_DIR"
 
   # Compose reads ./.env both for ${VAR} substitution and as the bot's
-  # env_file. docs/production.md §1.3 creates it as a symlink to
-  # .env.production.
+  # env_file, and this script pins the released tag in it.
   if [ ! -e .env ]; then
     echo "error: no .env in $APP_DIR — see docs/production.md §1.3" >&2
     return 1
@@ -49,19 +48,25 @@ main() {
   fi
 
   # The compose file and scripts come from git; the app itself comes from the
-  # image. Local edits under $APP_DIR outside .env.production are discarded.
+  # image. Local edits under $APP_DIR outside .env are discarded.
   if [ -n "$SHA" ]; then
     log "syncing repo to $SHA"
     git fetch --quiet origin
     git checkout -f --quiet "$SHA"
   fi
 
+  # The container runs as uid 10001, so the bind-mounted log directory has to
+  # belong to it or the first write fails. Idempotent, and cheaper than a
+  # one-time setup step nobody remembers.
+  mkdir -p logs
+  chown -R 10001:10001 logs
+
   log "pulling $TAG"
   set_tag "$env_file" "$TAG"
   docker compose pull bot
 
   log "applying migrations"
-  docker compose run --rm bot python -m digitex.cli.db upgrade
+  docker compose run --rm bot digitex-db upgrade
 
   log "starting bot"
   docker compose up -d --no-build bot

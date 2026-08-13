@@ -1,7 +1,6 @@
 # Secrets
 .env
-.env.development
-.env.production
+.env.*
 *.pem
 
 # Python artifacts
@@ -21,14 +20,8 @@ __pycache__/
 *.coverage
 htmlcov/
 
-# Data (keep only development.db as seed)
-data/production.db
-data/tests.db
-data/seed.db
-data/tests.db-shm
-data/tests.db-wal
-data/development.db-shm
-data/development.db-wal
+# Data
+data/
 
 # Large files not needed at runtime
 *.pt

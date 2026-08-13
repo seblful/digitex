@@ -1,3 +1,10 @@
+# Uncapped json-file logs are how a $5 VPS runs out of disk.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -17,6 +24,7 @@ services:
       retries: 10
       start_period: 10s
     restart: unless-stopped
+    logging: *logging
     deploy:
       resources:
         limits:
@@ -39,13 +47,18 @@ services:
         condition: service_healthy
     volumes:
       - ./logs:/app/logs
-      - ./seed:/app/seed:ro
+    # Reaching the database proves more than the process being alive, which the
+    # restart policy already covers: the container exits if the bot dies.
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'python -m digitex' > /dev/null || exit 1"]
+      test: ["CMD-SHELL", "digitex-db current > /dev/null 2>&1 || exit 1"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 30s
+    # Long polling holds a request open for up to 30s; the 10s default would
+    # SIGKILL the bot mid-update on every deploy.
+    stop_grace_period: 40s
+    logging: *logging
     deploy:
       resources:
         limits:
