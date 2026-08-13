@@ -69,7 +69,7 @@ no need to set it manually. Full env reference: `.env.example`.
 
 ```bash
 docker compose up -d postgres
-docker compose run --rm bot uv run digitex-db upgrade
+docker compose run --rm bot python -m digitex.cli.db upgrade
 ```
 
 ### 1.5 Seed the database (from your laptop)
@@ -121,7 +121,7 @@ docker compose up -d bot
 # on the VPS
 cd /opt/digitex
 git pull
-docker compose run --rm bot uv run digitex-db upgrade
+docker compose run --rm bot python -m digitex.cli.db upgrade
 docker compose up -d bot          # restart picks up any code changes too
 ```
 
@@ -219,7 +219,7 @@ ______________________________________________________________________
 | ------- | ------------ | --- |
 | `POSTGRES_PASSWORD must be set` | `.env` symlink missing or empty | `ln -s .env.production .env`, verify with `cat .env` |
 | Bot exits immediately, no logs | `BOT_TOKEN` missing/invalid | Check `.env.production`, `docker compose logs bot` |
-| `relation "…" does not exist` | Migrations not applied after `git pull` | `docker compose run --rm bot uv run digitex-db upgrade` |
+| `relation "…" does not exist` | Migrations not applied after `git pull` | `docker compose run --rm bot python -m digitex.cli.db upgrade` |
 | `populate_db.py` says "connection refused" | SSH tunnel closed | Reopen terminal 1; check tunnel command is still running |
 | Bot can't reach DB inside container | Postgres healthcheck failing | `docker compose logs postgres` — usually wrong `POSTGRES_PASSWORD` |
 | Disk full on VPS | Old backups + docker images piling up | `docker system prune -a`, prune `/opt/digitex/backups` |
