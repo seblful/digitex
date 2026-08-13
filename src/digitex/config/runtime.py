@@ -10,19 +10,23 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
+# Closed on purpose: the JSON log renderer keys off ``== "production"``, so a
+# near-miss like "prod" must fail at startup, not ship console logs.
+Environment = Literal["development", "production"]
+
 
 class AppSettings(BaseSettings):
     """Application settings."""
 
     model_config = SettingsConfigDict(env_prefix="APP_", extra="ignore")
 
-    environment: str = Field(
+    environment: Environment = Field(
         default="development",
         # Compose sets the bare ``ENVIRONMENT``; without it in this list the
         # deployment sets that one variable and the field stays at its default,
         # so production never selects the JSON log renderer.
         validation_alias=AliasChoices("environment", "APP_ENVIRONMENT", "ENVIRONMENT"),
-        description="Application environment (development, production)",
+        description="Application environment",
     )
 
 

@@ -216,6 +216,19 @@ class TestSettings:
         with patch.dict("os.environ", {var: "production"}):
             assert Settings.load().app.environment == "production"
 
+    def test_a_near_miss_environment_fails_at_startup(self) -> None:
+        """A value like "prod" must be refused, not defaulted around.
+
+        As a plain string it would validate fine and silently ship console
+        logs to the production collector — the one failure this field exists
+        to prevent.
+        """
+        with (
+            patch.dict("os.environ", {"ENVIRONMENT": "prod"}),
+            pytest.raises(ValidationError),
+        ):
+            Settings.load()
+
 
 class TestGetSettings:
     """Test get_settings singleton function."""
