@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from structlog.testing import capture_logs
 
 from digitex.ml.yolo.dataset import DatasetCreator
 
@@ -97,6 +98,24 @@ class TestCreate:
         creator.create()
 
         assert _all_files(tmp_path / "dataset", ".jpg") == set(names)
+
+    def test_a_duplicate_basename_is_reported_not_silent(self, tmp_path: Path) -> None:
+        """Two batches can both hold an image1.jpg; the later one wins the key.
+
+        The overwrite itself is unchanged — what must not happen is the first
+        entry's polygons vanishing with no trace in the log.
+        """
+        entries = [
+            _annotation("batch1/image1.jpg", label="question"),
+            _annotation("batch2/image1.jpg", label="option"),
+        ]
+        creator = _creator(tmp_path, entries, images=("image1.jpg",))
+
+        with capture_logs() as logs:
+            dataset = creator.create()
+
+        assert "duplicate_image_basename" in [log["event"] for log in logs]
+        assert dataset.total == 1
 
     def test_derives_a_sorted_class_map(self, tmp_path: Path) -> None:
         creator = _creator(

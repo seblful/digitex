@@ -9,6 +9,7 @@ from pathlib import Path
 
 import typer
 
+from digitex.cli._shared import abort
 from digitex.config import Settings, get_settings
 from digitex.logging import setup_logging
 
@@ -25,19 +26,17 @@ def _data_dir(settings: Settings, data_type_dir_name: str) -> Path:
     return settings.paths.training_data_dir / data_type_dir_name
 
 
-def _abort(message: str) -> typer.Exit:
-    """Render *message* on stderr and return the exit to raise."""
-    typer.echo(typer.style(message, fg="red", bold=True), err=True)
-    return typer.Exit(code=1)
-
-
 @app.command(name="create-dataset")
 def create_dataset(
     data_type_dir_name: str = typer.Argument(
         ..., help="Data type subdirectory name (e.g. page)"
     ),
     train_split: float = typer.Option(
-        0.8, "--train-split", help="Fraction of data used for training"
+        0.8,
+        "--train-split",
+        min=0.0,
+        max=1.0,
+        help="Fraction of data used for training",
     ),
 ) -> None:
     """Convert Label Studio annotations into a YOLO training dataset."""
@@ -50,7 +49,7 @@ def create_dataset(
     dataset_dir = data_dir / settings.pipeline.data.dataset_dir_name
 
     if not annotations_file.exists():
-        raise _abort(f"Error: annotations file not found: {annotations_file}")
+        raise abort(f"Error: annotations file not found: {annotations_file}")
 
     dataset = DatasetCreator(
         annotations_file=annotations_file,
@@ -90,7 +89,7 @@ def add_images(
     paths_file = data_dir / "images.txt"
 
     if not paths_file.exists():
-        raise _abort(f"Error: {paths_file} not found")
+        raise abort(f"Error: {paths_file} not found")
 
     if not paths_file.read_text(encoding="utf-8").strip():
         typer.echo("images.txt is empty.")
@@ -148,9 +147,9 @@ def train(
             val_config=configs_dir / f"{config}_val.yaml",
         )
     except FileNotFoundError as exc:
-        raise _abort(f"Error: config not found: {exc}") from None
+        raise abort(f"Error: config not found: {exc}") from None
     except ValueError as exc:
-        raise _abort(f"Error: {exc}") from None
+        raise abort(f"Error: {exc}") from None
 
     typer.echo(typer.style("✓ Training and validation completed", fg="green"))
 

@@ -1,6 +1,7 @@
 """Prediction orchestrator for Label Studio tasks."""
 
 from pathlib import Path
+from typing import Any
 
 import structlog
 from PIL import Image
@@ -42,7 +43,7 @@ class TaskPredictor:
         detections: list[Detection],
         img_width: int,
         img_height: int,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Convert detections to Label Studio result format.
 
         Args:
@@ -66,7 +67,7 @@ class TaskPredictor:
             for det in detections
         ]
 
-    def _predict_task(self, task: LabelStudioTask) -> list[dict] | None:
+    def _predict_task(self, task: LabelStudioTask) -> list[dict[str, Any]] | None:
         """Run prediction on a single Label Studio task.
 
         Args:

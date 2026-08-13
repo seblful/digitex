@@ -27,6 +27,11 @@ logger = structlog.get_logger()
 # Douglas-Peucker tolerance, in source-image pixels.
 SIMPLIFY_EPSILON = 3.0
 
+# Detection settings shared by every predict() call site — page extraction,
+# Label Studio pre-annotation, and the tuning tool all detect the same way.
+PREDICT_CONF = 0.25
+PREDICT_IMGSZ = 640
+
 
 # Where a pickle can name the concrete path classes. 3.13 moved them into
 # ``pathlib._local`` and re-exported them, and a checkpoint names whichever
@@ -183,34 +188,21 @@ class YOLO_SegmentationPredictor:
 
         return self._model
 
-    def predict(
-        self,
-        image: Image.Image,
-        conf: float = 0.25,
-        imgsz: int | list[int] = 640,
-        end2end: bool = False,
-        agnostic_nms: bool = True,
-        verbose: bool = False,
-    ) -> list[Detection]:
+    def predict(self, image: Image.Image) -> list[Detection]:
         """Detect labelled regions on *image*, in source-image pixels.
 
         Args:
             image: PIL Image to predict on.
-            conf: Confidence threshold for predictions (0.0-1.0).
-            imgsz: Image size for inference (int or list).
-            end2end: Whether to use end-to-end mode (removes NMS).
-            agnostic_nms: Whether to use agnostic NMS.
-            verbose: Whether to enable verbose output.
         """
         img_width, img_height = image.size
 
         preds = self.model.predict(
             image,
-            conf=conf,
-            imgsz=imgsz,
-            end2end=end2end,
-            agnostic_nms=agnostic_nms,
-            verbose=verbose,
+            conf=PREDICT_CONF,
+            imgsz=PREDICT_IMGSZ,
+            end2end=False,
+            agnostic_nms=True,
+            verbose=False,
         )
         return detections_from(
             preds,

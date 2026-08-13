@@ -7,11 +7,15 @@ import random
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 import yaml
 
 from digitex.domain.geometry import local_file_path, percent_to_normalized
+
+if TYPE_CHECKING:
+    from digitex.domain.entities import PercentPolygon
 
 logger = structlog.get_logger()
 
@@ -111,7 +115,7 @@ class DatasetCreator:
 
     @staticmethod
     def _parse_annotation(
-        entry: dict, label2id: dict[str, int]
+        entry: dict[str, Any], label2id: dict[str, int]
     ) -> tuple[str | None, str]:
         """One export entry to ``(filename, YOLO label text)``.
 
@@ -125,7 +129,10 @@ class DatasetCreator:
             try:
                 label_name = polygon["polygonlabels"][0]
                 class_id = label2id[label_name]
-                normalized = percent_to_normalized(polygon["points"])
+                # The one hop where untrusted export JSON is asserted to be
+                # Label Studio's percent space.
+                points = cast("PercentPolygon", polygon["points"])
+                normalized = percent_to_normalized(points)
             except (KeyError, IndexError) as exc:
                 logger.warning("skipped_polygon", reason=str(exc), polygon=polygon)
                 continue
@@ -162,6 +169,11 @@ class DatasetCreator:
             if filename is None:
                 logger.warning("skipped_entry_no_local_path", image=entry.get("image"))
                 continue
+            if filename in images_labels:
+                # Directories are dropped from the URI, so two batches can
+                # both hold a 30.jpg — the later entry wins, and silently
+                # losing the first one's polygons must not pass unremarked.
+                logger.warning("duplicate_image_basename", name=filename)
             images_labels[filename] = label_str
 
         keys = list(images_labels)
