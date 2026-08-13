@@ -1,7 +1,7 @@
 """Validate that extracted answers.json files line up with question images.
 
-Carved out of ``cli.extraction.check_answers`` so the rules are testable
-without spinning up a Typer app.
+The rules live here, away from any front end, so they are testable without
+spinning up the review window that shows them.
 """
 
 from __future__ import annotations
@@ -22,11 +22,13 @@ def _is_answer_map(data: object) -> TypeGuard[dict[str, dict[str, str]]]:
     """True when the parsed file has the ``{option: {label: answer}}`` shape.
 
     These files are hand-corrected, so the top level or one option's value can
-    come back as a list — which would otherwise blow up on ``.keys()`` deep in
-    the validation pass.
+    come back as a list, or an answer as a bare number — either would
+    otherwise blow up deep in the validation pass.
     """
     return isinstance(data, dict) and all(
-        isinstance(option, dict) for option in data.values()
+        isinstance(option, dict)
+        and all(isinstance(answer, str) for answer in option.values())
+        for option in data.values()
     )
 
 

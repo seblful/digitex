@@ -84,6 +84,22 @@ class TestNumberingFault:
 
         assert numbering_fault(_placed(1, "A", 2, 3, 4), tmp_path) is None
 
+    def test_a_reentered_folder_is_checked_like_the_first(self, tmp_path: Path) -> None:
+        """A marker mid-page resets the counter, so a re-entered run restarts at 1.
+
+        An option marker OCR missed plus a part marker it read produces exactly
+        this shape — the re-entry must not hide behind the folder's first run.
+        """
+        _fill(tmp_path, 1, "A", 1, 2)
+
+        placed = _placed(1, "A", 3) + _placed(1, "B", 1) + _placed(1, "A", 1)
+        fault = numbering_fault(placed, tmp_path)
+
+        assert fault is not None
+        assert fault.position == 2
+        assert fault.collides is True
+        assert fault.free == 3
+
     def test_a_second_folder_is_checked_on_its_own_terms(self, tmp_path: Path) -> None:
         """A page spanning two parts: the first continues, the second collides."""
         _fill(tmp_path, 1, "A", 1, 2)

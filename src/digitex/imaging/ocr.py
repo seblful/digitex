@@ -70,8 +70,7 @@ class TextExtractor:
         Returns:
             List of extracted integers.
         """
-        language = lang if lang is not None else self.language
-        text = self.extract_text(image, config=_TESSERACT_CONFIG_DIGITS, lang=language)
+        text = self.extract_text(image, config=_TESSERACT_CONFIG_DIGITS, lang=lang)
         numbers = re.findall(r"\d+", text)
         logger.debug("OCR digits", numbers=numbers)
         return [int(n) for n in numbers]

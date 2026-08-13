@@ -64,6 +64,7 @@ def _extractor(
     return PageExtractor(
         ExtractionConfig(
             model_path=Path("model.pt"),
+            image_format="jpg",
             question_max_width=50,
             question_max_height=50,
         ),
@@ -250,6 +251,30 @@ class TestPageExtractorExtract:
         # The number is still consumed: the question exists, it just was not
         # this run that wrote it.
         assert (state.option, state.question) == (1, 1)
+
+    def test_a_taken_slot_is_reported_to_the_caller(self, tmp_path: Path) -> None:
+        """The crop that was not written must not disappear from the result."""
+        detections = _dets(("question", QUESTION_REGION))
+        existing = tmp_path / "1" / "A" / "1.jpg"
+        existing.parent.mkdir(parents=True)
+        existing.write_bytes(b"original")
+        image = Image.new("RGB", (300, 300), color="white")
+
+        collisions = _extractor(detections).extract(
+            image, tmp_path, PageExtractionState(option=1, part="A")
+        )
+
+        assert [str(placement) for placement in collisions] == ["1/A/1"]
+
+    def test_a_clean_page_reports_no_collisions(self, tmp_path: Path) -> None:
+        detections = _dets(("question", QUESTION_REGION))
+        image = Image.new("RGB", (300, 300), color="white")
+
+        collisions = _extractor(detections).extract(
+            image, tmp_path, PageExtractionState(option=1, part="A")
+        )
+
+        assert collisions == []
 
     def test_a_slot_taken_in_another_format_is_still_taken(
         self, tmp_path: Path

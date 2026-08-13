@@ -10,13 +10,16 @@ from pydantic import BaseModel
 from tqdm import tqdm
 
 from digitex.domain.corpus import is_image, parse_answer_sheet_stem
-from digitex.domain.entities import normalize_option_number
+from digitex.domain.entities import QuestionKey, normalize_option_number
 from digitex.pipeline.base import ExtractionResult
-from digitex.pipeline.exceptions import APIError, DirectoryNotFoundError
+from digitex.pipeline.exceptions import (
+    APIError,
+    DirectoryNotFoundError,
+    InvalidFilenameError,
+)
 
 logger = structlog.get_logger()
 
-CYRILLIC_TO_LATIN = str.maketrans("АВЕС", "ABEC")  # noqa: RUF001
 LATIN_TO_CYRILLIC = str.maketrans("ABCEHKMOPTXYF", "АВСЕНКМОРТХУГ")
 
 
@@ -125,14 +128,12 @@ class AnswersExtractor:
         Raises:
             ValueError: If the label is not a part letter followed by digits.
         """
-        normalized = label.strip().upper().translate(CYRILLIC_TO_LATIN)
-        if (
-            len(normalized) < 2
-            or normalized[0] not in ("A", "B")
-            or not normalized[1:].isdigit()
-        ):
-            raise ValueError(f"Invalid question label: {label!r}")
-        return normalized
+        # The grammar and the Cyrillic fold live on QuestionKey — the same
+        # rule ``db.seed`` parses these labels back with.
+        try:
+            return str(QuestionKey.parse(label))
+        except ValueError as e:
+            raise ValueError(f"Invalid question label: {label!r}") from e
 
     def _normalize_answer(self, answer: str) -> str:
         return answer.translate(LATIN_TO_CYRILLIC)
@@ -159,10 +160,7 @@ class AnswersExtractor:
     def _extract_year(self, image_path: Path) -> int:
         parsed = parse_answer_sheet_stem(image_path.stem)
         if parsed is None:
-            raise ValueError(
-                f"Invalid filename format: {image_path.name}. "
-                "Expected format: YYYY_N.jpg"
-            )
+            raise InvalidFilenameError(image_path.name, "YYYY_N.jpg")
         year, _ = parsed
         return year
 
@@ -217,6 +215,7 @@ class AnswersExtractor:
                     "Failed to process answer sheet",
                     image_path=str(image_path),
                     error=str(e),
+                    exc_info=True,
                 )
                 errors.append(msg)
                 if year is not None:

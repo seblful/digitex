@@ -7,6 +7,7 @@ each question. A `PageReviewer` sits between the two, which is where a human
 gets to correct a polygon or a misread marker before anything is written.
 """
 
+from collections import Counter
 from pathlib import Path
 
 import structlog
@@ -110,10 +111,8 @@ class PageExtractor:
         if not detections:
             raise ValueError("No detections found on page")
 
-        class_counts: dict[str, int] = {}
-        for det in detections:
-            class_counts[det.label] = class_counts.get(det.label, 0) + 1
-        logger.debug("Predictions", class_counts=class_counts)
+        class_counts = Counter(det.label for det in detections)
+        logger.debug("Predictions", class_counts=dict(class_counts))
 
         return sorted(detections, key=lambda det: reading_order_key(det.polygon))
 
@@ -159,13 +158,13 @@ class PageExtractor:
         region: PageRegion,
         placement: QuestionPlacement,
         output_dir: Path,
-    ) -> None:
+    ) -> bool:
         """Save one placed question's crop, unless its slot is already taken.
 
         A taken slot means this page's numbering has run into output an earlier
         page already wrote. Overwriting would destroy an extracted question, so
-        the existing file wins and the collision is logged — and `--review`
-        marks it on the page before anything is written.
+        the existing file wins and False comes back for the caller to report —
+        and `--review` marks it on the page before anything is written.
         """
         logger.debug(
             "Extracting question",
@@ -183,7 +182,7 @@ class PageExtractor:
                 part=placement.part,
                 question=placement.number,
             )
-            return
+            return False
 
         output_path = question_image_path(
             output_dir,
@@ -194,6 +193,7 @@ class PageExtractor:
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         self._crop(image, region.polygon).save(output_path)
+        return True
 
     def extract(
         self,
@@ -202,7 +202,7 @@ class PageExtractor:
         state: PageExtractionState,
         page_number: int = 0,
         page_count: int = 0,
-    ) -> None:
+    ) -> list[QuestionPlacement]:
         """Extract questions from a single page image, advancing *state*.
 
         *state* is mutated in place — it belongs to the caller, which threads
@@ -223,6 +223,11 @@ class PageExtractor:
             page_number: This page's 1-based place in its book, for the
                 reviewer to report progress with. 0 outside a book.
             page_count: How many pages the book holds. 0 outside a book.
+
+        Returns:
+            The placements whose slot was already taken. Their crops were not
+            written — the existing files were kept — and a caller reporting an
+            honest result must say so.
 
         Raises:
             ValueError: If the page has no detections, or a question comes
@@ -249,11 +254,15 @@ class PageExtractor:
         )
         if reviewed is None:
             logger.info("Page skipped by reviewer")
-            return
+            return []
 
         state.adopt(reviewed.state)
 
+        collisions: list[QuestionPlacement] = []
+
         def write(region: PageRegion, placement: QuestionPlacement) -> None:
-            self._write_question(image, region, placement, output_dir)
+            if not self._write_question(image, region, placement, output_dir):
+                collisions.append(placement)
 
         place_questions(reviewed.regions, state, write=write)
+        return collisions

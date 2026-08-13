@@ -1,8 +1,7 @@
 """Count a subject's extracted question images and judge them complete or not.
 
-Carved out of ``cli.extraction.count_questions``, which computed the verdict and
-spent it on a terminal colour. The rules live here as values so they can be
-asserted on, and so ``check-answers`` could reuse them.
+The rules live here as values so they can be asserted on and rendered by any
+front end — today that is the review window's stats tab.
 
 The signal is modal: within one year, every Option should hold the same number
 of Part A images as its neighbours, and likewise for Part B. A Part whose count
@@ -119,10 +118,12 @@ class ImageCensus:
     @staticmethod
     def take_year(year_dir: Path) -> YearCensus:
         """Count one year's output tree. Empty when the directory does not exist."""
-        counts: defaultdict[str, dict[str, int]] = defaultdict(dict)
+        if not year_dir.is_dir():
+            return YearCensus(year=year_dir.name)
+
+        counts: defaultdict[str, Counter[str]] = defaultdict(Counter)
         for image in walk_question_images(year_dir):
-            per_part = counts[image.option]
-            per_part[image.part] = per_part.get(image.part, 0) + 1
+            counts[image.option][image.part] += 1
 
         by_part: defaultdict[str, list[int]] = defaultdict(list)
         for per_part in counts.values():

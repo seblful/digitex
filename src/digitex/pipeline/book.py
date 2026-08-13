@@ -70,13 +70,14 @@ class BookExtractor:
         state = PageExtractionState()
         processed_count = 0
         errors: list[str] = []
+        warnings: list[str] = []
 
         for page_number, image_path in enumerate(
             tqdm(images, desc=f"Processing {image_dir.name}", leave=False), start=1
         ):
             try:
                 with Image.open(image_path) as image:
-                    self._page_extractor.extract(
+                    collisions = self._page_extractor.extract(
                         image,
                         output_dir,
                         state,
@@ -84,6 +85,14 @@ class BookExtractor:
                         page_count=len(images),
                     )
                 processed_count += 1
+                # Not a page failure — resuming an unfinished year replays its
+                # pages over their own output — but the caller must see it, or
+                # a diverged numbering silently loses crops.
+                warnings.extend(
+                    f"{image_path.name}: {placement} already extracted,"
+                    " kept the existing image"
+                    for placement in collisions
+                )
             except ReviewAborted:
                 # Not a page failure: the reviewer stopped the run. Let it out
                 # so no caller counts this book as finished.
@@ -94,6 +103,7 @@ class BookExtractor:
                     "Failed to process page",
                     image_path=str(image_path),
                     error=str(e),
+                    exc_info=True,
                 )
                 errors.append(msg)
 
@@ -109,4 +119,5 @@ class BookExtractor:
             processed=processed_count,
             failed=len(errors),
             errors=errors,
+            warnings=warnings,
         )

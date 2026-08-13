@@ -14,14 +14,15 @@ class ExtractionConfig:
     """How a question image is detected and written.
 
     Resolved once at the CLI boundary and passed down whole, so the page,
-    book, and subject levels no longer restate the same four arguments — and
-    the defaults live here rather than being respelled at each level.
+    book, and subject levels no longer restate the same four arguments. The
+    default values live on ``ExtractionSettings`` — the one place the CLI
+    reads them from — so they are not respelled here.
     """
 
     model_path: Path
-    image_format: str = "jpg"
-    question_max_width: int = 2000
-    question_max_height: int = 2000
+    image_format: str
+    question_max_width: int
+    question_max_height: int
 
 
 @dataclass

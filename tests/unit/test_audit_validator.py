@@ -40,6 +40,21 @@ class TestMalformedAnswersFile:
         assert not year.answers_file_valid
         assert not year.is_clean
 
+    def test_a_non_string_answer_is_reported_not_a_crash(self, tmp_path: Path) -> None:
+        """Dropping the quotes on a numeric answer is one hand-edit away."""
+        year_dir = tmp_path / "biology" / "2016"
+        _write_year(year_dir, answers={"1": {"A1": "3"}}, images=["1/A/1.jpg"])
+        (year_dir / "answers.json").write_text(
+            '{"1": {"A1": 3, "B1": "Б"}}', encoding="utf-8"
+        )
+
+        report = AnswerValidator(tmp_path).validate("biology")
+
+        (year,) = report.years
+        assert year.answers_file_present
+        assert not year.answers_file_valid
+        assert not year.is_clean
+
     def test_the_other_years_are_still_checked(self, tmp_path: Path) -> None:
         broken = tmp_path / "biology" / "2016"
         _write_year(broken, answers={"1": {"A1": "3"}}, images=["1/A/1.jpg"])

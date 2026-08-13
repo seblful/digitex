@@ -111,17 +111,18 @@ def numbering_fault(
     past the end leaves the folder with a hole. Catching both before the write
     is what keeps the output tree in order without a renumbering pass after it.
 
-    Only where each folder's run starts is checked — the questions after it
-    follow by construction.
+    Only where each folder run starts is checked — within a run the numbers
+    follow by construction. A page that re-enters a folder (a marker read
+    mid-page resets the counter) starts a new run, checked like the first.
     """
-    started: set[tuple[int, str]] = set()
+    previous: tuple[int, str] | None = None
 
     for position, question in enumerate(placed):
         placement = question.placement
         folder = (placement.option, placement.part)
-        if folder in started:
+        if folder == previous:
             continue
-        started.add(folder)
+        previous = folder
 
         free = highest_question_number(output_dir, placement.option, placement.part) + 1
         if placement.number != free:

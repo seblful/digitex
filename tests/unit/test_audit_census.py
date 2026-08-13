@@ -53,6 +53,13 @@ class TestImageCensus:
         assert census.is_empty
         assert census.images == 0
 
+    def test_a_missing_year_directory_counts_as_empty(self, output_dir: Path) -> None:
+        """The documented contract — not a FileNotFoundError from the walk."""
+        census = ImageCensus.take_year(output_dir / "biology" / "2099")
+
+        assert census.year == "2099"
+        assert census.parts == []
+
     def test_a_full_year_is_complete(self, output_dir: Path) -> None:
         _year(output_dir / "biology", "2020")
 
