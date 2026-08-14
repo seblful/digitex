@@ -41,10 +41,11 @@ QuestionCrop = Callable[["PixelPolygon"], "Image.Image"]
 class PageProposal:
     """What the extractor is about to write for one page, before it writes it.
 
-    ``regions`` and ``state`` are the extractor's own objects: a reviewer that
-    edits them in place and approves gets exactly that written. One that means
-    to skip should leave them alone. ``output_dir`` is the year directory the
-    crops land in, which is also what a reviewer counts to show its progress.
+    ``regions`` and ``state`` are the reviewer's own copies: edit them, hand
+    them back, or drop them — the extractor's originals move only when it
+    adopts a returned :class:`ReviewedPage`. ``output_dir`` is the year
+    directory the crops land in, which is also what a reviewer counts to show
+    its progress.
 
     ``crop`` is the extractor's own cropping pipeline, bound to this page. A
     reviewer showing a question's crop shows the file that would be written,

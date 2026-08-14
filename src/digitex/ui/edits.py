@@ -24,19 +24,20 @@ from digitex.domain.entities import PixelPolygon
 from digitex.pipeline.placement import (
     PageExtractionState,
     PageRegion,
+    copy_regions,
     place_questions,
     reading_order_key,
 )
 from digitex.pipeline.review import numbering_fault
 from digitex.ui import geometry
-from digitex.ui.history import EditHistory, copy_regions
+from digitex.ui.history import EditHistory
 
 if TYPE_CHECKING:
     from digitex.pipeline.placement import PageLabel, QuestionPlacement
     from digitex.pipeline.review import NumberingFault
     from digitex.ui.history import EditSnapshot
 
-# A crop needs four points — ImageCropper refuses fewer.
+# A crop needs four points — cut_out_image_by_polygon refuses fewer.
 MIN_POINTS = 4
 
 # A drawn box smaller than this, in page pixels, is a stray click.

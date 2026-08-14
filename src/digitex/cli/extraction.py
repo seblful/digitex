@@ -17,7 +17,9 @@ from digitex.pipeline.answers import AnswersExtractor
 from digitex.pipeline.audit.census import ImageCensus
 from digitex.pipeline.audit.validator import AnswerValidator
 from digitex.pipeline.base import ExtractionConfig
+from digitex.pipeline.book import BookExtractor
 from digitex.pipeline.exceptions import APIError, ModelNotFoundError, ReviewAborted
+from digitex.pipeline.page import PageExtractor
 from digitex.pipeline.subject import SubjectExtractor
 
 app = typer.Typer(help="Extraction commands for processing test books.")
@@ -48,32 +50,27 @@ def _extraction_config(settings: Settings) -> ExtractionConfig:
 def _subject_extractor(
     settings: Settings, subject: str = "", *, review: bool = False
 ) -> SubjectExtractor:
-    config = _extraction_config(settings)
-    book_extractor = None
+    on_review = None
 
     if review:
-        # Reaching the reviewer means building the chain from the bottom, the
-        # same way a custom conflict resolver is threaded in. Imported here so
-        # a machine with no display can still run every other command.
-        from digitex.pipeline.book import BookExtractor
-        from digitex.pipeline.page import PageExtractor
+        # Imported here so a machine with no display can still run every
+        # other command.
         from digitex.ui.page_review import TkPageReviewer
 
         output_dir = settings.paths.extraction_output_dir
-        reviewer = TkPageReviewer(
+        on_review = TkPageReviewer(
             subject=subject,
             census=ImageCensus(output_dir),
             validator=AnswerValidator(output_dir),
         )
-        book_extractor = BookExtractor(
-            config, page_extractor=PageExtractor(config, on_review=reviewer)
-        )
 
+    # The chain is built from the bottom: the config belongs to PageExtractor,
+    # and the runners above it take the configured collaborator.
+    page_extractor = PageExtractor(_extraction_config(settings), on_review=on_review)
     return SubjectExtractor(
-        config=config,
         books_dir=settings.paths.books_dir,
         extraction_dir=settings.paths.extraction_output_dir,
-        book_extractor=book_extractor,
+        book_extractor=BookExtractor(page_extractor),
     )
 
 

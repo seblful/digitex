@@ -197,6 +197,10 @@ class TestPageExtractorExtract:
         )
         image = Image.new("RGB", (300, 300), color="white")
 
+        # The state says 2/B/1 was already written by an earlier page.
+        earlier = tmp_path / "2" / "B" / "1.jpg"
+        earlier.parent.mkdir(parents=True)
+        earlier.write_bytes(b"earlier page")
         state = PageExtractionState(option=2, part="B", question=1)
 
         _extractor(detections, digits=[], text="smudge").extract(image, tmp_path, state)
@@ -279,6 +283,40 @@ class TestPageExtractorExtract:
 
         assert collisions == []
 
+    def test_a_page_that_would_leave_a_gap_is_refused(self, tmp_path: Path) -> None:
+        """The rule the review window applies, applied without a reviewer too.
+
+        A crop landing past its folder's next free number would leave a hole
+        nothing can renumber away — the reviewed path refuses to approve it,
+        so the unreviewed path must refuse to write it.
+        """
+        detections = _dets(("question", QUESTION_REGION))
+        existing = tmp_path / "1" / "A" / "1.jpg"
+        existing.parent.mkdir(parents=True)
+        existing.write_bytes(b"original")
+        image = Image.new("RGB", (300, 300), color="white")
+
+        # The folder's free number is 2; this state would write 1/A/5.
+        state = PageExtractionState(option=1, part="A", question=4)
+
+        with pytest.raises(ValueError, match="leaves a gap"):
+            _extractor(detections).extract(image, tmp_path, state)
+
+        assert list(tmp_path.rglob("*.jpg")) == [existing]
+
+    def test_a_gap_is_refused_before_anything_is_written(self, tmp_path: Path) -> None:
+        """The check replays the whole page first — no partial page on disk."""
+        detections = _dets(("question", QUESTION_REGION))
+        image = Image.new("RGB", (300, 300), color="white")
+
+        # An empty folder's free number is 1; this state would write 2/B/4.
+        with pytest.raises(ValueError, match="leaves a gap"):
+            _extractor(detections).extract(
+                image, tmp_path, PageExtractionState(option=2, part="B", question=3)
+            )
+
+        assert list(tmp_path.rglob("*.jpg")) == []
+
     def test_a_slot_taken_in_another_format_is_still_taken(
         self, tmp_path: Path
     ) -> None:
@@ -329,6 +367,11 @@ class TestPageExtractorReview:
         detections = _dets(("question", QUESTION_REGION))
         image = Image.new("RGB", (300, 300), color="white")
 
+        # The reviewer's entry point continues what is already on disk.
+        earlier = tmp_path / "4" / "B" / "6.jpg"
+        earlier.parent.mkdir(parents=True)
+        earlier.write_bytes(b"earlier page")
+
         def restart(proposal: PageProposal) -> ReviewedPage:
             return ReviewedPage(
                 regions=proposal.regions,
@@ -352,6 +395,24 @@ class TestPageExtractorReview:
         _extractor(detections, on_review=lambda proposal: None).extract(
             image, tmp_path, state
         )
+
+        assert list(tmp_path.rglob("*.jpg")) == []
+        assert (state.option, state.part, state.question) == (1, "A", 3)
+
+    def test_a_reviewer_may_maul_the_proposal_and_still_skip_cleanly(
+        self, tmp_path: Path
+    ) -> None:
+        """The proposal carries copies, so no discipline is asked of a reviewer."""
+        detections = _dets(("question", QUESTION_REGION))
+        image = Image.new("RGB", (300, 300), color="white")
+        state = PageExtractionState(option=1, part="A", question=3)
+
+        def maul(proposal: PageProposal) -> None:
+            proposal.regions[0].label = "part"
+            proposal.regions.clear()
+            proposal.state.adopt(PageExtractionState(option=9, part="B", question=99))
+
+        _extractor(detections, on_review=maul).extract(image, tmp_path, state)
 
         assert list(tmp_path.rglob("*.jpg")) == []
         assert (state.option, state.part, state.question) == (1, "A", 3)

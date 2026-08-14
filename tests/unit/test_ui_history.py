@@ -7,8 +7,13 @@ and then quietly move with the next drag.
 """
 
 from digitex.domain.entities import PixelPolygon
-from digitex.pipeline.placement import PageExtractionState, PageLabel, PageRegion
-from digitex.ui.history import EditHistory, copy_regions
+from digitex.pipeline.placement import (
+    PageExtractionState,
+    PageLabel,
+    PageRegion,
+    copy_regions,
+)
+from digitex.ui.history import EditHistory
 
 
 def _region(label: PageLabel = "question", x: int = 10) -> PageRegion:

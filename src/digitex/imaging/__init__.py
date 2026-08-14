@@ -11,15 +11,15 @@ it.
 """
 
 from .image import (
-    ImageCropper,
     add_white_background,
+    cut_out_image_by_polygon,
     resize_image,
     rotate_image,
 )
 
 __all__ = [
-    "ImageCropper",
     "add_white_background",
+    "cut_out_image_by_polygon",
     "resize_image",
     "rotate_image",
 ]

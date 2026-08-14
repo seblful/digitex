@@ -8,6 +8,7 @@ gets to correct a polygon or a misread marker before anything is written.
 """
 
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 
 import structlog
@@ -16,8 +17,8 @@ from PIL import Image
 from digitex.domain.corpus import question_image_path, question_slot_taken
 from digitex.domain.entities import Detection, PixelPolygon, normalize_option_number
 from digitex.imaging import (
-    ImageCropper,
     add_white_background,
+    cut_out_image_by_polygon,
     resize_image,
     rotate_image,
 )
@@ -28,10 +29,16 @@ from digitex.pipeline.placement import (
     PageExtractionState,
     PageRegion,
     QuestionPlacement,
+    copy_regions,
     place_questions,
     reading_order_key,
 )
-from digitex.pipeline.review import PageProposal, PageReviewer, accept_page
+from digitex.pipeline.review import (
+    PageProposal,
+    PageReviewer,
+    accept_page,
+    numbering_fault,
+)
 
 logger = structlog.get_logger()
 
@@ -45,14 +52,12 @@ class PageExtractor:
         self,
         config: ExtractionConfig,
         predictor: YOLO_SegmentationPredictor | None = None,
-        image_cropper: ImageCropper | None = None,
         text_extractor: TextExtractor | None = None,
         on_review: PageReviewer | None = None,
     ) -> None:
         self.config = config
 
         self._predictor = predictor
-        self._image_cropper = image_cropper or ImageCropper()
         self._text_extractor = text_extractor or TextExtractor(language=OCR_LANGUAGE)
         self._on_review = on_review or accept_page
 
@@ -70,7 +75,7 @@ class PageExtractor:
         baseline read sees white behind the polygon mask, and rotated before
         the resize so the grown canvas still fits the size cap.
         """
-        cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
+        cropped = cut_out_image_by_polygon(image, polygon)
         question = add_white_background(cropped)
 
         angle = self._text_extractor.detect_skew(question)
@@ -86,7 +91,7 @@ class PageExtractor:
         self, image: Image.Image, polygon: PixelPolygon
     ) -> int | None:
         """Extract option number from image region."""
-        cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
+        cropped = cut_out_image_by_polygon(image, polygon)
         digits = self._text_extractor.extract_digits(cropped)
         if digits:
             return normalize_option_number(digits[0])
@@ -96,7 +101,7 @@ class PageExtractor:
         self, image: Image.Image, polygon: PixelPolygon
     ) -> str | None:
         """Extract part letter (A/B) from image region."""
-        cropped = self._image_cropper.cut_out_image_by_polygon(image, polygon)
+        cropped = cut_out_image_by_polygon(image, polygon)
         text = self._text_extractor.extract_text(cropped).upper()
         # Uppercase and drop the part word before transliterating. Its second
         # letter is a Cyrillic A, which maps to a Latin "A" and would win the
@@ -240,8 +245,9 @@ class PageExtractor:
             honest result must say so.
 
         Raises:
-            ValueError: If the page has no detections, or a question comes
-                before any option/part marker.
+            ValueError: If the page has no detections, a question comes
+                before any option/part marker, or the page's numbering would
+                leave a gap in its option/part folder.
             ReviewAborted: If the reviewer stopped the run.
         """
         regions = self.read_page(image)
@@ -249,8 +255,11 @@ class PageExtractor:
         reviewed = self._on_review(
             PageProposal(
                 image=image,
-                regions=regions,
-                state=state,
+                # Copies: whatever the reviewer does to them — edit, drop,
+                # keep — the extractor's own regions and state move only when
+                # it adopts the verdict below.
+                regions=copy_regions(regions),
+                state=replace(state),
                 output_dir=output_dir,
                 # BookExtractor opens pages from disk, so PIL knows the
                 # filename — though only ImageFile declares it.
@@ -267,6 +276,22 @@ class PageExtractor:
             return []
 
         state.adopt(reviewed.state)
+
+        # The same legality rule the review window applies: replay the page
+        # through a copy of the state and ask `numbering_fault` whether every
+        # folder run starts at its next free number. A collision is survivable
+        # — the write walk below keeps the existing file and reports it, which
+        # is what lets a resumed book replay pages over their own output — but
+        # a gap would put a hole in the output tree that no renumbering pass
+        # exists to close, so the page is refused before anything is written.
+        placed = place_questions(reviewed.regions, replace(state))
+        fault = numbering_fault(placed, output_dir)
+        if fault is not None and not fault.collides:
+            raise ValueError(
+                f"Question numbering leaves a gap: {fault.placement} — the next"
+                f" free number in"
+                f" {fault.placement.option}/{fault.placement.part} is {fault.free}"
+            )
 
         collisions: list[QuestionPlacement] = []
 

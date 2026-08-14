@@ -5,7 +5,7 @@ and ``check-answers`` commands rendered, shown beside the page that is adding
 to the tally rather than in a terminal after the run.
 
 Counting walks the whole output tree, so the panel only recounts when it is
-actually on screen — see :meth:`StatsPanel.invalidate`.
+actually on screen and something has moved — see :meth:`StatsPanel.show`.
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ class StatsPanel(ttk.Frame):
 
         self._title = ttk.Label(head, text="", font=("TkDefaultFont", 10, "bold"))
         self._title.grid(row=0, column=0, sticky="w")
-        ttk.Button(head, text="Recount", width=9, command=self.refresh).grid(
+        ttk.Button(head, text="Recount", width=9, command=self._recount).grid(
             row=0, column=1, sticky="e"
         )
 
@@ -172,26 +172,26 @@ class StatsPanel(ttk.Frame):
 
     # --- what the window drives ---
 
-    def follow(self, subject: str, year: str) -> None:
-        """Point the panel at the book being reviewed, and mark the count stale."""
-        self._subject = subject
-        self._year = year
-        self.invalidate()
+    def show(self, subject: str, year: str) -> None:
+        """Bring the panel up to date for *subject*/*year*, recounting if needed.
 
-    def invalidate(self) -> None:
-        """Note that the tally is out of date, without paying to recount now."""
+        The window says what should be on screen; when to pay for a recount is
+        this panel's own business. Counting walks the whole output tree, so it
+        runs only when the target moved or a write was reported since the last
+        look — flipping tabs over an unchanged corpus recounts nothing.
+        """
+        if (subject, year) != (self._subject, self._year):
+            self._subject = subject
+            self._year = year
+            self._stale = True
+        if self._stale:
+            self._recount()
+
+    def page_written(self) -> None:
+        """Note that crops landed on disk; the next ``show`` recounts."""
         self._stale = True
 
-    def refresh_if_stale(self) -> None:
-        """Recount only if something has changed since the last look.
-
-        Called when the tab comes to the front: counting walks the whole output
-        tree, which is not worth doing behind a tab nobody is looking at.
-        """
-        if self._stale:
-            self.refresh()
-
-    def refresh(self) -> None:
+    def _recount(self) -> None:
         """Recount the subject's output tree — what is on disk, this page aside."""
         self._stale = False
         self._tree.delete(*self._tree.get_children())

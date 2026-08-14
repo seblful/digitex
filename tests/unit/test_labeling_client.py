@@ -2,8 +2,8 @@
 
 ``LabelStudioClient`` is the project's thin adapter around the Label Studio
 SDK — the SDK is patched and the adapter's own narrow contract is asserted.
-``TaskPredictor`` sits on top of it and the YOLO predictor, so both of its
-collaborators are patched and what gets checked is the run: which tasks are
+``TaskPredictor`` takes both of its collaborators through its constructor, so
+these tests hand in stubs at that seam and check the run: which tasks are
 read, what is uploaded for them, and which ones are passed over.
 
 A task whose image the predictor cannot reach is skipped rather than fatal —
@@ -12,7 +12,7 @@ the annotation server holds tasks for images this machine may not have.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 from unittest.mock import MagicMock, patch
 from urllib.parse import quote
 
@@ -79,34 +79,26 @@ class TestLabelStudioClient:
 
 
 class Deps(NamedTuple):
-    """The two collaborators TaskPredictor builds, already stubbed."""
+    """The two collaborators, stubbed at TaskPredictor's constructor seam."""
 
     predictor: MagicMock
     client: MagicMock
 
 
 class TestTaskPredictor:
-    @pytest.fixture(autouse=True)
-    def deps(self) -> Iterator[Deps]:
-        """Stub both collaborators. Autouse: constructing one reaches the network.
-
-        Tests that drive the run request this by name; the rest are covered by
-        it being applied anyway.
-        """
-        with (
-            patch("digitex.labeling.predictor.YOLO_SegmentationPredictor") as predictor,
-            patch("digitex.labeling.predictor.LabelStudioClient") as client,
-        ):
-            yield Deps(predictor.return_value, client.return_value)
+    @pytest.fixture
+    def deps(self) -> Deps:
+        return Deps(MagicMock(), MagicMock())
 
     @staticmethod
-    def _predictor(model_version: str | None = None) -> TaskPredictor:
-        kwargs = {"model_version": model_version} if model_version else {}
+    def _predictor(
+        deps: Deps | None = None, model_version: str = "v1"
+    ) -> TaskPredictor:
+        stubs = deps or Deps(MagicMock(), MagicMock())
         return TaskPredictor(
-            model_path="model.pt",
-            url="http://localhost:8080",
-            api_key="api-key",
-            **kwargs,
+            cast("Any", stubs.predictor),
+            cast("Any", stubs.client),
+            model_version=model_version,
         )
 
     @staticmethod
@@ -114,13 +106,6 @@ class TestTaskPredictor:
         task = MagicMock(id=task_id)
         task.data = {"image": image}
         return task
-
-    def test_the_model_file_names_the_version_by_default(self) -> None:
-        """Uploaded predictions are grouped by version, so it has to identify one."""
-        assert self._predictor()._model_version == "model"
-
-    def test_a_caller_can_name_the_version(self) -> None:
-        assert self._predictor("custom-v1")._model_version == "custom-v1"
 
     def test_pixels_are_converted_to_the_percent_space(self) -> None:
         """Label Studio stores points as percentages of the image size."""
@@ -152,7 +137,9 @@ class TestTaskPredictor:
             Detection(label="question", polygon=QUAD)
         ]
 
-        predicted = self._predictor("v3").predict_tasks(project_id=1)
+        predicted = self._predictor(deps, model_version="v3").predict_tasks(
+            project_id=1
+        )
 
         assert predicted == 1
         project_id, predictions = deps.client.upload_predictions.call_args.args
@@ -166,7 +153,7 @@ class TestTaskPredictor:
             self._task(1, "http://example.com/remote.png")
         ]
 
-        assert self._predictor().predict_tasks(project_id=1) == 0
+        assert self._predictor(deps).predict_tasks(project_id=1) == 0
         deps.client.upload_predictions.assert_not_called()
 
     @pytest.mark.parametrize(

@@ -6,21 +6,12 @@ from typing import cast
 import pytest
 from PIL import Image
 
-from digitex.pipeline.base import ExtractionConfig, ExtractionResult
+from digitex.pipeline.base import ExtractionResult
 from digitex.pipeline.book import BookExtractor
 from digitex.pipeline.exceptions import DirectoryNotFoundError, ReviewAborted
 from digitex.pipeline.page import PageExtractor
 from digitex.pipeline.placement import PageExtractionState, QuestionPlacement
 from digitex.pipeline.subject import PROGRESS_FILE, SubjectExtractor
-
-
-def _config() -> ExtractionConfig:
-    return ExtractionConfig(
-        model_path=Path("model.pt"),
-        image_format="jpg",
-        question_max_width=2000,
-        question_max_height=2000,
-    )
 
 
 class _RecordingPageExtractor:
@@ -79,12 +70,12 @@ def _write_page(image_dir: Path, name: str) -> None:
 
 class TestBookExtractor:
     def test_extract_raises_on_missing_dir(self, tmp_path: Path) -> None:
-        extractor = BookExtractor(_config())
+        extractor = BookExtractor(_RecordingPageExtractor().as_page_extractor())
         with pytest.raises(DirectoryNotFoundError, match="Directory not found"):
             extractor.extract(tmp_path / "nonexistent", tmp_path / "output")
 
     def test_extract_no_images_warns(self, tmp_path: Path) -> None:
-        extractor = BookExtractor(_config())
+        extractor = BookExtractor(_RecordingPageExtractor().as_page_extractor())
         result = extractor.extract(tmp_path, tmp_path / "output")
         assert result.success
         assert result.processed == 0
@@ -96,7 +87,7 @@ class TestBookExtractor:
         for name in ("page_10.jpg", "page_2.jpg", "page_1.jpg"):
             _write_page(image_dir, name)
         pages = _RecordingPageExtractor()
-        extractor = BookExtractor(_config(), page_extractor=pages.as_page_extractor())
+        extractor = BookExtractor(pages.as_page_extractor())
         output_dir = tmp_path / "output"
 
         result = extractor.extract(image_dir, output_dir)
@@ -113,7 +104,7 @@ class TestBookExtractor:
         for name in ("page_10.jpg", "page_2.jpg", "page_1.jpg"):
             _write_page(image_dir, name)
         pages = _RecordingPageExtractor()
-        extractor = BookExtractor(_config(), page_extractor=pages.as_page_extractor())
+        extractor = BookExtractor(pages.as_page_extractor())
 
         extractor.extract(image_dir, tmp_path / "output")
 
@@ -125,7 +116,7 @@ class TestBookExtractor:
         _write_page(image_dir, "page_1.jpg")
         _write_page(image_dir, "page_2.jpg")
         pages = _RecordingPageExtractor(fail_on="page_1.jpg")
-        extractor = BookExtractor(_config(), page_extractor=pages.as_page_extractor())
+        extractor = BookExtractor(pages.as_page_extractor())
 
         result = extractor.extract(image_dir, tmp_path / "output")
 
@@ -146,7 +137,7 @@ class TestBookExtractor:
         image_dir.mkdir()
         _write_page(image_dir, "page_1.jpg")
         pages = _RecordingPageExtractor(collide_on="page_1.jpg")
-        extractor = BookExtractor(_config(), page_extractor=pages.as_page_extractor())
+        extractor = BookExtractor(pages.as_page_extractor())
 
         result = extractor.extract(image_dir, tmp_path / "output")
 
@@ -163,7 +154,7 @@ class TestBookExtractor:
         for name in ("page_1.jpg", "page_2.jpg", "page_3.jpg"):
             _write_page(image_dir, name)
         pages = _RecordingPageExtractor()
-        extractor = BookExtractor(_config(), page_extractor=pages.as_page_extractor())
+        extractor = BookExtractor(pages.as_page_extractor())
 
         extractor.extract(image_dir, tmp_path / "output")
 
@@ -180,7 +171,7 @@ class TestBookExtractor:
         for name in ("page_1.jpg", "page_2.jpg", "page_3.jpg"):
             _write_page(image_dir, name)
         pages = _RecordingPageExtractor(fail_on="page_2.jpg")
-        extractor = BookExtractor(_config(), page_extractor=pages.as_page_extractor())
+        extractor = BookExtractor(pages.as_page_extractor())
 
         result = extractor.extract(image_dir, tmp_path / "output")
 
@@ -198,7 +189,7 @@ class TestBookExtractor:
         for name in ("page_1.jpg", "page_2.jpg", "page_3.jpg"):
             _write_page(image_dir, name)
         pages = _RecordingPageExtractor(abort_on="page_2.jpg")
-        extractor = BookExtractor(_config(), page_extractor=pages.as_page_extractor())
+        extractor = BookExtractor(pages.as_page_extractor())
 
         with pytest.raises(ReviewAborted, match=r"page_2\.jpg"):
             extractor.extract(image_dir, tmp_path / "output")
@@ -209,9 +200,11 @@ class TestBookExtractor:
 class TestSubjectExtractor:
     def _extractor(self, tmp_path: Path, **overrides) -> SubjectExtractor:
         defaults: dict = {
-            "config": _config(),
             "books_dir": tmp_path / "books",
             "extraction_dir": tmp_path / "extraction",
+            "book_extractor": BookExtractor(
+                _RecordingPageExtractor().as_page_extractor()
+            ),
         }
         defaults.update(overrides)
         return SubjectExtractor(**defaults)
@@ -282,9 +275,7 @@ class TestSubjectExtractor:
         extractor = self._extractor(
             tmp_path,
             data_dir=data_dir,
-            book_extractor=BookExtractor(
-                _config(), page_extractor=pages.as_page_extractor()
-            ),
+            book_extractor=BookExtractor(pages.as_page_extractor()),
         )
 
         result = extractor.extract("math")
@@ -311,9 +302,7 @@ class TestSubjectExtractor:
         extractor = self._extractor(
             tmp_path,
             data_dir=data_dir,
-            book_extractor=BookExtractor(
-                _config(), page_extractor=pages.as_page_extractor()
-            ),
+            book_extractor=BookExtractor(pages.as_page_extractor()),
         )
 
         result = extractor.extract("math")
@@ -339,9 +328,7 @@ class TestSubjectExtractor:
         extractor = self._extractor(
             tmp_path,
             data_dir=data_dir,
-            book_extractor=BookExtractor(
-                _config(), page_extractor=pages.as_page_extractor()
-            ),
+            book_extractor=BookExtractor(pages.as_page_extractor()),
         )
 
         result = extractor.extract("math")

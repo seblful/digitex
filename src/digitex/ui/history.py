@@ -15,30 +15,17 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from digitex.domain.entities import PixelPolygon
-from digitex.pipeline.placement import PageRegion
+from digitex.pipeline.placement import copy_regions
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from digitex.pipeline.placement import PageExtractionState
+    from digitex.pipeline.placement import PageExtractionState, PageRegion
 
 # Enough to walk back through a page's whole edit session; a page nobody has
 # spent 200 edits on does not need more, and the cap keeps a stuck key from
 # growing the list without end.
 DEFAULT_LIMIT = 200
-
-
-def copy_regions(regions: Sequence[PageRegion]) -> list[PageRegion]:
-    """Copy regions deeply enough that editing one cannot reach another."""
-    return [
-        PageRegion(
-            label=region.label,
-            polygon=PixelPolygon(list(region.polygon)),
-            reading=region.reading,
-        )
-        for region in regions
-    ]
 
 
 @dataclass(frozen=True)

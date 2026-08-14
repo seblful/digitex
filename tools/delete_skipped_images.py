@@ -11,7 +11,7 @@ import typer
 
 from digitex.config import get_settings
 from digitex.domain.geometry import local_file_path
-from digitex.labeling import LabelStudioClient
+from digitex.labeling.client import LabelStudioClient
 from digitex.logging import setup_logging
 
 logger = structlog.get_logger()

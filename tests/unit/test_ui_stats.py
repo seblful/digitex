@@ -1,11 +1,24 @@
-"""Tests for how the review window renders the answer check.
+"""Tests for the review window's stats tab.
 
 `format_validation` is what the removed ``check-answers`` command used to
 print. It is pure text over a report, so it is checked without a display.
+The panel's own contract — ``show`` recounts only when something moved — is
+checked against a real Tk widget and skips where there is no display.
 """
 
+from __future__ import annotations
+
+import tkinter as tk
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
+
+import pytest
+
 from digitex.pipeline.audit.validator import ValidationReport, YearReport
-from digitex.ui.stats_panel import MAX_LISTED, format_validation
+from digitex.ui.stats_panel import MAX_LISTED, StatsPanel, format_validation
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 def _year(
@@ -95,3 +108,68 @@ class TestFormatValidation:
 
         assert "2016: OPTIONS DIFFER" in text
         assert "options differing: 3, 7" in text
+
+
+class _FakeCensus:
+    """Records take() calls; the panel's staleness protocol is under test."""
+
+    def __init__(self) -> None:
+        self.takes: list[str] = []
+
+    def take(self, subject: str) -> Any:
+        self.takes.append(subject)
+        return SimpleNamespace(subject=subject, images=0, folders=0, years=[])
+
+
+@pytest.fixture(scope="module")
+def root() -> Iterator[tk.Tk]:
+    """One interpreter for the module — same reasoning as test_ui_page_review."""
+    try:
+        made = tk.Tk()
+    except tk.TclError:
+        pytest.skip("no display available")
+    made.withdraw()
+    yield made
+    made.destroy()
+
+
+class TestShowRecountsOnlyWhenSomethingMoved:
+    """``show`` is the whole protocol: when to pay a recount is the panel's own."""
+
+    @staticmethod
+    def _panel(root: tk.Tk) -> tuple[StatsPanel, _FakeCensus]:
+        census = _FakeCensus()
+        return StatsPanel(root, census=cast("Any", census)), census
+
+    def test_the_first_show_recounts(self, root: tk.Tk) -> None:
+        panel, census = self._panel(root)
+
+        panel.show("biology", "2016")
+
+        assert census.takes == ["biology"]
+
+    def test_showing_an_unchanged_target_recounts_nothing(self, root: tk.Tk) -> None:
+        """Flipping tabs over an unchanged corpus must not walk the tree again."""
+        panel, census = self._panel(root)
+
+        panel.show("biology", "2016")
+        panel.show("biology", "2016")
+
+        assert census.takes == ["biology"]
+
+    def test_a_reported_write_makes_the_next_show_recount(self, root: tk.Tk) -> None:
+        panel, census = self._panel(root)
+        panel.show("biology", "2016")
+
+        panel.page_written()
+        panel.show("biology", "2016")
+
+        assert census.takes == ["biology", "biology"]
+
+    def test_a_new_target_recounts(self, root: tk.Tk) -> None:
+        panel, census = self._panel(root)
+        panel.show("biology", "2016")
+
+        panel.show("biology", "2017")
+
+        assert census.takes == ["biology", "biology"]

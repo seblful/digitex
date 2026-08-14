@@ -103,6 +103,27 @@ def _int_or(raw: str, fallback: int) -> int:
         return fallback
 
 
+def resolve_verdict(
+    verdict: Verdict, edits: PageEdits, page_name: str
+) -> ReviewedPage | None:
+    """Turn the window's verdict into the reviewer's answer.
+
+    The three ways a review ends, kept out of the widget so the seam's error
+    modes run without a display: approve hands back what the reviewer edited,
+    skip returns None, abort raises.
+
+    Raises:
+        ReviewAborted: If the reviewer stopped the run.
+    """
+    if verdict == "abort":
+        raise ReviewAborted(page_name)
+    if verdict == "skip":
+        logger.info("Page skipped in review", page=page_name)
+        return None
+    logger.info("Page approved in review", page=page_name, regions=len(edits.regions))
+    return ReviewedPage(regions=edits.regions, state=edits.state)
+
+
 class TkPageReviewer:
     """Interactive `PageReviewer`: shows each page and waits for a verdict.
 
@@ -135,20 +156,11 @@ class TkPageReviewer:
         """
         window = self._ensure_window()
         verdict = window.present(proposal)
-
-        if verdict == "abort":
+        try:
+            return resolve_verdict(verdict, window.edits, proposal.page_name)
+        except ReviewAborted:
             self.close()
-            raise ReviewAborted(proposal.page_name)
-        if verdict == "skip":
-            logger.info("Page skipped in review", page=proposal.page_name)
-            return None
-
-        logger.info(
-            "Page approved in review",
-            page=proposal.page_name,
-            regions=len(window.edits.regions),
-        )
-        return ReviewedPage(regions=window.edits.regions, state=window.edits.state)
+            raise
 
     def close(self) -> None:
         """Tear the window down — the run is over, one way or another."""
@@ -206,6 +218,9 @@ class _ReviewWindow:
         self._page_name = ""
         self._page_number = 0
         self._page_count = 0
+        # The year directory the current page's crops land in — what the
+        # stats tab is asked to show when it comes to the front.
+        self._output_year = ""
 
         self._hover: int | None = None
 
@@ -287,7 +302,7 @@ class _ReviewWindow:
 
         self.top.title(f"Review — {self._page_name} — {self._subject or 'extraction'}")
         self._show_entry_state()
-        self._stats.follow(self._subject, proposal.output_dir.name)
+        self._output_year = proposal.output_dir.name
 
         self._loading = False
 
@@ -1342,13 +1357,13 @@ class _ReviewWindow:
     # --- stats tab ---
 
     def _refresh_stats_if_shown(self) -> None:
-        """Recount only when the tab is in front — it walks the whole tree."""
+        """The stats tab is brought up to date only when it is in front."""
         try:
             current = self._notebook.select()
         except tk.TclError:
             return
         if current == str(self._stats):
-            self._stats.refresh_if_stale()
+            self._stats.show(self._subject, self._output_year)
 
     # --- verdict ---
 
@@ -1375,7 +1390,9 @@ class _ReviewWindow:
             return
 
         self.verdict = verdict
-        self._stats.invalidate()
+        if verdict == "approve":
+            # The extractor writes this page's crops next; the tally moved.
+            self._stats.page_written()
         self._cancel_jobs()
         # The window stays up while the crops are written — nothing processes
         # its events until the next page arrives, so hiding it would only make

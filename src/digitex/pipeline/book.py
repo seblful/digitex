@@ -11,13 +11,12 @@ from tqdm import tqdm
 from digitex.domain.corpus import is_image, natural_sort_key
 from digitex.pipeline.base import ExtractionResult
 from digitex.pipeline.exceptions import DirectoryNotFoundError, ReviewAborted
-from digitex.pipeline.page import PageExtractor
 from digitex.pipeline.placement import PageExtractionState
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from digitex.pipeline.base import ExtractionConfig
+    from digitex.pipeline.page import PageExtractor
 
 logger = structlog.get_logger()
 
@@ -25,17 +24,14 @@ logger = structlog.get_logger()
 class BookExtractor:
     """Extract question images from a directory of images (a "book").
 
-    ``page_extractor`` is the one injectable collaborator. A caller that needs
-    a custom conflict resolver builds a configured :class:`PageExtractor` and
-    passes it here, rather than threading the resolver down two more levels.
+    ``page_extractor`` does every page. A caller that needs a reviewer or a
+    custom conflict resolver configures the :class:`PageExtractor` and passes
+    it in, rather than threading those knobs down through here — which is
+    also why no extraction config reaches this class.
     """
 
-    def __init__(
-        self,
-        config: ExtractionConfig,
-        page_extractor: PageExtractor | None = None,
-    ) -> None:
-        self._page_extractor = page_extractor or PageExtractor(config)
+    def __init__(self, page_extractor: PageExtractor) -> None:
+        self._page_extractor = page_extractor
 
     def extract(
         self,

@@ -104,29 +104,26 @@ def _perspective_transform(pts: np.ndarray) -> tuple[int, int, np.ndarray]:
     return w, h, cv2.getPerspectiveTransform(pts, dst)
 
 
-# --- public classes ---
+def cut_out_image_by_polygon(image: Image.Image, polygon: PixelPolygon) -> Image.Image:
+    """Cut *polygon* out of *image*, deskewed by a perspective transform.
 
+    Everything outside the polygon is left transparent in the returned RGBA
+    crop — flatten it (:func:`add_white_background`) before saving to a
+    format with no alpha channel.
+    """
+    if len(polygon) < 4:
+        raise ValueError("Polygon must have 4 or more points")
 
-class ImageCropper:
-    """Processor for image cropping operations using perspective transformations."""
+    img = np.array(image.convert("RGBA"))
+    pts = _polygon_to_quad(polygon)
+    w, h, M = _perspective_transform(pts)
 
-    @staticmethod
-    def cut_out_image_by_polygon(
-        image: Image.Image, polygon: PixelPolygon
-    ) -> Image.Image:
-        if len(polygon) < 4:
-            raise ValueError("Polygon must have 4 or more points")
+    warped = cv2.warpPerspective(img, M, (w, h))
 
-        img = np.array(image.convert("RGBA"))
-        pts = _polygon_to_quad(polygon)
-        w, h, M = _perspective_transform(pts)
+    poly_np = np.array(polygon, dtype=np.float32).reshape(-1, 1, 2)
+    tr_pts = cv2.perspectiveTransform(poly_np, M).astype(np.int32)
+    mask = np.zeros((h, w), dtype=np.uint8)
+    cv2.fillPoly(mask, [tr_pts], 255)
+    warped[:, :, 3] = cv2.bitwise_and(warped[:, :, 3], mask)
 
-        warped = cv2.warpPerspective(img, M, (w, h))
-
-        poly_np = np.array(polygon, dtype=np.float32).reshape(-1, 1, 2)
-        tr_pts = cv2.perspectiveTransform(poly_np, M).astype(np.int32)
-        mask = np.zeros((h, w), dtype=np.uint8)
-        cv2.fillPoly(mask, [tr_pts], 255)
-        warped[:, :, 3] = cv2.bitwise_and(warped[:, :, 3], mask)
-
-        return Image.fromarray(warped, mode="RGBA")
+    return Image.fromarray(warped, mode="RGBA")

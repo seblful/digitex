@@ -8,14 +8,13 @@ import structlog
 from tqdm import tqdm
 
 from digitex.pipeline.base import ExtractionResult
-from digitex.pipeline.book import BookExtractor
 from digitex.pipeline.exceptions import DirectoryNotFoundError
 from digitex.pipeline.progress import JSONProgressTracker
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from digitex.pipeline.base import ExtractionConfig
+    from digitex.pipeline.book import BookExtractor
 
 logger = structlog.get_logger()
 
@@ -29,19 +28,18 @@ class SubjectExtractor:
     implementation detail: completed years are skipped and newly finished ones
     recorded, with no tracker handed back to the caller.
 
-    ``book_extractor`` is the one injectable collaborator, mirroring
-    :class:`BookExtractor`'s own ``page_extractor``. Configuring anything
-    deeper — a conflict resolver, a stand-in predictor — means building the
-    chain from the bottom and passing the result in here.
+    ``book_extractor`` does every year, mirroring :class:`BookExtractor`'s
+    own ``page_extractor``. Configuring anything deeper — a reviewer, a
+    stand-in predictor — means building the chain from the bottom and passing
+    the result in here, so no extraction config reaches this class either.
     """
 
     def __init__(
         self,
-        config: ExtractionConfig,
         books_dir: Path,
         extraction_dir: Path,
+        book_extractor: BookExtractor,
         data_dir: Path | None = None,
-        book_extractor: BookExtractor | None = None,
     ) -> None:
         self.books_dir = books_dir
         self.extraction_dir = extraction_dir
@@ -50,7 +48,7 @@ class SubjectExtractor:
         self.data_dir = data_dir or extraction_dir.parent
 
         self._progress = JSONProgressTracker(self.data_dir / PROGRESS_FILE)
-        self._book_extractor = book_extractor or BookExtractor(config)
+        self._book_extractor = book_extractor
 
     def _validate_books_dir(self) -> None:
         if not self.books_dir.exists():

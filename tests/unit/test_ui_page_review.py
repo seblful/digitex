@@ -19,9 +19,11 @@ import pytest
 from PIL import Image
 
 from digitex.domain.entities import PixelPolygon
+from digitex.pipeline.exceptions import ReviewAborted
 from digitex.pipeline.placement import PageExtractionState, PageLabel, PageRegion
 from digitex.pipeline.review import PageProposal
-from digitex.ui.page_review import _ReviewWindow
+from digitex.ui.edits import PageEdits
+from digitex.ui.page_review import _ReviewWindow, resolve_verdict
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -71,6 +73,40 @@ def _proposal(
         page_number=page_number,
         page_count=page_count,
     )
+
+
+class TestResolveVerdict:
+    """The verdict translation is pure, so the seam's exits run headless.
+
+    These are the three ways a run leaves the review window — the part of the
+    adapter a display-gated suite would otherwise never assert on CI.
+    """
+
+    @staticmethod
+    def _edits(output_dir: Path) -> PageEdits:
+        edits = PageEdits()
+        edits.load(
+            [_region("question", 200)],
+            PageExtractionState(option=1, part="A"),
+            output_dir,
+        )
+        return edits
+
+    def test_approve_hands_back_what_the_reviewer_edited(self, tmp_path: Path) -> None:
+        edits = self._edits(tmp_path)
+
+        reviewed = resolve_verdict("approve", edits, "1.jpg")
+
+        assert reviewed is not None
+        assert reviewed.regions is edits.regions
+        assert reviewed.state is edits.state
+
+    def test_skip_returns_none(self, tmp_path: Path) -> None:
+        assert resolve_verdict("skip", self._edits(tmp_path), "1.jpg") is None
+
+    def test_abort_raises_naming_the_page(self, tmp_path: Path) -> None:
+        with pytest.raises(ReviewAborted, match=r"7\.jpg"):
+            resolve_verdict("abort", self._edits(tmp_path), "7.jpg")
 
 
 @pytest.fixture(scope="module")

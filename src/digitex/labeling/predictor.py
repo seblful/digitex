@@ -1,6 +1,5 @@
 """Prediction orchestrator for Label Studio tasks."""
 
-from pathlib import Path
 from typing import Any
 
 import structlog
@@ -17,26 +16,26 @@ logger = structlog.get_logger()
 class TaskPredictor:
     """Orchestrates YOLO predictions on unannotated Label Studio tasks.
 
-    Connects YOLO_SegmentationPredictor and LabelStudioClient to iterate
-    unannotated tasks, run inference, and upload predictions immediately.
+    Iterates unannotated tasks, runs inference, and uploads predictions
+    immediately. Both collaborators come in through the constructor — the
+    same shape as :class:`~digitex.pipeline.page.PageExtractor` — so a test
+    hands in fakes instead of patching module globals.
 
     Args:
-        model_path: Path to the trained YOLO model file.
-        url: Label Studio server URL.
-        api_key: Label Studio API key.
-        model_version: Model version tag. Defaults to model file stem.
+        predictor: Segmentation model whose detections are uploaded.
+        client: Label Studio API adapter.
+        model_version: Version tag stamped on each uploaded prediction.
     """
 
     def __init__(
         self,
-        model_path: str,
-        url: str,
-        api_key: str,
-        model_version: str = "",
+        predictor: YOLO_SegmentationPredictor,
+        client: LabelStudioClient,
+        model_version: str,
     ) -> None:
-        self._predictor = YOLO_SegmentationPredictor(model_path, simplify=True)
-        self._client = LabelStudioClient(url, api_key)
-        self._model_version = model_version or Path(model_path).stem
+        self._predictor = predictor
+        self._client = client
+        self._model_version = model_version
 
     def _to_ls_results(
         self,

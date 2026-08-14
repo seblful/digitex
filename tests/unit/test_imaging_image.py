@@ -7,10 +7,10 @@ from PIL import Image
 from digitex.domain.entities import PixelPolygon
 from digitex.imaging import add_white_background, resize_image, rotate_image
 from digitex.imaging.image import (
-    ImageCropper,
     _order_quad_points,
     _perspective_transform,
     _polygon_to_quad,
+    cut_out_image_by_polygon,
 )
 
 
@@ -99,7 +99,7 @@ class TestResizeImage:
         assert result.size == (50, 100)
 
 
-class TestImageCropper:
+class TestCutOutImageByPolygon:
     def test_order_quad_points(self) -> None:
         pts = np.array([[10, 10], [50, 10], [50, 50], [10, 50]], dtype=np.float32)
         ordered = _order_quad_points(pts)
@@ -147,9 +147,7 @@ class TestImageCropper:
     def test_cut_out_requires_four_or_more_points(self) -> None:
         img = Image.new("RGB", (100, 100), color="white")
         with pytest.raises(ValueError, match="Polygon must have 4 or more points"):
-            ImageCropper.cut_out_image_by_polygon(
-                img, PixelPolygon([(10, 10), (20, 20)])
-            )
+            cut_out_image_by_polygon(img, PixelPolygon([(10, 10), (20, 20)]))
 
     @pytest.mark.parametrize(
         "polygon",
@@ -171,7 +169,7 @@ class TestImageCropper:
     )
     def test_cut_out_returns_rgba_crop(self, polygon: list[tuple[int, int]]) -> None:
         img = Image.new("RGB", (300, 300), color="white")
-        result = ImageCropper.cut_out_image_by_polygon(img, PixelPolygon(polygon))
+        result = cut_out_image_by_polygon(img, PixelPolygon(polygon))
         assert result.mode == "RGBA"
         assert result.size[0] > 0
         assert result.size[1] > 0

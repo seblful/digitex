@@ -162,13 +162,20 @@ def ls_predict(
     ),
 ) -> None:
     """Run model predictions on Label Studio tasks for a project."""
-    from digitex.labeling import TaskPredictor
+    from digitex.labeling.client import LabelStudioClient
+    from digitex.labeling.predictor import TaskPredictor
+    from digitex.ml.predictors import YOLO_SegmentationPredictor
 
     settings = get_settings()
     predictor = TaskPredictor(
-        model_path=model_path,
-        url=settings.pipeline.label_studio.url,
-        api_key=settings.pipeline.label_studio.api_key,
+        YOLO_SegmentationPredictor(model_path, simplify=True),
+        LabelStudioClient(
+            settings.pipeline.label_studio.url,
+            settings.pipeline.label_studio.api_key,
+        ),
+        # Uploaded predictions are grouped by version, so the model file
+        # names one.
+        model_version=Path(model_path).stem,
     )
 
     count = predictor.predict_tasks(project_id)

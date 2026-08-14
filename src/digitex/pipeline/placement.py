@@ -13,12 +13,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import structlog
 
-if TYPE_CHECKING:
-    from digitex.domain.entities import PixelPolygon
+from digitex.domain.entities import PixelPolygon
 
 logger = structlog.get_logger()
 
@@ -111,6 +110,18 @@ class PageRegion:
     label: PageLabel
     polygon: PixelPolygon
     reading: int | str | None = None
+
+
+def copy_regions(regions: Iterable[PageRegion]) -> list[PageRegion]:
+    """Copy regions deeply enough that editing one cannot reach another."""
+    return [
+        PageRegion(
+            label=region.label,
+            polygon=PixelPolygon(list(region.polygon)),
+            reading=region.reading,
+        )
+        for region in regions
+    ]
 
 
 @dataclass(frozen=True)
