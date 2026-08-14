@@ -1,9 +1,9 @@
-"""Tests for the pure answer-checking logic in ``digitex.domain.answer``."""
+"""Tests for the answer key's matching rules in ``digitex.domain.answer``."""
 
 import pytest
 
 from digitex.bot.keyboards import part_a_kb
-from digitex.domain.answer import check_answer
+from digitex.domain.answer import AnswerKey
 from digitex.domain.entities import Part
 
 
@@ -30,10 +30,21 @@ from digitex.domain.entities import Part
         "part-b-strips-whitespace-around-alternatives",
     ],
 )
-def test_check_answer(
-    part: Part, student: str, correct: int | str, expected: bool
-) -> None:
-    assert check_answer(part, student, correct) is expected
+def test_matches(part: Part, student: str, correct: int | str, expected: bool) -> None:
+    assert AnswerKey(part=part, value=correct).matches(student) is expected
+
+
+class TestStoredForm:
+    """``stored`` is the one string form the record and the screen share."""
+
+    def test_a_part_a_key_stores_its_option_index_as_text(self) -> None:
+        assert AnswerKey(part="A", value=3).stored == "3"
+
+    def test_a_part_b_key_stores_its_text_unchanged(self) -> None:
+        assert AnswerKey(part="B", value="ANS1/ANS2").stored == "ANS1/ANS2"
+
+    def test_a_missing_key_stores_nothing(self) -> None:
+        assert AnswerKey(part="B", value=None).stored is None
 
 
 class TestAMissingAnswerKeyMatchesNothing:
@@ -46,7 +57,7 @@ class TestAMissingAnswerKeyMatchesNothing:
 
     @pytest.mark.parametrize("option", range(1, 11))
     def test_no_part_a_option_matches_a_missing_key(self, option: int) -> None:
-        assert not check_answer("A", str(option), None)
+        assert not AnswerKey(part="A", value=None).matches(str(option))
 
     @pytest.mark.parametrize(
         "reply",
@@ -54,12 +65,12 @@ class TestAMissingAnswerKeyMatchesNothing:
         ids=["text", "digit", "whitespace-only", "empty"],
     )
     def test_no_part_b_reply_matches_a_missing_key(self, reply: str) -> None:
-        assert not check_answer("B", reply, None)
+        assert not AnswerKey(part="B", value=None).matches(reply)
 
     @pytest.mark.parametrize("reply", ["", "x", " "], ids=["empty", "text", "space"])
     def test_a_blank_part_b_key_matches_nothing_either(self, reply: str) -> None:
         """The same holds for a key that is stored but carries no value."""
-        assert not check_answer("B", reply, "  ")
+        assert not AnswerKey(part="B", value="  ").matches(reply)
 
     @pytest.mark.parametrize("num_options", range(1, 9))
     def test_the_option_keyboard_offers_only_real_options(

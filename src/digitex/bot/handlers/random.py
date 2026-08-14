@@ -10,10 +10,9 @@ from aiogram.utils.text_decorations import html_decoration
 
 from digitex.bot import fsm_data
 from digitex.bot.answer_flow import (
-    end_round,
+    Round,
     evaluate_random_answer,
     pick_random_question,
-    show_question,
 )
 from digitex.bot.callbacks import AnswerCB, RandomFeedbackCB
 from digitex.bot.fsm_data import RandomState
@@ -30,7 +29,6 @@ from digitex.bot.messages import (
     format_answer,
 )
 from digitex.bot.states import RandomTesting
-from digitex.db import UnitOfWork
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -56,16 +54,10 @@ def _build_caption(origin: QuestionOrigin, topic_name: str | None) -> str:
     return origin_line
 
 
-async def start_random_question(
-    message: types.Message,
-    state: FSMContext,
-    bot: Bot,
-    pool: AsyncConnectionPool,
-    questions_dir: Path,
-) -> None:
-    rnd = await fsm_data.load(state, RandomState)
+async def start_random_question(message: types.Message, round: Round) -> None:
+    rnd = await fsm_data.load(round.state, RandomState)
 
-    async with UnitOfWork(pool) as uow:
+    async with round.open_uow() as uow:
         picked = await pick_random_question(uow, rnd)
 
     if picked is None:
@@ -76,17 +68,14 @@ async def start_random_question(
         return
     question, origin = picked
 
-    await show_question(
-        bot,
+    await round.show_random_question(
         message,
-        state,
         question,
-        questions_dir,
         started_at=time.time(),
         caption=_build_caption(origin, rnd.topic_name),
         parse_mode="HTML",
     )
-    await state.set_state(RandomTesting.answering)
+    await round.state.set_state(RandomTesting.answering)
 
 
 @router.callback_query(RandomTesting.answering, AnswerCB.filter())
@@ -95,43 +84,52 @@ async def on_random_part_a_answer(
     callback_data: AnswerCB,
     state: FSMContext,
     msg: types.Message,
+    bot: Bot,
     pool: AsyncConnectionPool,
+    questions_dir: Path,
 ) -> None:
     # Old keyboards stay live in the chat, so a tap can arrive while a Part B
     # question is on screen — it would otherwise be scored against that
     # question and disclose its answer. Mirrors the Part B guard below.
     rnd = await fsm_data.load(state, RandomState)
-    if rnd.current_part != "A":
+    if rnd.current_part != "A" or not rnd.waiting_for_answer:
         await callback.answer()
         return
 
-    await process_random_answer(msg, state, str(callback_data.value), pool)
+    await fsm_data.merge(state, RandomState, waiting_for_answer=False)
+    await process_random_answer(
+        msg, Round(bot, state, pool, questions_dir), str(callback_data.value)
+    )
     await callback.answer()
 
 
 @router.message(RandomTesting.answering)
 async def on_random_part_b_answer(
-    message: types.Message, state: FSMContext, pool: AsyncConnectionPool
+    message: types.Message,
+    state: FSMContext,
+    bot: Bot,
+    pool: AsyncConnectionPool,
+    questions_dir: Path,
 ) -> None:
     if not message.text:
         return
 
     rnd = await fsm_data.load(state, RandomState)
-    if rnd.current_part != "B":
+    if rnd.current_part != "B" or not rnd.waiting_for_answer:
         return
 
-    await process_random_answer(message, state, message.text, pool)
+    await fsm_data.merge(state, RandomState, waiting_for_answer=False)
+    await process_random_answer(
+        message, Round(bot, state, pool, questions_dir), message.text
+    )
 
 
 async def process_random_answer(
-    message: types.Message,
-    state: FSMContext,
-    answer: str,
-    pool: AsyncConnectionPool,
+    message: types.Message, round: Round, answer: str
 ) -> None:
-    rnd = await fsm_data.load(state, RandomState)
+    rnd = await fsm_data.load(round.state, RandomState)
 
-    async with UnitOfWork(pool) as uow:
+    async with round.open_uow() as uow:
         verdict = await evaluate_random_answer(uow, rnd, answer)
     if verdict is None:
         return
@@ -145,12 +143,14 @@ async def process_random_answer(
         # would skip the state transition below, stranding the round.
         await message.answer(
             MSG_WRONG_ANSWER.format(
-                correct_answer=html_decoration.quote(format_answer(correct_answer))
+                correct_answer=html_decoration.quote(
+                    format_answer(correct_answer.stored)
+                )
             ),
             reply_markup=random_feedback_kb(),
             parse_mode="HTML",
         )
-    await state.set_state(RandomTesting.feedback)
+    await round.state.set_state(RandomTesting.feedback)
 
 
 @router.callback_query(RandomTesting.feedback, RandomFeedbackCB.filter())
@@ -163,9 +163,10 @@ async def on_random_feedback(
     pool: AsyncConnectionPool,
     questions_dir: Path,
 ) -> None:
+    round = Round(bot, state, pool, questions_dir)
     if callback_data.action == "next":
-        await start_random_question(msg, state, bot, pool, questions_dir)
+        await start_random_question(msg, round)
     else:
         await msg.answer(MSG_RANDOM_FINISH)
-        await end_round(pool, state)
+        await round.end()
     await callback.answer()

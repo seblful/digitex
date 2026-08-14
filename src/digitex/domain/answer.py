@@ -1,26 +1,43 @@
-"""Answer-checking logic for exam questions."""
+"""The answer key to a question, and the matching rules it carries."""
 
-from typing import Literal
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from digitex.domain.entities import Part
 
 
-def check_answer(
-    part: Literal["A", "B"], student_answer: str, correct_answer: int | str | None
-) -> bool:
-    """Return True if the student's answer matches the correct answer.
+@dataclass(frozen=True)
+class AnswerKey:
+    """The correct answer to a question, or the recorded absence of one.
 
-    Part A compares an integer option index; Part B allows multiple correct
-    values separated by "/" (e.g. "ANS1/ANS2").
+    Built where the row is read, so the part travels with the value and no
+    later seam has to be told which matching rules apply. Part A keys are
+    integer option indices; Part B keys are free text, with alternative
+    correct values separated by "/" (e.g. "ANS1/ANS2").
 
-    A question with no stored answer key — ``correct_answer`` None — matches
-    nothing, in either part. ``populate_db`` loads a Question whose key is
-    missing so that its image is servable, and this is what keeps such a
-    question from ever being scored right.
+    A question with no stored key — ``value`` None — matches nothing, in
+    either part. ``populate_db`` loads such a Question so that its image is
+    servable, and this is what keeps it from ever being scored right.
     """
-    if correct_answer is None:
-        return False
-    if part == "A":
-        return int(student_answer.strip()) == int(correct_answer)
-    correct_options = [
-        opt.strip() for opt in str(correct_answer).split("/") if opt.strip()
-    ]
-    return bool(correct_options) and student_answer.strip() in correct_options
+
+    part: Part
+    value: int | str | None
+
+    def matches(self, student_answer: str) -> bool:
+        """True when the student's reply is correct under this key's rules."""
+        if self.value is None:
+            return False
+        if self.part == "A":
+            return int(student_answer.strip()) == int(self.value)
+        alternatives = [
+            opt.strip() for opt in str(self.value).split("/") if opt.strip()
+        ]
+        return bool(alternatives) and student_answer.strip() in alternatives
+
+    @property
+    def stored(self) -> str | None:
+        """The key as ``session_answers`` stores it and the bot displays it."""
+        return None if self.value is None else str(self.value)

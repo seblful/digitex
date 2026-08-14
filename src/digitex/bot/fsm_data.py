@@ -10,7 +10,7 @@ state through ``load`` / ``save`` and never touch the raw dict.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
@@ -26,7 +26,6 @@ if TYPE_CHECKING:
 class NavigationState(BaseModel):
     """State carried while the user is picking subject / year / option."""
 
-    student_telegram_id: int | None = None
     subject_id: int | None = None
     year: int | None = None
     exam_type: ExamType | None = None
@@ -61,7 +60,11 @@ class RoundDebt(BaseModel):
 
 
 class RandomState(BaseModel):
-    """State for random / topic question mode (no Session recording)."""
+    """State for random / topic question mode (no Session recording).
+
+    Constructed whole by navigation when the round starts — the required
+    ``subject_id`` is the constructor making that explicit.
+    """
 
     subject_id: int
     topic_name: str | None = None
@@ -70,6 +73,7 @@ class RandomState(BaseModel):
     current_question_id: int | None = None
     current_part: Part | None = None
     question_start_time: float | None = None
+    waiting_for_answer: bool = False
     pending_file_id_cache: tuple[int, str] | None = None
 
 
@@ -86,27 +90,22 @@ async def save(state: FSMContext, payload: BaseModel) -> None:
     await state.set_data(payload.model_dump())
 
 
-# Every key merge() may write. A key none of the models declares would be
-# stored, then silently dropped by load() — which is how a renamed field
-# loses its value with no error anywhere.
-_KNOWN_FIELDS: Final = frozenset(
-    name
-    for model in (NavigationState, TestingState, RandomState, RoundDebt)
-    for name in model.model_fields
-)
+async def merge(state: FSMContext, model: type[BaseModel], **fields: Any) -> None:
+    """Update a subset of *model*'s keys without round-tripping a whole model.
 
-
-async def merge(state: FSMContext, **fields: Any) -> None:
-    """Update a subset of FSM keys without round-tripping a whole model.
+    The write is validated against the one model the conversation is in: a
+    key that model does not declare would be stored, then silently dropped by
+    ``load`` — which is how a field written for the wrong mode loses its
+    value with no error anywhere.
 
     Raises:
-        ValueError: If a key is not a field of any state model.
+        ValueError: If a key is not a field of *model*.
     """
-    unknown = sorted(set(fields) - _KNOWN_FIELDS)
+    unknown = sorted(set(fields) - set(model.model_fields))
     if unknown:
         raise ValueError(
-            f"Unknown FSM field(s) {unknown} — declare them on a state model"
-            " in fsm_data"
+            f"Unknown field(s) {unknown} for {model.__name__} — declare them"
+            " on the state model in fsm_data"
         )
     await state.update_data(**fields)
 

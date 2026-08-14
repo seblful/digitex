@@ -10,8 +10,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import Message as TgMessage
 from aiogram.utils.text_decorations import html_decoration
 
-from digitex.bot import fsm_data
-from digitex.bot.answer_flow import end_round
+from digitex.bot.answer_flow import Round
 from digitex.bot.callbacks import RegistrationCB
 from digitex.bot.constants import student_identity
 from digitex.bot.keyboards import admin_registration_kb, subjects_kb
@@ -34,6 +33,7 @@ from digitex.db import UnitOfWork
 
 if TYPE_CHECKING:
     from datetime import datetime
+    from pathlib import Path
     from zoneinfo import ZoneInfo
 
     from aiogram.fsm.context import FSMContext
@@ -93,12 +93,16 @@ async def open_registration_gate(uow: UnitOfWork, telegram_id: int) -> StartGate
 
 
 async def _normal_start(
-    message: types.Message, state: FSMContext, pool: AsyncConnectionPool
+    message: types.Message,
+    state: FSMContext,
+    bot: Bot,
+    pool: AsyncConnectionPool,
+    questions_dir: Path,
 ) -> None:
     telegram_id, name, username = student_identity(message)
 
     async with UnitOfWork(pool) as uow:
-        student = await uow.students.get_or_create(
+        await uow.students.get_or_create(
             telegram_id=telegram_id,
             telegram_name=name,
             telegram_username=username,
@@ -107,8 +111,7 @@ async def _normal_start(
 
     # /start can land mid-test, where the last render may still owe a file_id
     # write; ending the round pays it before the state goes away.
-    await end_round(pool, state)
-    await fsm_data.merge(state, student_telegram_id=student.telegram_id)
+    await Round(bot, state, pool, questions_dir).end()
     await message.answer(
         MSG_GREETING.format(name=name),
         reply_markup=subjects_kb(subjects),
@@ -125,21 +128,23 @@ async def cmd_help(message: types.Message) -> None:
 async def cmd_start(
     message: types.Message,
     state: FSMContext,
+    bot: Bot,
     pool: AsyncConnectionPool,
+    questions_dir: Path,
     admin_user_id: int,
     tz: ZoneInfo,
 ) -> None:
     telegram_id, _name, _username = student_identity(message)
 
     if telegram_id == admin_user_id:
-        await _normal_start(message, state, pool)
+        await _normal_start(message, state, bot, pool, questions_dir)
         return
 
     async with UnitOfWork(pool) as uow:
         gate = await open_registration_gate(uow, telegram_id)
 
     if gate.status == "approved":
-        await _normal_start(message, state, pool)
+        await _normal_start(message, state, bot, pool, questions_dir)
         return
 
     if gate.status == "pending":

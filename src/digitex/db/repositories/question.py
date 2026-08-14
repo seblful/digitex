@@ -6,6 +6,7 @@ import secrets
 from typing import TYPE_CHECKING, Any
 
 from digitex.db.mapping import row_to_model
+from digitex.domain.answer import AnswerKey
 from digitex.domain.entities import Question, QuestionOrigin
 
 if TYPE_CHECKING:
@@ -199,12 +200,13 @@ class QuestionRepository:
         rows = await cur.fetchall()
         return [(r["object_key"], r["content_hash"]) for r in rows]
 
-    async def get_correct_answer(self, question_id: int) -> int | str | None:
-        """Return the correct answer for a question, or None if it has no key.
+    async def get_correct_answer(self, question_id: int) -> AnswerKey:
+        """Return the question's answer key; its value is None without one.
 
-        Part A answers are integers (option index); Part B are free-form text.
+        Part A values are integers (option index); Part B are free-form text.
         The part is read from the row rather than passed in, so a caller cannot
-        ask for the answer under the wrong one.
+        ask for the answer under the wrong one — the key carries its own
+        matching rules from here on.
         """
         cur = await self._conn.execute(
             "SELECT part, answer FROM questions WHERE question_id = %s",
@@ -214,8 +216,11 @@ class QuestionRepository:
         if row is None:
             raise KeyError(f"Question {question_id} not found")
         if row["answer"] is None:
-            return None
-        return int(row["answer"]) if row["part"] == "A" else str(row["answer"])
+            return AnswerKey(part=row["part"], value=None)
+        return AnswerKey(
+            part=row["part"],
+            value=int(row["answer"]) if row["part"] == "A" else str(row["answer"]),
+        )
 
     async def get_random_question_id(
         self,

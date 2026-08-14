@@ -1,48 +1,49 @@
 """The question round — every decision between two Telegram messages.
 
 The handlers in ``handlers/testing.py`` and ``handlers/random.py`` are thin
-adapters: they load the typed FSM state, open a UnitOfWork, call one function
-here, then perform the returned outcome. Everything that *decides* — scoring,
-recording, what question comes next, and the deferred ``file_id`` write owed
-after each render — lives here.
+adapters: they build a :class:`Round` from the injected dependencies, load the
+typed FSM state, open the round's transaction, call one function here, then
+perform the returned outcome. Everything that *decides* — scoring, recording,
+what question comes next, and the deferred ``file_id`` write owed after each
+render — lives here.
 
 The file_id debt protocol: rendering a question with no cached Telegram
 ``file_id`` uploads the image and yields a fresh ``file_id``. Writing it back
 would cost a dedicated round-trip, so the debt is parked in the FSM
 (``pending_file_id_cache``) and settled inside the *next* round's transaction.
-``show_question`` incurs the debt, and the two round functions pay it off on the
-way in.
+The round's ``show_*`` methods incur the debt, the two round functions pay it
+off on the way in, and :meth:`Round.end` pays whatever is left and clears the
+conversation state together.
 
-A round that simply *ends* has no next transaction to ride, which is what
-``end_round`` is for: it settles whatever is owed and clears the conversation
-state together. Clearing the state on its own would drop the write, and Telegram
-would re-upload that image the next time it was shown — so no handler calls
-``state.clear()`` on a conversation that could hold a debt, and no handler names
+Clearing the state on its own would drop the parked write, and Telegram would
+re-upload that image the next time it was shown — which is why ``end`` holds
+the bot's only ``state.clear()``, and no handler names
 ``pending_file_id_cache``. That key belongs to this module.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from digitex.bot import fsm_data
-from digitex.bot.fsm_data import RoundDebt
+from digitex.bot.fsm_data import RandomState, RoundDebt, TestingState
 from digitex.bot.keyboards import part_a_kb
 from digitex.bot.messages import MSG_ENTER_ANSWER
 from digitex.bot.renderer import send_question
 from digitex.db import UnitOfWork
-from digitex.domain.answer import check_answer
 from digitex.domain.entities import PART_A_OPTION_COUNT
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from contextlib import AbstractAsyncContextManager
     from pathlib import Path
 
     from aiogram import Bot, types
     from aiogram.fsm.context import FSMContext
     from psycopg_pool import AsyncConnectionPool
 
-    from digitex.bot.fsm_data import RandomState, TestingState
+    from digitex.domain.answer import AnswerKey
     from digitex.domain.entities import Question, QuestionOrigin
 
 
@@ -61,8 +62,126 @@ class RoundFinished:
     next_index: int
 
 
+class Round:
+    """Handle on one question round: its dependencies and its exits.
+
+    Handlers build one per update from the injected dependencies and speak to
+    the round through it: render a question (``show_testing_question`` /
+    ``show_random_question``), open the round's transaction (``open_uow``),
+    and leave (``end``).
+
+    ``open_uow`` is the transaction seam: production opens a
+    :class:`~digitex.db.UnitOfWork` on the pool, tests hand in a factory
+    yielding their fake.
+    """
+
+    def __init__(
+        self,
+        bot: Bot,
+        state: FSMContext,
+        pool: AsyncConnectionPool,
+        questions_dir: Path,
+        *,
+        open_uow: Callable[[], AbstractAsyncContextManager[UnitOfWork]] | None = None,
+    ) -> None:
+        self.bot = bot
+        self.state = state
+        self.questions_dir = questions_dir
+        self.open_uow = open_uow or (lambda: UnitOfWork(pool))
+
+    async def show_testing_question(
+        self,
+        message: types.Message,
+        question: Question,
+        *,
+        index: int,
+        started_at: float,
+    ) -> None:
+        """Put the playlist question at *index* on screen and record it."""
+        await fsm_data.merge(
+            self.state,
+            TestingState,
+            current_index=index,
+            current_part=question.part,
+            question_start_time=started_at,
+            waiting_for_answer=True,
+            pending_file_id_cache=None,
+        )
+        await self._send(message, question)
+
+    async def show_random_question(
+        self,
+        message: types.Message,
+        question: Question,
+        *,
+        started_at: float,
+        caption: str | None = None,
+        parse_mode: str | None = None,
+    ) -> None:
+        """Put a random / topic question on screen and record it.
+
+        Random mode has no playlist, so the question's own id is recorded —
+        it is what scoring looks up when the reply arrives.
+        """
+        await fsm_data.merge(
+            self.state,
+            RandomState,
+            current_question_id=question.question_id,
+            current_part=question.part,
+            question_start_time=started_at,
+            waiting_for_answer=True,
+            pending_file_id_cache=None,
+        )
+        await self._send(message, question, caption=caption, parse_mode=parse_mode)
+
+    async def end(self) -> None:
+        """Leave the round: pay whatever ``file_id`` is owed, then clear the state.
+
+        The only way out of a question round, whichever mode it was. A
+        transaction is opened only when something is actually owed, so ending
+        a round that rendered from cache costs no round-trip.
+        """
+        debt = await fsm_data.load(self.state, RoundDebt)
+        if debt.pending_file_id_cache is not None:
+            async with self.open_uow() as uow:
+                await uow.questions.cache_file_id(*debt.pending_file_id_cache)
+        await self.state.clear()
+
+    async def _send(
+        self,
+        message: types.Message,
+        question: Question,
+        *,
+        caption: str | None = None,
+        parse_mode: str | None = None,
+    ) -> None:
+        """Send the question, then park the debt if the upload produced one.
+
+        Part A goes out with the option-picker keyboard; Part B gets a
+        follow-up "enter your answer" prompt.
+        """
+        reply_markup = part_a_kb(PART_A_OPTION_COUNT) if question.part == "A" else None
+        new_file_id = await send_question(
+            self.bot,
+            message.chat.id,
+            question,
+            self.questions_dir,
+            reply_markup=reply_markup,
+            caption=caption,
+            parse_mode=parse_mode,
+        )
+        if question.part == "B":
+            await message.answer(MSG_ENTER_ANSWER)
+        if new_file_id is not None:
+            await fsm_data.merge(
+                self.state,
+                RoundDebt,
+                pending_file_id_cache=(question.question_id, new_file_id),
+            )
+
+
 # ---------------------------------------------------------------------------
-# The file_id debt
+# The rounds
 # ---------------------------------------------------------------------------
 
 
@@ -78,105 +197,6 @@ async def _settle_file_id_debt(
         await uow.questions.cache_file_id(*state.pending_file_id_cache)
 
 
-async def end_round(pool: AsyncConnectionPool, state: FSMContext) -> None:
-    """Leave the round: pay whatever ``file_id`` is owed, then clear the state.
-
-    The only way out of a question round, whichever mode it was. A transaction
-    is opened only when something is actually owed, so ending a round that
-    rendered from cache costs no round-trip.
-    """
-    debt = await fsm_data.load(state, RoundDebt)
-    if debt.pending_file_id_cache is not None:
-        async with UnitOfWork(pool) as uow:
-            await uow.questions.cache_file_id(*debt.pending_file_id_cache)
-    await state.clear()
-
-
-async def show_question(
-    bot: Bot,
-    message: types.Message,
-    state: FSMContext,
-    question: Question,
-    questions_dir: Path,
-    *,
-    started_at: float,
-    current_index: int | None = None,
-    caption: str | None = None,
-    parse_mode: str | None = None,
-) -> None:
-    """Put *question* on screen and record the transition in the FSM.
-
-    Records what is now showing, clears the debt the round just settled, sends
-    the image (Part A with the option keyboard, Part B with a follow-up
-    prompt), then parks a fresh ``file_id`` if the upload produced one.
-
-    *current_index* advances the testing playlist; random mode omits it. The
-    field set is uniform across both modes because ``fsm_data.load`` drops keys
-    the target model doesn't declare.
-    """
-    fields: dict[str, Any] = {
-        "current_question_id": question.question_id,
-        "current_part": question.part,
-        "question_start_time": started_at,
-        "waiting_for_answer": True,
-        "pending_file_id_cache": None,
-    }
-    if current_index is not None:
-        fields["current_index"] = current_index
-    await fsm_data.merge(state, **fields)
-
-    new_file_id = await _ask_question(
-        bot, message, question, questions_dir, caption=caption, parse_mode=parse_mode
-    )
-    if new_file_id is not None:
-        await fsm_data.merge(
-            state,
-            pending_file_id_cache=(question.question_id, new_file_id),
-        )
-
-
-async def _ask_question(
-    bot: Bot,
-    message: types.Message,
-    question: Question,
-    questions_dir: Path,
-    *,
-    caption: str | None = None,
-    parse_mode: str | None = None,
-) -> str | None:
-    """Send a question to the chat and return the new Telegram ``file_id``.
-
-    Part A goes out with the option-picker keyboard; Part B gets a follow-up
-    "enter your answer" prompt.
-    """
-    if question.part == "A":
-        return await send_question(
-            bot,
-            message.chat.id,
-            question,
-            questions_dir,
-            reply_markup=part_a_kb(PART_A_OPTION_COUNT),
-            caption=caption,
-            parse_mode=parse_mode,
-        )
-
-    new_file_id = await send_question(
-        bot,
-        message.chat.id,
-        question,
-        questions_dir,
-        caption=caption,
-        parse_mode=parse_mode,
-    )
-    await message.answer(MSG_ENTER_ANSWER)
-    return new_file_id
-
-
-# ---------------------------------------------------------------------------
-# The rounds
-# ---------------------------------------------------------------------------
-
-
 async def run_testing_round(
     uow: UnitOfWork,
     testing: TestingState,
@@ -189,19 +209,19 @@ async def run_testing_round(
     One transaction: the pending file_id write, the correctness lookup, the
     answer row, and the next question's metadata commit together.
     """
-    question_id, part = testing.question_ids[testing.current_index]
+    question_id, _part = testing.question_ids[testing.current_index]
     started = testing.question_start_time or now
     next_index = testing.current_index + 1
 
     await _settle_file_id_debt(uow, testing)
 
-    correct = await uow.questions.get_correct_answer(question_id)
+    key = await uow.questions.get_correct_answer(question_id)
     await uow.sessions.record_answer(
         session_id=testing.session_id,
         question_id=question_id,
         student_answer=answer.strip(),
-        correct_answer=correct,
-        is_correct=check_answer(part, answer, correct),
+        correct_answer=key,
+        is_correct=key.matches(answer),
         time_spent_seconds=now - started,
     )
 
@@ -244,14 +264,14 @@ async def pick_random_question(
 
 async def evaluate_random_answer(
     uow: UnitOfWork, rnd: RandomState, answer: str
-) -> tuple[bool, int | str | None] | None:
-    """Score a random-mode reply. Returns (is_correct, correct_answer).
+) -> tuple[bool, AnswerKey] | None:
+    """Score a random-mode reply. Returns (is_correct, key).
 
-    None when no question is active in the FSM state. The correct answer is
-    itself None for a question that has no key — nothing matches it, and the
-    feedback says so rather than naming a value.
+    None when no question is active in the FSM state. A key whose value is
+    None matches nothing — the feedback says the key is unknown rather than
+    naming a value.
     """
-    if rnd.current_question_id is None or rnd.current_part is None:
+    if rnd.current_question_id is None:
         return None
-    correct = await uow.questions.get_correct_answer(rnd.current_question_id)
-    return check_answer(rnd.current_part, answer, correct), correct
+    key = await uow.questions.get_correct_answer(rnd.current_question_id)
+    return key.matches(answer), key

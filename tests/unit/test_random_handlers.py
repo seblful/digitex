@@ -11,15 +11,18 @@ contract under test. The message arrives as a handler argument, narrowed by
 """
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from digitex.bot.answer_flow import Round
 from digitex.bot.callbacks import AnswerCB
 from digitex.bot.handlers.random import (
     on_random_part_a_answer,
     on_random_part_b_answer,
     process_random_answer,
 )
+from digitex.domain.answer import AnswerKey
 
 SCORING_PATH = "digitex.bot.handlers.random.process_random_answer"
 
@@ -51,6 +54,7 @@ def _state(current_part: str | None, question_id: int | None = 7) -> FakeState:
             "topic_name": "Клетка",
             "current_question_id": question_id,
             "current_part": current_part,
+            "waiting_for_answer": True,
         }
     )
 
@@ -69,6 +73,8 @@ async def _tap_part_a(callback: Any, state: FakeState) -> AsyncMock:
             AnswerCB(value=3),
             cast("Any", state),
             cast("Any", FakeMessage()),
+            cast("Any", None),
+            cast("Any", None),
             cast("Any", None),
         )
     return scoring
@@ -115,6 +121,8 @@ class TestPartBTextWhilePartAIsShowing:
                 cast("Any", FakeMessage(text="ВЕРНАДСКИЙ")),
                 cast("Any", state),
                 cast("Any", None),
+                cast("Any", None),
+                cast("Any", None),
             )
         return scoring
 
@@ -127,6 +135,30 @@ class TestPartBTextWhilePartAIsShowing:
         scoring = await self._send_text(_state(current_part="B"))
 
         scoring.assert_awaited_once()
+
+
+class TestAnAnswerIsScoredOnlyOnce:
+    """A second reply must not reach scoring while the first is in flight.
+
+    ``show_random_question`` arms ``waiting_for_answer`` and the guard disarms
+    it before scoring — the same protocol the standard loop uses, shared by
+    both modes now that RandomState declares the field.
+    """
+
+    async def test_a_tap_after_the_guard_disarmed_is_not_scored(self) -> None:
+        state = _state(current_part="A")
+        state.data["waiting_for_answer"] = False
+
+        scoring = await _tap_part_a(_callback(), state)
+
+        scoring.assert_not_awaited()
+
+    async def test_the_first_tap_disarms_the_guard(self) -> None:
+        state = _state(current_part="A")
+
+        await _tap_part_a(_callback(), state)
+
+        assert state.data["waiting_for_answer"] is False
 
 
 class TestWrongAnswerRendering:
@@ -144,17 +176,27 @@ class TestWrongAnswerRendering:
         state.update_data = AsyncMock()
         state.set_state = AsyncMock()
 
-        with (
-            patch("digitex.bot.handlers.random.UnitOfWork"),
-            patch(
-                "digitex.bot.handlers.random.evaluate_random_answer",
-                new_callable=AsyncMock,
-                return_value=(False, correct_answer),
-            ),
+        class _Uow:
+            async def __aenter__(self) -> Any:
+                return MagicMock()
+
+            async def __aexit__(self, *args: object) -> None:
+                return None
+
+        round = Round(
+            cast("Any", None),
+            cast("Any", state),
+            cast("Any", None),
+            Path("unused"),
+            open_uow=lambda: cast("Any", _Uow()),
+        )
+
+        with patch(
+            "digitex.bot.handlers.random.evaluate_random_answer",
+            new_callable=AsyncMock,
+            return_value=(False, AnswerKey(part="B", value=correct_answer)),
         ):
-            await process_random_answer(
-                cast("Any", message), cast("Any", state), "нет", cast("Any", None)
-            )
+            await process_random_answer(cast("Any", message), round, "нет")
 
         return message.answer.call_args.args[0], state
 

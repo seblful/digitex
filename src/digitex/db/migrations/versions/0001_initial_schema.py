@@ -12,7 +12,7 @@ Design notes:
   determines.
 * ``questions.answer`` is NULL when a year ships without an answer key. The
   question still loads so its image is servable, and scoring treats a NULL key
-  as matching nothing (see ``core.answer.check_answer``) — no sentinel value
+  as matching nothing (see ``domain.answer.AnswerKey``) — no sentinel value
   has to be chosen for being unreachable.
 * Question images are files, not rows. ~400MB of static images in a database
   that is otherwise a few megabytes of reference rows would ride along in every

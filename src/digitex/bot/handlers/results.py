@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 from aiogram.utils.text_decorations import html_decoration
 
 from digitex.bot import fsm_data
-from digitex.bot.answer_flow import end_round
 from digitex.bot.fsm_data import TestingState
 from digitex.bot.keyboards import subjects_kb
 from digitex.bot.messages import (
@@ -30,13 +29,12 @@ from digitex.bot.messages import (
     format_answer,
 )
 from digitex.bot.states import Navigation
-from digitex.db import UnitOfWork
 
 if TYPE_CHECKING:
-    from aiogram import Bot, types
-    from aiogram.fsm.context import FSMContext
-    from psycopg_pool import AsyncConnectionPool
+    from aiogram import types
 
+    from digitex.bot.answer_flow import Round
+    from digitex.db import UnitOfWork
     from digitex.domain.entities import (
         SessionInfo,
         SubjectRow,
@@ -123,25 +121,20 @@ def _format_result_lines(
     return lines
 
 
-async def show_results(
-    message: types.Message,
-    state: FSMContext,
-    bot: Bot,
-    pool: AsyncConnectionPool,
-) -> None:
-    testing = await fsm_data.load(state, TestingState)
+async def show_results(message: types.Message, round: Round) -> None:
+    testing = await fsm_data.load(round.state, TestingState)
 
-    async with UnitOfWork(pool) as uow:
+    async with round.open_uow() as uow:
         outcome = await finish_session(uow, testing.session_id)
 
     text = "\n".join(
         _format_result_lines(outcome.result, outcome.wrong_answers, outcome.info)
     )
-    await bot.send_message(message.chat.id, text, parse_mode="HTML")
-    await end_round(pool, state)
-    await state.set_state(Navigation.select_subject)
+    await round.bot.send_message(message.chat.id, text, parse_mode="HTML")
+    await round.end()
+    await round.state.set_state(Navigation.select_subject)
 
-    await bot.send_message(
+    await round.bot.send_message(
         message.chat.id,
         MSG_RESULTS_RETRY,
         reply_markup=subjects_kb(outcome.subjects),

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from aiogram import Bot, Router, types
 
 from digitex.bot import fsm_data
+from digitex.bot.answer_flow import Round
 from digitex.bot.callbacks import (
     ExamTypeCB,
     ModeCB,
@@ -17,7 +18,7 @@ from digitex.bot.callbacks import (
     YearCB,
 )
 from digitex.bot.constants import student_identity
-from digitex.bot.fsm_data import NavigationState, TestingState
+from digitex.bot.fsm_data import NavigationState, RandomState, TestingState
 from digitex.bot.handlers.random import start_random_question
 from digitex.bot.handlers.testing import send_current_question
 from digitex.bot.keyboards import (
@@ -63,17 +64,10 @@ async def on_subject_selected(
     state: FSMContext,
     msg: types.Message,
 ) -> None:
-    # ``save`` replaces the whole data dict, so the only thing to carry across
-    # is the student id — no clear() needed, and none wanted: this is a
-    # navigation step, not the end of a round.
-    nav = await fsm_data.load(state, NavigationState)
-    await fsm_data.save(
-        state,
-        NavigationState(
-            subject_id=callback_data.subject_id,
-            student_telegram_id=nav.student_telegram_id,
-        ),
-    )
+    # ``save`` replaces the whole data dict — a fresh navigation from the
+    # subject down. This is a navigation step, not the end of a round, so no
+    # clear() and no debt to pay.
+    await fsm_data.save(state, NavigationState(subject_id=callback_data.subject_id))
     await msg.edit_text(MSG_MODE_SELECT, reply_markup=mode_kb())
     await state.set_state(Navigation.select_mode)
     await callback.answer()
@@ -125,7 +119,7 @@ async def on_mode_selected(
                 await callback.answer()
                 return
             await msg.edit_text(MSG_TOPIC_SELECT, reply_markup=topics_kb(topics))
-            await fsm_data.merge(state, topic_names=topics)
+            await fsm_data.merge(state, NavigationState, topic_names=topics)
             await state.set_state(Navigation.select_topic)
 
     await callback.answer()
@@ -144,13 +138,24 @@ async def on_topic_selected(
     nav = await fsm_data.load(state, NavigationState)
     # The index comes off a keyboard that may have been built for a different
     # subject's (longer) topic list.
-    if not nav.topic_names or not 0 <= callback_data.index < len(nav.topic_names):
+    if (
+        nav.subject_id is None
+        or not nav.topic_names
+        or not 0 <= callback_data.index < len(nav.topic_names)
+    ):
         await callback.answer()
         return
-    topic_name = nav.topic_names[callback_data.index]
-    await fsm_data.merge(state, topic_name=topic_name)
 
-    await start_random_question(msg, state, bot, pool, questions_dir)
+    # The round starts here: its state is built whole, the way the testing
+    # loop builds TestingState, rather than accumulated field by field.
+    await fsm_data.save(
+        state,
+        RandomState(
+            subject_id=nav.subject_id,
+            topic_name=nav.topic_names[callback_data.index],
+        ),
+    )
+    await start_random_question(msg, Round(bot, state, pool, questions_dir))
     await callback.answer()
 
 
@@ -161,7 +166,7 @@ async def on_random_exam_type_selected(
     state: FSMContext,
     msg: types.Message,
 ) -> None:
-    await fsm_data.merge(state, exam_type=callback_data.exam_type)
+    await fsm_data.merge(state, NavigationState, exam_type=callback_data.exam_type)
     await msg.edit_text(MSG_PART_SELECT, reply_markup=random_part_kb())
     await state.set_state(Navigation.select_random_part)
     await callback.answer()
@@ -177,9 +182,22 @@ async def on_random_part_selected(
     pool: AsyncConnectionPool,
     questions_dir: Path,
 ) -> None:
-    await fsm_data.merge(state, random_part=callback_data.part)
+    nav = await fsm_data.load(state, NavigationState)
+    if nav.subject_id is None:
+        await callback.answer()
+        return
 
-    await start_random_question(msg, state, bot, pool, questions_dir)
+    # The round starts here: its state is built whole, the way the testing
+    # loop builds TestingState, rather than accumulated field by field.
+    await fsm_data.save(
+        state,
+        RandomState(
+            subject_id=nav.subject_id,
+            exam_type=nav.exam_type,
+            random_part=callback_data.part,
+        ),
+    )
+    await start_random_question(msg, Round(bot, state, pool, questions_dir))
     await callback.answer()
 
 
@@ -192,7 +210,7 @@ async def on_year_selected(
     pool: AsyncConnectionPool,
 ) -> None:
     year = callback_data.year
-    await fsm_data.merge(state, year=year)
+    await fsm_data.merge(state, NavigationState, year=year)
 
     if year_has_exam_types(year):
         await msg.edit_text(
@@ -245,7 +263,7 @@ async def _show_options_for_exam_type(
         return
 
     await message.edit_text(MSG_OPTION_SELECT, reply_markup=options_kb(options))
-    await fsm_data.merge(state, book_id=book_id, exam_type=exam_type)
+    await fsm_data.merge(state, NavigationState, book_id=book_id, exam_type=exam_type)
     await state.set_state(Navigation.select_option)
 
 
@@ -264,22 +282,20 @@ async def on_option_selected(
         await callback.answer()
         return
     book_id = nav.book_id
-    student_telegram_id = nav.student_telegram_id
 
     async with UnitOfWork(pool) as uow:
-        # The session references the student, so the row has to exist. /start
-        # normally makes it and leaves the id in the FSM; this covers a tap that
-        # arrives without one.
-        if student_telegram_id is None:
-            telegram_id, name, username = student_identity(callback)
-            student = await uow.students.get_or_create(
-                telegram_id=telegram_id,
-                telegram_name=name,
-                telegram_username=username,
-            )
-            student_telegram_id = student.telegram_id
+        # The session references the student, so the row has to exist — and
+        # the tap in hand says who is asking. Deriving the identity from the
+        # event every time also covers a tap that arrives after the FSM was
+        # lost to a restart.
+        telegram_id, name, username = student_identity(callback)
+        student = await uow.students.get_or_create(
+            telegram_id=telegram_id,
+            telegram_name=name,
+            telegram_username=username,
+        )
         option_id = await uow.books.get_option_id(book_id, callback_data.option)
-        session = await uow.sessions.create(student_telegram_id, option_id)
+        session = await uow.sessions.create(student.telegram_id, option_id)
         question_ids = await uow.questions.list_ids_for_option(option_id)
         session_id = session.session_id
 
@@ -295,4 +311,4 @@ async def on_option_selected(
     await state.set_state(Testing.answering)
     await callback.answer()
 
-    await send_current_question(msg, state, bot, pool, questions_dir)
+    await send_current_question(msg, Round(bot, state, pool, questions_dir))

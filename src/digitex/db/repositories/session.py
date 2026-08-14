@@ -9,6 +9,7 @@ from digitex.domain.entities import Session, SessionInfo, TestResult, WrongAnswe
 
 if TYPE_CHECKING:
     from digitex.db.mapping import DictConn
+    from digitex.domain.answer import AnswerKey
     from digitex.domain.entities import Part
 
 
@@ -35,7 +36,7 @@ class SessionRepository:
         session_id: int,
         question_id: int,
         student_answer: str,
-        correct_answer: int | str | None,
+        correct_answer: AnswerKey,
         is_correct: bool,
         time_spent_seconds: float,
     ) -> None:
@@ -55,7 +56,7 @@ class SessionRepository:
                 session_id,
                 question_id,
                 student_answer,
-                None if correct_answer is None else str(correct_answer),
+                correct_answer.stored,
                 is_correct,
                 time_spent_seconds,
             ),

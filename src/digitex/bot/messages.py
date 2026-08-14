@@ -114,11 +114,11 @@ CMD_START_DESC = "Начать / выбрать предмет"
 CMD_HELP_DESC = "Помощь"
 
 
-def format_answer(answer: int | str | None) -> str:
-    """Render a stored answer key for display.
+def format_answer(answer: str | None) -> str:
+    """Render an answer key's stored form for display.
 
     A question whose year shipped without an answer key has none to name, and
     both the random-mode verdict and the results screen have to say so — so the
     wording for that case lives here once.
     """
-    return MSG_ANSWER_UNKNOWN if answer is None else str(answer)
+    return MSG_ANSWER_UNKNOWN if answer is None else answer

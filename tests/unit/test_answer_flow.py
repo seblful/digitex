@@ -1,7 +1,9 @@
 """Tests for the question-round module — its interface is the test surface.
 
 No aiogram objects and no Postgres: the round functions take the typed FSM
-state and a UnitOfWork-shaped object, and return outcomes as values.
+state and a UnitOfWork-shaped object, and return outcomes as values. The
+Round's own methods are driven through fakes standing at its real seams —
+the bot, the FSM context, and the ``open_uow`` transaction factory.
 """
 
 from __future__ import annotations
@@ -12,18 +14,18 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from digitex.bot import answer_flow, fsm_data
+from digitex.bot import fsm_data
 from digitex.bot.answer_flow import (
     NextQuestion,
+    Round,
     RoundFinished,
-    end_round,
     evaluate_random_answer,
     pick_random_question,
     run_testing_round,
-    show_question,
 )
 from digitex.bot.fsm_data import RandomState, TestingState
 from digitex.bot.messages import MSG_ENTER_ANSWER
+from digitex.domain.answer import AnswerKey
 from digitex.domain.entities import Question, QuestionOrigin
 
 if TYPE_CHECKING:
@@ -39,7 +41,7 @@ class FakeQuestions:
     """Keyed by question id alone — the part is a property of the row it names."""
 
     by_id: dict[int, Question] = field(default_factory=dict)
-    correct: dict[int, int | str | None] = field(default_factory=dict)
+    correct: dict[int, AnswerKey] = field(default_factory=dict)
     full: dict[int, tuple[Question, QuestionOrigin]] = field(default_factory=dict)
     random_result: int | None = None
     topic_result: int | None = None
@@ -49,7 +51,7 @@ class FakeQuestions:
     async def cache_file_id(self, question_id: int, file_id: str) -> None:
         self.cached.append((question_id, file_id))
 
-    async def get_correct_answer(self, question_id: int) -> int | str | None:
+    async def get_correct_answer(self, question_id: int) -> AnswerKey:
         return self.correct[question_id]
 
     async def get(self, question_id: int) -> Question:
@@ -94,7 +96,7 @@ def as_uow(fake: FakeUow) -> UnitOfWork:
 
 
 # ---------------------------------------------------------------------------
-# Telegram-side fakes — enough of aiogram's shape for show_question, no mocks
+# Telegram-side fakes — enough of aiogram's shape for the Round, no mocks
 # ---------------------------------------------------------------------------
 
 
@@ -154,24 +156,6 @@ class FakeState:
         self.cleared = True
 
 
-class TestMerge:
-    async def test_a_key_no_state_model_declares_is_refused(self) -> None:
-        """Stored-then-dropped is how a renamed field loses data silently."""
-        state = FakeState()
-
-        with pytest.raises(ValueError, match="Unknown FSM field"):
-            await fsm_data.merge(as_state(state), current_question_idd=7)
-
-        assert state.data == {}
-
-    async def test_declared_keys_pass_through(self) -> None:
-        state = FakeState()
-
-        await fsm_data.merge(as_state(state), current_question_id=7)
-
-        assert state.data == {"current_question_id": 7}
-
-
 def as_bot(fake: FakeBot) -> Bot:
     return cast("Bot", fake)
 
@@ -182,6 +166,33 @@ def as_message(fake: FakeMessage) -> types.Message:
 
 def as_state(fake: FakeState) -> FSMContext:
     return cast("FSMContext", fake)
+
+
+class TestMerge:
+    async def test_a_key_the_model_does_not_declare_is_refused(self) -> None:
+        """Stored-then-dropped is how a renamed field loses data silently."""
+        state = FakeState()
+
+        with pytest.raises(ValueError, match="Unknown field"):
+            await fsm_data.merge(as_state(state), TestingState, current_question_idd=7)
+
+        assert state.data == {}
+
+    async def test_a_key_only_another_mode_declares_is_refused(self) -> None:
+        """A field written for the wrong mode is exactly the silent-drop bug."""
+        state = FakeState()
+
+        with pytest.raises(ValueError, match="Unknown field"):
+            await fsm_data.merge(as_state(state), TestingState, current_question_id=7)
+
+        assert state.data == {}
+
+    async def test_declared_keys_pass_through(self) -> None:
+        state = FakeState()
+
+        await fsm_data.merge(as_state(state), RandomState, current_question_id=7)
+
+        assert state.data == {"current_question_id": 7}
 
 
 def _question(question_id: int, part: Part, file_id: str | None = None) -> Question:
@@ -200,10 +211,41 @@ def _question(question_id: int, part: Part, file_id: str | None = None) -> Quest
 CORPUS = Path("corpus")
 
 
+def _uow_factory(uow: FakeUow, opened: list[object]) -> Any:
+    """A transaction factory for the Round's ``open_uow`` seam."""
+
+    class _Ctx:
+        async def __aenter__(self) -> FakeUow:
+            opened.append(uow)
+            return uow
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    return lambda: cast("Any", _Ctx())
+
+
+def _round(
+    state: FakeState,
+    *,
+    bot: FakeBot | None = None,
+    uow: FakeUow | None = None,
+    opened: list[object] | None = None,
+) -> Round:
+    """A Round over fakes; ``pool`` is never touched, the factory replaces it."""
+    return Round(
+        as_bot(bot or FakeBot()),
+        as_state(state),
+        cast("Any", None),
+        CORPUS,
+        open_uow=_uow_factory(uow or FakeUow(), opened if opened is not None else []),
+    )
+
+
 class TestRunTestingRound:
     async def test_correct_answer_recorded_and_next_question_returned(self) -> None:
         uow = FakeUow()
-        uow.questions.correct[10] = 3
+        uow.questions.correct[10] = AnswerKey(part="A", value=3)
         next_q = _question(20, "B", file_id="cached")
         uow.questions.by_id[20] = next_q
         testing = TestingState(
@@ -220,7 +262,7 @@ class TestRunTestingRound:
                 "session_id": 7,
                 "question_id": 10,
                 "student_answer": "3",
-                "correct_answer": 3,
+                "correct_answer": AnswerKey(part="A", value=3),
                 "is_correct": True,
                 "time_spent_seconds": 12.5,
             }
@@ -229,7 +271,7 @@ class TestRunTestingRound:
 
     async def test_wrong_answer_recorded_as_incorrect(self) -> None:
         uow = FakeUow()
-        uow.questions.correct[10] = 3
+        uow.questions.correct[10] = AnswerKey(part="A", value=3)
         testing = TestingState(session_id=7, question_ids=[(10, "A")])
 
         outcome = await run_testing_round(as_uow(uow), testing, "2", now=1.0)
@@ -242,27 +284,29 @@ class TestRunTestingRound:
     ) -> None:
         """The verdict and the key it came from are written together."""
         uow = FakeUow()
-        uow.questions.correct[10] = "neutron"
+        uow.questions.correct[10] = AnswerKey(part="B", value="neutron")
         testing = TestingState(session_id=7, question_ids=[(10, "B")])
 
         await run_testing_round(as_uow(uow), testing, "proton", now=1.0)
 
-        assert uow.sessions.recorded[0]["correct_answer"] == "neutron"
-        assert uow.sessions.recorded[0]["is_correct"] is False
+        recorded = uow.sessions.recorded[0]
+        assert recorded["correct_answer"] == AnswerKey(part="B", value="neutron")
+        assert recorded["is_correct"] is False
 
     async def test_a_question_with_no_key_is_recorded_wrong_with_no_key(self) -> None:
         uow = FakeUow()
-        uow.questions.correct[10] = None
+        uow.questions.correct[10] = AnswerKey(part="B", value=None)
         testing = TestingState(session_id=7, question_ids=[(10, "B")])
 
         await run_testing_round(as_uow(uow), testing, "anything", now=1.0)
 
-        assert uow.sessions.recorded[0]["correct_answer"] is None
-        assert uow.sessions.recorded[0]["is_correct"] is False
+        recorded = uow.sessions.recorded[0]
+        assert recorded["correct_answer"] == AnswerKey(part="B", value=None)
+        assert recorded["is_correct"] is False
 
     async def test_settles_pending_file_id_debt_first(self) -> None:
         uow = FakeUow()
-        uow.questions.correct[10] = 1
+        uow.questions.correct[10] = AnswerKey(part="A", value=1)
         testing = TestingState(
             session_id=7,
             question_ids=[(10, "A")],
@@ -276,7 +320,7 @@ class TestRunTestingRound:
     async def test_next_question_carries_its_image_key_in_one_lookup(self) -> None:
         """An uncached question costs no extra round-trip: the key rides along."""
         uow = FakeUow()
-        uow.questions.correct[10] = 1
+        uow.questions.correct[10] = AnswerKey(part="A", value=1)
         uow.questions.by_id[20] = _question(20, "B", file_id=None)
         testing = TestingState(session_id=7, question_ids=[(10, "A"), (20, "B")])
 
@@ -288,85 +332,103 @@ class TestRunTestingRound:
 
 
 class TestShowQuestion:
-    """The render + debt protocol, driven through its one entry point."""
+    """The render + debt protocol, driven through the round's show methods."""
 
-    async def _show(
+    async def _show_testing(
         self,
         question: Question,
         *,
         fresh_file_id: str | None = None,
         state: FakeState | None = None,
-        **kwargs: Any,
+        index: int = 0,
+        started_at: float = 100.0,
     ) -> tuple[FakeState, FakeBot, FakeMessage]:
         fake_state = state or FakeState()
         bot = FakeBot(fresh_file_id=fresh_file_id)
         message = FakeMessage()
-        kwargs.setdefault("started_at", 100.0)
-        await show_question(
-            as_bot(bot),
-            as_message(message),
-            as_state(fake_state),
-            question,
-            CORPUS,
-            **kwargs,
+        await _round(fake_state, bot=bot).show_testing_question(
+            as_message(message), question, index=index, started_at=started_at
         )
         return fake_state, bot, message
 
-    async def test_records_what_is_now_on_screen(self) -> None:
-        state, _, _ = await self._show(
-            _question(10, "A", file_id="cached"), started_at=123.5
+    async def _show_random(
+        self,
+        question: Question,
+        *,
+        fresh_file_id: str | None = None,
+        started_at: float = 100.0,
+        caption: str | None = None,
+        parse_mode: str | None = None,
+    ) -> tuple[FakeState, FakeBot, FakeMessage]:
+        fake_state = FakeState()
+        bot = FakeBot(fresh_file_id=fresh_file_id)
+        message = FakeMessage()
+        await _round(fake_state, bot=bot).show_random_question(
+            as_message(message),
+            question,
+            started_at=started_at,
+            caption=caption,
+            parse_mode=parse_mode,
+        )
+        return fake_state, bot, message
+
+    async def test_a_testing_render_records_its_playlist_position(self) -> None:
+        state, _, _ = await self._show_testing(
+            _question(10, "A", file_id="cached"), index=4, started_at=123.5
         )
 
-        assert state.data["current_question_id"] == 10
+        assert state.data["current_index"] == 4
         assert state.data["current_part"] == "A"
         assert state.data["question_start_time"] == 123.5
         assert state.data["waiting_for_answer"] is True
 
+    async def test_a_random_render_records_the_question_itself(self) -> None:
+        """No playlist in random mode — scoring looks the question up by id."""
+        state, _, _ = await self._show_random(_question(10, "A", file_id="cached"))
+
+        assert state.data["current_question_id"] == 10
+        assert state.data["current_part"] == "A"
+        assert state.data["waiting_for_answer"] is True
+        assert "current_index" not in state.data
+
     async def test_cached_file_id_incurs_no_debt(self) -> None:
-        state, _, _ = await self._show(_question(10, "A", file_id="cached"))
+        state, _, _ = await self._show_testing(_question(10, "A", file_id="cached"))
 
         assert state.data["pending_file_id_cache"] is None
 
     async def test_fresh_upload_parks_a_debt_carrying_question_identity(self) -> None:
-        state, _, _ = await self._show(_question(10, "A"), fresh_file_id="new-id")
+        state, _, _ = await self._show_testing(
+            _question(10, "A"), fresh_file_id="new-id"
+        )
 
         assert state.data["pending_file_id_cache"] == (10, "new-id")
 
     async def test_upload_without_a_photo_in_the_response_incurs_no_debt(self) -> None:
-        state, _, _ = await self._show(_question(10, "A"), fresh_file_id=None)
+        state, _, _ = await self._show_testing(_question(10, "A"), fresh_file_id=None)
 
         assert state.data["pending_file_id_cache"] is None
 
     async def test_each_render_clears_the_debt_the_round_settled(self) -> None:
         state = FakeState(data={"pending_file_id_cache": (5, "stale")})
 
-        await self._show(_question(10, "A", file_id="cached"), state=state)
+        await self._show_testing(_question(10, "A", file_id="cached"), state=state)
 
         assert state.data["pending_file_id_cache"] is None
 
-    async def test_current_index_advances_only_when_given(self) -> None:
-        without, _, _ = await self._show(_question(10, "A", file_id="cached"))
-        with_index, _, _ = await self._show(
-            _question(10, "A", file_id="cached"), current_index=4
-        )
-
-        assert "current_index" not in without.data
-        assert with_index.data["current_index"] == 4
-
     async def test_part_a_goes_out_with_the_option_keyboard(self) -> None:
-        _, bot, message = await self._show(_question(10, "A", file_id="cached"))
+        _, bot, message = await self._show_testing(_question(10, "A", file_id="cached"))
 
         assert bot.sent[0]["reply_markup"] is not None
         assert message.answers == []
 
     async def test_part_b_gets_a_follow_up_prompt_and_no_keyboard(self) -> None:
-        _, bot, message = await self._show(_question(11, "B", file_id="cached"))
+        _, bot, message = await self._show_testing(_question(11, "B", file_id="cached"))
 
         assert bot.sent[0]["reply_markup"] is None
         assert message.answers == [MSG_ENTER_ANSWER]
 
     async def test_caption_and_parse_mode_reach_telegram(self) -> None:
-        _, bot, _ = await self._show(
+        _, bot, _ = await self._show_random(
             _question(10, "A", file_id="cached"),
             caption="Тема: Cells",
             parse_mode="HTML",
@@ -379,54 +441,29 @@ class TestShowQuestion:
 class TestEndRound:
     """Leaving a round settles the debt and clears the state, together."""
 
-    def _install_uow(
-        self, monkeypatch: pytest.MonkeyPatch, uow: FakeUow
-    ) -> list[object]:
-        """Swap in *uow* for the UnitOfWork end_round opens; record openings."""
-        opened: list[object] = []
-
-        class _Ctx:
-            async def __aenter__(self) -> FakeUow:
-                opened.append(uow)
-                return uow
-
-            async def __aexit__(self, *args: object) -> None:
-                return None
-
-        monkeypatch.setattr(answer_flow, "UnitOfWork", lambda _pool: _Ctx())
-        return opened
-
-    async def test_parked_file_id_is_written_before_the_state_goes_away(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_parked_file_id_is_written_before_the_state_goes_away(self) -> None:
         uow = FakeUow()
-        self._install_uow(monkeypatch, uow)
         state = FakeState(data={"pending_file_id_cache": (5, "file9")})
 
-        await end_round(cast("Any", None), as_state(state))
+        await _round(state, uow=uow).end()
 
         assert uow.questions.cached == [(5, "file9")]
         assert state.cleared is True
         assert state.data == {}
 
-    async def test_a_round_that_owes_nothing_opens_no_transaction(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_a_round_that_owes_nothing_opens_no_transaction(self) -> None:
         """Rendering from cache costs no round-trip on the way out either."""
-        opened = self._install_uow(monkeypatch, FakeUow())
+        opened: list[object] = []
         state = FakeState(data={"current_question_id": 10, "current_part": "A"})
 
-        await end_round(cast("Any", None), as_state(state))
+        await _round(state, opened=opened).end()
 
         assert opened == []
         assert state.cleared is True
 
-    async def test_the_debt_is_read_out_of_either_mode(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_the_debt_is_read_out_of_either_mode(self) -> None:
         """Standard mode parks extra keys; the debt is found all the same."""
         uow = FakeUow()
-        self._install_uow(monkeypatch, uow)
         testing = TestingState(
             session_id=7,
             question_ids=[(10, "A")],
@@ -434,7 +471,7 @@ class TestEndRound:
         )
         state = FakeState(data=testing.model_dump())
 
-        await end_round(cast("Any", None), as_state(state))
+        await _round(state, uow=uow).end()
 
         assert uow.questions.cached == [(5, "file9")]
 
@@ -491,9 +528,9 @@ class TestEvaluateRandomAnswer:
 
     async def test_scores_part_b_alternatives(self) -> None:
         uow = FakeUow()
-        uow.questions.correct[11] = "ANS1/ANS2"
+        uow.questions.correct[11] = AnswerKey(part="B", value="ANS1/ANS2")
         rnd = RandomState(subject_id=1, current_question_id=11, current_part="B")
 
         verdict = await evaluate_random_answer(as_uow(uow), rnd, "ANS2")
 
-        assert verdict == (True, "ANS1/ANS2")
+        assert verdict == (True, AnswerKey(part="B", value="ANS1/ANS2"))

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from digitex.db import UnitOfWork
+from digitex.domain.answer import AnswerKey
 from digitex.domain.entities import QuestionKey
 
 if TYPE_CHECKING:
@@ -145,7 +146,7 @@ class TestQuestionRepository:
             qid2 = await uow.questions.get_or_create(option_id, key, "5")
             assert qid1 == qid2
             answer = await uow.questions.get_correct_answer(qid2)
-        assert answer == 5
+        assert answer == AnswerKey(part="A", value=5)
 
     async def test_a_question_with_no_answer_key_has_no_correct_answer(
         self, pg_pool: AsyncConnectionPool
@@ -162,7 +163,7 @@ class TestQuestionRepository:
                 option_id, QuestionKey(part="A", number=1), None
             )
             answer = await uow.questions.get_correct_answer(qid)
-        assert answer is None
+        assert answer == AnswerKey(part="A", value=None)
 
     async def test_set_image_is_idempotent_and_records_the_latest_hash(
         self, pg_pool: AsyncConnectionPool
@@ -257,7 +258,7 @@ class TestQuestionRepository:
                 option_id, QuestionKey(part="B", number=1), "ВЕРНАДСКИЙ"
             )
             answer = await uow.questions.get_correct_answer(qid)
-        assert answer == "ВЕРНАДСКИЙ"
+        assert answer == AnswerKey(part="B", value="ВЕРНАДСКИЙ")
 
     async def test_part_a_answer_comes_back_as_an_integer(
         self, pg_pool: AsyncConnectionPool
@@ -269,7 +270,7 @@ class TestQuestionRepository:
                 option_id, QuestionKey(part="A", number=1), "4"
             )
             answer = await uow.questions.get_correct_answer(qid)
-        assert answer == 4
+        assert answer == AnswerKey(part="A", value=4)
 
     async def test_get_reads_metadata_and_cached_file_id(
         self, pg_pool: AsyncConnectionPool
@@ -583,7 +584,7 @@ class TestSessionRepository:
                 session.session_id,
                 qa,
                 student_answer="3",
-                correct_answer=3,
+                correct_answer=AnswerKey(part="A", value=3),
                 is_correct=True,
                 time_spent_seconds=5.0,
             )
@@ -591,7 +592,7 @@ class TestSessionRepository:
                 session.session_id,
                 qb,
                 student_answer="wrong",
-                correct_answer="neutron",
+                correct_answer=AnswerKey(part="B", value="neutron"),
                 is_correct=False,
                 time_spent_seconds=10.0,
             )
@@ -636,7 +637,7 @@ class TestSessionRepository:
                 session.session_id,
                 qa,
                 student_answer="1",
-                correct_answer=3,
+                correct_answer=AnswerKey(part="A", value=3),
                 is_correct=False,
                 time_spent_seconds=1.0,
             )
@@ -644,7 +645,7 @@ class TestSessionRepository:
                 session.session_id,
                 qb,
                 student_answer="proton",
-                correct_answer="neutron",
+                correct_answer=AnswerKey(part="B", value="neutron"),
                 is_correct=False,
                 time_spent_seconds=1.0,
             )
@@ -676,7 +677,7 @@ class TestSessionRepository:
                 session.session_id,
                 qid,
                 student_answer="proton",
-                correct_answer="neutron",
+                correct_answer=AnswerKey(part="B", value="neutron"),
                 is_correct=False,
                 time_spent_seconds=1.0,
             )
@@ -701,7 +702,7 @@ class TestSessionRepository:
                 session.session_id,
                 qid,
                 student_answer="anything",
-                correct_answer=None,
+                correct_answer=AnswerKey(part="B", value=None),
                 is_correct=False,
                 time_spent_seconds=1.0,
             )
