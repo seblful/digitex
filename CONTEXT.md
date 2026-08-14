@@ -21,7 +21,12 @@ ______________________________________________________________________
 - **Part** — `"A"` (multiple-choice with numbered answers) or `"B"` (free-text
   answer). Every Question belongs to exactly one Part.
 - **Answer** — the student's response. Part A answers are integers; Part B
-  answers are strings normalized via `domain.answer.check_answer`.
+  answers are strings, scored via `domain.answer.AnswerKey.matches`.
+- **AnswerKey** — the correct answer to a Question as a value object
+  (`domain.answer.AnswerKey`): the part travels with the value, so matching,
+  storage form (`stored`) and the None-key rule live in one place. Built by
+  `QuestionRepository.get_correct_answer` and carried across every seam from
+  there.
 - **Answer key** — the correct answer to a Question, or None when the year
   shipped without one. A Question with no key is still stored so its image is
   servable, and nothing a Student sends can match it.
@@ -61,9 +66,12 @@ ______________________________________________________________________
 - **Numbering fault** — a Placement that does not continue its Option/Part
   folder: its number is already on disk (the crop would overwrite an extracted
   Question) or past the end (the folder would keep a hole). `numbering_fault`
-  finds the first one, the review window refuses to approve it, and the
-  extractor refuses to overwrite. Between them the output tree is never allowed
-  out of order, which is why there is no renumbering pass.
+  finds the first one and is the rule on both sides of the reviewer seam: the
+  review window refuses to approve a fault, and the extractor replays every
+  page through the same check before writing — a gap refuses the page, a
+  collision keeps the existing file (that is what lets a resumed year replay
+  its pages). The output tree is never allowed out of order, which is why
+  there is no renumbering pass.
 
 ## Bot conversation shapes
 
@@ -72,6 +80,13 @@ ______________________________________________________________________
 - **Random testing** — one Question at a time, drawn at random, with
   immediate correct/wrong feedback. No Session is recorded.
 - **Topic mode** — Random testing restricted to a topic name.
+- **Round** — the per-update handle on a question round
+  (`bot.answer_flow.Round`): it owns the bot, the FSM context, the questions
+  directory and the transaction seam (`open_uow`). Its interface is the three
+  things a handler does to a round — `show_testing_question` /
+  `show_random_question`, and `end`, which pays the parked `file_id` debt and
+  clears the conversation state together. `end` holds the bot's only
+  `state.clear()`; no handler names `pending_file_id_cache`.
 
 ## Infrastructure terms
 
@@ -145,10 +160,10 @@ ______________________________________________________________________
 
 - `on_review` (not `review_strategy`) for a `PageReviewer` callable parameter —
   matches the callable-not-class shape.
-- `ask_question` (not `send_question_with_cache`) for the bot's "render a
-  Question and surface any new file_id" recipe. It returns the new file_id
-  to the caller, which folds the cache write into the next UoW via the
-  `pending_file_id_cache` FSM field. `send_question` is the lower-level
+- `show_testing_question` / `show_random_question` (not
+  `send_question_with_cache`) for the Round's "render a Question and park any
+  new file_id" recipe — the debt is settled inside the next round's UoW via
+  the `pending_file_id_cache` FSM field. `send_question` is the lower-level
   primitive in `bot.renderer`.
 - `extract` (the verb) is reserved for the top-level operation of an
   Extractor; internal helpers use `_crop`, `_detect`, `read_page`, etc.
