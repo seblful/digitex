@@ -28,7 +28,9 @@ IMAGE_EXTENSIONS: Final = frozenset(
     {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tiff"}
 )
 
-_ANSWER_SHEET_STEM = re.compile(r"(\d{4})_(\d+)")
+# The sheet number is optional: a year that fits on one sheet is often exported
+# as just ``2016``, and that sheet is sheet 1.
+_ANSWER_SHEET_STEM = re.compile(r"(\d{4})(?:_(\d+))?")
 
 PAGE_NUMBER_WIDTH: Final = 3
 
@@ -201,11 +203,17 @@ def walk_question_images(year_dir: Path) -> Iterator[QuestionImage]:
 
 
 def parse_answer_sheet_stem(stem: str) -> tuple[int, int] | None:
-    """Parse a ``{year}_{sheet}`` answer-sheet stem into (year, sheet_number)."""
+    """Parse a ``{year}`` or ``{year}_{sheet}`` stem into (year, sheet_number).
+
+    A year whose key fits on one sheet is often exported under the bare year,
+    and reading that as sheet 1 is what the name means. Only the year is ever
+    used downstream; the sheet number orders a year's sheets and keeps their
+    names apart.
+    """
     match = _ANSWER_SHEET_STEM.match(stem)
     if not match:
         return None
-    return int(match.group(1)), int(match.group(2))
+    return int(match.group(1)), int(match.group(2) or 1)
 
 
 def parse_book_page_path(page_path: Path) -> tuple[str, str]:

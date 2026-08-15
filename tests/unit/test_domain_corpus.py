@@ -133,6 +133,10 @@ class TestAnswerSheetStem:
         assert parse_answer_sheet_stem("2016_1") == (2016, 1)
         assert parse_answer_sheet_stem("2024_12") == (2024, 12)
 
+    def test_a_bare_year_is_that_years_first_sheet(self) -> None:
+        """A key that fits on one sheet gets exported under just the year."""
+        assert parse_answer_sheet_stem("2016") == (2016, 1)
+
     def test_rejects_invalid_stem(self) -> None:
         assert parse_answer_sheet_stem("invalid") is None
         assert parse_answer_sheet_stem("16_1") is None

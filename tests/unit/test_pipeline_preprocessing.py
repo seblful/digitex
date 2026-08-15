@@ -31,15 +31,18 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _scan(path: Path, *, paper: int = 210, ink: int = 30) -> Path:
+def _scan(path: Path, *, paper: int = 210, ink: int = 30, margin: int = 0) -> Path:
     """Write a small gray-paper scan with a band of ink, and grain on both.
 
     The grain is not decoration: the correction reads the *shape* of the
     histogram's peaks, so a page of two flat tones is not the page the
-    algorithm was written against.
+    algorithm was written against. *margin* surrounds the page with the
+    scanner's pure-white canvas, which is what the crop looks for.
     """
     rng = np.random.default_rng(0)
-    pixels = rng.normal(paper, 4, (160, 120)).clip(0, 255)
+    pixels = np.full((160, 120), 255.0)
+    page = rng.normal(paper, 4, (160 - 2 * margin, 120 - 2 * margin)).clip(0, 255)
+    pixels[margin : 160 - margin, margin : 120 - margin] = page
     pixels[60:100, 20:100] = rng.normal(ink, 6, (40, 80)).clip(0, 255)
     path.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(pixels.astype(np.uint8), mode="L").save(path)
@@ -95,27 +98,29 @@ class TestPlan:
 
 
 class TestPreprocessScan:
-    def test_the_paper_goes_white_and_the_scan_does_not_move(
-        self, tmp_path: Path
-    ) -> None:
-        """Geometry is the invariant the annotations rest on.
-
-        Percentage-coordinate polygons survive a rescale but not a crop, so a
-        processed scan has to come out the size it went in.
-        """
+    def test_the_paper_goes_white(self, tmp_path: Path) -> None:
         source = _scan(tmp_path / "001.jpg")
         target = tmp_path / "001.png"
 
         preprocess_scan(source, target)
 
-        with Image.open(source) as before, Image.open(target) as after:
-            assert after.size == before.size
+        with Image.open(target) as after:
             pixels = np.array(after)
         # The paper was 210 and carries most of the page.
         assert np.median(pixels) == 255
         # The ink is still ink — a page burnt out to blank would also pass the
         # assertion above.
         assert pixels.min() < 60
+
+    def test_the_scanners_canvas_is_cut_off(self, tmp_path: Path) -> None:
+        """Blank border is model input spent on nothing — about 6% of a real page."""
+        source = _scan(tmp_path / "001.jpg", margin=20)
+        target = tmp_path / "001.png"
+
+        preprocess_scan(source, target)
+
+        with Image.open(source) as before, Image.open(target) as after:
+            assert after.size == (before.width - 40, before.height - 40)
 
 
 class TestPreprocessScans:

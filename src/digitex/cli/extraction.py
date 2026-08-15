@@ -148,12 +148,14 @@ def preprocess_scans(
 ) -> None:
     """Correct the raw scans into the processed tree the rest of the pipeline reads.
 
-    Burns the gray paper out to white and averages the scanner grain away,
-    writing var/books/{subject}/raw/ to the matching path under
-    var/books/{subject}/processed/ — pages and answer sheets alike. Geometry is
-    untouched, so annotations drawn on a raw page still fit its processed twin.
+    Burns the gray paper out to white, averages the scanner grain away and cuts
+    off the scanner's white canvas, writing var/books/{subject}/raw/ to the
+    matching path under var/books/{subject}/processed/ — pages and answer
+    sheets alike.
 
     Safely re-runnable: scans already processed are skipped unless --force.
+    Note that --force can move edges, and annotations drawn on a processed page
+    move with them.
     """
     from digitex.pipeline.preprocessing import preprocess_scans as run_preprocessing
 

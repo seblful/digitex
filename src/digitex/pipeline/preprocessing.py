@@ -13,10 +13,15 @@ Two passes over ``books/{subject}/raw/``, both safe to re-run:
 Correcting ahead of time rather than on the way into each run is what keeps the
 corpus honest: annotation, training and inference all see the same bytes, so a
 model cannot be trained on one rendering of a page and asked to predict on
-another. The correction leaves geometry alone — :func:`correct_document`'s
-margin crop is off here — so a processed scan is pixel-aligned with its raw
-original, which is what lets percentage-coordinate annotations drawn on one
-apply unchanged to the other.
+another.
+
+The scanner's white canvas is cut off on the way out, which is worth about 6%
+of a page and is why nothing downstream ever wants the raw variant. It also
+means a processed scan is *not* pixel-aligned with its original — the crop box
+is measured per scan — so geometry only ever refers to the processed file. Draw
+annotations on the processed page, and reprocess with ``force`` only when you
+are willing to redraw them: a correction that moves an edge moves every
+percentage coordinate with it.
 
 A scan costs a few seconds and the archive rebuilds across a process pool, so
 there is no cache to invalidate: an existing output is skipped, and ``force``
@@ -94,9 +99,7 @@ def preprocess_scan(source: Path, target: Path) -> None:
     """
     with Image.open(source) as scan:
         dpi = scan.info.get("dpi")
-        # crop_margin=False: the scan's white border stays, so the processed
-        # file keeps the raw one's coordinate frame.
-        corrected = correct_document(scan, crop_margin=False)
+        corrected = correct_document(scan)
     corrected.save(target, **({"dpi": dpi} if dpi else {}))
 
 

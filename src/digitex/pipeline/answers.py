@@ -165,7 +165,7 @@ class AnswersExtractor:
     def _extract_year(self, image_path: Path) -> int:
         parsed = parse_answer_sheet_stem(image_path.stem)
         if parsed is None:
-            raise InvalidFilenameError(image_path.name, "YYYY_N.jpg")
+            raise InvalidFilenameError(image_path.name, "YYYY.jpg or YYYY_N.jpg")
         year, _ = parsed
         return year
 

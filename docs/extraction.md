@@ -84,13 +84,17 @@ digitex-extract preprocess-scans [--force]
 1. Walks `var/books/{subject}/raw/` — pages and answer sheets alike
 1. Burns the gray paper out to white and averages the scanner grain away
    (NAPS2's document correction, ported — see `digitex.imaging.correct_document`)
+1. Cuts off the scanner's white canvas, about 6% of a page
 1. Writes the matching path under `var/books/{subject}/processed/` as PNG
 1. Skips scans already processed, so re-running only picks up new ones
 
-Geometry is left alone: a processed page is pixel-aligned with its raw original,
-so Label Studio annotations drawn on one still fit the other. A scan costs a few
-seconds and the work is spread across a process pool — budget roughly ten
-minutes per five hundred pages.
+Because the crop is measured per scan, a processed page is **not** pixel-aligned
+with its raw original. Geometry always refers to the processed file: annotate
+that one, and treat `--force` as something that can move edges — a percentage
+coordinate drawn before a reprocess does not survive it.
+
+A scan costs a few seconds and the work is spread across a process pool — budget
+roughly ten minutes per five hundred pages.
 
 ## Commands
 
