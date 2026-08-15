@@ -12,14 +12,22 @@ it.
 
 from .image import (
     add_white_background,
+    correct_document,
     cut_out_image_by_polygon,
+    denoise_scan,
     resize_image,
     rotate_image,
+    scan_levels,
+    whiten_scan,
 )
 
 __all__ = [
     "add_white_background",
+    "correct_document",
     "cut_out_image_by_polygon",
+    "denoise_scan",
     "resize_image",
     "rotate_image",
+    "scan_levels",
+    "whiten_scan",
 ]

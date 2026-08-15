@@ -1,6 +1,7 @@
 """Image processing utilities."""
 
 import math
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
@@ -36,6 +37,362 @@ def add_white_background(image: Image.Image) -> Image.Image:
     white_bg = np.ones_like(img[:, :, :3]) * 255
     rgb = img[:, :, :3] * alpha + white_bg * (1 - alpha)
     return Image.fromarray(rgb.astype(np.uint8), mode="RGB")
+
+
+# --- scan cleanup ---
+#
+# A port of NAPS2's document correction, the manual pass the book archive was
+# scanned with: WhiteBlackPointOp to fix the paper's calibration, then
+# BilateralFilterOp to take the grain off. Constants and formulas follow
+# NAPS2.Images/Bitwise/ so the two stay comparable.
+
+# The percentile of a peak's mass at which its white/black point is set. Zero
+# flattens all of the near-white and near-black to pure, one keeps the noise.
+_PERCENTILE = 0.2
+
+# Correcting in a luminance space needs more granularity than 0-255 gives.
+_GAMMA = 2.2
+_LUM_MULTIPLIER = 16
+_MAX_LUM = 255 * _LUM_MULTIPLIER
+
+# The filter's square around each pixel, and the gray distance at which a
+# neighbour's weight reaches zero.
+_FILTER_SIZE = 15
+_FILTER_HALF = _FILTER_SIZE // 2
+_COLOR_DIST_MAX = 32
+
+# Vectorising the filter means sweeping the image once per neighbour, so a
+# whole page would cross the memory bus 225 times. Working a tile at a time
+# keeps the sweep inside cache instead. Purely a matter of speed — the output
+# does not depend on it.
+_TILE_SIZE = 256
+
+
+@dataclass
+class _Peak:
+    """A histogram peak and the basin it drains, as shares of all pixels."""
+
+    value: int
+    height: float
+    left: int
+    right: int
+    left_bottom: float
+    right_bottom: float
+    mass: float
+
+
+def _find_peaks(shares: list[float]) -> list[_Peak]:
+    """Every level that outranks its two neighbours on each side, with basin."""
+
+    def share(level: int) -> float:
+        return shares[level] if 0 <= level < 256 else 0.0
+
+    peaks = []
+    for value in range(256):
+        here = shares[value]
+        if not all(here > share(value + d) for d in (-2, -1, 1, 2)):
+            continue
+
+        peak = _Peak(value, here, value, value, here, here, here)
+        for level in range(value - 1, -1, -1):
+            if not (
+                shares[level] < peak.left_bottom or share(level - 1) < peak.left_bottom
+            ):
+                break
+            peak.left_bottom = min(peak.left_bottom, shares[level])
+            peak.left = level
+            peak.mass += shares[level]
+        for level in range(value + 1, 256):
+            if not (
+                shares[level] < peak.right_bottom
+                or share(level + 1) < peak.right_bottom
+            ):
+                break
+            peak.right_bottom = min(peak.right_bottom, shares[level])
+            peak.right = level
+            peak.mass += shares[level]
+        peaks.append(peak)
+    return peaks
+
+
+def _magnitude(height: float) -> float:
+    return math.log10(1e4 * height + 1)
+
+
+def _white_peak_score(peak: _Peak) -> float:
+    """Favours a bright peak carrying a lot of the page — the paper."""
+    mass = math.log10(100 * peak.mass) if peak.mass > 0.1 else 10 * peak.mass
+    return (peak.value / 255) ** 3 * mass
+
+
+def _black_peak_score(peak: _Peak) -> float:
+    """Favours a dark peak standing well clear of its basin — the ink."""
+    relief = _magnitude(peak.height) - _magnitude(
+        min(peak.left_bottom, peak.right_bottom)
+    )
+    return (1 - peak.value / 255) ** 3 * relief
+
+
+def _shoulder(counts: list[int], peak: _Peak, *, from_below: bool) -> int:
+    """Walk into *peak* until _PERCENTILE of its mass is behind us."""
+    if from_below:
+        levels = range(peak.left, peak.right)
+        total = sum(counts[peak.left :])
+        fallback = peak.right
+    else:
+        levels = range(peak.right, peak.left, -1)
+        total = sum(counts[: peak.right + 1])
+        fallback = peak.left
+
+    seen = 0
+    for level in levels:
+        seen += counts[level]
+        if seen >= _PERCENTILE * total:
+            return level
+    return fallback
+
+
+def _levels_from(counts: list[int]) -> tuple[tuple[int, int] | None, int]:
+    """The (black, white) points *counts* implies, and the white peak's level.
+
+    The level comes back so the caller can tell a paper peak from the scan's
+    saturated margin; it is -1 when there was no peak to pick.
+    """
+    total = sum(counts)
+    if not total:
+        return None, -1
+
+    peaks = _find_peaks([count / total for count in counts])
+    if not peaks:
+        return None, -1
+
+    white_peak = max(peaks, key=_white_peak_score)
+    black_peak = max(peaks, key=_black_peak_score)
+    if white_peak.value <= black_peak.value:
+        return None, white_peak.value
+
+    black = _shoulder(counts, black_peak, from_below=False)
+    white = _shoulder(counts, white_peak, from_below=True)
+    # The two basins can overlap even when their peaks do not, and a ramp
+    # needs somewhere to run.
+    levels = (black, white) if black < white else None
+    return levels, white_peak.value
+
+
+def _content_box(pixels: np.ndarray) -> tuple[slice, slice]:
+    """Where the page itself sits, with the scanner's white canvas cut off.
+
+    A line belongs to the page when more than half of it is not pure white.
+    On a scan the two are far apart — paper is grey and the canvas is
+    saturated — so the edge is sharp and needs no tolerance.
+    """
+    height, width = pixels.shape
+    inked = pixels != 255
+    rows = np.flatnonzero(inked.mean(axis=1) > 0.5)
+    columns = np.flatnonzero(inked.mean(axis=0) > 0.5)
+    if not rows.size or not columns.size:
+        return slice(0, height), slice(0, width)
+    return (
+        slice(int(rows[0]), int(rows[-1]) + 1),
+        slice(int(columns[0]), int(columns[-1]) + 1),
+    )
+
+
+def _page_counts(gray: Image.Image) -> list[int]:
+    """The histogram of the page alone: no scan margin, no clipped level."""
+    pixels = np.array(gray)
+    page = pixels[_content_box(pixels)]
+    counts = np.bincount(page.ravel(), minlength=256).tolist()
+    counts[255] = 0
+    return counts
+
+
+def scan_levels(image: Image.Image) -> tuple[int, int] | None:
+    """The (black, white) points to correct *image* against.
+
+    It reads the page's histogram, picks the peak that looks like ink and the
+    peak that looks like paper, then sets each point a fifth of the way into
+    its peak — inside the noise rather than at its edge, so near-black and
+    near-white flatten out. That much is NAPS2's.
+
+    Where this parts company with NAPS2 is the second look. A scanner lays
+    the page on a pure-white canvas, and where the margin is wide it can
+    outvote the paper — NAPS2 then corrects the page against its own border
+    and leaves the paper gray. Pure white winning the contest is the tell, so
+    on those pages the margin is cropped away and the level everything blown
+    out piles up in is dropped, which leaves the paper as the brightest thing
+    left to find.
+
+    Args:
+        image: Input page, color or grayscale.
+
+    Returns:
+        The two levels, or None when the histogram gives no usable pair and
+        the page is better left alone.
+    """
+    gray = image.convert("L")
+    levels, white_peak = _levels_from(gray.histogram())
+    if white_peak == 255:
+        levels, _ = _levels_from(_page_counts(gray))
+    return levels
+
+
+def _correction_ramp(black: int, white: int) -> list[int]:
+    """The 256-entry curve that clamps to [*black*, *white*] and stretches."""
+    to_lum = [round((value / 255) ** (1 / _GAMMA) * _MAX_LUM) for value in range(256)]
+    black_lum, white_lum = to_lum[black], to_lum[white]
+
+    ramp = []
+    for value in range(256):
+        lum = to_lum[min(max(value, black), white)]
+        scaled = (lum - black_lum) * _MAX_LUM // (white_lum - black_lum)
+        ramp.append(round((scaled / _MAX_LUM) ** _GAMMA * 255))
+    return ramp
+
+
+def whiten_scan(
+    image: Image.Image, levels: tuple[int, int] | None = None
+) -> Image.Image:
+    """Burn a scan's gray paper out to white, deepening the ink to match.
+
+    Clamps to the page's black and white points and stretches what is left
+    across the full range. The stretch happens in a luminance space rather
+    than straight on the stored values, which is what keeps the midtones from
+    shifting when the black point is well above zero.
+
+    Not a threshold: text keeps its anti-aliased edges, which is what the
+    detector and OCR were trained on.
+
+    Args:
+        image: Input page, color or grayscale.
+        levels: The (black, white) points to correct against. Read off the
+            page itself when omitted; a page whose histogram offers no usable
+            pair is returned as-is, the way NAPS2 declines to correct it.
+
+    Returns:
+        Grayscale ("L") page, same size as the input.
+    """
+    gray = image.convert("L")
+    points = scan_levels(gray) if levels is None else levels
+    if points is None:
+        return gray
+    return gray.point(_correction_ramp(*points))
+
+
+def _spatial_weights() -> np.ndarray:
+    """Neighbour weight by distance: full at the centre, nothing at a corner."""
+    offsets = np.arange(_FILTER_SIZE) - _FILTER_HALF
+    dy, dx = np.meshgrid(offsets, offsets, indexing="ij")
+    furthest = math.sqrt(2 * _FILTER_HALF**2)
+    return ((1 - np.hypot(dx, dy) / furthest) * 256).astype(np.int32)
+
+
+def _filter_block(
+    padded: np.ndarray,
+    block: np.ndarray,
+    top: int,
+    left: int,
+    spatial: np.ndarray,
+) -> np.ndarray:
+    """Weigh every pixel of *block* against its square of neighbours.
+
+    *padded* holds the whole page with a half-window margin, so *top* and
+    *left* — the block's origin on the page — index straight into it.
+    """
+    height, width = block.shape
+    centre = block.astype(np.int16)
+    weights = np.zeros(block.shape, dtype=np.int32)
+    totals = np.zeros(block.shape, dtype=np.int32)
+
+    for row in range(_FILTER_SIZE):
+        for column in range(_FILTER_SIZE):
+            nearness = int(spatial[row, column])
+            if not nearness:
+                continue
+            neighbour = padded[
+                top + row : top + row + height, left + column : left + column + width
+            ]
+            # NAPS2's weight table, worked out rather than looked up: a
+            # neighbour counts for less the further off its tone is, and for
+            # nothing at all past _COLOR_DIST_MAX. Arithmetic beats a lookup
+            # here because the table is too big to stay in cache.
+            tone = np.abs(centre - neighbour)
+            np.subtract(_COLOR_DIST_MAX, tone, out=tone)
+            np.maximum(tone, 0, out=tone)
+
+            weight = tone.astype(np.int32) * nearness
+            weights += weight
+            totals += weight * neighbour
+
+    return (totals // weights).astype(np.uint8)
+
+
+def denoise_scan(image: Image.Image) -> Image.Image:
+    """Average scanner grain out of a page without softening the text.
+
+    A bilateral filter weighs a neighbour by how far away it is *and* how
+    different it is, so grain within the paper and within a stroke averages
+    away while the edge between them survives.
+
+    Runs after :func:`whiten_scan`, for the reason NAPS2 gives: the filter
+    reads distance in raw gray levels, so a page whose range is still
+    compressed loses fine detail to it — and the pass is cheaper once the
+    paper is uniform, which is what the untouched runs of white buy.
+
+    Args:
+        image: Input page, color or grayscale.
+
+    Returns:
+        Grayscale ("L") page, same size as the input.
+    """
+    gray = np.array(image.convert("L"))
+    height, width = gray.shape
+    padded = np.pad(gray, _FILTER_HALF, mode="edge")
+    spatial = _spatial_weights()
+
+    # Pixels within the filter's reach of an edge are left alone, as is any
+    # white pixel between two others — an untouched run of paper.
+    edge = _FILTER_HALF + 1
+    inside = np.zeros(gray.shape, dtype=bool)
+    inside[edge : height - _FILTER_HALF, edge : width - _FILTER_HALF] = True
+    white = gray == 255
+    inside[:, 1:-1] &= ~(white[:, 1:-1] & white[:, :-2] & white[:, 2:])
+
+    smoothed = gray.copy()
+    for top in range(0, height, _TILE_SIZE):
+        for left in range(0, width, _TILE_SIZE):
+            rows = slice(top, min(top + _TILE_SIZE, height))
+            columns = slice(left, min(left + _TILE_SIZE, width))
+            keep = inside[rows, columns]
+            if not keep.any():
+                continue
+            block = _filter_block(padded, gray[rows, columns], top, left, spatial)
+            np.copyto(smoothed[rows, columns], block, where=keep)
+    return Image.fromarray(smoothed, mode="L")
+
+
+def correct_document(image: Image.Image, crop_margin: bool = True) -> Image.Image:
+    """Clean a scanned page: fix its black and white points, then denoise.
+
+    NAPS2's document correction end to end, plus the border removal it leaves
+    as a TODO. The margin is measured on the way in and cut off on the way
+    out, because correcting the page turns its paper the same pure white as
+    the canvas around it — after the fact there is no edge left to find.
+
+    Args:
+        image: Input page, color or grayscale.
+        crop_margin: Whether to cut the scanner's white canvas off the
+            result. Pass False to keep the scan's own dimensions.
+
+    Returns:
+        Grayscale ("L") page — the size of the page within the scan, or of
+        the whole scan when *crop_margin* is off.
+    """
+    rows, columns = _content_box(np.array(image.convert("L")))
+    corrected = denoise_scan(whiten_scan(image))
+    if not crop_margin:
+        return corrected
+    return corrected.crop((columns.start, rows.start, columns.stop, rows.stop))
 
 
 # --- image cropping helpers ---
