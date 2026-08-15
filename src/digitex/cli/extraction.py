@@ -18,7 +18,12 @@ from digitex.pipeline.audit.census import ImageCensus
 from digitex.pipeline.audit.validator import AnswerValidator
 from digitex.pipeline.base import ExtractionConfig
 from digitex.pipeline.book import BookExtractor
-from digitex.pipeline.exceptions import APIError, ModelNotFoundError, ReviewAborted
+from digitex.pipeline.exceptions import (
+    APIError,
+    DirectoryNotFoundError,
+    ModelNotFoundError,
+    ReviewAborted,
+)
 from digitex.pipeline.page import PageExtractor
 from digitex.pipeline.subject import SubjectExtractor
 
@@ -96,6 +101,81 @@ def _echo_errors(errors: list[str]) -> None:
 
 
 SUBJECT_ARGUMENT = typer.Argument(help="Subject name (e.g., biology, chemistry)")
+
+
+@app.command(name="rename-pages")
+def rename_pages() -> None:
+    """Renumber every scanned page to its canonical zero-padded name.
+
+    A scanner names its export after the batch that made it (Химия.001.png) or
+    after nothing in particular (10.jpg, which sorts ahead of 2.jpg). This
+    renumbers each year's pages in reading order as 001, 002, … keeping the
+    file's own format, and moves each page's processed twin with it so the two
+    variants never disagree. Answer sheets keep their names — {year}_{n} is
+    what says which year and sheet they are.
+
+    Safely re-runnable: pages already correctly named are left alone.
+    """
+    from digitex.pipeline.preprocessing import rename_pages as run_rename
+
+    settings = get_settings()
+
+    try:
+        result = run_rename(settings.paths.books_dir)
+    except DirectoryNotFoundError as exc:
+        raise abort(f"✗ {exc}") from None
+
+    typer.echo(
+        typer.style(
+            f"✓ Renamed {result.renamed} page(s), {result.unchanged}"
+            f" already named right",
+            fg="green",
+        )
+    )
+    if result.errors:
+        typer.echo(
+            typer.style(f"\n{result.failed} page(s) failed:", fg="red", bold=True)
+        )
+        _echo_errors(result.errors)
+
+
+@app.command(name="preprocess-scans")
+def preprocess_scans(
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Reprocess scans that already have an output"),
+    ] = False,
+) -> None:
+    """Correct the raw scans into the processed tree the rest of the pipeline reads.
+
+    Burns the gray paper out to white and averages the scanner grain away,
+    writing var/books/{subject}/raw/ to the matching path under
+    var/books/{subject}/processed/ — pages and answer sheets alike. Geometry is
+    untouched, so annotations drawn on a raw page still fit its processed twin.
+
+    Safely re-runnable: scans already processed are skipped unless --force.
+    """
+    from digitex.pipeline.preprocessing import preprocess_scans as run_preprocessing
+
+    settings = get_settings()
+
+    try:
+        result = run_preprocessing(settings.paths.books_dir, force=force)
+    except DirectoryNotFoundError as exc:
+        raise abort(f"✗ {exc}") from None
+
+    typer.echo(
+        typer.style(
+            f"✓ Processed {result.processed} scan(s), skipped {result.skipped}"
+            f" already done → {settings.paths.books_dir}",
+            fg="green",
+        )
+    )
+    if result.errors:
+        typer.echo(
+            typer.style(f"\n{result.failed} scan(s) failed:", fg="red", bold=True)
+        )
+        _echo_errors(result.errors)
 
 
 @app.command(name="extract-questions")

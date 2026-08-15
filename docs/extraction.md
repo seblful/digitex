@@ -5,6 +5,10 @@ Extract question images from test books using YOLO segmentation.
 ## Quick Start
 
 ```bash
+# Prepare a new batch of scans: canonical names, then corrected pixels
+digitex-extract rename-pages
+digitex-extract preprocess-scans
+
 # Extract questions from a specific subject
 digitex-extract extract-questions biology
 
@@ -19,6 +23,74 @@ Counting what came out and checking it against `answers.json` are both in the
 review window's second tab — see [below](#the-review-window---review). There is
 no renumbering command either: the window refuses numbering that would leave a
 gap, so there is nothing to repair afterwards.
+
+## The two variants of a subject's scans
+
+Every subject keeps its scans in two variants of the same shape:
+
+```
+var/books/{subject}/
+├── raw/images/{year}/{page}.png       scans as they came off the scanner
+├── raw/answers/{year}_{n}.png         answer sheets
+├── processed/images/{year}/{page}.png the same pages, corrected
+└── processed/answers/{year}_{n}.png   the same sheets, corrected
+```
+
+`raw/` is the irreplaceable one — back it up, never write to it. `processed/` is
+derived and can be deleted and rebuilt at any time. Everything downstream of the
+scans (annotation, training, extraction, answer reading) uses `processed/`, so a
+model is trained and run on the same rendering of a page.
+
+## Adding a batch of scans
+
+Drop the scanner's output into `var/books/{subject}/raw/images/{year}/` and run
+the two preparation commands. Both are safe to re-run and only touch what is new.
+
+### `rename-pages`
+
+Renumber every page to its canonical zero-padded name.
+
+```bash
+digitex-extract rename-pages
+```
+
+**Process:**
+
+1. Walks `var/books/{subject}/raw/images/{year}/`, one year at a time
+1. Sorts each year in reading order and renames the pages `001`, `002`, …,
+   keeping each file's own format
+1. Moves each page's processed twin with it, so the two variants never disagree
+1. Leaves pages already correctly named alone
+
+A scanner names its export after the batch that produced it (`Химия.001.png`) or
+after nothing in particular (`10.jpg`, which sorts ahead of `2.jpg` anywhere that
+does not know to sort numerically). Answer sheets keep their names — `{year}_{n}`
+is what says which year and sheet they are.
+
+### `preprocess-scans`
+
+Correct every raw scan into its processed twin.
+
+```bash
+digitex-extract preprocess-scans [--force]
+```
+
+**Options:**
+
+- `--force` - Reprocess scans that already have an output
+
+**Process:**
+
+1. Walks `var/books/{subject}/raw/` — pages and answer sheets alike
+1. Burns the gray paper out to white and averages the scanner grain away
+   (NAPS2's document correction, ported — see `digitex.imaging.correct_document`)
+1. Writes the matching path under `var/books/{subject}/processed/` as PNG
+1. Skips scans already processed, so re-running only picks up new ones
+
+Geometry is left alone: a processed page is pixel-aligned with its raw original,
+so Label Studio annotations drawn on one still fit the other. A scan costs a few
+seconds and the work is spread across a process pool — budget roughly ten
+minutes per five hundred pages.
 
 ## Commands
 
@@ -40,7 +112,7 @@ digitex-extract extract-questions <SUBJECT> [--review]
 
 **Process:**
 
-1. Reads images from `var/books/{subject}/images/{year}/`
+1. Reads images from `var/books/{subject}/processed/images/{year}/`
 1. Uses YOLO model to detect questions, options, and parts
 1. Reads the option number and part letter off their markers with OCR
 1. Numbers each question from those markers, continuing across pages
@@ -132,7 +204,7 @@ digitex-extract extract-answers <SUBJECT>
 **Requirements:**
 
 - Set `OPENROUTER_API_KEY` environment variable
-- Answer images in `var/books/{subject}/answers/`
+- Answer images in `var/books/{subject}/raw/answers/`
 - Filename format: `YYYY_N.jpg` (e.g., `2016_1.jpg`)
 
 ## Directory Structure
@@ -143,15 +215,22 @@ Everything below lives under the data root — `var/` by default, or wherever
 ```
 var/
 ├── books/
-│   └── {subject}/
-│       ├── images/
-│       │   ├── 2020/
-│       │   │   ├── page1.jpg
-│       │   │   └── page2.jpg
-│       │   └── 2021/
-│       └── answers/
-│           ├── 2020_1.jpg
-│           └── 2020_2.jpg
+│   ├── raw/
+│   │   └── {subject}/
+│   │       ├── images/
+│   │       │   ├── 2020/
+│   │       │   │   ├── page1.jpg
+│   │       │   │   └── page2.jpg
+│   │       │   └── 2021/
+│   │       └── answers/
+│   │           ├── 2020_1.jpg
+│   │           └── 2020_2.jpg
+│   └── processed/
+│       └── {subject}/
+│           └── images/
+│               └── 2020/
+│                   ├── page1.png
+│                   └── page2.png
 ├── extraction/
 │   ├── progress.json
 │   └── output/
@@ -219,7 +298,7 @@ Common errors and solutions:
 | Error | Solution |
 | ----------------- | ------------------------------------------ |
 | Subject not found | Check subject name matches folder |
-| No images folder | Create `var/books/{subject}/images/` |
+| No images folder | Create `var/books/{subject}/raw/images/`, then `preprocess-scans` |
 | API key not set | Set `OPENROUTER_API_KEY` environment variable |
 | Model not found | Put it at `{PATH_DATA_ROOT}/models/page.pt` |
 

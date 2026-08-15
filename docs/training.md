@@ -38,7 +38,9 @@ uv run digitex-train select-random-pages --num-images 100
 
 **Requirements:**
 
-- Book images in `books/<subject>/images/<year>/` directory
+- Processed book pages in `var/books/<subject>/processed/images/<year>/` — run
+  `digitex-extract preprocess-scans` first, so what gets annotated is what the
+  model will be trained and run on
 
 ### 2. Add Images from File
 
@@ -57,9 +59,9 @@ uv run digitex-train add-images page
 - `images.txt` in `var/training/data/<task>/` with one relative path per line:
 
 ```
-var/books/biology/images/2024/10.jpg
-var/books/biology/images/2024/15.jpg
-var/books/biology/images/2023/5.jpg
+var/books/biology/processed/images/2024/10.png
+var/books/biology/processed/images/2024/15.png
+var/books/biology/processed/images/2023/5.png
 ```
 
 **Behavior:**
@@ -145,6 +147,10 @@ uv run digitex-train ls-predict --project-id 1 --model-path training/runs/train/
 Run from the project root directory:
 
 ```bash
+# Step 0: Prepare any new raw scans (canonical names, then corrected pixels)
+uv run digitex-extract rename-pages
+uv run digitex-extract preprocess-scans
+
 # Step 1: Add images for annotation
 uv run digitex-train select-random-pages --num-images 100
 

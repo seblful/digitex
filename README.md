@@ -49,7 +49,8 @@ or wherever `PATH_DATA_ROOT` points — so the checkout stays small and an
 installed package never guesses where a corpus is.
 
 ```
-var/books/{subject}/images/{year}/…   scanned pages, the raw input
+var/books/{subject}/raw/images/{year}/…       scanned pages, the raw input
+var/books/{subject}/processed/images/{year}/… the same pages, corrected
 var/extraction/output/…               question images, the corpus the bot serves
 var/models/page.pt                    the segmentation checkpoint
 var/training/{data,runs}/             YOLO datasets and run outputs
@@ -66,6 +67,10 @@ var/training/{data,runs}/             YOLO datasets and run outputs
 ## CLI Commands
 
 ```bash
+# Prepare raw scans into var/books/{subject}/processed/
+digitex-extract rename-pages
+digitex-extract preprocess-scans
+
 # Extract question images from books
 digitex-extract extract-questions <subject>
 

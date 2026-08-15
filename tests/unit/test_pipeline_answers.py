@@ -138,7 +138,7 @@ class TestAnswersExtractorExtract:
 
     @staticmethod
     def _seed_sheets(tmp_path: Path, *names: str) -> None:
-        answers_dir = tmp_path / "books" / "bio" / "answers"
+        answers_dir = tmp_path / "books" / "bio" / "processed" / "answers"
         answers_dir.mkdir(parents=True)
         for name in names:
             (answers_dir / name).touch()

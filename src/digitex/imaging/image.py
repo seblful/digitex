@@ -388,10 +388,10 @@ def correct_document(image: Image.Image, crop_margin: bool = True) -> Image.Imag
         Grayscale ("L") page — the size of the page within the scan, or of
         the whole scan when *crop_margin* is off.
     """
+    if not crop_margin:
+        return denoise_scan(whiten_scan(image))
     rows, columns = _content_box(np.array(image.convert("L")))
     corrected = denoise_scan(whiten_scan(image))
-    if not crop_margin:
-        return corrected
     return corrected.crop((columns.start, rows.start, columns.stop, rows.stop))
 
 

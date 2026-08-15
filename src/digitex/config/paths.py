@@ -61,6 +61,11 @@ class PathsSettings(BaseSettings):
     @computed_field
     @cached_property
     def books_dir(self) -> Path:
+        """Root of the scan archive, ``{subject}/{raw,processed}/`` below.
+
+        The variant sits under the subject, so this is the only book path a
+        caller needs; :mod:`digitex.domain.corpus` composes the rest.
+        """
         return self.data_root / "books"
 
     @computed_field

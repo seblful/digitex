@@ -2,8 +2,10 @@
 
 The corpus lives in two trees:
 
-- book archive:      ``books/{subject}/images/{year}/{page}.{ext}`` and
-  ``books/{subject}/answers/{year}_{n}.{ext}``
+- book archive:      ``books/{subject}/{variant}/images/{year}/{page}.{ext}``
+  and ``books/{subject}/{variant}/answers/{year}_{n}.{ext}``, where *variant*
+  is ``raw`` (the scans as they arrived) or ``processed`` (the same files,
+  corrected, file for file)
 - extraction output: ``output/{subject}/{year}/{option}/{part}/{number}.{ext}``
   plus a per-year ``answers.json``
 
@@ -28,10 +30,67 @@ IMAGE_EXTENSIONS: Final = frozenset(
 
 _ANSWER_SHEET_STEM = re.compile(r"(\d{4})_(\d+)")
 
+PAGE_NUMBER_WIDTH: Final = 3
+
+# The two variants a subject's scans exist in. ``raw`` is what came off the
+# scanner and is never written to again; ``processed`` is derived from it and
+# can be rebuilt at any time.
+RAW: Final = "raw"
+PROCESSED: Final = "processed"
+
 
 def is_image(path: Path) -> bool:
     """Return True for files with a known image extension."""
     return path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+
+
+def book_variant_dir(books_dir: Path, subject: str, variant: str) -> Path:
+    """Root of one subject's scans in one variant."""
+    return books_dir / subject / variant
+
+
+def book_pages_dir(books_dir: Path, subject: str, variant: str) -> Path:
+    """Where a subject's scanned pages live, a directory per year below."""
+    return book_variant_dir(books_dir, subject, variant) / "images"
+
+
+def book_answers_dir(books_dir: Path, subject: str, variant: str) -> Path:
+    """Where a subject's answer sheets live."""
+    return book_variant_dir(books_dir, subject, variant) / "answers"
+
+
+def book_subjects(books_dir: Path) -> list[str]:
+    """Every subject the archive holds, named by its directory."""
+    if not books_dir.is_dir():
+        return []
+    return sorted(path.name for path in books_dir.iterdir() if path.is_dir())
+
+
+def walk_book_pages(books_dir: Path, variant: str) -> Iterator[Path]:
+    """Every scanned page of every subject, in one variant.
+
+    Answer sheets are not pages and are not yielded — they sit beside
+    ``images`` rather than under it.
+    """
+    for subject in book_subjects(books_dir):
+        pages_dir = book_pages_dir(books_dir, subject, variant)
+        if not pages_dir.is_dir():
+            continue
+        for path in sorted(pages_dir.rglob("*")):
+            if is_image(path):
+                yield path
+
+
+def book_page_name(number: int, image_format: str) -> str:
+    """Name a scanned page by its position in the year, zero-padded.
+
+    The subject, variant and year are all in the path already, so the filename
+    carries only the page number. Padded, because reading order and
+    lexicographic order then agree everywhere the corpus is looked at — a file
+    browser, a Label Studio task list — and not just where the code remembers
+    to sort numerically.
+    """
+    return f"{number:0{PAGE_NUMBER_WIDTH}d}.{image_format}"
 
 
 def question_image_number(path: Path) -> int | None:
@@ -150,19 +209,24 @@ def parse_answer_sheet_stem(stem: str) -> tuple[int, int] | None:
 
 
 def parse_book_page_path(page_path: Path) -> tuple[str, str]:
-    """Extract (subject, year) from ``books/{subject}/images/{year}/{page}``.
+    """Extract (subject, year) from ``{subject}/{variant}/images/{year}/{page}``.
+
+    Anchored on the ``images`` segment — the subject sits two above it, the
+    year directly below — so a page parses the same in either variant, and a
+    raw page and its processed twin give the same
+    :func:`training_page_name`.
 
     Raises:
-        ValueError: If the path has no ``books`` or ``images`` segment, or the
-            segment is last so nothing names the subject or year.
+        ValueError: If the path has no ``images`` segment, or the segment sits
+            too near an end for a subject and a year to be around it.
     """
     parts = page_path.parts
-    try:
-        return parts[parts.index("books") + 1], parts[parts.index("images") + 1]
-    except (ValueError, IndexError) as e:
-        # ValueError when a marker segment is absent, IndexError when it is last.
-        # Both mean the same thing to a caller, so both say so.
-        raise ValueError(f"No subject/year segment in {page_path}") from e
+    marker = parts.index("images") if "images" in parts else 0
+    # Two above and one below is the whole rule; anything shorter is some other
+    # tree that happens to have an ``images`` directory in it.
+    if marker < 2 or marker + 1 >= len(parts):
+        raise ValueError(f"No subject/year segment in {page_path}")
+    return parts[marker - 2], parts[marker + 1]
 
 
 def training_page_name(subject: str, year: str, stem: str) -> str:

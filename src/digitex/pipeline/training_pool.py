@@ -10,9 +10,10 @@ from PIL import Image
 from tqdm import tqdm
 
 from digitex.domain.corpus import (
-    is_image,
+    PROCESSED,
     parse_book_page_path,
     training_page_name,
+    walk_book_pages,
 )
 from digitex.imaging import resize_image
 
@@ -38,11 +39,9 @@ class PageDataCreator:
         self.image_size = image_size
 
     def _collect_images(self, books_dir: Path) -> list[Path]:
-        return [
-            img_path
-            for img_path in books_dir.rglob("*")
-            if is_image(img_path) and "images" in img_path.parts
-        ]
+        # Processed only: annotating a raw page would teach the model a
+        # rendering it is never shown again.
+        return list(walk_book_pages(books_dir, PROCESSED))
 
     def _save_image(self, img_path: Path, output_dir: Path) -> PageOutcome:
         try:

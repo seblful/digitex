@@ -9,7 +9,12 @@ from openai import OpenAI
 from pydantic import BaseModel
 from tqdm import tqdm
 
-from digitex.domain.corpus import is_image, parse_answer_sheet_stem
+from digitex.domain.corpus import (
+    PROCESSED,
+    book_answers_dir,
+    is_image,
+    parse_answer_sheet_stem,
+)
 from digitex.domain.entities import QuestionKey, normalize_option_number
 from digitex.pipeline.base import ExtractionResult
 from digitex.pipeline.exceptions import (
@@ -165,7 +170,7 @@ class AnswersExtractor:
         return year
 
     def extract(self, subject: str) -> ExtractionResult:
-        answers_dir = self._books_dir / subject / "answers"
+        answers_dir = book_answers_dir(self._books_dir, subject, PROCESSED)
         if not answers_dir.exists():
             raise DirectoryNotFoundError(answers_dir)
 
