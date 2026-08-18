@@ -94,12 +94,17 @@ class RenameResult:
 def preprocess_scan(source: Path, target: Path) -> None:
     """Correct one scan onto *target* — the unit of work a worker takes.
 
+    Answer sheets keep the plain correction, without the shadow flatten: their
+    printed row shading is content, and the flatten would bleach it to white
+    wherever a fold's shadow crossed it. Pages carry no light print worth
+    keeping, so they get the full treatment.
+
     Module-level, and taking only paths, because a process pool has to pickle
     it by name and hand it arguments that survive the trip.
     """
     with Image.open(source) as scan:
         dpi = scan.info.get("dpi")
-        corrected = correct_document(scan)
+        corrected = correct_document(scan, flatten="answers" not in source.parts)
     corrected.save(target, **({"dpi": dpi} if dpi else {}))
 
 

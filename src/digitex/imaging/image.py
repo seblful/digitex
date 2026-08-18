@@ -45,6 +45,48 @@ def add_white_background(image: Image.Image) -> Image.Image:
 # scanned with: WhiteBlackPointOp to fix the paper's calibration, then
 # BilateralFilterOp to take the grain off. Constants and formulas follow
 # NAPS2.Images/Bitwise/ so the two stay comparable.
+#
+# One pass runs ahead of NAPS2's two and is not theirs: an illumination
+# flatten (:func:`flatten_scan`), because the archive's gutter shadows are
+# spatial and no global correction can touch them. Its constants were
+# calibrated against the archive itself — the 2023 books carry the deepest
+# shadows, needing a gain of about 3.2.
+
+# The square each background sample summarises. Wider than any run of ink —
+# a tile always catches some paper between text lines — and narrower than
+# the shadows it must follow.
+_BG_TILE = 128
+
+# The percentile of a tile that reads as its paper: high enough to look past
+# the ink, low enough to duck under the odd blown-out pixel.
+_BG_PERCENTILE = 90
+
+# The percentile of the background grid taken as the true paper level — the
+# brightness every patch is corrected toward.
+_BG_TARGET_PERCENTILE = 95
+
+# The most a patch is brightened. Enough for the deepest shadow in the
+# archive; the cap is what keeps a dark region too large for the grid's
+# median to rescue from being blown out toward white.
+_BG_MAX_GAIN = 4.0
+
+# The white shoulder for a flattened page. Flattening pulls the paper into a
+# peak so tight that NAPS2's fifth (_PERCENTILE) lands barely under it and a
+# gray film survives the stretch; a fiftieth reaches under the whole peak.
+# Calibrated against the archive's figure pages — halftone tones survive it.
+_FLAT_WHITE_PERCENTILE = 0.02
+
+# Everything below this is ink or figure, not paper — the mass the black
+# point is set from.
+_INK_CEILING = 128
+
+# The black point sits this far into the page's dark mass, as a percentile.
+# At 300 dpi a stroke is mostly anti-aliasing — its core peak holds little of
+# its mass — so the peak shoulder alone leaves text gray. A tenth of the way
+# in is enough to turn the cores solid while the halo keeps its ramp;
+# calibrated against the archive's halftone figures, which lose visible
+# tone by a quarter of the way in.
+_FLAT_BLACK_PERCENTILE = 10
 
 # The percentile of a peak's mass at which its white/black point is set. Zero
 # flattens all of the near-white and near-black to pure, one keeps the noise.
@@ -66,6 +108,54 @@ _COLOR_DIST_MAX = 32
 # keeps the sweep inside cache instead. Purely a matter of speed — the output
 # does not depend on it.
 _TILE_SIZE = 256
+
+
+def flatten_scan(image: Image.Image) -> Image.Image:
+    """Lift a scan's shadows by dividing its illumination out.
+
+    A page is lit unevenly — a gutter shadow near the spine, a sag where the
+    paper lifted off the glass — and a global correction cannot fix that:
+    stretching levels turns a shadow darker rather than whiter, and hands
+    the black point to the shadow instead of the ink. Illumination is
+    multiplicative, so the fix is a division: estimate the paper's
+    brightness everywhere and scale each pixel by what its patch is missing.
+    The same division hands ink inside a shadow its unshadowed tone back.
+
+    The estimate is a coarse grid — a bright percentile per tile, so ink
+    does not read as darkness. A tile holding no paper at all (a figure's
+    interior, a filled table cell) reads dark all the same and would be
+    brightened into a smear, so the grid is median-filtered to hand it its
+    neighbours' paper instead, then blurred so no tile boundary shows in the
+    output. Anything brighter than the paper — the scanner's saturated
+    canvas — is left alone rather than darkened.
+
+    Runs before :func:`whiten_scan`: with the paper flat, the histogram's
+    white peak is tight and the black point falls to the ink where it
+    belongs.
+
+    Args:
+        image: Input page, color or grayscale.
+
+    Returns:
+        Grayscale ("L") page, same size as the input.
+    """
+    gray = np.array(image.convert("L"), dtype=np.float32)
+    height, width = gray.shape
+    padded = np.pad(
+        gray, ((0, -height % _BG_TILE), (0, -width % _BG_TILE)), mode="edge"
+    )
+    tiles = padded.reshape(
+        padded.shape[0] // _BG_TILE, _BG_TILE, padded.shape[1] // _BG_TILE, _BG_TILE
+    )
+    grid = np.percentile(tiles, _BG_PERCENTILE, axis=(1, 3)).astype(np.float32)
+    if min(grid.shape) >= 3:
+        grid = cv2.GaussianBlur(cv2.medianBlur(grid, 3), (3, 3), 0)
+    background = cv2.resize(
+        grid, (padded.shape[1], padded.shape[0]), interpolation=cv2.INTER_LINEAR
+    )[:height, :width]
+    paper = float(np.percentile(grid, _BG_TARGET_PERCENTILE))
+    gain = np.clip(paper / np.maximum(background, 1.0), 1.0, _BG_MAX_GAIN)
+    return Image.fromarray(np.clip(gray * gain, 0, 255).astype(np.uint8), mode="L")
 
 
 @dataclass
@@ -133,8 +223,10 @@ def _black_peak_score(peak: _Peak) -> float:
     return (1 - peak.value / 255) ** 3 * relief
 
 
-def _shoulder(counts: list[int], peak: _Peak, *, from_below: bool) -> int:
-    """Walk into *peak* until _PERCENTILE of its mass is behind us."""
+def _shoulder(
+    counts: list[int], peak: _Peak, *, from_below: bool, percentile: float
+) -> int:
+    """Walk into *peak* until *percentile* of its mass is behind us."""
     if from_below:
         levels = range(peak.left, peak.right)
         total = sum(counts[peak.left :])
@@ -147,12 +239,14 @@ def _shoulder(counts: list[int], peak: _Peak, *, from_below: bool) -> int:
     seen = 0
     for level in levels:
         seen += counts[level]
-        if seen >= _PERCENTILE * total:
+        if seen >= percentile * total:
             return level
     return fallback
 
 
-def _levels_from(counts: list[int]) -> tuple[tuple[int, int] | None, int]:
+def _levels_from(
+    counts: list[int], white_percentile: float = _PERCENTILE
+) -> tuple[tuple[int, int] | None, int]:
     """The (black, white) points *counts* implies, and the white peak's level.
 
     The level comes back so the caller can tell a paper peak from the scan's
@@ -171,8 +265,8 @@ def _levels_from(counts: list[int]) -> tuple[tuple[int, int] | None, int]:
     if white_peak.value <= black_peak.value:
         return None, white_peak.value
 
-    black = _shoulder(counts, black_peak, from_below=False)
-    white = _shoulder(counts, white_peak, from_below=True)
+    black = _shoulder(counts, black_peak, from_below=False, percentile=_PERCENTILE)
+    white = _shoulder(counts, white_peak, from_below=True, percentile=white_percentile)
     # The two basins can overlap even when their peaks do not, and a ramp
     # needs somewhere to run.
     levels = (black, white) if black < white else None
@@ -207,7 +301,9 @@ def _page_counts(gray: Image.Image) -> list[int]:
     return counts
 
 
-def scan_levels(image: Image.Image) -> tuple[int, int] | None:
+def scan_levels(
+    image: Image.Image, white_percentile: float = _PERCENTILE
+) -> tuple[int, int] | None:
     """The (black, white) points to correct *image* against.
 
     It reads the page's histogram, picks the peak that looks like ink and the
@@ -225,15 +321,19 @@ def scan_levels(image: Image.Image) -> tuple[int, int] | None:
 
     Args:
         image: Input page, color or grayscale.
+        white_percentile: How far into the paper peak the white point sits.
+            The default is NAPS2's fifth, sized for a raw scan's wide peak; a
+            flattened page's peak is tight, and the same fifth lands so close
+            under the paper that a gray film survives the stretch.
 
     Returns:
         The two levels, or None when the histogram gives no usable pair and
         the page is better left alone.
     """
     gray = image.convert("L")
-    levels, white_peak = _levels_from(gray.histogram())
+    levels, white_peak = _levels_from(gray.histogram(), white_percentile)
     if white_peak == 255:
-        levels, _ = _levels_from(_page_counts(gray))
+        levels, _ = _levels_from(_page_counts(gray), white_percentile)
     return levels
 
 
@@ -371,27 +471,61 @@ def denoise_scan(image: Image.Image) -> Image.Image:
     return Image.fromarray(smoothed, mode="L")
 
 
-def correct_document(image: Image.Image, crop_margin: bool = True) -> Image.Image:
-    """Clean a scanned page: fix its black and white points, then denoise.
+def _stroke_black(gray: np.ndarray) -> int:
+    """A black point deep enough that text comes out ink-black.
 
-    NAPS2's document correction end to end, plus the border removal it leaves
-    as a TODO. The margin is measured on the way in and cut off on the way
-    out, because correcting the page turns its paper the same pure white as
-    the canvas around it — after the fact there is no edge left to find.
+    The peak search can collapse onto a spike of already-black pixels and
+    hand back zero, and even the true core peak holds little of a stroke's
+    mass — so the black point is read off the dark mass itself instead.
+    """
+    dark = gray[gray < _INK_CEILING]
+    if not dark.size:
+        return 0
+    return int(np.percentile(dark, _FLAT_BLACK_PERCENTILE))
+
+
+def _whitened(image: Image.Image, flatten: bool) -> Image.Image:
+    """The levels-corrected page, flattened first unless told otherwise."""
+    if not flatten:
+        return whiten_scan(image)
+    flat = flatten_scan(image)
+    levels = scan_levels(flat, _FLAT_WHITE_PERCENTILE)
+    if levels is None:
+        return flat
+    # The deeper claim wins: the peak shoulder when the histogram offers a
+    # real ink peak, the stroke mass when the search collapses to a spike.
+    black = max(levels[0], _stroke_black(np.array(flat)))
+    return whiten_scan(flat, (black, levels[1]))
+
+
+def correct_document(
+    image: Image.Image, crop_margin: bool = True, flatten: bool = True
+) -> Image.Image:
+    """Clean a scanned page: flatten its shadows, fix its levels, denoise.
+
+    NAPS2's document correction end to end, led by the illumination flatten
+    NAPS2 has no answer to, plus the border removal it leaves as a TODO. The
+    margin is measured on the way in and cut off on the way out, because
+    correcting the page turns its paper the same pure white as the canvas
+    around it — after the fact there is no edge left to find.
 
     Args:
         image: Input page, color or grayscale.
         crop_margin: Whether to cut the scanner's white canvas off the
             result. Pass False to keep the scan's own dimensions.
+        flatten: Whether to divide the illumination out before the levels
+            run. Pass False for a document whose light print should come
+            through as it is — an answer sheet's shaded table rows would
+            bleach to white wherever a shadow crossed them.
 
     Returns:
         Grayscale ("L") page — the size of the page within the scan, or of
         the whole scan when *crop_margin* is off.
     """
     if not crop_margin:
-        return denoise_scan(whiten_scan(image))
+        return denoise_scan(_whitened(image, flatten))
     rows, columns = _content_box(np.array(image.convert("L")))
-    corrected = denoise_scan(whiten_scan(image))
+    corrected = denoise_scan(_whitened(image, flatten))
     return corrected.crop((columns.start, rows.start, columns.stop, rows.stop))
 
 

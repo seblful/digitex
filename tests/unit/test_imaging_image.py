@@ -9,6 +9,7 @@ from digitex.imaging import (
     add_white_background,
     correct_document,
     denoise_scan,
+    flatten_scan,
     resize_image,
     rotate_image,
     scan_levels,
@@ -41,6 +42,34 @@ def _scanned_page(paper: int = 210, ink: int = 30, margin: int = 12) -> Image.Im
         pixels[top : top + 4, 20:100] = rng.normal(ink, 6, (4, 80))
     pixels[:, :margin] = 255
     return Image.fromarray(np.clip(pixels, 0, 255).astype(np.uint8), mode="L")
+
+
+_SHADOW_HALF = (slice(320, 576), slice(16, 150))
+_LIT_HALF = (slice(320, 576), slice(490, 624))
+_SHADOWED_INK = (slice(160, 164), slice(16, 150))
+_LIT_INK = (slice(160, 164), slice(490, 624))
+
+
+def _shadowed_page(
+    paper: int = 220, ink: int = 30, dimming: float = 0.6
+) -> Image.Image:
+    """A page whose left side sits under a gutter's shadow.
+
+    Five background tiles across, with the shadow shaped like the archive's
+    gutters: a flat floor two tiles wide, ramping back to full light over
+    the next — wide enough that the background grid can follow it, which is
+    the scale the flatten was calibrated for. The illumination multiplies
+    the whole scene, ink included, which is what makes division the right
+    correction to test for.
+    """
+    rng = np.random.default_rng(1)
+    pixels = rng.normal(paper, 3.5, (640, 640))
+    for top in (48, 160, 272):
+        pixels[top : top + 4, 16:624] = rng.normal(ink, 6, (4, 608))
+    light = np.interp(np.arange(640), [256, 384], [dimming, 1.0])
+    return Image.fromarray(
+        np.clip(pixels * light[np.newaxis, :], 0, 255).astype(np.uint8), mode="L"
+    )
 
 
 class TestRotateImage:
@@ -235,6 +264,44 @@ class TestWhitenScan:
         assert result.size == (10, 10)
 
 
+class TestFlattenScan:
+    def test_shadowed_paper_lifts_to_the_lit_papers_level(self) -> None:
+        page = np.array(_shadowed_page(paper=220, dimming=0.6))
+        assert np.median(page[_LIT_HALF]) - np.median(page[_SHADOW_HALF]) > 60
+
+        result = np.array(flatten_scan(Image.fromarray(page, mode="L")))
+
+        lit, shadowed = np.median(result[_LIT_HALF]), np.median(result[_SHADOW_HALF])
+        assert abs(lit - shadowed) < 8
+
+    def test_ink_in_the_shadow_recovers_its_tone(self) -> None:
+        result = np.array(flatten_scan(_shadowed_page(ink=30, dimming=0.6)))
+
+        lit, shadowed = np.median(result[_LIT_INK]), np.median(result[_SHADOWED_INK])
+        assert abs(lit - shadowed) < 15
+
+    def test_a_uniform_page_is_left_alone(self) -> None:
+        page = Image.new("L", (384, 384), color=200)
+
+        assert np.array_equal(np.array(flatten_scan(page)), np.array(page))
+
+    def test_a_dark_figure_is_not_taken_for_a_shadow(self) -> None:
+        """A figure spanning whole tiles borrows its neighbours' paper."""
+        rng = np.random.default_rng(2)
+        pixels = np.clip(rng.normal(220, 3.5, (640, 640)), 0, 255)
+        pixels[192:448, 192:448] = 60
+
+        result = np.array(flatten_scan(Image.fromarray(pixels.astype(np.uint8))))
+
+        assert np.median(result[256:384, 256:384]) < 90
+
+    def test_color_input_comes_back_grayscale(self) -> None:
+        result = flatten_scan(Image.new("RGB", (60, 60), color=(200, 200, 200)))
+
+        assert result.mode == "L"
+        assert result.size == (60, 60)
+
+
 class TestDenoiseScan:
     def test_grain_in_the_paper_averages_away(self) -> None:
         rng = np.random.default_rng(0)
@@ -292,6 +359,44 @@ class TestCorrectDocument:
         # still under the white point costs it that much.
         assert int(np.median(result[_PAPER_PATCH])) >= 254
         assert int(np.median(result[_INK_ROWS])) == 0
+
+    def test_a_gutter_shadow_reads_as_the_same_paper(self) -> None:
+        """The whole point of flattening first.
+
+        The shadow half of the page comes out as bright as the lit half,
+        not stretched toward black.
+        """
+        page = _shadowed_page(paper=220, dimming=0.6)
+
+        result = np.array(correct_document(page, crop_margin=False))
+
+        shadowed = np.median(result[_SHADOW_HALF])
+        lit = np.median(result[_LIT_HALF])
+        assert shadowed >= 240
+        assert abs(lit - shadowed) <= 8
+
+    def test_ink_comes_out_ink_black(self) -> None:
+        """Solid strokes on both halves.
+
+        The flatten restores a shadowed stroke's tone and the black point
+        then reaches it.
+        """
+        page = _shadowed_page(paper=220, ink=30, dimming=0.6)
+
+        result = np.array(correct_document(page, crop_margin=False))
+
+        assert np.median(result[_LIT_INK]) == 0
+        assert np.median(result[_SHADOWED_INK]) == 0
+
+    def test_flatten_off_keeps_the_plain_correction(self) -> None:
+        """The opt-out for answer sheets: no flatten, NAPS2's levels alone."""
+        page = _shadowed_page(paper=220, dimming=0.6)
+
+        result = np.array(correct_document(page, crop_margin=False, flatten=False))
+
+        shadowed = np.median(result[_SHADOW_HALF])
+        lit = np.median(result[_LIT_HALF])
+        assert lit - shadowed > 40
 
     def test_the_scan_margin_is_gone(self) -> None:
         page = _scanned_page(paper=210, margin=12)

@@ -82,6 +82,11 @@ digitex-extract preprocess-scans [--force]
 **Process:**
 
 1. Walks `var/books/{subject}/raw/` — pages and answer sheets alike
+1. Flattens uneven illumination — gutter shadows, the sag where a page lifted
+   off the glass — by dividing out a per-tile estimate of the paper's
+   brightness (`digitex.imaging.flatten_scan`). Answer sheets skip this pass:
+   their printed row shading is content, and the flatten would bleach it
+   wherever a fold's shadow crossed it
 1. Burns the gray paper out to white and averages the scanner grain away
    (NAPS2's document correction, ported — see `digitex.imaging.correct_document`)
 1. Cuts off the scanner's white canvas, about 6% of a page

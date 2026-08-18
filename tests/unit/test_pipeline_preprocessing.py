@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from digitex.imaging import correct_document
 from digitex.pipeline.exceptions import DirectoryNotFoundError
 from digitex.pipeline.preprocessing import (
     _plan,
@@ -111,6 +112,19 @@ class TestPreprocessScan:
         # The ink is still ink — a page burnt out to blank would also pass the
         # assertion above.
         assert pixels.min() < 60
+
+    def test_an_answer_sheet_keeps_the_plain_correction(self, tmp_path: Path) -> None:
+        """A sheet's printed shading is content, so the flatten stays off."""
+        source = _scan(tmp_path / "answers" / "2016_1.png")
+        target = tmp_path / "out.png"
+
+        preprocess_scan(source, target)
+
+        with Image.open(source) as scan, Image.open(target) as got:
+            plain = correct_document(scan, flatten=False)
+            flattened = correct_document(scan, flatten=True)
+            assert np.array_equal(np.array(got), np.array(plain))
+            assert not np.array_equal(np.array(got), np.array(flattened))
 
     def test_the_scanners_canvas_is_cut_off(self, tmp_path: Path) -> None:
         """Blank border is model input spent on nothing — about 6% of a real page."""
