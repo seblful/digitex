@@ -30,7 +30,13 @@ Select random images from book folders and save them for annotation:
 
 ```bash
 uv run digitex-train select-random-pages --num-images 100
+uv run digitex-train select-random-pages biology --num-images 50
 ```
+
+**Arguments:**
+
+- `subject`: Sample this subject only; omit to sample every subject. A name the
+  archive does not hold is rejected, with the ones it does hold listed
 
 **Options:**
 

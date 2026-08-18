@@ -38,10 +38,10 @@ class PageDataCreator:
     def __init__(self, image_size: int) -> None:
         self.image_size = image_size
 
-    def _collect_images(self, books_dir: Path) -> list[Path]:
+    def _collect_images(self, books_dir: Path, subject: str | None) -> list[Path]:
         # Processed only: annotating a raw page would teach the model a
         # rendering it is never shown again.
-        return list(walk_book_pages(books_dir, PROCESSED))
+        return list(walk_book_pages(books_dir, PROCESSED, subject))
 
     def _save_image(self, img_path: Path, output_dir: Path) -> PageOutcome:
         try:
@@ -118,17 +118,25 @@ class PageDataCreator:
         books_dir: str | Path,
         output_dir: str | Path,
         num_images: int,
+        subject: str | None = None,
     ) -> None:
+        """Sample *num_images* pages, from *subject* alone or from all of them."""
         books_dir = Path(books_dir)
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        images = self._collect_images(books_dir)
+        images = self._collect_images(books_dir, subject)
         if not images:
-            raise FileNotFoundError(f"No images found in {books_dir}")
+            where = f"{books_dir}/{subject}" if subject else str(books_dir)
+            raise FileNotFoundError(f"No images found in {where}")
 
         selected = random.sample(images, min(num_images, len(images)))
-        logger.info("Selected images", count=len(selected), books_dir=books_dir)
+        logger.info(
+            "Selected images",
+            count=len(selected),
+            books_dir=books_dir,
+            subject=subject or "all",
+        )
 
         counts = self._save_images(selected, output_dir, "Saving images")
         logger.info(

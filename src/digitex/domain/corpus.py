@@ -78,14 +78,17 @@ def book_subjects(books_dir: Path) -> list[str]:
     return sorted(path.name for path in books_dir.iterdir() if path.is_dir())
 
 
-def walk_book_pages(books_dir: Path, variant: str) -> Iterator[Path]:
-    """Every scanned page of every subject, in one variant.
+def walk_book_pages(
+    books_dir: Path, variant: str, subject: str | None = None
+) -> Iterator[Path]:
+    """Every scanned page in one variant, of *subject* or of every subject.
 
     Answer sheets are not pages and are not yielded — they sit beside
-    ``images`` rather than under it.
+    ``pages`` rather than under it.
     """
-    for subject in book_subjects(books_dir):
-        pages_dir = book_pages_dir(books_dir, subject, variant)
+    subjects = [subject] if subject is not None else book_subjects(books_dir)
+    for name in subjects:
+        pages_dir = book_pages_dir(books_dir, name, variant)
         if not pages_dir.is_dir():
             continue
         for path in sorted(pages_dir.rglob("*")):

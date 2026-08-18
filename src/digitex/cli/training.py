@@ -11,6 +11,7 @@ import typer
 
 from digitex.cli._shared import abort
 from digitex.config import Settings, get_settings
+from digitex.domain.corpus import book_subjects
 from digitex.logging import setup_logging
 
 app = typer.Typer(help="YOLO model training for document segmentation.")
@@ -105,6 +106,9 @@ def add_images(
 
 @app.command(name="select-random-pages")
 def select_random_pages(
+    subject: str | None = typer.Argument(
+        None, help="Subject to sample; omit to sample every subject"
+    ),
     num_images: int = typer.Option(
         100, "--num-images", help="Number of page images to sample"
     ),
@@ -116,14 +120,26 @@ def select_random_pages(
     data = settings.pipeline.data
     page_train_dir = _data_dir(settings, "page") / data.images_dir_name
 
+    # A typo would otherwise read as "this subject has no pages" and abort with
+    # the same message as an empty archive.
+    subjects = book_subjects(settings.paths.books_dir)
+    if subject is not None and subject not in subjects:
+        raise abort(
+            f"Error: unknown subject {subject!r};"
+            f" the archive holds: {', '.join(subjects) or 'nothing'}"
+        )
+
     PageDataCreator(image_size=data.image_size).create(
         books_dir=settings.paths.books_dir,
         output_dir=page_train_dir,
         num_images=num_images,
+        subject=subject,
     )
     typer.echo(
         typer.style(
-            f"✓ Selected {num_images} random pages into {page_train_dir}", fg="green"
+            f"✓ Sampled up to {num_images} pages"
+            f" from {subject or 'every subject'} into {page_train_dir}",
+            fg="green",
         )
     )
 

@@ -174,6 +174,29 @@ class TestCreate:
             creator.create(books_dir, output_dir, num_images=1)
 
 
+class TestCreateOneSubject:
+    """Sampling one subject, so a new book can be annotated on its own."""
+
+    def test_only_the_named_subject_is_sampled(
+        self, books_dir: Path, output_dir: Path, creator: PageDataCreator
+    ) -> None:
+        _page(books_dir, "biology/processed/pages/2024/page1.jpg", size=(100, 100))
+        _page(books_dir, "chemistry/processed/pages/2024/page1.jpg", size=(100, 100))
+
+        creator.create(books_dir, output_dir, num_images=99, subject="biology")
+
+        assert [p.name for p in output_dir.glob("*.jpg")] == ["biology_2024_page1.jpg"]
+
+    def test_a_subject_with_no_pages_is_a_failure_naming_it(
+        self, books_dir: Path, output_dir: Path, creator: PageDataCreator
+    ) -> None:
+        """Otherwise the message blames the whole archive for one empty book."""
+        _page(books_dir, "biology/processed/pages/2024/page1.jpg", size=(100, 100))
+
+        with pytest.raises(FileNotFoundError, match="chemistry"):
+            creator.create(books_dir, output_dir, num_images=1, subject="chemistry")
+
+
 class TestAddFromFile:
     """The hand-written list, whose paths nothing has validated."""
 

@@ -222,6 +222,33 @@ class TestWalkBookPages:
             "chemistry/processed/pages/2016/001.png",
         ]
 
+    def test_one_subject_yields_only_its_own_pages(self, tmp_path: Path) -> None:
+        books = tmp_path / "books"
+        for rel in (
+            "biology/processed/pages/2016/001.png",
+            "chemistry/processed/pages/2016/001.png",
+        ):
+            path = books / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"x")
+
+        found = list(walk_book_pages(books, PROCESSED, "biology"))
+
+        assert [p.relative_to(books).as_posix() for p in found] == [
+            "biology/processed/pages/2016/001.png"
+        ]
+
+    def test_a_subject_the_archive_does_not_hold_yields_nothing(
+        self, tmp_path: Path
+    ) -> None:
+        """A caller filtering on a typo gets no pages, not every subject's."""
+        books = tmp_path / "books"
+        page = books / "biology/processed/pages/2016/001.png"
+        page.parent.mkdir(parents=True)
+        page.write_bytes(b"x")
+
+        assert list(walk_book_pages(books, PROCESSED, "bilogy")) == []
+
 
 class TestNaturalSortKey:
     def test_orders_embedded_numbers_numerically(self) -> None:
