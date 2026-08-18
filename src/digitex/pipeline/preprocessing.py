@@ -1,6 +1,7 @@
 """Get the scan archive into the shape everything downstream reads.
 
-Two passes over ``books/{subject}/raw/``, both safe to re-run:
+Two passes over ``books/{subject}/raw/``, both safe to re-run, and
+:func:`preprocess_scans` runs them in order:
 
 - :func:`rename_pages` gives every page its canonical ``{number}.{ext}``,
   numbered in reading order within its year. Scanner exports arrive named for
@@ -66,11 +67,13 @@ class PreprocessResult:
 
     ``skipped`` is scans already processed, which is the steady state — a run
     that processes nothing and skips everything is the archive being up to
-    date, not a failure.
+    date, not a failure. ``renamed`` is the pages the run gave a canonical name
+    before correcting anything.
     """
 
     processed: int = 0
     skipped: int = 0
+    renamed: int = 0
     errors: list[str] = field(default_factory=list)
 
     @property
@@ -141,7 +144,12 @@ def _plan(books_dir: Path, *, force: bool) -> tuple[list[tuple[Path, Path]], int
 
 
 def preprocess_scans(books_dir: Path, *, force: bool = False) -> PreprocessResult:
-    """Correct every subject's raw scans into its processed tree.
+    """Name every page canonically, then correct the raw scans into *processed*.
+
+    :func:`rename_pages` runs first, because a processed scan is written under
+    its raw page's name: correcting a page called ``bio.01.png`` and renaming
+    afterwards would move a file this run had just written, and a run that
+    stopped in between would leave the archive half-named.
 
     Scans go out to worker processes: the filter is seconds of arithmetic each
     and no scan depends on another. One that cannot be read is counted and
@@ -157,10 +165,14 @@ def preprocess_scans(books_dir: Path, *, force: bool = False) -> PreprocessResul
     if not books_dir.exists():
         raise DirectoryNotFoundError(books_dir)
 
+    rename = rename_pages(books_dir)
+
     work, skipped = _plan(books_dir, force=force)
     if not work:
         logger.info("Nothing to preprocess", books_dir=str(books_dir), skipped=skipped)
-        return PreprocessResult(skipped=skipped)
+        return PreprocessResult(
+            skipped=skipped, renamed=rename.renamed, errors=rename.errors
+        )
 
     # Once, here, rather than racing to create the same year directory from
     # twenty workers.
@@ -193,10 +205,14 @@ def preprocess_scans(books_dir: Path, *, force: bool = False) -> PreprocessResul
         books_dir=str(books_dir),
         processed=len(work) - len(errors),
         skipped=skipped,
-        failed=len(errors),
+        renamed=rename.renamed,
+        failed=len(errors) + rename.failed,
     )
     return PreprocessResult(
-        processed=len(work) - len(errors), skipped=skipped, errors=errors
+        processed=len(work) - len(errors),
+        skipped=skipped,
+        renamed=rename.renamed,
+        errors=rename.errors + errors,
     )
 
 

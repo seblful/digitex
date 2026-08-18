@@ -6,7 +6,6 @@ Extract question images from test books using YOLO segmentation.
 
 ```bash
 # Prepare a new batch of scans: canonical names, then corrected pixels
-digitex-extract rename-pages
 digitex-extract preprocess-scans
 
 # Extract questions from a specific subject
@@ -45,11 +44,13 @@ model is trained and run on the same rendering of a page.
 ## Adding a batch of scans
 
 Drop the scanner's output into `var/books/{subject}/raw/pages/{year}/` and run
-the two preparation commands. Both are safe to re-run and only touch what is new.
+`preprocess-scans`. It renames first and corrects second, and is safe to re-run:
+it only touches what is new.
 
 ### `rename-pages`
 
-Renumber every page to its canonical zero-padded name.
+Renumber every page to its canonical zero-padded name. `preprocess-scans` runs
+this pass itself, so reach for it alone only to rename without correcting.
 
 ```bash
 digitex-extract rename-pages
@@ -82,6 +83,8 @@ digitex-extract preprocess-scans [--force]
 
 **Process:**
 
+1. Renames every page to `001`, `002`, … — the `rename-pages` pass above, run
+   first so a scanner's own naming never reaches the processed tree
 1. Walks `var/books/{subject}/raw/` — pages and answer sheets alike
 1. Flattens uneven illumination — gutter shadows, the sag where a page lifted
    off the glass — by dividing out a per-tile estimate of the paper's

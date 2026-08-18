@@ -68,8 +68,7 @@ var/training/{data,runs}/             YOLO datasets and run outputs
 ## CLI Commands
 
 ```bash
-# Prepare raw scans into var/books/{subject}/processed/
-digitex-extract rename-pages
+# Prepare raw scans into var/books/{subject}/processed/ (renames, then corrects)
 digitex-extract preprocess-scans
 
 # Extract question images from books

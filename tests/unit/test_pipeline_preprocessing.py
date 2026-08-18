@@ -168,6 +168,29 @@ class TestPreprocessScans:
         assert (processed / "2016" / "001.png").exists()
         assert (processed / "2017" / "001.png").exists()
 
+    def test_a_page_is_renamed_before_it_is_corrected(self, books_dir: Path) -> None:
+        """The processed twin takes the raw page's name, so the order decides it.
+
+        Correcting first would write ``bio.01.png`` and then move it, and a run
+        that stopped in between would leave the two variants disagreeing.
+        """
+        _scan(books_dir / "biology" / "raw" / "pages" / "2016" / "bio.01.jpg")
+
+        result = preprocess_scans(books_dir)
+
+        assert result.renamed == 1
+        assert (books_dir / "biology" / "raw" / "pages" / "2016" / "001.jpg").exists()
+        processed = books_dir / "biology" / "processed" / "pages" / "2016"
+        assert [p.name for p in processed.iterdir()] == ["001.png"]
+
+    def test_pages_already_named_right_are_not_renamed_again(
+        self, books_dir: Path
+    ) -> None:
+        """The steady state: every run renames nothing and reports as much."""
+        _scan(books_dir / "biology" / "raw" / "pages" / "2016" / "001.jpg")
+
+        assert preprocess_scans(books_dir).renamed == 0
+
 
 class TestRenamePages:
     def test_pages_are_renumbered_in_reading_order_and_padded(

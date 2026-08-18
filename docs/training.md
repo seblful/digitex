@@ -154,7 +154,6 @@ Run from the project root directory:
 
 ```bash
 # Step 0: Prepare any new raw scans (canonical names, then corrected pixels)
-uv run digitex-extract rename-pages
 uv run digitex-extract preprocess-scans
 
 # Step 1: Add images for annotation

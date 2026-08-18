@@ -148,11 +148,14 @@ def preprocess_scans(
 ) -> None:
     """Correct the raw scans into the processed tree the rest of the pipeline reads.
 
-    Flattens gutter shadows out of the paper, burns its gray out to white,
-    averages the scanner grain away and cuts off the scanner's white canvas,
-    writing var/books/{subject}/raw/ to the matching path under
-    var/books/{subject}/processed/. Answer sheets skip the shadow flatten so
-    their printed shading survives; everything else applies to them too.
+    Renames every page to its canonical 001, 002, … first — the same pass
+    rename-pages runs — so a scanner's own naming never reaches the processed
+    tree. Then flattens gutter shadows out of the paper, burns its gray out to
+    white, averages the scanner grain away and cuts off the scanner's white
+    canvas, writing var/books/{subject}/raw/ to the matching path under
+    var/books/{subject}/processed/. Answer sheets keep their {year}_{n} names
+    and skip the shadow flatten so their printed shading survives; everything
+    else applies to them too.
 
     Safely re-runnable: scans already processed are skipped unless --force.
     Note that --force can move edges, and annotations drawn on a processed page
@@ -169,8 +172,9 @@ def preprocess_scans(
 
     typer.echo(
         typer.style(
-            f"✓ Processed {result.processed} scan(s), skipped {result.skipped}"
-            f" already done → {settings.paths.books_dir}",
+            f"✓ Renamed {result.renamed} page(s), processed {result.processed}"
+            f" scan(s), skipped {result.skipped} already done"
+            f" → {settings.paths.books_dir}",
             fg="green",
         )
     )
