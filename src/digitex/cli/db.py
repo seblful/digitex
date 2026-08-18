@@ -87,12 +87,14 @@ def populate(
     settings = get_settings()
     output_dir = settings.paths.extraction_output_dir
     _require_dir(output_dir, "Extraction output")
+    # Not required: a subject with no topics.json seeds its questions anyway.
+    books_dir = settings.paths.books_dir
 
     async def _run() -> None:
         # The null pool, not the app's: this is a one-shot command, and
         # AsyncConnectionPool's background workers stall on Windows.
         async with null_pool_lifespan(settings.database) as pool:
-            await populate_db(pool, output_dir, subject)
+            await populate_db(pool, output_dir, books_dir, subject)
 
     run_async(_run())
     typer.echo("\nDone.")

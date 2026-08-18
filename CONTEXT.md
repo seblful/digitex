@@ -13,7 +13,7 @@ ______________________________________________________________________
 ## Domain entities
 
 - **Book** — a directory of scanned page images for one exam subject and year
-  (`books/<subject>/raw/images/<year>/`, mirrored corrected under
+  (`books/<subject>/raw/pages/<year>/`, mirrored corrected under
   `books/<subject>/processed/`). The raw input to extraction.
 - **Page** — a single image inside a Book. May contain multiple Questions.
 - **Question** — one exam question. Identified by `(subject, year, option, part, number)`. Stored as a cropped image plus optional OCR text.

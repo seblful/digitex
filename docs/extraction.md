@@ -30,10 +30,11 @@ Every subject keeps its scans in two variants of the same shape:
 
 ```
 var/books/{subject}/
-├── raw/images/{year}/{page}.png       scans as they came off the scanner
+├── raw/pages/{year}/{page}.png       scans as they came off the scanner
 ├── raw/answers/{year}_{n}.png         answer sheets
-├── processed/images/{year}/{page}.png the same pages, corrected
-└── processed/answers/{year}_{n}.png   the same sheets, corrected
+├── processed/pages/{year}/{page}.png the same pages, corrected
+├── processed/answers/{year}_{n}.png   the same sheets, corrected
+└── topics.json                        hand-written topic map, seeded into the db
 ```
 
 `raw/` is the irreplaceable one — back it up, never write to it. `processed/` is
@@ -43,7 +44,7 @@ model is trained and run on the same rendering of a page.
 
 ## Adding a batch of scans
 
-Drop the scanner's output into `var/books/{subject}/raw/images/{year}/` and run
+Drop the scanner's output into `var/books/{subject}/raw/pages/{year}/` and run
 the two preparation commands. Both are safe to re-run and only touch what is new.
 
 ### `rename-pages`
@@ -56,7 +57,7 @@ digitex-extract rename-pages
 
 **Process:**
 
-1. Walks `var/books/{subject}/raw/images/{year}/`, one year at a time
+1. Walks `var/books/{subject}/raw/pages/{year}/`, one year at a time
 1. Sorts each year in reading order and renames the pages `001`, `002`, …,
    keeping each file's own format
 1. Moves each page's processed twin with it, so the two variants never disagree
@@ -121,7 +122,7 @@ digitex-extract extract-questions <SUBJECT> [--review]
 
 **Process:**
 
-1. Reads images from `var/books/{subject}/processed/images/{year}/`
+1. Reads images from `var/books/{subject}/processed/pages/{year}/`
 1. Uses YOLO model to detect questions, options, and parts
 1. Reads the option number and part letter off their markers with OCR
 1. Numbers each question from those markers, continuing across pages
@@ -224,19 +225,19 @@ Everything below lives under the data root — `var/` by default, or wherever
 ```
 var/
 ├── books/
-│   ├── raw/
-│   │   └── {subject}/
-│   │       ├── images/
-│   │       │   ├── 2020/
-│   │       │   │   ├── page1.jpg
-│   │       │   │   └── page2.jpg
-│   │       │   └── 2021/
-│   │       └── answers/
-│   │           ├── 2020_1.jpg
-│   │           └── 2020_2.jpg
-│   └── processed/
-│       └── {subject}/
-│           └── images/
+│   └── {subject}/
+│       ├── topics.json
+│       ├── raw/
+│       │   ├── pages/
+│       │   │   ├── 2020/
+│       │   │   │   ├── page1.jpg
+│       │   │   │   └── page2.jpg
+│       │   │   └── 2021/
+│       │   └── answers/
+│       │       ├── 2020_1.jpg
+│       │       └── 2020_2.jpg
+│       └── processed/
+│           └── pages/
 │               └── 2020/
 │                   ├── page1.png
 │                   └── page2.png
@@ -307,7 +308,7 @@ Common errors and solutions:
 | Error | Solution |
 | ----------------- | ------------------------------------------ |
 | Subject not found | Check subject name matches folder |
-| No images folder | Create `var/books/{subject}/raw/images/`, then `preprocess-scans` |
+| No pages folder | Create `var/books/{subject}/raw/pages/`, then `preprocess-scans` |
 | API key not set | Set `OPENROUTER_API_KEY` environment variable |
 | Model not found | Put it at `{PATH_DATA_ROOT}/models/page.pt` |
 

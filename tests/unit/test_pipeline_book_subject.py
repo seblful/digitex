@@ -232,21 +232,21 @@ class TestSubjectExtractor:
         assert not result.success
         assert "Subject 'nonexistent' not found" in result.errors[0]
 
-    def test_extract_fails_without_images_folder(self, tmp_path: Path) -> None:
+    def test_extract_fails_without_pages_folder(self, tmp_path: Path) -> None:
         (tmp_path / "books" / "math").mkdir(parents=True)
         result = self._extractor(tmp_path).extract("math")
         assert not result.success
-        assert "No processed images folder found" in result.errors[0]
+        assert "No processed pages folder found" in result.errors[0]
 
-    def test_extract_warns_on_empty_images_folder(self, tmp_path: Path) -> None:
-        (tmp_path / "books" / "math" / "processed" / "images").mkdir(parents=True)
+    def test_extract_warns_on_empty_pages_folder(self, tmp_path: Path) -> None:
+        (tmp_path / "books" / "math" / "processed" / "pages").mkdir(parents=True)
         result = self._extractor(tmp_path).extract("math")
         assert result.success
         assert result.processed == 0
         assert len(result.warnings) > 0
 
     def test_extract_skips_completed_years(self, tmp_path: Path) -> None:
-        year_dir = tmp_path / "books" / "math" / "processed" / "images" / "2020"
+        year_dir = tmp_path / "books" / "math" / "processed" / "pages" / "2020"
         year_dir.mkdir(parents=True)
         (year_dir / "page1.jpg").touch()
         (year_dir / "page2.jpg").touch()
@@ -266,7 +266,7 @@ class TestSubjectExtractor:
     def test_extract_records_finished_years_in_the_progress_file(
         self, tmp_path: Path
     ) -> None:
-        year_dir = tmp_path / "books" / "math" / "processed" / "images" / "2020"
+        year_dir = tmp_path / "books" / "math" / "processed" / "pages" / "2020"
         year_dir.mkdir(parents=True)
         _write_page(year_dir, "page_1.jpg")
 
@@ -293,7 +293,7 @@ class TestSubjectExtractor:
         Blocking ``mark_completed`` on them would leave a resumed year
         unfinished forever; they carry up as warnings instead.
         """
-        year_dir = tmp_path / "books" / "math" / "processed" / "images" / "2020"
+        year_dir = tmp_path / "books" / "math" / "processed" / "pages" / "2020"
         year_dir.mkdir(parents=True)
         _write_page(year_dir, "page_1.jpg")
 
@@ -318,7 +318,7 @@ class TestSubjectExtractor:
         BookExtractor reports ``success=True`` alongside per-page errors, and a
         year written to the progress file is skipped on every later run.
         """
-        year_dir = tmp_path / "books" / "math" / "processed" / "images" / "2020"
+        year_dir = tmp_path / "books" / "math" / "processed" / "pages" / "2020"
         year_dir.mkdir(parents=True)
         _write_page(year_dir, "page_1.jpg")
         _write_page(year_dir, "page_2.jpg")
@@ -343,7 +343,7 @@ class TestSubjectExtractor:
         the progress file is never retried — so scans copied in afterwards
         would be skipped forever.
         """
-        (tmp_path / "books" / "math" / "processed" / "images" / "2020").mkdir(
+        (tmp_path / "books" / "math" / "processed" / "pages" / "2020").mkdir(
             parents=True
         )
         data_dir = tmp_path / "data"

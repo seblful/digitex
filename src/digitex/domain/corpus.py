@@ -2,10 +2,11 @@
 
 The corpus lives in two trees:
 
-- book archive:      ``books/{subject}/{variant}/images/{year}/{page}.{ext}``
+- book archive:      ``books/{subject}/{variant}/pages/{year}/{page}.{ext}``
   and ``books/{subject}/{variant}/answers/{year}_{n}.{ext}``, where *variant*
   is ``raw`` (the scans as they arrived) or ``processed`` (the same files,
-  corrected, file for file)
+  corrected, file for file), plus a per-subject ``topics.json`` above both
+  variants
 - extraction output: ``output/{subject}/{year}/{option}/{part}/{number}.{ext}``
   plus a per-year ``answers.json``
 
@@ -53,12 +54,21 @@ def book_variant_dir(books_dir: Path, subject: str, variant: str) -> Path:
 
 def book_pages_dir(books_dir: Path, subject: str, variant: str) -> Path:
     """Where a subject's scanned pages live, a directory per year below."""
-    return book_variant_dir(books_dir, subject, variant) / "images"
+    return book_variant_dir(books_dir, subject, variant) / "pages"
 
 
 def book_answers_dir(books_dir: Path, subject: str, variant: str) -> Path:
     """Where a subject's answer sheets live."""
     return book_variant_dir(books_dir, subject, variant) / "answers"
+
+
+def book_topics_file(books_dir: Path, subject: str) -> Path:
+    """Where a subject's topic map lives — hand-written, so above the variants.
+
+    Topics name questions by year and key, not by scan, so the file belongs to
+    the subject rather than to ``raw`` or ``processed``.
+    """
+    return books_dir / subject / "topics.json"
 
 
 def book_subjects(books_dir: Path) -> list[str]:
@@ -217,21 +227,21 @@ def parse_answer_sheet_stem(stem: str) -> tuple[int, int] | None:
 
 
 def parse_book_page_path(page_path: Path) -> tuple[str, str]:
-    """Extract (subject, year) from ``{subject}/{variant}/images/{year}/{page}``.
+    """Extract (subject, year) from ``{subject}/{variant}/pages/{year}/{page}``.
 
-    Anchored on the ``images`` segment — the subject sits two above it, the
+    Anchored on the ``pages`` segment — the subject sits two above it, the
     year directly below — so a page parses the same in either variant, and a
     raw page and its processed twin give the same
     :func:`training_page_name`.
 
     Raises:
-        ValueError: If the path has no ``images`` segment, or the segment sits
+        ValueError: If the path has no ``pages`` segment, or the segment sits
             too near an end for a subject and a year to be around it.
     """
     parts = page_path.parts
-    marker = parts.index("images") if "images" in parts else 0
+    marker = parts.index("pages") if "pages" in parts else 0
     # Two above and one below is the whole rule; anything shorter is some other
-    # tree that happens to have an ``images`` directory in it.
+    # tree that happens to have a ``pages`` directory in it.
     if marker < 2 or marker + 1 >= len(parts):
         raise ValueError(f"No subject/year segment in {page_path}")
     return parts[marker - 2], parts[marker + 1]

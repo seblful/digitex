@@ -49,8 +49,9 @@ or wherever `PATH_DATA_ROOT` points — so the checkout stays small and an
 installed package never guesses where a corpus is.
 
 ```
-var/books/{subject}/raw/images/{year}/…       scanned pages, the raw input
-var/books/{subject}/processed/images/{year}/… the same pages, corrected
+var/books/{subject}/raw/pages/{year}/…       scanned pages, the raw input
+var/books/{subject}/processed/pages/{year}/… the same pages, corrected
+var/books/{subject}/topics.json              the topic map, seeded into the db
 var/extraction/output/…               question images, the corpus the bot serves
 var/models/page.pt                    the segmentation checkpoint
 var/training/{data,runs}/             YOLO datasets and run outputs

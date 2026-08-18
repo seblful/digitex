@@ -1,9 +1,10 @@
 """Load extraction output into the database, and check that it still matches.
 
 The on-disk corpus (``{subject}/{year}/{option}/{part}/{n}.png`` plus its
-``answers.json`` and ``topic_to_year.json``) becomes rows. Every write goes
-through ``get_or_create``, so a re-run of the same output is a no-op rather
-than a duplicate — which is what makes re-seeding after new extractions safe.
+``answers.json``) becomes rows, and so does the book archive's per-subject
+``topics.json``. Every write goes through ``get_or_create``, so a re-run of the
+same output is a no-op rather than a duplicate — which is what makes re-seeding
+after new extractions safe.
 
 Images are the exception to "becomes rows": the file stays on disk and the row
 records its key and content hash. That buys a small database and a cheap seed,
@@ -25,6 +26,7 @@ from tqdm import tqdm
 
 from digitex.db import UnitOfWork
 from digitex.domain.corpus import (
+    book_topics_file,
     file_digest,
     question_image_number,
     question_object_key,
@@ -129,12 +131,11 @@ async def _populate_year(
 
 
 async def _populate_topics(
-    pool: AsyncConnectionPool, subject_id: int, subject_dir: Path
+    pool: AsyncConnectionPool, subject_id: int, topics_file: Path
 ) -> int:
-    """Populate question_topics from topic_to_year.json. Returns mapping count."""
-    topics_file = subject_dir / "topic_to_year.json"
+    """Populate question_topics from topics.json. Returns mapping count."""
     if not topics_file.exists():
-        tqdm.write(f"  No topic_to_year.json in {subject_dir}, skipping topics")
+        tqdm.write(f"  No {topics_file}, skipping topics")
         return 0
 
     topics_data = json.loads(topics_file.read_text(encoding="utf-8"))
@@ -171,9 +172,13 @@ async def _populate_topics(
 
 
 async def populate_subject(
-    pool: AsyncConnectionPool, output_dir: Path, subject: str
+    pool: AsyncConnectionPool, output_dir: Path, books_dir: Path, subject: str
 ) -> None:
-    """Load one subject's years, then its topic mappings."""
+    """Load one subject's years from *output_dir*, then its topic mappings.
+
+    The topic map is hand-written and lives in the book archive, not in the
+    extraction output, so both roots are needed.
+    """
     subject_dir = output_dir / subject
     if not subject_dir.exists():
         tqdm.write(f"Not found: {subject_dir}")
@@ -199,17 +204,22 @@ async def populate_subject(
             )
         tqdm.write(f"  {year_dir.name}: {questions} questions, {answers} answers")
 
-    topic_count = await _populate_topics(pool, subject_id, subject_dir)
+    topic_count = await _populate_topics(
+        pool, subject_id, book_topics_file(books_dir, subject)
+    )
     if topic_count:
         tqdm.write(f"  {topic_count} topic mappings loaded")
 
 
 async def populate(
-    pool: AsyncConnectionPool, output_dir: Path, subject: str | None = None
+    pool: AsyncConnectionPool,
+    output_dir: Path,
+    books_dir: Path,
+    subject: str | None = None,
 ) -> None:
     """Load *subject* from *output_dir*, or every subject found there."""
     if subject is not None:
-        await populate_subject(pool, output_dir, subject)
+        await populate_subject(pool, output_dir, books_dir, subject)
         return
 
     subjects = sorted(d.name for d in output_dir.iterdir() if d.is_dir())
@@ -218,7 +228,7 @@ async def populate(
         return
 
     for name in subjects:
-        await populate_subject(pool, output_dir, name)
+        await populate_subject(pool, output_dir, books_dir, name)
 
 
 # ---------------------------------------------------------------------------

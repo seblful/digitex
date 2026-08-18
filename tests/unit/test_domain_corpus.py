@@ -144,7 +144,7 @@ class TestAnswerSheetStem:
 
 class TestBookPagePath:
     def test_round_trip_with_training_page_name(self) -> None:
-        page = Path("books") / "biology" / "raw" / "images" / "2008" / "012.jpg"
+        page = Path("books") / "biology" / "raw" / "pages" / "2008" / "012.jpg"
         subject, year = parse_book_page_path(page)
         assert (subject, year) == ("biology", "2008")
         assert training_page_name(subject, year, page.stem) == "biology_2008_012.jpg"
@@ -152,12 +152,12 @@ class TestBookPagePath:
     def test_a_page_and_its_processed_twin_name_the_same_thing(self) -> None:
         """The property the training pool rests on: one page, one pool name.
 
-        The variant segment sits between the subject and ``images``, so reading
-        the subject as ``images``' parent would name every processed page
+        The variant segment sits between the subject and ``pages``, so reading
+        the subject as ``pages``' parent would name every processed page
         ``processed_2008_…`` and every raw one ``raw_2008_…``.
         """
-        raw = Path("books/biology/raw/images/2008/012.jpg")
-        processed = Path("books/biology/processed/images/2008/012.png")
+        raw = Path("books/biology/raw/pages/2008/012.jpg")
+        processed = Path("books/biology/processed/pages/2008/012.png")
 
         assert parse_book_page_path(raw) == parse_book_page_path(processed)
         assert training_page_name(*parse_book_page_path(processed), processed.stem) == (
@@ -168,21 +168,21 @@ class TestBookPagePath:
         "raw",
         [
             "scans/biology/2008/12.jpg",
-            "books/biology/raw/images",
+            "books/biology/raw/pages",
             "books",
-            "raw/images/2008/12.jpg",
+            "raw/pages/2008/12.jpg",
         ],
         ids=[
             "no-marker-segment",
-            "nothing-after-images",
-            "no-images-at-all",
-            "no-subject-above-images",
+            "nothing-after-pages",
+            "no-pages-at-all",
+            "no-subject-above-pages",
         ],
     )
     def test_unusable_paths_all_raise_value_error(self, raw: str) -> None:
         """A marker too near either end has no subject or no year around it.
 
-        Reading back two segments from an ``images`` at index 1 wraps around to
+        Reading back two segments from a ``pages`` at index 1 wraps around to
         the end of the path, which would return a filename as the subject.
         """
         with pytest.raises(ValueError, match="No subject/year segment"):
@@ -206,10 +206,10 @@ class TestWalkBookPages:
         """Annotating a raw page teaches the model a rendering it never sees."""
         books = tmp_path / "books"
         for rel in (
-            "biology/processed/images/2016/001.png",
+            "biology/processed/pages/2016/001.png",
             "biology/processed/answers/2016_1.png",
-            "biology/raw/images/2016/001.jpg",
-            "chemistry/processed/images/2016/001.png",
+            "biology/raw/pages/2016/001.jpg",
+            "chemistry/processed/pages/2016/001.png",
         ):
             path = books / rel
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -218,8 +218,8 @@ class TestWalkBookPages:
         found = list(walk_book_pages(books, PROCESSED))
 
         assert [p.relative_to(books).as_posix() for p in found] == [
-            "biology/processed/images/2016/001.png",
-            "chemistry/processed/images/2016/001.png",
+            "biology/processed/pages/2016/001.png",
+            "chemistry/processed/pages/2016/001.png",
         ]
 
 

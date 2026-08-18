@@ -75,21 +75,21 @@ class SubjectExtractor:
 
         # The processed variant, never the raw one: the segmentation model is
         # trained on corrected pages, so it has to be shown corrected pages.
-        images_dir = book_pages_dir(self.books_dir, subject, PROCESSED)
+        pages_dir = book_pages_dir(self.books_dir, subject, PROCESSED)
 
-        if not images_dir.exists():
-            logger.warning("No images folder found", subject_dir=str(subject_dir))
+        if not pages_dir.exists():
+            logger.warning("No pages folder found", subject_dir=str(subject_dir))
             return ExtractionResult.failure_result(
                 errors=[
-                    f"No processed images folder found for subject '{subject}';"
+                    f"No processed pages folder found for subject '{subject}';"
                     " run preprocess-scans first"
                 ]
             )
 
-        year_dirs = [d for d in images_dir.iterdir() if d.is_dir()]
+        year_dirs = [d for d in pages_dir.iterdir() if d.is_dir()]
 
         if not year_dirs:
-            logger.warning("No year folders found", images_dir=str(images_dir))
+            logger.warning("No year folders found", pages_dir=str(pages_dir))
             return ExtractionResult.success_result(
                 processed=0, warnings=[f"No year folders found for subject '{subject}'"]
             )

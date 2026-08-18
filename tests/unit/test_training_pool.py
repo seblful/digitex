@@ -63,7 +63,7 @@ class TestSaveOutcome:
     def test_an_unrecognized_path_is_counted_apart_from_an_existing_one(
         self, tmp_path: Path, output_dir: Path, creator: PageDataCreator
     ) -> None:
-        recognized = _page(tmp_path, "books/biology/processed/images/2016/001.jpg")
+        recognized = _page(tmp_path, "books/biology/processed/pages/2016/001.jpg")
         unrecognized = _page(tmp_path, "scans/2016/1.jpg")
 
         first = creator._save_images([recognized], output_dir, "t")
@@ -77,8 +77,8 @@ class TestSaveOutcome:
     def test_a_directory_path_is_unrecognized_not_a_crash(
         self, tmp_path: Path, output_dir: Path, creator: PageDataCreator
     ) -> None:
-        """A year-less ``images`` directory passes exists() and used to raise."""
-        directory = tmp_path / "books" / "biology" / "processed" / "images"
+        """A year-less ``pages`` directory passes exists() and used to raise."""
+        directory = tmp_path / "books" / "biology" / "processed" / "pages"
         directory.mkdir(parents=True)
 
         counts = creator._save_images([directory], output_dir, "t")
@@ -91,7 +91,7 @@ class TestCreate:
         self, books_dir: Path, output_dir: Path, creator: PageDataCreator
     ) -> None:
         """The pool is flat, so subject and year have to survive in the name."""
-        _page(books_dir, "math/processed/images/2024/page1.jpg")
+        _page(books_dir, "math/processed/pages/2024/page1.jpg")
 
         creator.create(books_dir, output_dir, num_images=1)
 
@@ -100,7 +100,7 @@ class TestCreate:
     def test_pages_are_resized_to_the_training_size(
         self, books_dir: Path, output_dir: Path, creator: PageDataCreator
     ) -> None:
-        _page(books_dir, "math/processed/images/2024/page1.jpg", size=(400, 400))
+        _page(books_dir, "math/processed/pages/2024/page1.jpg", size=(400, 400))
 
         creator.create(books_dir, output_dir, num_images=1)
 
@@ -111,7 +111,7 @@ class TestCreate:
         self, books_dir: Path, output_dir: Path, creator: PageDataCreator
     ) -> None:
         """A squashed page would teach the model the wrong proportions."""
-        _page(books_dir, "math/processed/images/2024/page1.jpg", size=(400, 200))
+        _page(books_dir, "math/processed/pages/2024/page1.jpg", size=(400, 200))
 
         creator.create(books_dir, output_dir, num_images=1)
 
@@ -124,7 +124,7 @@ class TestCreate:
         """The pool is written as JPEG, which has no alpha channel to write."""
         _page(
             books_dir,
-            "math/processed/images/2024/page1.png",
+            "math/processed/pages/2024/page1.png",
             mode="RGBA",
             size=(100, 100),
         )
@@ -138,7 +138,7 @@ class TestCreate:
         self, books_dir: Path, output_dir: Path, creator: PageDataCreator
     ) -> None:
         for i in range(5):
-            _page(books_dir, f"math/processed/images/2024/page{i}.jpg", size=(100, 100))
+            _page(books_dir, f"math/processed/pages/2024/page{i}.jpg", size=(100, 100))
 
         creator.create(books_dir, output_dir, num_images=3)
 
@@ -148,7 +148,7 @@ class TestCreate:
         self, books_dir: Path, output_dir: Path, creator: PageDataCreator
     ) -> None:
         for i in range(2):
-            _page(books_dir, f"math/processed/images/2024/page{i}.jpg", size=(100, 100))
+            _page(books_dir, f"math/processed/pages/2024/page{i}.jpg", size=(100, 100))
 
         creator.create(books_dir, output_dir, num_images=99)
 
@@ -157,7 +157,7 @@ class TestCreate:
     def test_the_output_directory_is_created_when_missing(
         self, books_dir: Path, tmp_path: Path, creator: PageDataCreator
     ) -> None:
-        _page(books_dir, "math/processed/images/2024/page1.jpg", size=(100, 100))
+        _page(books_dir, "math/processed/pages/2024/page1.jpg", size=(100, 100))
         nested = tmp_path / "output" / "nested"
 
         creator.create(books_dir, nested, num_images=1)
@@ -184,7 +184,7 @@ class TestAddFromFile:
         output_dir: Path,
         creator: PageDataCreator,
     ) -> None:
-        page = _page(books_dir, "math/processed/images/2024/page1.jpg", size=(100, 100))
+        page = _page(books_dir, "math/processed/pages/2024/page1.jpg", size=(100, 100))
         listing = tmp_path / "pages.txt"
         listing.write_text(f"{page}\n", encoding="utf-8")
 
@@ -200,10 +200,10 @@ class TestAddFromFile:
         creator: PageDataCreator,
     ) -> None:
         """The list is typed by hand, so one bad line must not lose the rest."""
-        page = _page(books_dir, "math/processed/images/2024/page1.jpg", size=(100, 100))
+        page = _page(books_dir, "math/processed/pages/2024/page1.jpg", size=(100, 100))
         listing = tmp_path / "pages.txt"
         listing.write_text(
-            f"{books_dir / 'math/processed/images/2024/gone.jpg'}\n{page}\n",
+            f"{books_dir / 'math/processed/pages/2024/gone.jpg'}\n{page}\n",
             encoding="utf-8",
         )
 
@@ -220,11 +220,9 @@ class TestAddFromFile:
         creator: PageDataCreator,
     ) -> None:
         """It has to sit between two entries — the file's own ends are stripped."""
-        first = _page(
-            books_dir, "math/processed/images/2024/page1.jpg", size=(100, 100)
-        )
+        first = _page(books_dir, "math/processed/pages/2024/page1.jpg", size=(100, 100))
         second = _page(
-            books_dir, "math/processed/images/2024/page2.jpg", size=(100, 100)
+            books_dir, "math/processed/pages/2024/page2.jpg", size=(100, 100)
         )
         listing = tmp_path / "pages.txt"
         listing.write_text(f"{first}\n\n   \n{second}\n", encoding="utf-8")
@@ -246,7 +244,7 @@ class TestAddFromFile:
     def test_the_destination_is_created_when_missing(
         self, tmp_path: Path, books_dir: Path, creator: PageDataCreator
     ) -> None:
-        page = _page(books_dir, "math/processed/images/2024/page1.jpg", size=(100, 100))
+        page = _page(books_dir, "math/processed/pages/2024/page1.jpg", size=(100, 100))
         listing = tmp_path / "pages.txt"
         listing.write_text(f"{page}\n", encoding="utf-8")
         destination = tmp_path / "pool" / "nested"

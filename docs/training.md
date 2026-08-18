@@ -38,7 +38,7 @@ uv run digitex-train select-random-pages --num-images 100
 
 **Requirements:**
 
-- Processed book pages in `var/books/<subject>/processed/images/<year>/` — run
+- Processed book pages in `var/books/<subject>/processed/pages/<year>/` — run
   `digitex-extract preprocess-scans` first, so what gets annotated is what the
   model will be trained and run on
 
@@ -59,9 +59,9 @@ uv run digitex-train add-images page
 - `images.txt` in `var/training/data/<task>/` with one relative path per line:
 
 ```
-var/books/biology/processed/images/2024/10.png
-var/books/biology/processed/images/2024/15.png
-var/books/biology/processed/images/2023/5.png
+var/books/biology/processed/pages/2024/10.png
+var/books/biology/processed/pages/2024/15.png
+var/books/biology/processed/pages/2023/5.png
 ```
 
 **Behavior:**
