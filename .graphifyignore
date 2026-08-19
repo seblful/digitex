@@ -1,0 +1,7 @@
+# Data, not source. graphify reads .graphifyignore only — never .gitignore — so
+# without this it sweeps the whole scan archive: every page image is classified
+# as content and read as text, which is where a 141-file repo reported ~292
+# million words.
+var/
+data/
+logs/
