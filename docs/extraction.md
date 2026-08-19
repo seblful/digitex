@@ -154,6 +154,8 @@ nothing is written until you approve it.
 | Fix a misread marker | right-click → *Set option number…* / *Set part*, or double-click its row |
 | Relabel a region | right-click → *Label*, or press `1` `2` `3` (question / option / part) |
 | Fix reading order | select a row, then `↑` `↓`, or *Sort by position* (`s`) |
+| Say a question continues into the next piece | select it, press `j`, or tick *Continues into the next piece* |
+| Line up the pieces of one question | *Line up…* under the crop preview, then drag a piece |
 | Move where the page starts | edit *Page starts at* — option, part, questions done |
 | Zoom | wheel (at the cursor), `+` `-` `Fit` `1:1`, or `f` to fit |
 | Fill the view with one region | right-click → *Zoom to region*, or `z` |
@@ -170,6 +172,40 @@ saved. Selecting a marker shows what OCR was pointed at instead.
 The status bar under the page carries the run's position — which page of how
 many, how many questions and markers are on it, and the range they would be
 saved as.
+
+#### A question printed across two pages
+
+The bottom of one page and the top of the next are sometimes one question. Mark
+the first piece — select it and press `j`, or tick **Continues into the next
+piece** under the crop preview — and it stops being a question of its own: it
+takes no number, nothing is written for it, and its crop is held for the page
+that finishes it. The region list shows it as `piece 1 → next page`, and a
+dashed arrow off the bottom of the polygon says the same on the scan.
+
+The next page opens with a **Carried over** row naming the page the piece came
+from, with that page's first question selected: its row reads
+`3/A/13  piece 2 of 2`, the crop preview shows both pieces stacked, and
+approving writes the two of them as the one file `13.jpg`. No number is skipped
+and nothing is written twice — the question is numbered by the page that
+completes it, so the piece costs the numbering nothing on the page that holds
+it.
+
+The two halves rarely meet cleanly, because the two pages were laid on the
+scanner separately. **Line up…** opens the pieces in a window of their own:
+drag the lower piece into place, or nudge it with the arrow keys (`Shift` for
+10px steps), and the offset you settle on is what the file is built with —
+negative closes the seam, and *Reset* puts the piece back. A piece carried from
+an earlier page cannot be moved: its own seam was settled while that page was
+being reviewed.
+
+The same mark joins two regions on a single page, which is what to reach for
+when the detector splits one question into two boxes.
+
+If the page the piece was carried onto turns out not to continue it,
+**Discard** throws the piece away and nothing is written for it. **Skip page**
+leaves it alone, so it reaches the page after instead. A piece still unfinished
+when the year ends is reported as a warning at the end of the run — nothing was
+written for it either.
 
 **Numbering that would break the output tree is refused.** Every question's
 file has to be the next one in its `{option}/{part}` folder. Land on a number

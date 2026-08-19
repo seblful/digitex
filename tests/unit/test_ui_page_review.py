@@ -19,14 +19,16 @@ import pytest
 from PIL import Image
 
 from digitex.domain.entities import PixelPolygon
+from digitex.imaging import stack_vertically
 from digitex.pipeline.exceptions import ReviewAborted
+from digitex.pipeline.pieces import HeldPiece
 from digitex.pipeline.placement import PageExtractionState, PageLabel, PageRegion
 from digitex.pipeline.review import PageProposal
 from digitex.ui.edits import PageEdits
 from digitex.ui.page_review import _ReviewWindow, resolve_verdict
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
     from pathlib import Path
 
 PAGE_SIZE = (600, 900)
@@ -40,15 +42,38 @@ def _region(label: PageLabel, top: int, reading: int | str | None = None) -> Pag
     return PageRegion(label=label, polygon=_polygon(top), reading=reading)
 
 
+def _bounds(polygon: PixelPolygon) -> tuple[int, int, int, int]:
+    return (
+        min(p[0] for p in polygon),
+        min(p[1] for p in polygon),
+        max(p[0] for p in polygon),
+        max(p[1] for p in polygon),
+    )
+
+
 def _proposal(
     output_dir: Path,
     regions: list[PageRegion] | None = None,
     state: PageExtractionState | None = None,
     page_number: int = 0,
     page_count: int = 0,
+    carried: list[HeldPiece] | None = None,
 ) -> PageProposal:
     """A page carrying one option marker, one part marker and two questions."""
     image = Image.new("RGB", PAGE_SIZE, "white")
+
+    def crop_piece(polygon: PixelPolygon) -> Image.Image:
+        return image.crop(_bounds(polygon))
+
+    def crop(
+        pieces: Sequence[PageRegion], carried_pieces: Sequence[HeldPiece]
+    ) -> Image.Image:
+        """Stands in for the extractor: the pieces of one question, stacked."""
+        return stack_vertically(
+            [piece.image for piece in carried_pieces]
+            + [crop_piece(piece.polygon) for piece in pieces]
+        )
+
     return PageProposal(
         image=image,
         regions=regions
@@ -62,17 +87,17 @@ def _proposal(
         state=state or PageExtractionState(),
         output_dir=output_dir,
         page_name="1.jpg",
-        crop=lambda polygon: image.crop(
-            (
-                min(p[0] for p in polygon),
-                min(p[1] for p in polygon),
-                max(p[0] for p in polygon),
-                max(p[1] for p in polygon),
-            )
-        ),
+        crop=crop,
+        crop_piece=crop_piece,
         page_number=page_number,
         page_count=page_count,
+        carried=carried or [],
     )
+
+
+def _carried(page_name: str = "0.jpg") -> list[HeldPiece]:
+    """One piece left unfinished by the page before, 40px tall."""
+    return [HeldPiece(image=Image.new("RGB", (500, 40), "black"), page_name=page_name)]
 
 
 class TestResolveVerdict:
@@ -150,10 +175,7 @@ class TestLoadingAPage:
     ) -> None:
         window._load(_proposal(tmp_path))
 
-        assert [str(p) for p in window._numbering.placements.values()] == [
-            "1/A/1",
-            "1/A/2",
-        ]
+        assert [str(p) for p in window._numbering.placements] == ["1/A/1", "1/A/2"]
         assert window._numbering.problem is None
         assert str(window._approve["state"]) == "normal"
 
@@ -229,7 +251,7 @@ class TestEditing:
         window._relabel_selected("part")
 
         # The first question is now a marker, so the second takes its number.
-        assert [str(p) for p in window._numbering.placements.values()] == ["1/A/1"]
+        assert [str(p) for p in window._numbering.placements] == ["1/A/1"]
 
     def test_relabelling_drops_a_reading_that_belonged_to_the_old_kind(
         self, window: _ReviewWindow, tmp_path: Path
@@ -346,7 +368,7 @@ class TestNumbering:
 
         window._continue_from_disk()
 
-        assert [str(p) for p in window._numbering.placements.values()] == ["2/B/4"]
+        assert [str(p) for p in window._numbering.placements] == ["2/B/4"]
         assert window._numbering.problem is None
 
     def test_the_entry_state_can_be_typed_in(
@@ -363,7 +385,7 @@ class TestNumbering:
         window._question_var.set("5")
 
         assert window.edits.state.question == 5
-        assert [str(p) for p in window._numbering.placements.values()] == ["1/A/6"]
+        assert [str(p) for p in window._numbering.placements] == ["1/A/6"]
 
     def test_an_emptied_spinbox_does_not_lose_the_number(
         self, window: _ReviewWindow, tmp_path: Path
@@ -434,6 +456,166 @@ class TestCropPreview:
         window._render_preview()
 
         assert window._preview.find_all() != ()
+
+
+class TestJoiningPieces:
+    """Marking a question as printed in pieces, and lining the pieces up."""
+
+    def test_the_checkbox_marks_the_selected_question(
+        self, window: _ReviewWindow, tmp_path: Path
+    ) -> None:
+        window._load(_proposal(tmp_path))
+        window._select(2)
+
+        window._joins_next.set(True)
+        window._toggle_join()
+
+        assert window.edits.regions[2].joins_next is True
+        assert "piece 2 of 2" in list(window._tree.item("3", "values"))[2]
+
+    def test_a_marker_cannot_be_marked_as_a_piece(
+        self, window: _ReviewWindow, tmp_path: Path
+    ) -> None:
+        window._load(_proposal(tmp_path))
+        window._select(0)
+
+        window._joins_next.set(True)
+        window._toggle_join()
+
+        assert window.edits.regions[0].joins_next is False
+        # The box is put back from the model rather than left lying.
+        assert window._joins_next.get() is False
+        assert str(window._joins_button["state"]) == "disabled"
+
+    def test_the_last_question_shows_that_it_waits_for_the_next_page(
+        self, window: _ReviewWindow, tmp_path: Path
+    ) -> None:
+        window._load(_proposal(tmp_path))
+        window._select(3)
+        window._toggle_join()
+
+        assert list(window._tree.item("3", "values"))[2] == "piece 1 → next page"
+        assert "1 piece held" in window._counts_label["text"]
+        # Holding a piece is not a fault: the next page finishes it.
+        assert str(window._approve["state"]) == "normal"
+
+    def test_the_controls_follow_the_selection(
+        self, window: _ReviewWindow, tmp_path: Path
+    ) -> None:
+        """A checkbox left showing the region before it would mark the wrong one."""
+        window._load(_proposal(tmp_path))
+        window._select(3)
+        window._toggle_join()
+
+        window._select(2)
+
+        assert window._joins_next.get() is False
+        assert str(window._joins_button["state"]) == "normal"
+
+        window._select(0)
+
+        assert str(window._joins_button["state"]) == "disabled"
+
+    def test_lining_pieces_up_needs_more_than_one_piece(
+        self, window: _ReviewWindow, tmp_path: Path
+    ) -> None:
+        window._load(_proposal(tmp_path))
+        window._select(2)
+        assert str(window._line_up_button["state"]) == "disabled"
+
+        window._toggle_join()
+
+        assert str(window._line_up_button["state"]) == "normal"
+
+    def test_the_pieces_handed_to_the_editor_come_from_the_page(
+        self, window: _ReviewWindow, tmp_path: Path
+    ) -> None:
+        window._load(_proposal(tmp_path))
+        window._select(2)
+        window._toggle_join()
+
+        pieces, origins = window._join_pieces(2)
+
+        assert origins == [2, 3]
+        assert [piece.movable for piece in pieces] == [True, True]
+
+    def test_a_joined_question_previews_all_of_its_pieces(
+        self, window: _ReviewWindow, tmp_path: Path
+    ) -> None:
+        window._load(_proposal(tmp_path))
+        window._select(2)
+        window._toggle_join()
+
+        window._render_preview()
+
+        assert "2 pieces joined" in window._preview_caption["text"]
+
+
+class TestCarriedPieces:
+    """A page finishing a question the page before it started."""
+
+    def test_the_carried_piece_is_named_and_the_question_opens_selected(
+        self, window: _ReviewWindow, tmp_path: Path
+    ) -> None:
+        window._load(_proposal(tmp_path, carried=_carried("003.jpg")))
+
+        assert "003.jpg" in window._carried_label["text"]
+        assert window._carried_frame.grid_info()
+        # The joined crop is what the reviewer has to check first.
+        assert window.edits.selected == 2
+
+    def test_a_page_handed_nothing_says_nothing(
+        self, window: _ReviewWindow, tmp_path: Path
+    ) -> None:
+        window._load(_proposal(tmp_path))
+
+        assert not window._carried_frame.grid_info()
+
+    def test_the_first_question_previews_the_carried_piece_with_it(
+        self, window: _ReviewWindow, tmp_path: Path
+    ) -> None:
+        window._load(_proposal(tmp_path, carried=_carried()))
+        window._select(2)
+
+        window._render_preview()
+
+        assert "2 pieces joined" in window._preview_caption["text"]
+        row = list(window._tree.item("2", "values"))
+        assert row[2] == "1/A/1  piece 2 of 2"
+
+    def test_the_editor_cannot_move_a_piece_from_an_earlier_page(
+        self, window: _ReviewWindow, tmp_path: Path
+    ) -> None:
+        window._load(_proposal(tmp_path, carried=_carried()))
+
+        pieces, origins = window._join_pieces(2)
+
+        assert origins == [None, 2]
+        assert [piece.movable for piece in pieces] == [False, True]
+
+    def test_discarding_the_carried_piece_drops_it_from_the_page(
+        self, window: _ReviewWindow, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "digitex.ui.page_review.messagebox.askokcancel", lambda *a, **k: True
+        )
+        window._load(_proposal(tmp_path, carried=_carried()))
+
+        window._discard_carried()
+
+        assert window.discard_carried is True
+        assert not window._carried_frame.grid_info()
+        assert window.edits.takes_carried(2) is False
+
+    def test_a_page_is_handed_the_pieces_unless_it_says_otherwise(
+        self, window: _ReviewWindow, tmp_path: Path
+    ) -> None:
+        """Only a discard drops them — a plain approval joins them."""
+        window._load(_proposal(tmp_path, carried=_carried()))
+
+        window._finish("approve")
+
+        assert window.discard_carried is False
 
 
 class TestStatusLine:

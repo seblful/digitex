@@ -5,6 +5,11 @@ by the preview the review GUI draws and the write :class:`PageExtractor`
 performs. The two differ only in the writer they pass, so what a reviewer
 approves is what lands on disk.
 
+A question can be printed in two pieces, one on each side of a page break. The
+walk groups the regions a reviewer joined into a single question, and hands
+back the pieces left at the end of a page for the next one to finish — see
+:mod:`digitex.pipeline.pieces`.
+
 Pure: no PIL, no YOLO, no filesystem. Reading regions off a page image belongs
 to PageExtractor, and drawing them to the GUI.
 """
@@ -12,7 +17,7 @@ to PageExtractor, and drawing them to the GUI.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 import structlog
@@ -105,11 +110,22 @@ class PageRegion:
     Mutable, because the review GUI edits polygons, labels and readings in
     place. ``reading`` is the option number or part letter a marker carries —
     None when OCR could not read it, and always None for a question.
+
+    ``joins_next`` marks a question that is only a piece of one: its image
+    continues into the next question region, further down this page or at the
+    top of the page after it. A piece is not a question of its own, so it takes
+    no number and is saved as part of the question it joins. ``join_offset`` is
+    how this piece sits against the piece above it when it is not the first —
+    pixels right and down from where it would otherwise land, which is how the
+    two halves are lined up into one readable question. Only the review GUI
+    sets either: nothing about a page says where a question was cut in two.
     """
 
     label: PageLabel
     polygon: PixelPolygon
     reading: int | str | None = None
+    joins_next: bool = False
+    join_offset: tuple[int, int] = (0, 0)
 
 
 def copy_regions(regions: Iterable[PageRegion]) -> list[PageRegion]:
@@ -119,6 +135,8 @@ def copy_regions(regions: Iterable[PageRegion]) -> list[PageRegion]:
             label=region.label,
             polygon=PixelPolygon(list(region.polygon)),
             reading=region.reading,
+            joins_next=region.joins_next,
+            join_offset=region.join_offset,
         )
         for region in regions
     ]
@@ -126,17 +144,37 @@ def copy_regions(regions: Iterable[PageRegion]) -> list[PageRegion]:
 
 @dataclass(frozen=True)
 class PlacedQuestion:
-    """A question region and the option/part/number it was handed."""
+    """One question's regions and the option/part/number they were handed.
 
-    region: PageRegion
+    More than one region when the question was printed in pieces and the
+    reviewer joined them: their crops stack into the single image the placement
+    names.
+    """
+
+    regions: list[PageRegion]
     placement: QuestionPlacement
 
 
-QuestionWriter = Callable[[PageRegion, QuestionPlacement], None]
-"""Persist one placed question's crop."""
+@dataclass(frozen=True)
+class PagePlacement:
+    """Where a page's questions land, and what it leaves the next page to finish.
+
+    ``held`` is the run of pieces at the end of the page whose question is not
+    finished on it. Nothing is written for them and they take no number, so a
+    page ending mid-question costs the numbering nothing — the question is
+    numbered on the page that completes it. The caller carries their crops
+    across (:class:`digitex.pipeline.pieces.PageCarry`).
+    """
+
+    questions: list[PlacedQuestion]
+    held: list[PageRegion] = field(default_factory=list)
 
 
-def write_nothing(region: PageRegion, placement: QuestionPlacement) -> None:
+QuestionWriter = Callable[[list[PageRegion], QuestionPlacement], None]
+"""Persist one placed question's crop, stacked from its pieces in reading order."""
+
+
+def write_nothing(regions: list[PageRegion], placement: QuestionPlacement) -> None:
     """Writer that writes nothing — the preview the review GUI draws."""
 
 
@@ -149,11 +187,17 @@ def place_questions(
     regions: Iterable[PageRegion],
     state: PageExtractionState,
     write: QuestionWriter = write_nothing,
-) -> list[PlacedQuestion]:
+) -> PagePlacement:
     """Replay *regions* through *state*, handing each question its placement.
 
     *state* is mutated: markers advance it and questions consume numbers from
     it. Pass a copy to preview a page without committing to it.
+
+    A question region marked ``joins_next`` is a piece of the question that
+    follows it: it is collected rather than placed, and the next question is
+    written as those pieces plus itself. Pieces still collected at the end of
+    the page come back as ``held``, for the caller to hand on to the page that
+    finishes them.
 
     Args:
         regions: The page's labelled regions, in reading order.
@@ -161,12 +205,14 @@ def place_questions(
         write: What to do with each placed question. Writes nothing by default.
 
     Returns:
-        One entry per question region, in the order they were placed.
+        The questions placed on this page, in order, and the trailing pieces
+        the next page has to finish.
 
     Raises:
         ValueError: If a question comes before any option/part marker was read.
     """
     placed: list[PlacedQuestion] = []
+    pieces: list[PageRegion] = []
 
     for region in regions:
         if region.label == "option":
@@ -178,6 +224,13 @@ def place_questions(
             if state.on_part(reading):
                 logger.debug("Part changed", part_letter=state.part)
         elif region.label == "question":
+            pieces.append(region)
+            if region.joins_next:
+                # Not a question of its own: it takes no number, and its crop
+                # is written with the question it joins — which the next page
+                # may be the one to hold.
+                continue
+
             placement = state.next_question()
             if not placement.option or not placement.part:
                 # pathlib drops an empty segment, so this would land one
@@ -187,8 +240,9 @@ def place_questions(
                     "Question detected before any option/part marker was read"
                 )
 
-            write(region, placement)
+            write(pieces, placement)
             state.commit_question()
-            placed.append(PlacedQuestion(region=region, placement=placement))
+            placed.append(PlacedQuestion(regions=pieces, placement=placement))
+            pieces = []
 
-    return placed
+    return PagePlacement(questions=placed, held=pieces)

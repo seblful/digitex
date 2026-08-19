@@ -4,9 +4,9 @@ One adapter over the `PageReviewer` seam. The window draws the page, its
 polygons and the option/part/number each question would be saved as, and lets
 all of it be corrected with the mouse: drag a vertex or a whole polygon, add
 and delete points, relabel a region, draw a missing one, reorder them, fix a
-misread marker, or move where the page starts numbering. Every edit is
-undoable, and the pane under the region list shows the crop that would be
-written for whichever region is selected.
+misread marker, mark a question as continuing onto the next page, or move where
+the page starts numbering. Every edit is undoable, and the pane under the region
+list shows the crop that would be written for whichever region is selected.
 
 Every placement it shows comes from :func:`place_questions`, and every crop it
 previews from the extractor's own cropping pipeline, so neither can drift from
@@ -36,6 +36,7 @@ from digitex.pipeline.review import (
 from digitex.ui import geometry
 from digitex.ui.display import BASE_DPI, enable_dpi_awareness, scaled
 from digitex.ui.edits import MIN_POINTS, Numbering, PageEdits
+from digitex.ui.join_editor import JoinEditor, JoinPiece
 from digitex.ui.stats_panel import StatsPanel
 
 if TYPE_CHECKING:
@@ -43,7 +44,9 @@ if TYPE_CHECKING:
 
     from digitex.pipeline.audit.census import ImageCensus
     from digitex.pipeline.audit.validator import AnswerValidator
+    from digitex.pipeline.pieces import HeldPiece
     from digitex.pipeline.placement import PageLabel, PageRegion
+    from digitex.pipeline.review import PieceCrop
 
 logger = structlog.get_logger()
 
@@ -73,6 +76,10 @@ MUTED = "#4b5563"
 
 # Half-width of a vertex handle, in screen pixels.
 HANDLE = 5
+
+# How far past the page's edge the arrow out of a question continuing onto the
+# next page reaches, in screen pixels.
+JOIN_TAIL = 40
 
 MIN_SCALE = 0.05
 MAX_SCALE = 8.0
@@ -104,13 +111,18 @@ def _int_or(raw: str, fallback: int) -> int:
 
 
 def resolve_verdict(
-    verdict: Verdict, edits: PageEdits, page_name: str
+    verdict: Verdict,
+    edits: PageEdits,
+    page_name: str,
+    discard_carried: bool = False,
 ) -> ReviewedPage | None:
     """Turn the window's verdict into the reviewer's answer.
 
     The three ways a review ends, kept out of the widget so the seam's error
     modes run without a display: approve hands back what the reviewer edited,
-    skip returns None, abort raises.
+    skip returns None, abort raises. A skip leaves the pieces carried onto the
+    page for the next one — only an approval can throw them away, and only when
+    the reviewer said to.
 
     Raises:
         ReviewAborted: If the reviewer stopped the run.
@@ -121,7 +133,11 @@ def resolve_verdict(
         logger.info("Page skipped in review", page=page_name)
         return None
     logger.info("Page approved in review", page=page_name, regions=len(edits.regions))
-    return ReviewedPage(regions=edits.regions, state=edits.state)
+    return ReviewedPage(
+        regions=edits.regions,
+        state=edits.state,
+        discard_carried=discard_carried,
+    )
 
 
 class TkPageReviewer:
@@ -157,7 +173,12 @@ class TkPageReviewer:
         window = self._ensure_window()
         verdict = window.present(proposal)
         try:
-            return resolve_verdict(verdict, window.edits, proposal.page_name)
+            return resolve_verdict(
+                verdict,
+                window.edits,
+                proposal.page_name,
+                discard_carried=window.discard_carried,
+            )
         except ReviewAborted:
             self.close()
             raise
@@ -215,6 +236,11 @@ class _ReviewWindow:
 
         self._image = Image.new("RGB", (1, 1), "white")
         self._crop: QuestionCrop | None = None
+        self._crop_piece: PieceCrop | None = None
+        # The pieces an earlier page left for this page's first question, and
+        # whether the reviewer decided to throw them away.
+        self._carried: list[HeldPiece] = []
+        self.discard_carried = False
         self._page_name = ""
         self._page_number = 0
         self._page_count = 0
@@ -288,11 +314,19 @@ class _ReviewWindow:
         resized = self._image.size != proposal.image.size
         self._image = proposal.image.convert("RGB")
         self._crop = proposal.crop
+        self._crop_piece = proposal.crop_piece
+        self._carried = list(proposal.carried)
+        self.discard_carried = False
         self._page_name = proposal.page_name or "page"
         self._page_number = proposal.page_number
         self._page_count = proposal.page_count
 
-        self.edits.load(proposal.regions, proposal.state, proposal.output_dir)
+        self.edits.load(
+            proposal.regions,
+            proposal.state,
+            proposal.output_dir,
+            carried=len(self._carried),
+        )
         self._hover = None
         self._cancel_draw()
         # Cleared here rather than left to the debounce: a crop from the page
@@ -302,6 +336,7 @@ class _ReviewWindow:
 
         self.top.title(f"Review — {self._page_name} — {self._subject or 'extraction'}")
         self._show_entry_state()
+        self._show_carried()
         self._output_year = proposal.output_dir.name
 
         self._loading = False
@@ -315,6 +350,10 @@ class _ReviewWindow:
             self._set_scale(self._scale)
 
         self._refresh()
+        # A page finishing a question the page before it started opens on that
+        # question, so the joined crop is the first thing the reviewer sees.
+        if self._carried and self.edits.first_question is not None:
+            self._select(self.edits.first_question)
         self._refresh_stats_if_shown()
 
     def _fit_when_ready(self) -> None:
@@ -442,13 +481,14 @@ class _ReviewWindow:
         self._build_page_tab(page_tab)
 
     def _build_page_tab(self, panel: ttk.Frame) -> None:
-        panel.rowconfigure(1, weight=1)
+        panel.rowconfigure(2, weight=1)
         panel.columnconfigure(0, weight=1)
 
+        self._build_carried(panel)
         self._build_entry_state(panel)
 
         tree_frame = ttk.Frame(panel)
-        tree_frame.grid(row=1, column=0, sticky="nsew", pady=(8, 4))
+        tree_frame.grid(row=2, column=0, sticky="nsew", pady=(8, 4))
         tree_frame.rowconfigure(0, weight=1)
         tree_frame.columnconfigure(0, weight=1)
 
@@ -477,7 +517,7 @@ class _ReviewWindow:
         self._tree.configure(yscrollcommand=tbar.set)
 
         buttons = ttk.Frame(panel)
-        buttons.grid(row=2, column=0, sticky="ew")
+        buttons.grid(row=3, column=0, sticky="ew")
         ttk.Button(buttons, text="↑", width=3, command=lambda: self._move(-1)).pack(
             side="left"
         )
@@ -493,9 +533,34 @@ class _ReviewWindow:
 
         self._build_preview(panel)
 
+    def _build_carried(self, panel: ttk.Frame) -> None:
+        """The pieces the page before this one left for this page to finish.
+
+        Gridded away on every page that was handed nothing, which is nearly all
+        of them — an empty frame saying so would only take room from the tree.
+        """
+        frame = self._carried_frame = ttk.LabelFrame(
+            panel, text=" Carried over ", padding=8
+        )
+        frame.grid(row=0, column=0, sticky="ew")
+        frame.columnconfigure(0, weight=1)
+
+        self._carried_label = ttk.Label(
+            frame,
+            text="",
+            foreground=MUTED,
+            wraplength=self._px(PANEL_WIDTH - 110),
+            justify="left",
+        )
+        self._carried_label.grid(row=0, column=0, sticky="w")
+        ttk.Button(frame, text="Discard", width=9, command=self._discard_carried).grid(
+            row=0, column=1, sticky="e", padx=(6, 0)
+        )
+        frame.grid_remove()
+
     def _build_entry_state(self, panel: ttk.Frame) -> None:
         entry = ttk.LabelFrame(panel, text=" Page starts at ", padding=8)
-        entry.grid(row=0, column=0, sticky="ew")
+        entry.grid(row=1, column=0, sticky="ew")
         entry.columnconfigure(3, weight=1)
 
         self._option_var = tk.StringVar(value="0")
@@ -537,7 +602,7 @@ class _ReviewWindow:
 
     def _build_preview(self, panel: ttk.Frame) -> None:
         frame = ttk.LabelFrame(panel, text=" Crop preview ", padding=4)
-        frame.grid(row=3, column=0, sticky="ew", pady=(8, 0))
+        frame.grid(row=4, column=0, sticky="ew", pady=(8, 0))
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(0, minsize=self._px(PREVIEW_HEIGHT))
 
@@ -550,6 +615,23 @@ class _ReviewWindow:
         self._preview.grid(row=0, column=0, sticky="nsew")
         self._preview_caption = ttk.Label(frame, text="", foreground=MUTED)
         self._preview_caption.grid(row=1, column=0, sticky="w", pady=(2, 0))
+
+        # The join controls sit with the crop rather than with the region list,
+        # because what they change is the image above them.
+        joins = ttk.Frame(frame)
+        joins.grid(row=2, column=0, sticky="ew", pady=(4, 0))
+        self._joins_next = tk.BooleanVar(master=self.top, value=False)
+        self._joins_button = ttk.Checkbutton(
+            joins,
+            text="Continues into the next piece  (J)",
+            variable=self._joins_next,
+            command=self._toggle_join,
+        )
+        self._joins_button.pack(side="left")
+        self._line_up_button = ttk.Button(
+            joins, text="Line up…", width=10, command=self._line_up
+        )
+        self._line_up_button.pack(side="right")
 
     def _build_status(self) -> None:
         bar = ttk.Frame(self.top, padding=(10, 4))
@@ -763,10 +845,17 @@ class _ReviewWindow:
         self._canvas.tag_lower("page")
 
     def _caption(self, index: int, region: PageRegion) -> str:
-        if region.label == "question":
-            placement = self._numbering.placements.get(index)
-            return str(placement) if placement else "?"
-        return f"{region.label} {self._reading_text(region)}"
+        if region.label != "question":
+            return f"{region.label} {self._reading_text(region)}"
+
+        piece = self._numbering.pieces.get(index)
+        if piece is None:
+            return "?"
+        if piece.held:
+            return f"piece {piece.index} → next page"
+        if piece.alone:
+            return str(piece.placement)
+        return f"{piece.placement}  piece {piece.index} of {piece.count}"
 
     @staticmethod
     def _reading_text(region: PageRegion) -> str:
@@ -799,6 +888,45 @@ class _ReviewWindow:
 
             if selected:
                 self._draw_handles(index, region, color)
+
+        self._draw_joins()
+
+    def _draw_joins(self) -> None:
+        """Link the pieces of a joined question, so the join is visible on the page.
+
+        A question whose next piece is on the next page gets an arrow off its
+        bottom edge instead — there is nothing on this page to point at.
+        """
+        regions = self.edits.regions
+        for index, region in enumerate(regions):
+            if region.label != "question" or not region.joins_next:
+                continue
+
+            left, _, right, bottom = geometry.bounds(list(region.polygon))
+            start = self._to_canvas((round((left + right) / 2), bottom))
+            following = next(
+                (
+                    at
+                    for at in range(index + 1, len(regions))
+                    if regions[at].label == "question"
+                ),
+                None,
+            )
+            if following is None:
+                end = (start[0], start[1] + self._px(JOIN_TAIL))
+            else:
+                left, top, right, _ = geometry.bounds(list(regions[following].polygon))
+                end = self._to_canvas((round((left + right) / 2), top))
+
+            self._canvas.create_line(
+                *start,
+                *end,
+                fill=COLORS["question"],
+                width=3,
+                dash=(6, 4),
+                arrow="last",
+                tags="region",
+            )
 
     def _draw_caption(
         self, index: int, region: PageRegion, color: str, selected: bool
@@ -866,6 +994,7 @@ class _ReviewWindow:
         self._render_regions()
         self._fill_tree()
         self._update_status()
+        self._show_join_controls()
         self._schedule_preview()
 
     def _set_approve_enabled(self, enabled: bool) -> None:
@@ -883,13 +1012,14 @@ class _ReviewWindow:
         placements = self._numbering.placements
         span = ""
         if placements:
-            first = next(iter(placements.values()))
-            last = list(placements.values())[-1]
+            first, last = placements[0], placements[-1]
             span = f"    → {first} … {last}" if first != last else f"    → {first}"
-        self._counts_label.configure(
-            text=f"{self.edits.question_count} questions,"
-            f" {self.edits.marker_count} markers{span}"
-        )
+
+        counts = f"{len(placements)} questions, {self.edits.marker_count} markers"
+        held = self._numbering.held
+        if held:
+            counts += f", {held} piece{'s' if held > 1 else ''} held"
+        self._counts_label.configure(text=f"{counts}{span}")
 
     def _show_entry_state(self) -> None:
         """Put the model's entry state into the spinboxes without echoing back."""
@@ -899,6 +1029,38 @@ class _ReviewWindow:
         self._part_var.set(state.part)
         self._question_var.set(str(state.question))
         self._loading = False
+
+    def _show_carried(self) -> None:
+        """Say what was carried onto this page, or hide the row saying it."""
+        if not self._carried:
+            self._carried_frame.grid_remove()
+            return
+
+        pages = ", ".join(dict.fromkeys(piece.page_name for piece in self._carried))
+        count = len(self._carried)
+        self._carried_label.configure(
+            text=f"{count} piece{'s' if count > 1 else ''} from {pages}, saved as the"
+            " top of this page's first question."
+        )
+        self._carried_frame.grid()
+
+    def _discard_carried(self) -> None:
+        """Throw away what was carried here — this page does not continue it."""
+        if not self._carried:
+            return
+        if not messagebox.askokcancel(
+            "Discard carried pieces",
+            "Throw away the pieces carried onto this page? Nothing will be"
+            " written for them, and the page they came from is behind us.",
+            parent=self.top,
+        ):
+            return
+
+        self._carried = []
+        self.discard_carried = True
+        self.edits.carried = 0
+        self._show_carried()
+        self._refresh()
 
     def _continue_from_disk(self) -> None:
         """Set the entry counter so the page's first question takes the free slot."""
@@ -941,6 +1103,7 @@ class _ReviewWindow:
         else:
             self._tree.selection_set(str(index))
             self._tree.see(str(index))
+        self._show_join_controls()
         self._schedule_preview()
 
     def _set_hover(self, index: int | None) -> None:
@@ -968,7 +1131,7 @@ class _ReviewWindow:
 
         region = self.edits.regions[index]
         try:
-            image = self._crop_for(region)
+            image = self._crop_for(index, region)
         except Exception as exc:  # a polygon can be degenerate mid-edit
             # A real cropping bug lands here too, so keep its traceback.
             logger.debug("Preview crop failed", exc_info=True)
@@ -988,20 +1151,34 @@ class _ReviewWindow:
         )
         self._preview_caption.configure(text=self._preview_text(index, region, image))
 
-    def _crop_for(self, region: PageRegion) -> Image.Image:
-        """The crop for *region* — the extractor's own for a question."""
+    def _crop_for(self, index: int, region: PageRegion) -> Image.Image:
+        """The crop for *region* — the extractor's own for a question.
+
+        A question in pieces is shown whole: every piece of it on this page,
+        under whatever was carried onto the page, exactly as the file is built.
+        """
         if region.label == "question" and self._crop is not None:
-            return self._crop(region.polygon)
+            pieces = [
+                self.edits.regions[at] for at in self.edits.question_pieces(index)
+            ]
+            carried = self._carried if self.edits.takes_carried(index) else []
+            return self._crop(pieces, carried)
         left, top, right, bottom = geometry.bounds(list(region.polygon))
         return self._image.crop((left, top, right, bottom))
 
     def _preview_text(self, index: int, region: PageRegion, image: Image.Image) -> str:
         size = f"{image.width}x{image.height} px"
-        if region.label == "question":
-            placement = self._numbering.placements.get(index)
-            saved = f"saved as {placement}" if placement else "not placed"
-            return f"{saved} — {size}"
-        return f"{region.label} marker — {size}"
+        if region.label != "question":
+            return f"{region.label} marker — {size}"
+
+        piece = self._numbering.pieces.get(index)
+        if piece is None:
+            return f"not placed — {size}"
+        if piece.held:
+            return f"piece {piece.index}, held for the next page — {size}"
+        if piece.alone:
+            return f"saved as {piece.placement} — {size}"
+        return f"saved as {piece.placement}, {piece.count} pieces joined — {size}"
 
     # --- mouse ---
 
@@ -1135,6 +1312,17 @@ class _ReviewWindow:
         menu.add_command(label="Zoom to region", command=self._zoom_to_selected)
         menu.add_separator()
 
+        if region.label == "question":
+            menu.add_command(
+                label="Stop continuing into the next piece"
+                if region.joins_next
+                else "Continues into the next piece",
+                command=self._toggle_join,
+            )
+            if self._piece_count(index) > 1:
+                menu.add_command(label="Line up the pieces…", command=self._line_up)
+            menu.add_separator()
+
         label_menu = tk.Menu(menu, tearoff=0)
         for label in LABELS:
             label_menu.add_command(
@@ -1172,6 +1360,7 @@ class _ReviewWindow:
             "f": self._zoom_to_fit,
             "z": self._zoom_to_selected,
             "s": self._sort,
+            "j": self._toggle_join,
             "plus": self._zoom_in,
             "equal": self._zoom_in,
             "minus": self._zoom_out,
@@ -1299,6 +1488,119 @@ class _ReviewWindow:
             self._set_option(selected)
         elif region.label == "part":
             self._set_reading(selected, "B" if region.reading == "A" else "A")
+
+    def _piece_count(self, index: int) -> int:
+        """How many pieces the question at *index* is made of on this page.
+
+        Counts what was carried onto the page when the question is the one it
+        was carried for. Cheap on purpose — it decides whether a button is
+        enabled, and cutting the pieces out to count them would deskew each of
+        them first.
+        """
+        if self.edits.regions[index].label != "question":
+            return 0
+        carried = self.edits.carried if self.edits.takes_carried(index) else 0
+        return len(self.edits.question_pieces(index)) + carried
+
+    def _show_join_controls(self) -> None:
+        """Put the join controls where the selected region actually stands."""
+        index = self.edits.selected
+        region = (
+            self.edits.regions[index]
+            if index is not None and index < len(self.edits.regions)
+            else None
+        )
+        question = region is not None and region.label == "question"
+
+        self._joins_next.set(question and bool(region and region.joins_next))
+        self._joins_button.configure(state="normal" if question else "disabled")
+        joinable = (
+            question
+            and index is not None
+            # Without the extractor's own piece crop there is nothing honest to
+            # line up against.
+            and self._crop_piece is not None
+            and self._piece_count(index) > 1
+        )
+        self._line_up_button.configure(state="normal" if joinable else "disabled")
+
+    def _toggle_join(self) -> None:
+        """Mark the selected question as continuing into the next piece, or stop.
+
+        The checkbox has already flipped itself by the time this runs, so a
+        refused toggle is put back from the model rather than assumed.
+        """
+        selected = self.edits.selected
+        if selected is None:
+            self._show_join_controls()
+            return
+        if not self.edits.toggle_join_next(selected):
+            self._show_join_controls()
+            self._hint.configure(text="only a question can be half of one")
+            return
+        self._refresh()
+
+    def _line_up(self) -> None:
+        """Line up the pieces of the selected question, by hand, in their own window."""
+        index = self.edits.selected
+        if index is None:
+            return
+
+        pieces, origins = self._join_pieces(index)
+        if len(pieces) < 2:
+            return
+
+        offsets = JoinEditor(self.top, pieces, scale=self._dpi_scale).run()
+        # The editor took the grab for itself; this window needs it back.
+        self.top.grab_set()
+        self._canvas.focus_set()
+        if offsets is None:
+            return
+
+        self.edits.set_join_offsets(
+            {
+                at: offset
+                for at, offset in zip(origins, offsets, strict=True)
+                if at is not None
+            }
+        )
+        self._refresh()
+
+    def _join_pieces(self, index: int) -> tuple[list[JoinPiece], list[int | None]]:
+        """The pieces of the question at *index*, and which region each came from.
+
+        None where a piece was carried onto this page: its offset was settled
+        while the page it was cut from was being reviewed, and this page cannot
+        move it.
+        """
+        if self.edits.regions[index].label != "question" or self._crop_piece is None:
+            return [], []
+
+        pieces: list[JoinPiece] = []
+        origins: list[int | None] = []
+        if self.edits.takes_carried(index):
+            for carried in self._carried:
+                pieces.append(
+                    JoinPiece(
+                        image=carried.image,
+                        offset=carried.offset,
+                        caption=f"from {carried.page_name}",
+                        movable=False,
+                    )
+                )
+                origins.append(None)
+
+        for at in self.edits.question_pieces(index):
+            region = self.edits.regions[at]
+            pieces.append(
+                JoinPiece(
+                    image=self._crop_piece(region.polygon),
+                    offset=region.join_offset,
+                    caption=f"region {at + 1}, this page",
+                )
+            )
+            origins.append(at)
+        return pieces, origins
 
     def _delete_region(self) -> None:
         if self.edits.selected is None:

@@ -88,13 +88,13 @@ class TestNumbering:
     ) -> None:
         numbering = edits.numbering()
 
-        assert [str(p) for p in numbering.placements.values()] == ["1/A/1", "1/A/2"]
+        assert [str(p) for p in numbering.placements] == ["1/A/1", "1/A/2"]
         assert numbering.ok
         assert numbering.ends_at == "page ends at 1/A/2"
 
-    def test_the_placements_index_into_the_regions(self, edits: PageEdits) -> None:
+    def test_the_pieces_index_into_the_regions(self, edits: PageEdits) -> None:
         """The window colours rows by index, so these have to be region indices."""
-        assert sorted(edits.numbering().placements) == [2, 3]
+        assert sorted(edits.numbering().pieces) == [2, 3]
 
     def test_a_question_before_any_marker_is_refused(self, tmp_path: Path) -> None:
         edits = PageEdits()
@@ -239,12 +239,135 @@ class TestCounts:
         assert (edits.question_count, edits.marker_count) == (2, 2)
 
 
+class TestJoiningPieces:
+    """A question printed in pieces takes one number between them."""
+
+    def test_joining_two_questions_makes_them_one(self, edits: PageEdits) -> None:
+        edits.toggle_join_next(2)
+
+        numbering = edits.numbering()
+        assert [str(p) for p in numbering.placements] == ["1/A/1"]
+        assert str(numbering.pieces[2].placement) == "1/A/1"
+        assert str(numbering.pieces[3].placement) == "1/A/1"
+        assert (numbering.pieces[3].index, numbering.pieces[3].count) == (2, 2)
+
+    def test_the_last_question_can_wait_for_the_next_page(
+        self, edits: PageEdits
+    ) -> None:
+        edits.toggle_join_next(3)
+
+        numbering = edits.numbering()
+        assert [str(p) for p in numbering.placements] == ["1/A/1"]
+        assert numbering.pieces[3].held
+        assert numbering.held == 1
+        # The held piece consumed no number, so the page ends one earlier.
+        assert numbering.ends_at == "page ends at 1/A/1"
+        assert numbering.ok
+
+    def test_only_a_question_can_be_half_of_one(self, edits: PageEdits) -> None:
+        assert edits.toggle_join_next(0) is False
+        assert edits.regions[0].joins_next is False
+
+    def test_a_piece_relabelled_a_marker_stops_being_one(
+        self, edits: PageEdits
+    ) -> None:
+        edits.toggle_join_next(2)
+
+        edits.set_label(2, "part")
+
+        assert edits.regions[2].joins_next is False
+        assert edits.regions[2].join_offset == (0, 0)
+
+    def test_the_flag_is_undoable(self, edits: PageEdits) -> None:
+        edits.toggle_join_next(2)
+
+        assert edits.undo()
+        assert edits.regions[2].joins_next is False
+
+    def test_lining_the_pieces_up_is_one_undo_step(self, edits: PageEdits) -> None:
+        edits.toggle_join_next(2)
+
+        edits.set_join_offsets({3: (5, -4)})
+
+        assert edits.regions[3].join_offset == (5, -4)
+        assert edits.undo()
+        assert edits.regions[3].join_offset == (0, 0)
+        # Undoing the line-up leaves the join itself alone.
+        assert edits.regions[2].joins_next is True
+
+    def test_a_questions_pieces_are_reported_together(self, edits: PageEdits) -> None:
+        edits.toggle_join_next(2)
+
+        assert edits.question_pieces(2) == [2, 3]
+        assert edits.question_pieces(3) == [2, 3]
+
+    def test_a_whole_question_is_its_own_only_piece(self, edits: PageEdits) -> None:
+        assert edits.question_pieces(3) == [3]
+
+    def test_a_marker_is_no_piece_of_anything(self, edits: PageEdits) -> None:
+        assert edits.question_pieces(0) == [0]
+
+    def test_a_marker_between_the_pieces_does_not_break_the_join(
+        self, edits: PageEdits
+    ) -> None:
+        """The pieces of a question are its own, whatever is marked up between."""
+        edits.toggle_join_next(2)
+        edits.reorder(1, 1)  # the part marker, down between the two questions
+
+        assert edits.question_pieces(3) == [1, 3]
+
+
+class TestCarriedPieces:
+    """What a page handed an unfinished piece by the page before it reports."""
+
+    @pytest.fixture
+    def carried(self, tmp_path: Path) -> PageEdits:
+        made = PageEdits()
+        made.load(_page(), PageExtractionState(), tmp_path, carried=1)
+        return made
+
+    def test_the_first_question_counts_the_piece_carried_into_it(
+        self, carried: PageEdits
+    ) -> None:
+        pieces = carried.numbering().pieces
+
+        assert (pieces[2].index, pieces[2].count) == (2, 2)
+        assert (pieces[3].index, pieces[3].count) == (1, 1)
+
+    def test_a_carried_piece_takes_no_number_of_its_own(
+        self, carried: PageEdits
+    ) -> None:
+        assert [str(p) for p in carried.numbering().placements] == ["1/A/1", "1/A/2"]
+
+    def test_the_carried_piece_belongs_to_the_first_question(
+        self, carried: PageEdits
+    ) -> None:
+        assert carried.first_question == 2
+        assert carried.takes_carried(2) is True
+        assert carried.takes_carried(3) is False
+        assert carried.takes_carried(0) is False
+
+    def test_nothing_carried_means_nothing_to_join(self, edits: PageEdits) -> None:
+        assert edits.takes_carried(2) is False
+
+    def test_a_page_that_only_continues_a_question_places_nothing(
+        self, carried: PageEdits
+    ) -> None:
+        carried.toggle_join_next(2)
+        carried.delete(3)
+
+        numbering = carried.numbering()
+        assert numbering.placements == []
+        assert numbering.pieces[2].held
+        assert numbering.ok
+
+
 class TestRelabelling:
     def test_relabelling_a_question_renumbers_the_rest(self, edits: PageEdits) -> None:
         edits.set_label(2, "part")
 
         # The first question is now a marker, so the second takes its number.
-        assert [str(p) for p in edits.numbering().placements.values()] == ["1/A/1"]
+        assert [str(p) for p in edits.numbering().placements] == ["1/A/1"]
 
     def test_relabelling_drops_a_reading_from_the_old_kind(
         self, edits: PageEdits

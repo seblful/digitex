@@ -15,6 +15,7 @@ from digitex.pipeline.placement import (
     PageLabel,
     PageRegion,
     QuestionPlacement,
+    copy_regions,
     place_questions,
     reading_order_key,
 )
@@ -35,9 +36,11 @@ class _Writer:
 
     def __init__(self) -> None:
         self.written: list[QuestionPlacement] = []
+        self.pieces: list[int] = []
 
-    def __call__(self, region: PageRegion, placement: QuestionPlacement) -> None:
+    def __call__(self, regions: list[PageRegion], placement: QuestionPlacement) -> None:
         self.written.append(placement)
+        self.pieces.append(len(regions))
 
 
 class TestPageExtractionState:
@@ -97,11 +100,11 @@ class TestPlaceQuestions:
             write=writer,
         )
 
-        assert [p.placement for p in placed] == [
+        assert [p.placement for p in placed.questions] == [
             QuestionPlacement(1, "A", 1),
             QuestionPlacement(1, "A", 2),
         ]
-        assert writer.written == [p.placement for p in placed]
+        assert writer.written == [p.placement for p in placed.questions]
         assert (state.option, state.part, state.question) == (1, "A", 2)
 
     def test_a_reading_of_the_wrong_type_counts_as_unreadable(self) -> None:
@@ -120,7 +123,7 @@ class TestPlaceQuestions:
 
         placed = place_questions([_question(), _question()], state)
 
-        assert [p.placement.number for p in placed] == [5, 6]
+        assert [p.placement.number for p in placed.questions] == [5, 6]
 
     def test_previewing_a_copy_leaves_the_book_state_alone(self) -> None:
         state = PageExtractionState(option=1, part="A", question=4)
@@ -148,7 +151,88 @@ class TestPlaceQuestions:
 
         placed = place_questions([lower, _question()], state)
 
-        assert placed[0].placement == QuestionPlacement(1, "B", 1)
+        assert placed.questions[0].placement == QuestionPlacement(1, "B", 1)
+
+
+class TestJoinedQuestions:
+    """A question printed in pieces takes one number, not one per piece."""
+
+    def test_two_joined_pieces_are_written_as_one_question(self) -> None:
+        writer = _Writer()
+        first = _question()
+        first.joins_next = True
+        state = PageExtractionState(option=1, part="A")
+
+        placed = place_questions([first, _question()], state, write=writer)
+
+        assert writer.written == [QuestionPlacement(1, "A", 1)]
+        assert writer.pieces == [2]
+        assert [len(q.regions) for q in placed.questions] == [2]
+        assert state.question == 1
+
+    def test_the_pieces_reach_the_writer_in_reading_order(self) -> None:
+        writer = _Writer()
+        top, bottom = _question(), _question()
+        top.joins_next = True
+
+        placed = place_questions(
+            [top, bottom], PageExtractionState(option=1, part="A"), write=writer
+        )
+
+        assert placed.questions[0].regions == [top, bottom]
+
+    def test_a_piece_at_the_end_of_the_page_is_held_for_the_next_one(self) -> None:
+        writer = _Writer()
+        whole, piece = _question(), _question()
+        piece.joins_next = True
+        state = PageExtractionState(option=1, part="A")
+
+        placed = place_questions([whole, piece], state, write=writer)
+
+        assert writer.written == [QuestionPlacement(1, "A", 1)]
+        assert placed.held == [piece]
+        # The held piece took no number: the page that finishes it numbers it.
+        assert state.question == 1
+
+    def test_a_page_that_only_continues_a_question_places_nothing(self) -> None:
+        piece = _question()
+        piece.joins_next = True
+        state = PageExtractionState(option=1, part="A", question=3)
+
+        placed = place_questions([piece], state)
+
+        assert placed.questions == []
+        assert placed.held == [piece]
+        assert state.question == 3
+
+    def test_a_marker_between_the_pieces_does_not_break_the_join(self) -> None:
+        """The pieces of one question are joined however the page is marked up."""
+        top, bottom = _question(), _question()
+        top.joins_next = True
+        state = PageExtractionState(option=1, part="A")
+
+        placed = place_questions([top, _marker("part", "A"), bottom], state)
+
+        assert [len(q.regions) for q in placed.questions] == [2]
+
+
+class TestCopyRegions:
+    def test_a_copy_carries_the_join_a_reviewer_marked(self) -> None:
+        region = _question()
+        region.joins_next = True
+        region.join_offset = (4, -8)
+
+        copy = copy_regions([region])[0]
+
+        assert (copy.joins_next, copy.join_offset) == (True, (4, -8))
+
+    def test_a_copy_cannot_be_reached_through_the_original(self) -> None:
+        region = _question()
+
+        copy = copy_regions([region])[0]
+        copy.joins_next = True
+
+        assert region.joins_next is False
 
 
 class TestReadingOrderKey:

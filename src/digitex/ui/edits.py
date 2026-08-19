@@ -11,6 +11,11 @@ The split of responsibility is: operations that change the page record their own
 undo step, and the window redraws afterwards. A live drag is the exception —
 :meth:`drag_polygon` and :meth:`drag_vertex` deliberately record nothing, so a
 drag across the page lands in the timeline once, when the button comes up.
+
+A question printed across a page break is two regions of one question: the
+reviewer marks the first with :meth:`toggle_join_next` and lines the two up with
+:meth:`set_join_offsets`, and :meth:`numbering` reports which question each
+region is a piece of.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from digitex.domain.entities import PixelPolygon
 from digitex.pipeline.placement import (
     PageExtractionState,
     PageRegion,
+    QuestionPlacement,
     copy_regions,
     place_questions,
     reading_order_key,
@@ -33,7 +39,7 @@ from digitex.ui import geometry
 from digitex.ui.history import EditHistory
 
 if TYPE_CHECKING:
-    from digitex.pipeline.placement import PageLabel, QuestionPlacement
+    from digitex.pipeline.placement import PageLabel
     from digitex.pipeline.review import NumberingFault
     from digitex.ui.history import EditSnapshot
 
@@ -45,8 +51,40 @@ MIN_DRAWN_SIZE = 5
 
 
 @dataclass(frozen=True)
+class QuestionPiece:
+    """Where one question region lands: which question, and which piece of it.
+
+    ``placement`` is None while the piece waits for the next page to finish the
+    question it belongs to — nothing is written for it here, and it took no
+    number. ``index`` is its 1-based place among the question's pieces, counting
+    any carried onto this page from an earlier one, and ``count`` how many
+    pieces the question has — 0 while the page cannot know, because the rest of
+    it is on the next page.
+    """
+
+    placement: QuestionPlacement | None = None
+    index: int = 1
+    count: int = 1
+
+    @property
+    def held(self) -> bool:
+        """True when the next page is the one that finishes this question."""
+        return self.placement is None
+
+    @property
+    def alone(self) -> bool:
+        """True when this region is a whole question rather than a piece of one."""
+        return self.count == 1
+
+
+@dataclass(frozen=True)
 class Numbering:
     """What replaying the current regions through the entry state produces.
+
+    ``pieces`` says, for every question region, which question it lands in and
+    which piece of it it is — one whole question per region on nearly every
+    page, and more than one region per question where a reviewer joined the
+    halves of a question printed across a page break.
 
     ``problem`` is what stops the page being approved: either the placement
     walk refused it outright, or one question's number would collide with the
@@ -56,7 +94,7 @@ class Numbering:
     the page starts — the 'Continue from disk' button — can actually fix it.
     """
 
-    placements: dict[int, QuestionPlacement] = field(default_factory=dict)
+    pieces: dict[int, QuestionPiece] = field(default_factory=dict)
     misnumbered: frozenset[int] = frozenset()
     problem: str | None = None
     continue_helps: bool = False
@@ -65,6 +103,20 @@ class Numbering:
     @property
     def ok(self) -> bool:
         return self.problem is None
+
+    @property
+    def placements(self) -> list[QuestionPlacement]:
+        """Every question this page writes, in order — one entry per file."""
+        placements: list[QuestionPlacement] = []
+        for piece in self.pieces.values():
+            if piece.placement is not None and piece.placement not in placements:
+                placements.append(piece.placement)
+        return placements
+
+    @property
+    def held(self) -> int:
+        """How many pieces this page hands to the next one."""
+        return sum(1 for piece in self.pieces.values() if piece.held)
 
 
 class PageEdits:
@@ -79,6 +131,7 @@ class PageEdits:
         self.state = PageExtractionState()
         self.selected: int | None = None
         self.output_dir = Path()
+        self.carried = 0
         self.history = EditHistory()
 
     # --- loading ---
@@ -88,11 +141,18 @@ class PageEdits:
         regions: list[PageRegion],
         state: PageExtractionState,
         output_dir: Path,
+        carried: int = 0,
     ) -> None:
-        """Take on a new page, discarding the previous one's timeline."""
+        """Take on a new page, discarding the previous one's timeline.
+
+        *carried* is how many question pieces the page before this one left
+        unfinished. They belong to this page's first question, so what that
+        question is saved as is not the crop of this page alone.
+        """
         self.regions = copy_regions(regions)
         self.state = replace(state)
         self.output_dir = output_dir
+        self.carried = carried
         self.selected = None
         self.history.reset(self.regions, self.state)
 
@@ -112,23 +172,36 @@ class PageEdits:
         except ValueError as exc:
             return Numbering(problem=str(exc))
 
-        questions = [i for i, r in enumerate(self.regions) if r.label == "question"]
-        placements = {
-            index: item.placement for index, item in zip(questions, placed, strict=True)
-        }
+        at = {id(region): index for index, region in enumerate(self.regions)}
+        pieces: dict[int, QuestionPiece] = {}
+        # The pieces carried onto the page belong to its first question,
+        # whichever that turns out to be — including one the next page has to
+        # finish, which is a question printed across three pages.
+        carried = self.carried
+        for question in placed.questions:
+            for offset, region in enumerate(question.regions):
+                pieces[at[id(region)]] = QuestionPiece(
+                    placement=question.placement,
+                    index=offset + 1 + carried,
+                    count=len(question.regions) + carried,
+                )
+            carried = 0
+        for offset, region in enumerate(placed.held):
+            pieces[at[id(region)]] = QuestionPiece(index=offset + 1 + carried, count=0)
 
         misnumbered: frozenset[int] = frozenset()
         problem: str | None = None
         continue_helps = False
-        fault = numbering_fault(placed, self.output_dir)
+        fault = numbering_fault(placed.questions, self.output_dir)
         if fault is not None:
-            misnumbered = frozenset({questions[fault.position]})
+            offender = placed.questions[fault.position]
+            misnumbered = frozenset(at[id(region)] for region in offender.regions)
             continue_helps = fault.position < self._entry_group_size
             problem = self._fault_message(fault, continue_helps=continue_helps)
 
         part = preview.part or "?"
         return Numbering(
-            placements=placements,
+            pieces=pieces,
             misnumbered=misnumbered,
             problem=problem,
             continue_helps=continue_helps,
@@ -153,13 +226,20 @@ class PageEdits:
 
     @property
     def _entry_group_size(self) -> int:
-        """Questions before the first marker — the group the entry state numbers."""
+        """Questions before the first marker — the group the entry state numbers.
+
+        Questions, not regions: two pieces a reviewer joined are one question
+        and take one number between them.
+        """
         count = 0
+        joined = False
         for region in self.regions:
             if region.label in ("option", "part"):
                 break
             if region.label == "question":
-                count += 1
+                if not joined:
+                    count += 1
+                joined = region.joins_next
         return count
 
     @property
@@ -178,11 +258,51 @@ class PageEdits:
         hands out ``question + 1``, so the counter sits one below the free
         number.
         """
-        first = next(iter(self.numbering().placements.values()), None)
+        first = next(iter(self.numbering().placements), None)
         if first is None:
             return None
         free = highest_question_number(self.output_dir, first.option, first.part) + 1
         return max(free - 1, 0)
+
+    def question_pieces(self, index: int) -> list[int]:
+        """Every region index making up the question *index* is a piece of.
+
+        Just *index* for a whole question, and for anything that is not a
+        question at all — a marker is nobody's piece.
+        """
+        if self.regions[index].label != "question":
+            return [index]
+
+        group: list[int] = []
+        for at, region in enumerate(self.regions):
+            if region.label != "question":
+                continue
+            group.append(at)
+            if region.joins_next:
+                continue
+            if index in group:
+                return group
+            group = []
+        # What is left is the run the next page finishes.
+        return group if index in group else [index]
+
+    @property
+    def first_question(self) -> int | None:
+        """The first question region on the page, or None if it has none."""
+        return next(
+            (
+                at
+                for at, region in enumerate(self.regions)
+                if region.label == "question"
+            ),
+            None,
+        )
+
+    def takes_carried(self, index: int) -> bool:
+        """True when the pieces carried onto this page join *index*'s question."""
+        if not self.carried or self.regions[index].label != "question":
+            return False
+        return self.question_pieces(index)[0] == self.first_question
 
     @property
     def question_count(self) -> int:
@@ -263,6 +383,33 @@ class PageEdits:
         # The old reading belongs to the old kind — an option number on a part
         # marker would be ignored anyway, and shown as if it counted.
         region.reading = None
+        if label != "question":
+            # Only a question can be a piece of a question.
+            region.joins_next = False
+            region.join_offset = (0, 0)
+        self.commit()
+
+    def toggle_join_next(self, index: int) -> bool:
+        """Mark a question as continuing into the next piece, or stop marking it.
+
+        False when the region is not a question — the only thing that can be
+        half of one.
+        """
+        region = self.regions[index]
+        if region.label != "question":
+            return False
+        region.joins_next = not region.joins_next
+        self.commit()
+        return True
+
+    def set_join_offsets(self, offsets: dict[int, tuple[int, int]]) -> None:
+        """Line the pieces of one question up, in a single undo step.
+
+        Keyed by region index; each offset is where that piece sits against the
+        piece above it.
+        """
+        for index, offset in offsets.items():
+            self.regions[index].join_offset = offset
         self.commit()
 
     def set_reading(self, index: int, reading: int | str | None) -> None:

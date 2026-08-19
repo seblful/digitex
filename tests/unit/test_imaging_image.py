@@ -13,6 +13,8 @@ from digitex.imaging import (
     resize_image,
     rotate_image,
     scan_levels,
+    stack_vertically,
+    stacked_layout,
     whiten_scan,
 )
 from digitex.imaging.image import (
@@ -155,6 +157,86 @@ class TestResizeImage:
         img = Image.new("RGB", (100, 200), color="red")
         result = resize_image(img, 100, 100)
         assert result.size == (50, 100)
+
+
+class TestStackedLayout:
+    """Where the pieces of a question printed across a page break end up."""
+
+    def test_pieces_follow_one_another_down_the_stack(self) -> None:
+        size, positions = stacked_layout([(100, 40), (100, 60)], gap=10)
+
+        assert positions == [(0, 0), (0, 50)]
+        assert size == (100, 110)
+
+    def test_the_canvas_takes_the_widest_piece(self) -> None:
+        size, _ = stacked_layout([(60, 10), (100, 10)])
+
+        assert size == (100, 20)
+
+    def test_an_offset_moves_a_piece_against_the_one_above_it(self) -> None:
+        size, positions = stacked_layout(
+            [(100, 40), (100, 40)], offsets=[(0, 0), (8, -10)]
+        )
+
+        assert positions == [(0, 0), (8, 30)]
+        # The nudged piece hangs 8px off the right, and 10px of the seam closed.
+        assert size == (108, 70)
+
+    def test_a_piece_nudged_left_of_the_first_still_lands_on_the_canvas(self) -> None:
+        _, positions = stacked_layout(
+            [(100, 40), (100, 40)], offsets=[(0, 0), (-20, 0)]
+        )
+
+        assert positions == [(20, 0), (0, 40)]
+
+    def test_a_nudge_carries_the_pieces_below_it_along(self) -> None:
+        """Lining up one seam must not move the seams above it."""
+        _, positions = stacked_layout(
+            [(50, 10), (50, 10), (50, 10)], offsets=[(0, 0), (5, 0), (0, 0)]
+        )
+
+        assert positions == [(0, 0), (5, 10), (5, 20)]
+
+    def test_the_first_piece_has_nothing_to_sit_against(self) -> None:
+        _, positions = stacked_layout([(50, 10), (50, 10)], offsets=[(90, 90), (0, 0)])
+
+        assert positions == [(0, 0), (0, 10)]
+
+
+class TestStackVertically:
+    def test_the_pieces_keep_their_own_size(self) -> None:
+        stacked = stack_vertically(
+            [Image.new("RGB", (80, 30), "red"), Image.new("RGB", (60, 40), "blue")],
+            gap=6,
+        )
+
+        assert stacked.size == (80, 76)
+        assert stacked.getpixel((10, 10)) == (255, 0, 0)
+        assert stacked.getpixel((10, 50)) == (0, 0, 255)
+        # The gap, and the padding beside the narrower piece, are white.
+        assert stacked.getpixel((10, 32)) == (255, 255, 255)
+        assert stacked.getpixel((70, 50)) == (255, 255, 255)
+
+    def test_one_piece_is_handed_back_untouched(self) -> None:
+        """A whole question is not a stack, and must not be padded like one."""
+        only = Image.new("RGB", (40, 20), "red")
+
+        assert stack_vertically([only], gap=6) is only
+
+    def test_an_offset_places_the_piece_where_it_was_lined_up(self) -> None:
+        stacked = stack_vertically(
+            [Image.new("RGB", (40, 20), "red"), Image.new("RGB", (40, 20), "blue")],
+            gap=0,
+            offsets=[(0, 0), (10, 0)],
+        )
+
+        assert stacked.size == (50, 40)
+        assert stacked.getpixel((15, 30)) == (0, 0, 255)
+        assert stacked.getpixel((5, 30)) == (255, 255, 255)
+
+    def test_nothing_to_stack_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="Nothing to stack"):
+            stack_vertically([])
 
 
 class TestScanLevels:

@@ -14,7 +14,7 @@ in this package imports it, so the pipeline stays free of any GUI toolkit.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from digitex.domain.corpus import highest_question_number
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from PIL import Image
 
     from digitex.domain.entities import PixelPolygon
+    from digitex.pipeline.pieces import HeldPiece
     from digitex.pipeline.placement import (
         PageExtractionState,
         PageRegion,
@@ -33,8 +34,23 @@ if TYPE_CHECKING:
     )
 
 
-QuestionCrop = Callable[["PixelPolygon"], "Image.Image"]
-"""Cut one region out of the page exactly as saving it would."""
+QuestionCrop = Callable[[Sequence["PageRegion"], Sequence["HeldPiece"]], "Image.Image"]
+"""Cut one question out of the page exactly as saving it would.
+
+A question is its pieces stacked, so it comes as a sequence of regions — one
+for a whole question, more for one printed across a page break, each carrying
+how it is lined up against the piece above it. The second argument is the
+pieces cut from an earlier page: already cut, so they are handed over as images
+rather than as polygons of a page that is no longer open.
+"""
+
+PieceCrop = Callable[["PixelPolygon"], "Image.Image"]
+"""Cut one piece of a question out of the page, at the page's own scale.
+
+What a reviewer lines two pieces up against each other on. The saved file is
+the pieces stacked and then capped to the question size, so the cap is no part
+of this.
+"""
 
 
 @dataclass(frozen=True)
@@ -50,12 +66,19 @@ class PageProposal:
     ``crop`` is the extractor's own cropping pipeline, bound to this page. A
     reviewer showing a question's crop shows the file that would be written,
     not its own idea of one — the same reason the numbering preview replays
-    :func:`place_questions` rather than reimplementing it. None when the
-    extractor was not asked for one.
+    :func:`place_questions` rather than reimplementing it. ``crop_piece`` is the
+    same pipeline stopped one step earlier, at a single piece before the pieces
+    are stacked, for lining two of them up. Both are None when the extractor
+    was not asked for them.
 
     ``page_number`` and ``page_count`` are the page's place in its book, for a
     reviewer that wants to say how far along the run is. Both are 0 when the
     caller extracts a page on its own, outside a book.
+
+    ``carried`` holds the pieces an earlier page could not finish, in reading
+    order. They belong to this page's first question, whose image is saved as
+    them stacked on top of it — a reviewer must show that, because the file
+    approving writes is not the crop of this page alone.
     """
 
     image: Image.Image
@@ -64,16 +87,24 @@ class PageProposal:
     output_dir: Path
     page_name: str = ""
     crop: QuestionCrop | None = None
+    crop_piece: PieceCrop | None = None
     page_number: int = 0
     page_count: int = 0
+    carried: list[HeldPiece] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class ReviewedPage:
-    """A reviewer's verdict: what to write, and where to start numbering it."""
+    """A reviewer's verdict: what to write, and where to start numbering it.
+
+    ``discard_carried`` throws away the pieces handed to this page instead of
+    joining them to its first question — the way out when the page before left
+    a piece behind that this page does not continue.
+    """
 
     regions: list[PageRegion]
     state: PageExtractionState
+    discard_carried: bool = False
 
 
 PageReviewer = Callable[[PageProposal], "ReviewedPage | None"]

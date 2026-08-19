@@ -29,7 +29,7 @@ POLYGON = PixelPolygon([(10, 40), (200, 40), (200, 80), (10, 80)])
 def _placed(option: int, part: str, *numbers: int) -> list[PlacedQuestion]:
     return [
         PlacedQuestion(
-            region=PageRegion(label="question", polygon=POLYGON),
+            regions=[PageRegion(label="question", polygon=POLYGON)],
             placement=QuestionPlacement(option=option, part=part, number=number),
         )
         for number in numbers

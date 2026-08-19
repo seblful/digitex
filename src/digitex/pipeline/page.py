@@ -5,10 +5,16 @@ a page image into labelled regions (YOLO + OCR), and :meth:`PageExtractor.extrac
 walks those regions through the numbering in `placement`, saving a crop for
 each question. A `PageReviewer` sits between the two, which is where a human
 gets to correct a polygon or a misread marker before anything is written.
+
+A question printed across a page break is saved by the page that finishes it:
+the page before it hands its piece over in a `PageCarry`, and the crop written
+is the pieces stacked. See `pieces`.
 """
 
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 
 import structlog
@@ -21,10 +27,12 @@ from digitex.imaging import (
     cut_out_image_by_polygon,
     resize_image,
     rotate_image,
+    stack_vertically,
 )
 from digitex.imaging.ocr import TextExtractor
 from digitex.ml.predictors import YOLO_SegmentationPredictor
 from digitex.pipeline.base import ExtractionConfig
+from digitex.pipeline.pieces import PIECE_GAP, HeldPiece, PageCarry
 from digitex.pipeline.placement import (
     PageExtractionState,
     PageRegion,
@@ -68,23 +76,52 @@ class PageExtractor:
             self._predictor = YOLO_SegmentationPredictor(str(self.config.model_path))
         return self._predictor
 
-    def _crop(self, image: Image.Image, polygon: PixelPolygon) -> Image.Image:
-        """Cut *polygon* out of the page and process it into a question image.
+    def _crop_piece(self, image: Image.Image, polygon: PixelPolygon) -> Image.Image:
+        """Cut *polygon* out of the page and deskew it, at the page's own scale.
 
         Deskew comes from tesseract: the crop is flattened first so the
         baseline read sees white behind the polygon mask, and rotated before
-        the resize so the grown canvas still fits the size cap.
+        anything stacks or resizes it, so the grown canvas is measured once.
         """
         cropped = cut_out_image_by_polygon(image, polygon)
-        question = add_white_background(cropped)
+        piece = add_white_background(cropped)
 
-        angle = self._text_extractor.detect_skew(question)
+        angle = self._text_extractor.detect_skew(piece)
         if angle:
             logger.debug("Correcting skew", angle=angle)
-            question = rotate_image(question, angle)
+            piece = rotate_image(piece, angle)
 
+        return piece
+
+    def _crop_question(
+        self,
+        image: Image.Image,
+        regions: Sequence[PageRegion],
+        carried: Sequence[HeldPiece] = (),
+    ) -> Image.Image:
+        """The image a question is saved as: its pieces stacked, then capped.
+
+        The size cap belongs to the whole question, not to each of its pieces —
+        two pieces capped separately and then stacked would meet at a seam where
+        the text changes size. *carried* is the pieces cut from an earlier page,
+        which go on top. Each piece is laid against the one above it by the
+        offset the reviewer lined them up with.
+        """
+        pieces = [
+            *((piece.image, piece.offset) for piece in carried),
+            *(
+                (self._crop_piece(image, region.polygon), region.join_offset)
+                for region in regions
+            ),
+        ]
         return resize_image(
-            question, self.config.question_max_width, self.config.question_max_height
+            stack_vertically(
+                [image for image, _ in pieces],
+                PIECE_GAP,
+                [offset for _, offset in pieces],
+            ),
+            self.config.question_max_width,
+            self.config.question_max_height,
         )
 
     def _extract_option_number(
@@ -170,9 +207,10 @@ class PageExtractor:
     def _write_question(
         self,
         image: Image.Image,
-        region: PageRegion,
+        regions: list[PageRegion],
         placement: QuestionPlacement,
         output_dir: Path,
+        carried: Sequence[HeldPiece] = (),
     ) -> bool:
         """Save one placed question's crop, unless its slot is already taken.
 
@@ -180,12 +218,17 @@ class PageExtractor:
         page already wrote. Overwriting would destroy an extracted question, so
         the existing file wins and False comes back for the caller to report —
         and `--review` marks it on the page before anything is written.
+
+        *regions* is the question's pieces on this page and *carried* the pieces
+        cut from the page before, which is what a question printed across a
+        page break amounts to: one file, stacked from both.
         """
         logger.debug(
             "Extracting question",
             option=placement.option,
             part=placement.part,
             question=placement.number,
+            pieces=len(carried) + len(regions),
         )
 
         if question_slot_taken(
@@ -207,7 +250,7 @@ class PageExtractor:
             self.config.image_format,
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        self._crop(image, region.polygon).save(output_path)
+        self._crop_question(image, regions, carried).save(output_path)
         return True
 
     def extract(
@@ -217,6 +260,7 @@ class PageExtractor:
         state: PageExtractionState,
         page_number: int = 0,
         page_count: int = 0,
+        carry: PageCarry | None = None,
     ) -> list[QuestionPlacement]:
         """Extract questions from a single page image, advancing *state*.
 
@@ -231,6 +275,10 @@ class PageExtractor:
         page entirely — in which case nothing is written and *state* is left
         exactly where it was.
 
+        A question the reviewer marked as continuing into the next piece is not
+        written here and takes no number: its crop goes into *carry* for the
+        page that finishes it, which saves the pieces as one image.
+
         Args:
             image: PIL Image of the page.
             output_dir: Base output directory.
@@ -238,6 +286,11 @@ class PageExtractor:
             page_number: This page's 1-based place in its book, for the
                 reviewer to report progress with. 0 outside a book.
             page_count: How many pages the book holds. 0 outside a book.
+            carry: The pieces the page before this one could not finish, and
+                where this page leaves its own. Mutated in place, like
+                *state* — the caller threads one carry across a book. A page
+                extracted on its own gets a carry of its own, so a piece it
+                holds goes nowhere.
 
         Returns:
             The placements whose slot was already taken. Their crops were not
@@ -251,6 +304,10 @@ class PageExtractor:
             ReviewAborted: If the reviewer stopped the run.
         """
         regions = self.read_page(image)
+        carry = PageCarry() if carry is None else carry
+        # BookExtractor opens pages from disk, so PIL knows the filename —
+        # though only ImageFile declares it.
+        page_name = Path(str(getattr(image, "filename", ""))).name
 
         reviewed = self._on_review(
             PageProposal(
@@ -261,14 +318,16 @@ class PageExtractor:
                 regions=copy_regions(regions),
                 state=replace(state),
                 output_dir=output_dir,
-                # BookExtractor opens pages from disk, so PIL knows the
-                # filename — though only ImageFile declares it.
-                page_name=Path(str(getattr(image, "filename", ""))).name,
-                # Bound to this page, so a reviewer previewing a region sees
+                page_name=page_name,
+                # Bound to this page, so a reviewer previewing a question sees
                 # the file that would be written rather than a lookalike.
-                crop=lambda polygon: self._crop(image, polygon),
+                crop=partial(self._crop_question, image),
+                crop_piece=partial(self._crop_piece, image),
                 page_number=page_number,
                 page_count=page_count,
+                # Copies of the pieces, not the carry itself: a skipped
+                # page leaves them for the next one to finish.
+                carried=list(carry.pieces),
             )
         )
         if reviewed is None:
@@ -276,6 +335,17 @@ class PageExtractor:
             return []
 
         state.adopt(reviewed.state)
+
+        # Taken now: whatever happens below, these pieces are this page's
+        # business and not the next page's.
+        pending = carry.take()
+        if reviewed.discard_carried and pending:
+            logger.warning(
+                "Carried question pieces discarded by reviewer",
+                pieces=len(pending),
+                page=page_name,
+            )
+            pending = []
 
         # The same legality rule the review window applies: replay the page
         # through a copy of the state and ask `numbering_fault` whether every
@@ -285,7 +355,7 @@ class PageExtractor:
         # a gap would put a hole in the output tree that no renumbering pass
         # exists to close, so the page is refused before anything is written.
         placed = place_questions(reviewed.regions, replace(state))
-        fault = numbering_fault(placed, output_dir)
+        fault = numbering_fault(placed.questions, output_dir)
         if fault is not None and not fault.collides:
             raise ValueError(
                 f"Question numbering leaves a gap: {fault.placement} — the next"
@@ -295,9 +365,32 @@ class PageExtractor:
 
         collisions: list[QuestionPlacement] = []
 
-        def write(region: PageRegion, placement: QuestionPlacement) -> None:
-            if not self._write_question(image, region, placement, output_dir):
+        def write(regions: list[PageRegion], placement: QuestionPlacement) -> None:
+            # The carried pieces belong to the first question written on the
+            # page, and to that one only.
+            carried = list(pending)
+            pending.clear()
+            if not self._write_question(image, regions, placement, output_dir, carried):
                 collisions.append(placement)
 
-        place_questions(reviewed.regions, state, write=write)
+        written = place_questions(reviewed.regions, state, write=write)
+
+        # Anything still pending was carried onto a page with no question to
+        # finish it — a question spanning three pages — and travels on ahead of
+        # whatever this page leaves behind.
+        pending.extend(
+            HeldPiece(
+                image=self._crop_piece(image, region.polygon),
+                page_name=page_name,
+                offset=region.join_offset,
+            )
+            for region in written.held
+        )
+        if pending:
+            logger.info(
+                "Question continues on the next page",
+                pieces=len(pending),
+                page=page_name,
+            )
+        carry.hold(pending)
         return collisions

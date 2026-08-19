@@ -19,6 +19,8 @@ from .image import (
     resize_image,
     rotate_image,
     scan_levels,
+    stack_vertically,
+    stacked_layout,
     whiten_scan,
 )
 
@@ -31,5 +33,7 @@ __all__ = [
     "resize_image",
     "rotate_image",
     "scan_levels",
+    "stack_vertically",
+    "stacked_layout",
     "whiten_scan",
 ]

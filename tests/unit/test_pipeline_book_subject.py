@@ -10,6 +10,7 @@ from digitex.pipeline.base import ExtractionResult
 from digitex.pipeline.book import BookExtractor
 from digitex.pipeline.exceptions import DirectoryNotFoundError, ReviewAborted
 from digitex.pipeline.page import PageExtractor
+from digitex.pipeline.pieces import HeldPiece, PageCarry
 from digitex.pipeline.placement import PageExtractionState, QuestionPlacement
 from digitex.pipeline.subject import PROGRESS_FILE, SubjectExtractor
 
@@ -27,13 +28,16 @@ class _RecordingPageExtractor:
         fail_on: str | None = None,
         abort_on: str | None = None,
         collide_on: str | None = None,
+        hold_on: str | None = None,
     ) -> None:
         self.pages: list[str] = []
         self.questions_on_arrival: list[int] = []
         self.positions: list[tuple[int, int]] = []
+        self.carried: list[int] = []
         self._fail_on = fail_on
         self._abort_on = abort_on
         self._collide_on = collide_on
+        self._hold_on = hold_on
 
     def extract(
         self,
@@ -42,6 +46,7 @@ class _RecordingPageExtractor:
         state: PageExtractionState,
         page_number: int = 0,
         page_count: int = 0,
+        carry: PageCarry | None = None,
     ) -> list[QuestionPlacement]:
         # BookExtractor opens pages from disk, so PIL knows the filename —
         # though only ImageFile declares it, hence the defaulted lookup.
@@ -53,6 +58,9 @@ class _RecordingPageExtractor:
         self.pages.append(name)
         self.questions_on_arrival.append(state.question)
         self.positions.append((page_number, page_count))
+        self.carried.append(len(carry.pieces) if carry else 0)
+        if carry is not None and name == self._hold_on:
+            carry.hold([HeldPiece(image=image, page_name=name)])
         state.next_question()
         state.commit_question()
         if name == self._collide_on:
@@ -195,6 +203,53 @@ class TestBookExtractor:
             extractor.extract(image_dir, tmp_path / "output")
 
         assert pages.pages == ["page_1.jpg"]
+
+
+class TestBookExtractorPieces:
+    """A question printed across a page break is one book's business."""
+
+    def test_a_piece_reaches_the_page_that_finishes_it(self, tmp_path: Path) -> None:
+        image_dir = tmp_path / "book"
+        image_dir.mkdir()
+        for name in ("1.jpg", "2.jpg"):
+            _write_page(image_dir, name)
+        pages = _RecordingPageExtractor(hold_on="1.jpg")
+
+        BookExtractor(pages.as_page_extractor()).extract(image_dir, tmp_path / "output")
+
+        # Nothing carried into the first page, the first page's piece into the
+        # second — one carry, threaded.
+        assert pages.carried == [0, 1]
+
+    def test_a_piece_left_over_at_the_end_of_a_book_is_reported(
+        self, tmp_path: Path
+    ) -> None:
+        """Nothing was written for it, so a silent drop would lose a question."""
+        image_dir = tmp_path / "book"
+        image_dir.mkdir()
+        _write_page(image_dir, "1.jpg")
+        pages = _RecordingPageExtractor(hold_on="1.jpg")
+
+        result = BookExtractor(pages.as_page_extractor()).extract(
+            image_dir, tmp_path / "output"
+        )
+
+        assert result.success
+        assert result.warnings == [
+            "1.jpg: a question piece was left unfinished, nothing was written for it"
+        ]
+
+    def test_no_carry_survives_into_the_next_book(self, tmp_path: Path) -> None:
+        image_dir = tmp_path / "book"
+        image_dir.mkdir()
+        _write_page(image_dir, "1.jpg")
+        pages = _RecordingPageExtractor(hold_on="1.jpg")
+        extractor = BookExtractor(pages.as_page_extractor())
+
+        extractor.extract(image_dir, tmp_path / "first")
+        extractor.extract(image_dir, tmp_path / "second")
+
+        assert pages.carried == [0, 0]
 
 
 class TestSubjectExtractor:

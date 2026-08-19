@@ -9,12 +9,14 @@ The numbering itself is exercised in ``test_placement``.
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+import numpy as np
 import pytest
 from PIL import Image
 
 from digitex.domain.entities import Detection, PixelPolygon
 from digitex.pipeline.base import ExtractionConfig
 from digitex.pipeline.page import PageExtractor
+from digitex.pipeline.pieces import HeldPiece, PageCarry
 from digitex.pipeline.placement import PageExtractionState, PageRegion
 from digitex.pipeline.review import PageProposal, ReviewedPage
 
@@ -64,14 +66,15 @@ def _extractor(
     digits: list[int] | None = None,
     text: str = "",
     on_review=None,
+    max_size: int = 50,
 ) -> PageExtractor:
     # The fakes satisfy the collaborators' contracts structurally.
     return PageExtractor(
         ExtractionConfig(
             model_path=Path("model.pt"),
             image_format="jpg",
-            question_max_width=50,
-            question_max_height=50,
+            question_max_width=max_size,
+            question_max_height=max_size,
         ),
         predictor=cast("YOLO_SegmentationPredictor", _FakePredictor(detections)),
         text_extractor=cast(
@@ -337,6 +340,151 @@ class TestPageExtractorExtract:
         assert existing.read_bytes() == b"original"
 
 
+class TestQuestionsInPieces:
+    """A question printed across a page break: held by one page, saved by the next.
+
+    The reviewer is the only one who can say a question is in pieces, so these
+    stand a fake one in that marks the flag the review window would.
+    """
+
+    @staticmethod
+    def _joins_next(proposal: PageProposal) -> ReviewedPage:
+        """A reviewer marking the page's last question as continuing."""
+        for region in reversed(proposal.regions):
+            if region.label == "question":
+                region.joins_next = True
+                break
+        return ReviewedPage(regions=proposal.regions, state=proposal.state)
+
+    @staticmethod
+    def _carried(page_name: str = "001.jpg") -> PageCarry:
+        """A carry holding one black piece, so the join is visible in the file."""
+        return PageCarry(
+            pieces=[
+                HeldPiece(
+                    image=Image.new("RGB", (60, 30), color="black"),
+                    page_name=page_name,
+                )
+            ]
+        )
+
+    def test_a_held_piece_is_not_written_and_takes_no_number(
+        self, tmp_path: Path
+    ) -> None:
+        detections = _dets(("question", QUESTION_REGION))
+        image = Image.new("RGB", (300, 300), color="white")
+        state = PageExtractionState(option=1, part="A")
+        carry = PageCarry()
+
+        _extractor(detections, on_review=self._joins_next).extract(
+            image, tmp_path, state, carry=carry
+        )
+
+        assert list(tmp_path.rglob("*.jpg")) == []
+        # The page that finishes the question is the page that numbers it.
+        assert state.question == 0
+        assert len(carry.pieces) == 1
+
+    def test_the_page_that_finishes_a_question_saves_both_pieces_as_one(
+        self, tmp_path: Path
+    ) -> None:
+        detections = _dets(("question", QUESTION_REGION))
+        image = Image.new("RGB", (300, 300), color="white")
+        carry = self._carried()
+
+        _extractor(detections, max_size=400).extract(
+            image, tmp_path, PageExtractionState(option=1, part="A"), carry=carry
+        )
+
+        with Image.open(tmp_path / "1" / "A" / "1.jpg") as saved:
+            # The carried piece sits on top of this page's crop: the file opens
+            # in the carried piece's black and ends in the page's white.
+            pixels = np.array(saved)
+        assert pixels[:5, :5].max() < 60
+        assert pixels[-5:, :5].min() > 200
+        assert carry.pieces == []
+
+    def test_a_skipped_page_leaves_the_carried_pieces_for_the_next_one(
+        self, tmp_path: Path
+    ) -> None:
+        """Skipping writes nothing, so it must not consume anything either."""
+        detections = _dets(("question", QUESTION_REGION))
+        image = Image.new("RGB", (300, 300), color="white")
+        carry = self._carried()
+
+        _extractor(detections, on_review=lambda proposal: None).extract(
+            image, tmp_path, PageExtractionState(option=1, part="A"), carry=carry
+        )
+
+        assert len(carry.pieces) == 1
+
+    def test_a_page_with_no_question_hands_the_pieces_on(self, tmp_path: Path) -> None:
+        """A question can span three pages; the middle one has nothing to place."""
+        detections = _dets(("option", OPTION_REGION))
+        image = Image.new("RGB", (300, 300), color="white")
+        carry = self._carried()
+
+        _extractor(detections, digits=[1]).extract(
+            image, tmp_path, PageExtractionState(), carry=carry
+        )
+
+        assert [piece.page_name for piece in carry.pieces] == ["001.jpg"]
+
+    def test_the_reviewer_can_discard_what_was_carried(self, tmp_path: Path) -> None:
+        def discard(proposal: PageProposal) -> ReviewedPage:
+            assert [piece.page_name for piece in proposal.carried] == ["001.jpg"]
+            return ReviewedPage(
+                regions=proposal.regions,
+                state=proposal.state,
+                discard_carried=True,
+            )
+
+        detections = _dets(("question", QUESTION_REGION))
+        image = Image.new("RGB", (300, 300), color="white")
+        carry = self._carried()
+
+        _extractor(detections, on_review=discard, max_size=400).extract(
+            image, tmp_path, PageExtractionState(option=1, part="A"), carry=carry
+        )
+
+        with Image.open(tmp_path / "1" / "A" / "1.jpg") as saved:
+            pixels = np.array(saved)
+        # No black at the top: the carried piece is not in the file.
+        assert pixels[:5, :5].min() > 200
+        assert carry.pieces == []
+
+    def _joined_size(
+        self, output_dir: Path, offset: tuple[int, int]
+    ) -> tuple[int, int]:
+        """The size of the file a page joining its piece to a carried one writes."""
+
+        def review(proposal: PageProposal) -> ReviewedPage:
+            for region in proposal.regions:
+                if region.label == "question":
+                    region.join_offset = offset
+            return ReviewedPage(regions=proposal.regions, state=proposal.state)
+
+        _extractor(
+            _dets(("question", QUESTION_REGION)), on_review=review, max_size=400
+        ).extract(
+            Image.new("RGB", (300, 300), color="white"),
+            output_dir,
+            PageExtractionState(option=1, part="A"),
+            carry=self._carried(),
+        )
+        with Image.open(output_dir / "1" / "A" / "1.jpg") as saved:
+            return saved.size
+
+    def test_lining_a_piece_up_moves_it_in_the_saved_file(self, tmp_path: Path) -> None:
+        """What the join editor settles is what the file is built with."""
+        plain = self._joined_size(tmp_path / "plain", offset=(0, 0))
+        nudged = self._joined_size(tmp_path / "nudged", offset=(10, -8))
+
+        # Nudging the lower piece right widens the stack and closing the seam
+        # shortens it, so the file comes out a wider shape than the plain join.
+        assert nudged[0] / nudged[1] > plain[0] / plain[1]
+
+
 class TestPageExtractorReview:
     """The reviewer's verdict is what gets written — not what was detected."""
 
@@ -481,6 +629,5 @@ class TestPageExtractorReview:
         crop = seen[0].crop
         assert crop is not None
         # The same pipeline the write goes through, on the same page.
-        assert (
-            crop(QUESTION_REGION).size == extractor._crop(image, QUESTION_REGION).size
-        )
+        region = PageRegion(label="question", polygon=QUESTION_REGION)
+        assert crop([region], []).size == extractor._crop_question(image, [region]).size

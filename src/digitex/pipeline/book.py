@@ -11,6 +11,7 @@ from tqdm import tqdm
 from digitex.domain.corpus import is_image, natural_sort_key
 from digitex.pipeline.base import ExtractionResult
 from digitex.pipeline.exceptions import DirectoryNotFoundError, ReviewAborted
+from digitex.pipeline.pieces import PageCarry
 from digitex.pipeline.placement import PageExtractionState
 
 if TYPE_CHECKING:
@@ -64,6 +65,10 @@ class BookExtractor:
         # page boundaries. A page that fails leaves it partly advanced, which
         # is why a book with any error is never marked completed.
         state = PageExtractionState()
+        # One carry too: a question printed across a page break is written by
+        # the page that finishes it, out of the piece the page before it left
+        # here. Per book, because no question spans two years.
+        carry = PageCarry()
         processed_count = 0
         errors: list[str] = []
         warnings: list[str] = []
@@ -79,6 +84,7 @@ class BookExtractor:
                         state,
                         page_number=page_number,
                         page_count=len(images),
+                        carry=carry,
                     )
                 processed_count += 1
                 # Not a page failure — resuming an unfinished year replays its
@@ -102,6 +108,14 @@ class BookExtractor:
                     exc_info=True,
                 )
                 errors.append(msg)
+
+        # A piece still held at the end of the book was never joined to
+        # anything, so no file carries it — which the caller has to hear.
+        warnings.extend(
+            f"{piece.page_name}: a question piece was left unfinished,"
+            " nothing was written for it"
+            for piece in carry.take()
+        )
 
         logger.info(
             "Extracted images from book",
