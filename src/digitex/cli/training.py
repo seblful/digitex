@@ -170,35 +170,5 @@ def train(
     typer.echo(typer.style("✓ Training and validation completed", fg="green"))
 
 
-@app.command(name="ls-predict")
-def ls_predict(
-    project_id: int = typer.Option(..., "--project-id", help="Label Studio project ID"),
-    model_path: str = typer.Option(
-        ..., "--model-path", help="Path to trained YOLO model (.pt file)"
-    ),
-) -> None:
-    """Run model predictions on Label Studio tasks for a project."""
-    from digitex.labeling.client import LabelStudioClient
-    from digitex.labeling.predictor import TaskPredictor
-    from digitex.ml.predictors import YOLO_SegmentationPredictor
-
-    settings = get_settings()
-    predictor = TaskPredictor(
-        YOLO_SegmentationPredictor(model_path, simplify=True),
-        LabelStudioClient(
-            settings.pipeline.label_studio.url,
-            settings.pipeline.label_studio.api_key,
-        ),
-        # Uploaded predictions are grouped by version, so the model file
-        # names one.
-        model_version=Path(model_path).stem,
-    )
-
-    count = predictor.predict_tasks(project_id)
-    typer.echo(
-        typer.style(f"✓ Predicted {count} tasks in project {project_id}", fg="green")
-    )
-
-
 if __name__ == "__main__":
     app()

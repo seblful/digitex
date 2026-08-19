@@ -15,7 +15,7 @@ class LabelStudioTask(Protocol):
     data: dict[str, Any]
     is_labeled: bool
     # ``list_tasks`` asks for fields="all", so annotations come back with the
-    # task; the cancelled-task sweep in tools/ reads them.
+    # task; ``labeling.repair`` and ``labeling.skipped`` both read them.
     annotations: list[dict[str, Any]]
     # Same listing, same reason: asking the server once per task whether it
     # already holds a prediction is a request per task in the project.

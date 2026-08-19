@@ -137,7 +137,7 @@ To modify training parameters, edit `configs/training/<config>.yaml`.
 Run trained model on unannotated Label Studio tasks and upload predictions (see [Label Studio](label-studio.md) for setup):
 
 ```bash
-uv run digitex-train ls-predict --project-id 1 --model-path training/runs/train/weights/best.pt
+uv run digitex-label predict --project-id 1 --model-path training/runs/train/weights/best.pt
 ```
 
 **Options:**
@@ -172,7 +172,7 @@ uv run digitex-train create-dataset page
 uv run digitex-train train
 
 # Step 5: Predict unannotated tasks in Label Studio
-uv run digitex-train ls-predict --project-id 1 --model-path training/runs/train/weights/best.pt
+uv run digitex-label predict --project-id 1 --model-path training/runs/train/weights/best.pt
 ```
 
 ## Data Format

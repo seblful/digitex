@@ -49,6 +49,21 @@ name, and resolves it against the `$image` tag in the label config when it
 renders the task. Read it with `digitex.domain.geometry.task_image_path`, which
 takes either key.
 
+## Commands
+
+Everything that talks to the server is one CLI, `digitex-label`
+(`src/digitex/cli/labeling.py`):
+
+| Command | What it does |
+| :--- | :--- |
+| `predict` | Pre-annotate a project's unannotated tasks with a trained model |
+| `fix-task-paths` | Move annotations onto the tasks that hold their images now |
+| `delete-skipped-images` | Delete the local images of pages an annotator skipped |
+
+The two that change something default to a dry run: they print the plan and
+write nothing until `--no-dry-run` is passed, and they archive what they are
+about to destroy to `var/label-studio/` first.
+
 ## Repairing Moved Images
 
 Moving the image pool strands every task synced before the move: its URI names
@@ -59,21 +74,41 @@ Point the storage at the new directory, sync it, then move the annotations onto
 the tasks that now hold their images:
 
 ```bash
-uv run --env-file .env python tools/fix_task_paths.py fix-task-paths --project-id 1
+uv run --env-file .env digitex-label fix-task-paths --project-id 1
 ```
 
 It prints the plan and changes nothing. Add `--no-dry-run` to apply, which dumps
 every task it is about to delete to `var/label-studio/stranded-tasks-*.json`
 first. A moved annotation keeps its result, its labels, its annotator and its
 lead time, but gets a new id and timestamp; predictions on a stranded task are
-dropped rather than moved — rerun `ls-predict` if they are wanted.
+dropped rather than moved — rerun `digitex-label predict` if they are wanted.
+
+## Retiring Skipped Pages
+
+Clicking "Skip" in Label Studio files a cancelled annotation and leaves both the
+task and its image alone, so the page syncs back into the pool and lands in the
+next training set. Deleting the image is what retires it:
+
+```bash
+uv run --env-file .env digitex-label delete-skipped-images --project-id 1
+```
+
+It prints the plan and changes nothing. Add `--no-dry-run` to apply, which
+writes the list of images it is about to unlink to
+`var/label-studio/skipped-images-*.json` first.
+
+The task stays — its cancelled annotation is the record of the annotator's
+judgement, and the missing image is enough to keep the page from coming back.
+An image is kept when the task also holds a completed annotation, when another
+task points at the same file (a moved pool leaves two until `fix-task-paths`
+has run), or when there is no file there to delete.
 
 ## Auto-Prediction
 
 Run a trained model on unannotated tasks and upload predictions back to Label Studio:
 
 ```bash
-uv run digitex-train ls-predict --project-id 1 --model-path var/models/page.pt
+uv run digitex-label predict --project-id 1 --model-path var/models/page.pt
 ```
 
 **How it works:**

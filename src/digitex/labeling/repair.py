@@ -17,9 +17,9 @@ exists to avoid.
 What does not survive the move is an annotation's identity: the server assigns
 new ids and timestamps, and the annotation history of the original task goes
 with it. The result, the labels, who made it and how long it took do survive.
-Predictions on a stranded task are dropped rather than copied — ``ls-predict``
-writes them and can write them again, and a task an annotator has finished has
-no use for the model's guess.
+Predictions on a stranded task are dropped rather than copied — ``digitex-label
+predict`` writes them and can write them again, and a task an annotator has
+finished has no use for the model's guess.
 """
 
 from __future__ import annotations

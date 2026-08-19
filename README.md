@@ -26,7 +26,6 @@ digitex/
 ├── configs/training/         # YOLO hyperparameter YAMLs
 ├── deploy/                   # Dockerfile, deploy.sh, seed_prod.ps1
 ├── docker-compose.yml        # stays at the root: its relative paths are $APP_DIR
-├── tools/                    # one-off local scripts
 ├── tests/                    # unit, integration, contracts
 ├── docs/                     # setup, deployment, workflows (see docs/README.md)
 ├── var/                      # the data root — gitignored, PATH_DATA_ROOT
