@@ -59,6 +59,11 @@ class DatasetCreator:
         dataset_dir: Output directory for the train/val/test splits.
         train_split: Fraction of images used for training. The remainder is
             divided 60/40 between val and test.
+        seed: Seeds the shuffle the splits are cut from. Fixed by default,
+            because an unseeded one re-deals train/val/test on every build —
+            and a model trained before the rebuild has then been trained on
+            part of the test split it is about to be scored against. Matches
+            the ``seed`` the train config hands YOLO.
     """
 
     def __init__(
@@ -67,12 +72,14 @@ class DatasetCreator:
         images_dir: Path,
         dataset_dir: Path,
         train_split: float = 0.8,
+        seed: int = 0,
     ) -> None:
         self._annotations_file = annotations_file
         self._images_dir = images_dir
         self._dataset_dir = dataset_dir
         self._train_split = train_split
         self._val_split = 0.6 * (1 - train_split)
+        self._rng = random.Random(seed)
         self._classes: dict[int, str] = {}
         self._missing: list[str] = []
 
@@ -177,7 +184,7 @@ class DatasetCreator:
             images_labels[filename] = label_str
 
         keys = list(images_labels)
-        random.shuffle(keys)
+        self._rng.shuffle(keys)
         logger.info("loaded_annotations", count=len(keys))
         return {k: images_labels[k] for k in keys}
 

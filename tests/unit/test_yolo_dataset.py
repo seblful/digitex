@@ -35,6 +35,8 @@ def _creator(
     *,
     train_split: float = 0.8,
     images: tuple[str, ...] = (),
+    seed: int = 0,
+    dataset_dir_name: str = "dataset",
 ) -> DatasetCreator:
     """Build a creator rooted in tmp_path, seeding the export and image files."""
     annotations_file = tmp_path / "annotations.json"
@@ -48,8 +50,9 @@ def _creator(
     return DatasetCreator(
         annotations_file=annotations_file,
         images_dir=images_dir,
-        dataset_dir=tmp_path / "dataset",
+        dataset_dir=tmp_path / dataset_dir_name,
         train_split=train_split,
+        seed=seed,
     )
 
 
@@ -90,6 +93,39 @@ class TestCreate:
 
         # 80% train; the remaining 20% splits 60/40 into val/test.
         assert (dataset.train, dataset.val, dataset.test) == (8, 1, 1)
+
+    @staticmethod
+    def _split_of(dataset_dir: Path) -> dict[str, str]:
+        """Which split each image landed in."""
+        return {path.name: path.parent.name for path in dataset_dir.rglob("*.jpg")}
+
+    def test_the_same_seed_deals_the_same_split(self, tmp_path: Path) -> None:
+        """An unseeded shuffle re-deals on every build.
+
+        A model trained before the rebuild has then seen part of the test split
+        it is about to be scored against, and no two runs are comparable.
+        """
+        names = tuple(f"image{i}.jpg" for i in range(20))
+        annotations = [_annotation(n) for n in names]
+
+        first = _creator(tmp_path, annotations, images=names).create()
+        second = _creator(
+            tmp_path, annotations, images=names, dataset_dir_name="rebuild"
+        ).create()
+
+        assert self._split_of(first.dataset_dir) == self._split_of(second.dataset_dir)
+
+    def test_another_seed_deals_another_split(self, tmp_path: Path) -> None:
+        """The split is fixed, not hardcoded — a new seed reshuffles on purpose."""
+        names = tuple(f"image{i}.jpg" for i in range(20))
+        annotations = [_annotation(n) for n in names]
+
+        first = _creator(tmp_path, annotations, images=names).create()
+        other = _creator(
+            tmp_path, annotations, images=names, seed=7, dataset_dir_name="rebuild"
+        ).create()
+
+        assert self._split_of(first.dataset_dir) != self._split_of(other.dataset_dir)
 
     def test_every_annotated_image_is_copied_exactly_once(self, tmp_path: Path) -> None:
         names = tuple(f"image{i}.jpg" for i in range(6))

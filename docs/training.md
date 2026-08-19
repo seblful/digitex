@@ -93,6 +93,10 @@ uv run digitex-train create-dataset <task> --train-split 0.8
 
 - `--train-split`: Training/validation split ratio (default: 0.8)
 
+The remainder splits 60/40 into val and test. The shuffle behind the split is
+seeded, so rebuilding the dataset over the same images deals the same three
+splits — a model stays comparable against the test split it was scored on.
+
 **Requirements:**
 
 - `annotations.json` in `var/training/data/<task>/`
