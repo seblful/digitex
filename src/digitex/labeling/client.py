@@ -75,6 +75,37 @@ class LabelStudioClient:
         )
         return unlabeled
 
+    def create_annotation(self, task_id: int, annotation: dict[str, Any]) -> None:
+        """Recreate one annotation, as read off another task, on this one.
+
+        Only what an annotator produced crosses over — the result, whether they
+        skipped the task, how long it took, and who they were. Identity and
+        timestamps are the server's to assign, so a moved annotation is a new
+        record of the same work.
+
+        Args:
+            task_id: Label Studio task the annotation is created on.
+            annotation: An annotation as ``list_tasks`` returns it.
+        """
+        # fields="all" expands the annotator into an object; the write side
+        # takes the id.
+        annotator = annotation.get("completed_by")
+        self._client.annotations.create(
+            id=task_id,
+            result=annotation.get("result", []),
+            was_cancelled=bool(annotation.get("was_cancelled", False)),
+            ground_truth=bool(annotation.get("ground_truth", False)),
+            lead_time=annotation.get("lead_time"),
+            completed_by=annotator["id"] if isinstance(annotator, dict) else annotator,
+        )
+        logger.info("created_annotation", task_id=task_id)
+
+    def delete_task(self, task_id: int) -> None:
+        """Delete a task, and with it everything the server hangs off one."""
+        # The SDK types the id as a string and formats it into the URL.
+        self._client.tasks.delete(id=str(task_id))
+        logger.info("deleted_task", task_id=task_id)
+
     def upload_predictions(
         self, project_id: int, predictions: list[dict[str, Any]]
     ) -> None:

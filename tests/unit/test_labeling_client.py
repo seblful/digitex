@@ -59,6 +59,56 @@ class TestLabelStudioClient:
 
         assert client.get_unlabeled_tasks(project_id=1) == [unlabeled, also_unlabeled]
 
+    def test_a_moved_annotation_carries_the_work_and_not_the_identity(
+        self, sdk_class: MagicMock
+    ) -> None:
+        """Ids and timestamps are the server's; the annotator is not."""
+        client = LabelStudioClient("http://localhost:8080", "api-key")
+
+        client.create_annotation(
+            task_id=42,
+            annotation={
+                "id": 7,
+                "created_at": "2026-04-06T20:20:53Z",
+                "result": [{"type": "polygonlabels"}],
+                "was_cancelled": True,
+                "lead_time": 12.5,
+                "completed_by": {"id": 3, "email": "annotator@example.com"},
+            },
+        )
+
+        sdk_class.return_value.annotations.create.assert_called_once_with(
+            id=42,
+            result=[{"type": "polygonlabels"}],
+            was_cancelled=True,
+            ground_truth=False,
+            lead_time=12.5,
+            completed_by=3,
+        )
+
+    def test_a_bare_annotator_id_is_passed_through(self, sdk_class: MagicMock) -> None:
+        """``fields="all"`` expands the annotator; a plain listing does not."""
+        client = LabelStudioClient("http://localhost:8080", "api-key")
+
+        client.create_annotation(task_id=42, annotation={"completed_by": 3})
+
+        assert sdk_class.return_value.annotations.create.call_args.kwargs == {
+            "id": 42,
+            "result": [],
+            "was_cancelled": False,
+            "ground_truth": False,
+            "lead_time": None,
+            "completed_by": 3,
+        }
+
+    def test_a_deleted_task_is_named_by_string(self, sdk_class: MagicMock) -> None:
+        """The SDK formats the id straight into the URL."""
+        client = LabelStudioClient("http://localhost:8080", "api-key")
+
+        client.delete_task(task_id=42)
+
+        sdk_class.return_value.tasks.delete.assert_called_once_with(id="42")
+
     def test_an_empty_upload_is_not_sent(self, sdk_class: MagicMock) -> None:
         """A run that predicted nothing must not post an empty import."""
         client = LabelStudioClient("http://localhost:8080", "api-key")

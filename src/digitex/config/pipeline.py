@@ -10,6 +10,8 @@ are not installed in the production image.
 
 from __future__ import annotations
 
+from pathlib import Path  # noqa: TC003 — pydantic resolves the annotation at runtime
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -89,6 +91,14 @@ class LabelStudioSettings(BaseSettings):
     )
 
     api_key: str = Field(default="", description="Label Studio API key")
+
+    # The server reads this one itself — it is what a ``?d=`` URI in a task is
+    # relative to — so a repair that has to tell a reachable image from a
+    # stranded one asks for the same value rather than a second opinion.
+    local_files_document_root: Path | None = Field(
+        default=None,
+        description="Directory the server serves local files from",
+    )
 
 
 class PipelineSettings(BaseSettings):
