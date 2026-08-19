@@ -15,6 +15,7 @@ from digitex.domain.geometry import (
     local_file_path,
     percent_to_normalized,
     pixel_to_percent,
+    task_image_path,
 )
 
 
@@ -57,6 +58,41 @@ class TestLocalFilePath:
     def test_a_uri_naming_no_local_file_has_no_path(self, uri: str) -> None:
         """The predictor skips such a task rather than failing the run."""
         assert local_file_path(uri) is None
+
+
+class TestTaskImagePath:
+    """A task's image is not always filed under ``image``.
+
+    A sync from a storage of blob URLs files it under ``$undefined$``, and a
+    reader that only knows ``image`` skips every task of such a project without
+    saying why — which is how a prediction run over 1069 tasks predicted none.
+    """
+
+    URI = "/data/local-files/?d=var%5Ctraining%5Cpage.jpg"
+
+    @pytest.mark.parametrize("key", ["image", "$undefined$"], ids=["named", "unnamed"])
+    def test_the_image_is_found_under_either_key(self, key: str) -> None:
+        path = task_image_path({key: self.URI})
+
+        assert path is not None
+        assert path.name == "page.jpg"
+
+    def test_the_key_the_label_config_names_wins(self) -> None:
+        """Both keys present means one of them is a leftover; ``image`` is not."""
+        path = task_image_path(
+            {"$undefined$": "/data/local-files/?d=stale.jpg", "image": self.URI}
+        )
+
+        assert path is not None
+        assert path.name == "page.jpg"
+
+    @pytest.mark.parametrize(
+        "data",
+        [{}, {"image": ""}, {"text": "a question"}, {"image": 7}],
+        ids=["empty", "empty-uri", "no-image-field", "not-a-string"],
+    )
+    def test_a_task_with_no_local_file_has_no_path(self, data: dict) -> None:
+        assert task_image_path(data) is None
 
 
 class TestCoordinateConversions:

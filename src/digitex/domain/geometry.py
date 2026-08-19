@@ -15,10 +15,14 @@ beyond them. Scaling a YOLO mask up to pixels belongs to
 :mod:`digitex.ml.predictors`, which is where masks come from.
 """
 
+from collections.abc import Mapping
 from pathlib import Path, PureWindowsPath
+from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 from digitex.domain.entities import NormalizedPolygon, PercentPolygon, PixelPolygon
+
+_IMAGE_DATA_KEY = "image"
 
 
 def local_file_path(image_uri: str) -> Path | None:
@@ -41,6 +45,25 @@ def local_file_path(image_uri: str) -> Path | None:
     for key in ("file", "d"):
         if key in params:
             return Path(PureWindowsPath(unquote(params[key][0])).as_posix())
+    return None
+
+
+def task_image_path(data: Mapping[str, Any]) -> Path | None:
+    """The local filesystem path of a task's image, whichever key holds it.
+
+    ``image`` is the key the label config names, and the one an import of a file
+    of paths writes. A sync from a storage of blob URLs writes ``$undefined$``
+    instead — Label Studio names the column that when the import carries no
+    field name of its own, and resolves it against the single object tag when it
+    renders the task. Reading only ``image`` passes over every task of such a
+    project, and says nothing about why.
+    """
+    for key in sorted(data, key=lambda name: name != _IMAGE_DATA_KEY):
+        value = data[key]
+        if isinstance(value, str):
+            path = local_file_path(value)
+            if path is not None:
+                return path
     return None
 
 

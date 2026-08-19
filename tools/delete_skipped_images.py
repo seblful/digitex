@@ -10,7 +10,7 @@ import structlog
 import typer
 
 from digitex.config import get_settings
-from digitex.domain.geometry import local_file_path
+from digitex.domain.geometry import task_image_path
 from digitex.labeling.client import LabelStudioClient
 from digitex.logging import setup_logging
 
@@ -40,7 +40,7 @@ def _collect_cancelled(
     for task in tasks:
         if not any(ann.get("was_cancelled", False) for ann in task.annotations):
             continue
-        image_path = local_file_path(task.data.get("image", ""))
+        image_path = task_image_path(task.data)
         cancelled.append((task.id, image_path))
         logger.debug("found_cancelled_task", task_id=task.id, path=str(image_path))
 
