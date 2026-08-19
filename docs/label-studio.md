@@ -78,11 +78,14 @@ uv run digitex-train ls-predict --project-id 1 --model-path var/models/page.pt
 
 **How it works:**
 
-1. Fetches all tasks where `is_labeled=False`
+1. Fetches all tasks where `is_labeled=False` and no prediction exists yet
 1. Reads the image from local disk (via task URI)
 1. Runs YOLO segmentation model
 1. Uploads polygon predictions immediately per task
 1. Skips tasks with missing files or failed predictions
+
+Each region carries the model's confidence, and each task the mean of its
+regions — sort the Data Manager by score to review the shakiest pages first.
 
 **Requirements:**
 

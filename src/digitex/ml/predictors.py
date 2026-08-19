@@ -31,6 +31,20 @@ SIMPLIFY_EPSILON = 3.0
 # Label Studio pre-annotation, and the tuning tool all detect the same way.
 PREDICT_CONF = 0.25
 PREDICT_IMGSZ = 640
+# Matches ``max_det`` in the train and val configs. No page has come close: the
+# most regions found on any of the 647 pooled pages is 15.
+PREDICT_MAX_DET = 50
+
+# YOLO26 heads are NMS-free by default, and this one is not good enough at it.
+# Measured over the whole pool, letting the one2one head speak for itself turns
+# 28 overlapping region pairs into 283, across a third of the pages, including
+# pairs at IoU 1.0 — duplicates an annotator would have to delete by hand. The
+# one2many branch plus ordinary NMS is what the val config is now pinned to as
+# well, so validation measures the path that actually runs.
+PREDICT_END2END = False
+# Class-agnostic NMS keeps one region per anchor rather than one per class, so
+# a marker cannot come back a second time wearing another label.
+PREDICT_AGNOSTIC_NMS = True
 
 
 # Where a pickle can name the concrete path classes. 3.13 moved them into
@@ -88,8 +102,9 @@ def detections_from(
     """Turn one YOLO prediction into detections in source-image pixels.
 
     YOLO reports masks normalized to 0-1; each is scaled back up by the image
-    size it was predicted on. A detection whose mask cannot be processed is
-    logged and skipped rather than failing the page.
+    size it was predicted on. A detection whose mask cannot be processed, or
+    whose mask holds too little to be a polygon, is logged and skipped rather
+    than failing the page.
 
     Raises:
         ValueError: If *preds* is empty or the first prediction has no
@@ -126,9 +141,21 @@ def detections_from(
             polygon = PixelPolygon([tuple(p) for p in scaled.astype(np.int32).tolist()])
             if simplify:
                 polygon = _simplify(polygon)
+            if len(polygon) < 3:
+                # A mask with no contour above the threshold comes back from
+                # ultralytics as an empty (0, 2) array, which raises nothing.
+                # Two points short of a ring is not a region: it uploads to
+                # Label Studio as a pointless polygon, and page extraction
+                # dies asking a reading order for the min() of nothing.
+                dropped += 1
+                continue
             class_id = int(box.cls.item())
             detections.append(
-                Detection(label=id2label.get(class_id, "unknown"), polygon=polygon)
+                Detection(
+                    label=id2label.get(class_id, "unknown"),
+                    polygon=polygon,
+                    score=float(box.conf.item()),
+                )
             )
         except Exception:
             # A dropped marker silently re-files the rest of a book under the
@@ -196,12 +223,17 @@ class YOLO_SegmentationPredictor:
         """
         img_width, img_height = image.size
 
+        # ``end2end`` reaches the head through ``setup_model``, which YOLO runs
+        # once per model instance — so it is read off the first predict() call
+        # and every later one is ignored. Passing a constant is what keeps the
+        # first call from deciding something else.
         preds = self.model.predict(
             image,
             conf=PREDICT_CONF,
             imgsz=PREDICT_IMGSZ,
-            end2end=False,
-            agnostic_nms=True,
+            max_det=PREDICT_MAX_DET,
+            end2end=PREDICT_END2END,
+            agnostic_nms=PREDICT_AGNOSTIC_NMS,
             verbose=False,
         )
         return detections_from(

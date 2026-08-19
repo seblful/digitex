@@ -17,6 +17,9 @@ class LabelStudioTask(Protocol):
     # ``list_tasks`` asks for fields="all", so annotations come back with the
     # task; the cancelled-task sweep in tools/ reads them.
     annotations: list[dict[str, Any]]
+    # Same listing, same reason: asking the server once per task whether it
+    # already holds a prediction is a request per task in the project.
+    predictions: list[dict[str, Any]]
 
 
 class LabelStudioClient:
@@ -59,14 +62,7 @@ class LabelStudioClient:
             List of unlabeled task objects without predictions.
         """
         tasks = self.list_tasks(project_id)
-        unlabeled = []
-        for t in tasks:
-            if t.is_labeled:
-                continue
-            predictions = list(self._client.predictions.list(task=t.id))
-            if predictions:
-                continue
-            unlabeled.append(t)
+        unlabeled = [t for t in tasks if not t.is_labeled and not t.predictions]
         logger.info(
             "filtered_unlabeled",
             project_id=project_id,

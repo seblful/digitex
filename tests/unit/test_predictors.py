@@ -53,16 +53,17 @@ def _foreign_path_payload(module: str) -> bytes:
 class _Scalar:
     """Mimics a 0-d tensor: exposes ``.item()``."""
 
-    def __init__(self, value: int) -> None:
+    def __init__(self, value: float) -> None:
         self._value = value
 
-    def item(self) -> int:
+    def item(self) -> float:
         return self._value
 
 
 class _FakeBox:
-    def __init__(self, class_id: int) -> None:
+    def __init__(self, class_id: int, score: float = 0.9) -> None:
         self.cls = _Scalar(class_id)
+        self.conf = _Scalar(score)
 
 
 @dataclass
@@ -80,8 +81,10 @@ class _FakeModel:
     def __init__(self, names: dict[int, str], preds: list[Any]) -> None:
         self.names = names
         self._preds = preds
+        self.predict_kwargs: dict[str, Any] = {}
 
     def predict(self, image: Image.Image, **kwargs: Any) -> list[Any]:
+        self.predict_kwargs = kwargs
         return self._preds
 
 
@@ -265,6 +268,45 @@ class TestDetectionsFrom:
 
         assert detections_from(_as_results([pred]), 100, 100, {0: "question"}) == []
 
+    def test_the_confidence_rides_along_with_the_detection(self) -> None:
+        """Label Studio sorts a review queue by it."""
+        pred = _FakePrediction(
+            boxes=[_FakeBox(0, score=0.42)],
+            masks=_FakeMasks(xyn=[np.array([[0.1, 0.1], [0.5, 0.5], [0.5, 0.1]])]),
+        )
+
+        detections = detections_from(_as_results([pred]), 100, 100, {0: "question"})
+
+        assert detections[0].score == pytest.approx(0.42)
+
+    @pytest.mark.parametrize(
+        ("xyn", "reason"),
+        [
+            (np.zeros((0, 2)), "no-contour"),
+            (np.array([[0.1, 0.1]]), "one-point"),
+            (np.array([[0.1, 0.1], [0.4, 0.4]]), "two-points"),
+        ],
+    )
+    @pytest.mark.parametrize("simplify", [False, True])
+    def test_a_mask_too_thin_to_be_a_ring_is_dropped(
+        self, xyn: np.ndarray, reason: str, simplify: bool
+    ) -> None:
+        """Ultralytics returns an empty (0, 2) array for a mask with no contour.
+
+        Nothing raises on it, so it used to reach Label Studio as a polygon
+        with no points, and page extraction as a reading order over min() of
+        an empty sequence.
+        """
+        pred = _prediction((0, xyn))
+
+        with capture_logs() as logs:
+            detections = detections_from(
+                _as_results([pred]), 100, 100, {0: "question"}, simplify=simplify
+            )
+
+        assert detections == []
+        assert _event(logs, "Dropped detections on this page")["dropped"] == 1
+
     def test_simplify_drops_collinear_points(self) -> None:
         xyn = np.array(
             [
@@ -302,3 +344,24 @@ class TestYOLOSegmentationPredictorPredict:
 
         assert [det.label for det in detections] == ["question", "option"]
         assert all(det.polygon for det in detections)
+
+    def test_the_nms_free_head_stays_switched_off(self) -> None:
+        """YOLO26 is end2end by default, and this model duplicates regions that way.
+
+        Measured over the pooled pages, the one2one head takes overlapping
+        region pairs from 28 to 283 — so inference stays on the one2many branch
+        behind ordinary NMS, class-agnostic so one anchor cannot return twice
+        under two labels. YOLO reads ``end2end`` once per model instance, off
+        the first predict() call, which is why it is pinned rather than passed.
+        """
+        pred = _prediction((0, np.array([[0.1, 0.1], [0.5, 0.1], [0.5, 0.5]])))
+        model = _FakeModel({0: "question"}, preds=[pred])
+        predictor = YOLO_SegmentationPredictor(model_path="model.pt")
+        predictor._model = _as_model(model)
+
+        predictor.predict(Image.new("RGB", (640, 480), color="white"))
+
+        assert model.predict_kwargs["end2end"] is False
+        assert model.predict_kwargs["agnostic_nms"] is True
+        assert model.predict_kwargs["imgsz"] == 640
+        assert model.predict_kwargs["max_det"] == 50

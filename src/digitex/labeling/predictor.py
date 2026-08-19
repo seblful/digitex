@@ -1,5 +1,6 @@
 """Prediction orchestrator for Label Studio tasks."""
 
+from statistics import fmean
 from typing import Any
 
 import structlog
@@ -45,6 +46,10 @@ class TaskPredictor:
     ) -> list[dict[str, Any]]:
         """Convert detections to Label Studio result format.
 
+        The points are percentages, so they need no image size to be read back.
+        The size is sent anyway because it is what Label Studio writes on its
+        own exports, and a round trip that drops it stops looking like one.
+
         Args:
             detections: Detections carrying pixel-coordinate polygons.
             img_width: Image width in pixels.
@@ -58,6 +63,9 @@ class TaskPredictor:
                 "from_name": "label",
                 "to_name": "image",
                 "type": "polygonlabels",
+                "original_width": img_width,
+                "original_height": img_height,
+                "score": det.score,
                 "value": {
                     "points": pixel_to_percent(det.polygon, img_width, img_height),
                     "polygonlabels": [det.label],
@@ -115,6 +123,12 @@ class TaskPredictor:
                 "task": task.id,
                 "result": results,
                 "model_version": self._model_version,
+                # One number per task is what the Data Manager sorts a review
+                # queue by; the per-region scores stay in the results for
+                # anyone who wants to know which region dragged it down.
+                "score": (
+                    fmean(result["score"] for result in results) if results else 0.0
+                ),
             }
             try:
                 self._client.upload_predictions(project_id, [prediction])

@@ -10,7 +10,11 @@ max_det: 50
 half: false
 plots: true
 augment: false
-end2end: true
+# Both mirror digitex.ml.predictors: the NMS-free head duplicates regions on
+# this model, so inference stays on the one2many branch and validation has to
+# score that same branch to mean anything.
+end2end: false
+agnostic_nms: true
 classes: null
 visualize: false
 rect: true

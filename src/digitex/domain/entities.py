@@ -95,10 +95,15 @@ class Detection:
     is in source-image pixels, so a consumer needs neither the class id nor the
     id-to-label mapping. One detection is one record, which is why there is no
     "same number of labels as polygons" invariant to check.
+
+    The score is the model's confidence in this one region. Extraction ignores
+    it — a region either placed or it didn't — but a pre-annotation carries it
+    to Label Studio, where it is what an annotator sorts a review queue by.
     """
 
     label: str
     polygon: PixelPolygon
+    score: float
 
 
 @dataclass(frozen=True)

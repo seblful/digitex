@@ -46,9 +46,9 @@ class TestLabelStudioClient:
     def test_only_the_unlabeled_tasks_come_back(self, sdk_class: MagicMock) -> None:
         """Predicting over an annotated task would overwrite a human's work."""
         unlabeled, labeled, also_unlabeled = (
-            MagicMock(is_labeled=False),
-            MagicMock(is_labeled=True),
-            MagicMock(is_labeled=False),
+            MagicMock(is_labeled=False, predictions=[]),
+            MagicMock(is_labeled=True, predictions=[]),
+            MagicMock(is_labeled=False, predictions=[]),
         )
         sdk_class.return_value.tasks.list.return_value = [
             unlabeled,
@@ -58,6 +58,32 @@ class TestLabelStudioClient:
         client = LabelStudioClient("http://localhost:8080", "api-key")
 
         assert client.get_unlabeled_tasks(project_id=1) == [unlabeled, also_unlabeled]
+
+    def test_a_task_that_already_holds_a_prediction_is_left_alone(
+        self, sdk_class: MagicMock
+    ) -> None:
+        """Re-predicting one would stack a second guess on top of the first."""
+        fresh, predicted = (
+            MagicMock(is_labeled=False, predictions=[]),
+            MagicMock(is_labeled=False, predictions=[{"id": 1}]),
+        )
+        sdk_class.return_value.tasks.list.return_value = [fresh, predicted]
+        client = LabelStudioClient("http://localhost:8080", "api-key")
+
+        assert client.get_unlabeled_tasks(project_id=1) == [fresh]
+
+    def test_the_listing_answers_it_without_a_request_per_task(
+        self, sdk_class: MagicMock
+    ) -> None:
+        """``fields="all"`` already carries them; asking again is a request each."""
+        sdk_class.return_value.tasks.list.return_value = [
+            MagicMock(is_labeled=False, predictions=[]) for _ in range(3)
+        ]
+        client = LabelStudioClient("http://localhost:8080", "api-key")
+
+        client.get_unlabeled_tasks(project_id=1)
+
+        sdk_class.return_value.predictions.list.assert_not_called()
 
     def test_a_moved_annotation_carries_the_work_and_not_the_identity(
         self, sdk_class: MagicMock
@@ -160,7 +186,7 @@ class TestTaskPredictor:
     def test_pixels_are_converted_to_the_percent_space(self) -> None:
         """Label Studio stores points as percentages of the image size."""
         results = self._predictor()._to_ls_results(
-            [Detection(label="question", polygon=QUAD)],
+            [Detection(label="question", polygon=QUAD, score=0.9)],
             img_width=100,
             img_height=100,
         )
@@ -174,6 +200,18 @@ class TestTaskPredictor:
             [10.0, 50.0],
         ]
 
+    def test_a_result_carries_the_size_it_was_measured_against(self) -> None:
+        """It is what Label Studio writes on its own exports."""
+        results = self._predictor()._to_ls_results(
+            [Detection(label="question", polygon=QUAD, score=0.75)],
+            img_width=1416,
+            img_height=2000,
+        )
+
+        assert results[0]["original_width"] == 1416
+        assert results[0]["original_height"] == 2000
+        assert results[0]["score"] == 0.75
+
     def test_a_run_uploads_one_prediction_per_task(
         self, deps: Deps, tmp_path: Path
     ) -> None:
@@ -184,7 +222,7 @@ class TestTaskPredictor:
             self._task(7, f"/data/local-files/?d={quote(str(image_path))}")
         ]
         deps.predictor.predict.return_value = [
-            Detection(label="question", polygon=QUAD)
+            Detection(label="question", polygon=QUAD, score=0.8)
         ]
 
         predicted = self._predictor(deps, model_version="v3").predict_tasks(
@@ -197,6 +235,40 @@ class TestTaskPredictor:
         assert predictions[0]["task"] == 7
         assert predictions[0]["model_version"] == "v3"
         assert predictions[0]["result"][0]["value"]["polygonlabels"] == ["question"]
+
+    def test_the_task_score_averages_the_regions_it_found(
+        self, deps: Deps, tmp_path: Path
+    ) -> None:
+        """One number per task is what a review queue is sorted by."""
+        image_path = tmp_path / "page.png"
+        Image.new("RGB", (100, 100), color="white").save(image_path)
+        deps.client.get_unlabeled_tasks.return_value = [
+            self._task(7, f"/data/local-files/?d={quote(str(image_path))}")
+        ]
+        deps.predictor.predict.return_value = [
+            Detection(label="question", polygon=QUAD, score=0.9),
+            Detection(label="option", polygon=QUAD, score=0.5),
+        ]
+
+        self._predictor(deps).predict_tasks(project_id=1)
+
+        _, predictions = deps.client.upload_predictions.call_args.args
+        assert predictions[0]["score"] == pytest.approx(0.7)
+
+    def test_a_page_with_nothing_on_it_still_scores(
+        self, deps: Deps, tmp_path: Path
+    ) -> None:
+        """An empty result has no mean to take, and must not divide by zero."""
+        image_path = tmp_path / "page.png"
+        Image.new("RGB", (100, 100), color="white").save(image_path)
+        deps.client.get_unlabeled_tasks.return_value = [
+            self._task(7, f"/data/local-files/?d={quote(str(image_path))}")
+        ]
+        deps.predictor.predict.return_value = []
+
+        assert self._predictor(deps).predict_tasks(project_id=1) == 1
+        _, predictions = deps.client.upload_predictions.call_args.args
+        assert predictions[0]["score"] == 0.0
 
     def test_a_task_whose_image_is_not_local_is_skipped(self, deps: Deps) -> None:
         deps.client.get_unlabeled_tasks.return_value = [

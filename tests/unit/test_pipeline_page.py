@@ -30,7 +30,9 @@ SECOND_QUESTION_REGION = PixelPolygon([(10, 90), (200, 90), (200, 130), (10, 130
 
 def _dets(*pairs: tuple[str, PixelPolygon]) -> list[Detection]:
     """Detections in the order the predictor would report them."""
-    return [Detection(label=label, polygon=polygon) for label, polygon in pairs]
+    return [
+        Detection(label=label, polygon=polygon, score=0.9) for label, polygon in pairs
+    ]
 
 
 class _FakePredictor:
