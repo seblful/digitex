@@ -1,8 +1,8 @@
 """Label Studio CLI commands.
 
 Everything that talks to the annotation server: pre-annotating a project's
-tasks, repairing the ones a moved image pool stranded, and clearing out the
-images of pages an annotator skipped.
+tasks, repairing the ones a moved image pool stranded, and retiring the pages an
+annotator skipped.
 
 Settings are resolved per command rather than at import, and the SDK and the
 model are imported inside the command that needs them, so ``--help`` reads no
@@ -191,11 +191,14 @@ def _doomed_tasks(
 
 def _report_skipped(plan: skipped.Plan, total: int) -> None:
     typer.echo(f"\n{total} tasks in the project, {plan.cancelled} of them skipped.")
-    typer.echo(f"  delete the image of: {len(plan.deletions)} tasks")
-    typer.echo(f"  leave alone:         {len(plan.kept)} tasks")
+    typer.echo(
+        f"  delete:      {len(plan.deletions)} tasks, {plan.images} with an image"
+    )
+    typer.echo(f"  leave alone: {len(plan.kept)} tasks")
 
-    for task_id, path in plan.deletions[:10]:
-        typer.echo(f"    task {task_id}: {path}")
+    for doomed in plan.deletions[:10]:
+        where = doomed.path if doomed.path is not None else "image already gone"
+        typer.echo(f"    task {doomed.task_id}: {where}")
     if len(plan.deletions) > 10:
         typer.echo(f"    ... and {len(plan.deletions) - 10} more to delete")
 
@@ -205,8 +208,8 @@ def _report_skipped(plan: skipped.Plan, total: int) -> None:
         typer.echo(f"    ... and {len(plan.kept) - 10} more left alone")
 
 
-@app.command(name="delete-skipped-images")
-def delete_skipped_images(
+@app.command(name="delete-skipped-tasks")
+def delete_skipped_tasks(
     project_id: int = typer.Option(..., help="Label Studio project ID"),
     dry_run: bool = typer.Option(
         True,
@@ -214,15 +217,18 @@ def delete_skipped_images(
         help="Print what would be deleted without deleting it",
     ),
 ) -> None:
-    """Delete the local images of pages an annotator skipped.
+    """Retire the pages an annotator skipped: image unlinked, task deleted.
 
-    A task is cancelled when an annotator clicks "Skip" in Label Studio. The
-    task and its verdict stay; only the image goes, which is what keeps the
-    page from syncing back into the pool and out of the next training set.
+    A task is cancelled when an annotator clicks "Skip" in Label Studio. Its
+    image going is what keeps the page from syncing back into the pool and out
+    of the next training set; its task going is what keeps the project from
+    filling up with skips. A cancelled task an earlier sweep already took the
+    image of is deleted here too.
     """
     from digitex.labeling import skipped
 
-    plan = skipped.plan(tasks := _client().list_tasks(project_id))
+    client = _client()
+    plan = skipped.plan(tasks := client.list_tasks(project_id))
     if not plan.cancelled:
         typer.echo(f"Project {project_id} has no skipped tasks.")
         return
@@ -236,14 +242,34 @@ def delete_skipped_images(
         typer.echo("\n--- DRY RUN: nothing deleted. Pass --no-dry-run to apply. ---")
         return
 
-    dump = _archive(
-        [{"task_id": task_id, "path": path} for task_id, path in plan.deletions],
-        "skipped-images",
-    )
-    typer.echo(f"\nWrote the images about to be deleted to {dump}")
+    dump = _archive(_doomed_skips(plan, tasks), "skipped-tasks")
+    typer.echo(f"\nWrote the tasks about to be deleted to {dump}")
 
-    deleted = skipped.apply(plan)
-    typer.echo(typer.style(f"✓ Deleted {deleted} images", fg="green"))
+    images, deleted = skipped.apply(client, plan)
+    typer.echo(
+        typer.style(f"✓ Deleted {images} images and {deleted} tasks", fg="green")
+    )
+
+
+def _doomed_skips(
+    plan: skipped.Plan, tasks: list[LabelStudioTask]
+) -> list[dict[str, object]]:
+    """Every task the sweep would delete, its image and annotations with it.
+
+    The cancelled annotation is the only record that anybody judged the page, and
+    it goes when the task does, so it is written down first.
+    """
+    paths = {doomed.task_id: doomed.path for doomed in plan.deletions}
+    return [
+        {
+            "task_id": task.id,
+            "path": paths[task.id],
+            "data": task.data,
+            "annotations": list(task.annotations or []),
+        }
+        for task in tasks
+        if task.id in paths
+    ]
 
 
 if __name__ == "__main__":

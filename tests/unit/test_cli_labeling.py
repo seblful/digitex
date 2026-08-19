@@ -64,7 +64,7 @@ def _archives(tmp_path: Path, stem: str) -> list[Path]:
     return sorted((tmp_path / "label-studio").glob(f"{stem}-*.json"))
 
 
-class TestDeleteSkippedImages:
+class TestDeleteSkippedTasks:
     @pytest.fixture
     def image(self, tmp_path: Path) -> Path:
         path = tmp_path / "page.jpg"
@@ -78,31 +78,50 @@ class TestDeleteSkippedImages:
         client.list_tasks.return_value = [_task(1, image, SKIP)]
 
         result = runner.invoke(
-            labeling.app, ["delete-skipped-images", "--project-id", "1"]
+            labeling.app, ["delete-skipped-tasks", "--project-id", "1"]
         )
 
         assert result.exit_code == 0
         assert "DRY RUN" in result.output
         assert image.exists()
-        assert _archives(tmp_path, "skipped-images") == []
+        client.delete_task.assert_not_called()
+        assert _archives(tmp_path, "skipped-tasks") == []
 
-    def test_the_images_are_archived_before_they_go(
-        self, settings: MagicMock, client: MagicMock, image: Path, tmp_path: Path
+    def test_the_image_and_the_task_both_go(
+        self, settings: MagicMock, client: MagicMock, image: Path
     ) -> None:
-        """``unlink`` has no undo, so the list of what went is written first."""
         client.list_tasks.return_value = [_task(1, image, SKIP)]
 
         result = runner.invoke(
             labeling.app,
-            ["delete-skipped-images", "--project-id", "1", "--no-dry-run"],
+            ["delete-skipped-tasks", "--project-id", "1", "--no-dry-run"],
         )
 
         assert result.exit_code == 0
         assert not image.exists()
-        (archive,) = _archives(tmp_path, "skipped-images")
-        assert json.loads(archive.read_text(encoding="utf-8")) == [
-            {"task_id": 1, "path": str(image)}
-        ]
+        client.delete_task.assert_called_once_with(1)
+
+    def test_the_annotation_is_archived_before_it_goes(
+        self, settings: MagicMock, client: MagicMock, image: Path, tmp_path: Path
+    ) -> None:
+        """The skip is the record of a judgement, and deleting the task ends it.
+
+        Neither ``unlink`` nor the API has an undo, so what the sweep is about to
+        destroy is written down first — the annotation included.
+        """
+        client.list_tasks.return_value = [_task(1, image, SKIP)]
+
+        result = runner.invoke(
+            labeling.app,
+            ["delete-skipped-tasks", "--project-id", "1", "--no-dry-run"],
+        )
+
+        assert result.exit_code == 0
+        (archive,) = _archives(tmp_path, "skipped-tasks")
+        (entry,) = json.loads(archive.read_text(encoding="utf-8"))
+        assert entry["task_id"] == 1
+        assert entry["path"] == str(image)
+        assert entry["annotations"] == [SKIP]
 
     def test_a_project_with_no_skips_says_so_and_stops(
         self, settings: MagicMock, client: MagicMock, image: Path
@@ -111,26 +130,40 @@ class TestDeleteSkippedImages:
 
         result = runner.invoke(
             labeling.app,
-            ["delete-skipped-images", "--project-id", "1", "--no-dry-run"],
+            ["delete-skipped-tasks", "--project-id", "1", "--no-dry-run"],
         )
 
         assert result.exit_code == 0
         assert "no skipped tasks" in result.output
         assert image.exists()
+        client.delete_task.assert_not_called()
 
-    def test_a_skip_whose_image_is_already_gone_deletes_nothing(
+    def test_a_skip_an_image_only_sweep_left_behind_still_goes(
         self, settings: MagicMock, client: MagicMock, tmp_path: Path
     ) -> None:
+        """What the rename is for: the tasks the old command left in the project."""
         client.list_tasks.return_value = [_task(1, tmp_path / "gone.jpg", SKIP)]
 
         result = runner.invoke(
             labeling.app,
-            ["delete-skipped-images", "--project-id", "1", "--no-dry-run"],
+            ["delete-skipped-tasks", "--project-id", "1", "--no-dry-run"],
         )
 
         assert result.exit_code == 0
-        assert "Nothing to delete" in result.output
-        assert _archives(tmp_path, "skipped-images") == []
+        assert "image already gone" in result.output
+        client.delete_task.assert_called_once_with(1)
+        assert len(_archives(tmp_path, "skipped-tasks")) == 1
+
+    def test_the_command_it_replaces_is_gone(
+        self, settings: MagicMock, client: MagicMock
+    ) -> None:
+        """It was renamed, not kept — a stale habit should fail loudly."""
+        result = runner.invoke(
+            labeling.app, ["delete-skipped-images", "--project-id", "1"]
+        )
+
+        assert result.exit_code != 0
+        client.list_tasks.assert_not_called()
 
 
 class TestFixTaskPaths:

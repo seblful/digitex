@@ -58,7 +58,7 @@ Everything that talks to the server is one CLI, `digitex-label`
 | :--- | :--- |
 | `predict` | Pre-annotate a project's unannotated tasks with a trained model |
 | `fix-task-paths` | Move annotations onto the tasks that hold their images now |
-| `delete-skipped-images` | Delete the local images of pages an annotator skipped |
+| `delete-skipped-tasks` | Retire the pages an annotator skipped, image and task both |
 
 The two that change something default to a dry run: they print the plan and
 write nothing until `--no-dry-run` is passed, and they archive what they are
@@ -87,21 +87,26 @@ dropped rather than moved — rerun `digitex-label predict` if they are wanted.
 
 Clicking "Skip" in Label Studio files a cancelled annotation and leaves both the
 task and its image alone, so the page syncs back into the pool and lands in the
-next training set. Deleting the image is what retires it:
+next training set. This retires it — the image unlinked, the task deleted:
 
 ```bash
-uv run --env-file .env digitex-label delete-skipped-images --project-id 1
+uv run --env-file .env digitex-label delete-skipped-tasks --project-id 1
 ```
 
 It prints the plan and changes nothing. Add `--no-dry-run` to apply, which
-writes the list of images it is about to unlink to
-`var/label-studio/skipped-images-*.json` first.
+writes every task it is about to delete — its image path, its data and its
+annotations — to `var/label-studio/skipped-tasks-*.json` first. That file is the
+only record left of the skip, so keep it.
 
-The task stays — its cancelled annotation is the record of the annotator's
-judgement, and the missing image is enough to keep the page from coming back.
-An image is kept when the task also holds a completed annotation, when another
-task points at the same file (a moved pool leaves two until `fix-task-paths`
-has run), or when there is no file there to delete.
+The image goes before the task does. A page whose file survives comes back on the
+next sync, and it should come back as one somebody already refused, so a task
+whose image will not unlink is left where it is.
+
+A cancelled task whose image is already gone is deleted anyway — that is the
+state an image-only sweep leaves behind. A cancelled task is left alone when it
+also holds a completed annotation, when another task points at the same file (a
+moved pool leaves two until `fix-task-paths` has run), or when it names no
+local-file URI at all. Each one is printed with the reason.
 
 ## Auto-Prediction
 

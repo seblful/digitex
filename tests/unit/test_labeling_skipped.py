@@ -1,10 +1,10 @@
 """Tests for the sweep that retires the pages an annotator skipped.
 
 ``plan`` decides against the disk — the images below are real files under
-``tmp_path`` — and ``apply`` is the only part that unlinks, so the two are
-tested apart. What the guards protect is somebody else's work: an image is one
-annotator's skip away from deletion, and the same file can be behind a second
-task that nobody skipped.
+``tmp_path`` — and ``apply`` is the only part that unlinks or calls the server,
+so the two are tested apart. What the guards protect is somebody else's work: an
+image is one annotator's skip away from deletion, and the same file can be behind
+a second task that nobody skipped.
 """
 
 from __future__ import annotations
@@ -41,10 +41,10 @@ def image(tmp_path: Path) -> Path:
 
 
 class TestPlan:
-    def test_a_skipped_page_loses_its_image(self, image: Path) -> None:
+    def test_a_skipped_page_loses_its_image_and_its_task(self, image: Path) -> None:
         plan = skipped.plan([_task(1, str(image), SKIP)])
 
-        assert plan.deletions == [(1, image)]
+        assert plan.deletions == [skipped.Doomed(1, image)]
         assert plan.kept == []
 
     def test_a_page_nobody_skipped_is_not_touched(self, image: Path) -> None:
@@ -83,14 +83,20 @@ class TestPlan:
         assert plan.deletions == []
         assert plan.kept == [skipped.Kept(1, "no local-file URI in the task")]
 
-    def test_an_image_already_gone_is_reported(self, tmp_path: Path) -> None:
-        """A rerun after a sweep finds the same tasks and no files."""
+    def test_a_task_an_earlier_sweep_left_behind_still_goes(
+        self, tmp_path: Path
+    ) -> None:
+        """The rerun that clears up after an image-only sweep.
+
+        The image is already gone, so there is nothing to unlink — the task
+        itself is what is left to delete.
+        """
         missing = tmp_path / "gone.jpg"
 
         plan = skipped.plan([_task(1, str(missing), SKIP)])
 
-        assert plan.deletions == []
-        assert plan.kept[0].reason.startswith("no file at")
+        assert plan.deletions == [skipped.Doomed(1, None)]
+        assert (plan.images, plan.kept) == (0, [])
 
     def test_the_count_covers_both_verdicts(self, tmp_path: Path, image: Path) -> None:
         other = tmp_path / "annotated.jpg"
@@ -101,32 +107,79 @@ class TestPlan:
                 _task(1, str(image), SKIP),
                 _task(2, str(tmp_path / "gone.jpg"), SKIP),
                 _task(3, str(other), DONE),
+                _task(4, None, SKIP),
             ]
         )
 
-        assert (len(plan.deletions), len(plan.kept)) == (1, 1)
-        assert plan.cancelled == 2
+        assert (len(plan.deletions), plan.images, len(plan.kept)) == (2, 1, 1)
+        assert plan.cancelled == 3
 
 
 class TestApply:
-    def test_it_unlinks_what_the_plan_named(self, image: Path) -> None:
+    @pytest.fixture
+    def client(self) -> MagicMock:
+        return MagicMock()
+
+    def test_it_unlinks_what_the_plan_named_and_deletes_the_task(
+        self, client: MagicMock, image: Path
+    ) -> None:
         plan = skipped.plan([_task(1, str(image), SKIP)])
 
-        assert skipped.apply(plan) == 1
+        assert skipped.apply(client, plan) == (1, 1)
         assert not image.exists()
+        client.delete_task.assert_called_once_with(1)
+
+    def test_a_task_whose_image_is_already_gone_needs_no_unlink(
+        self, client: MagicMock
+    ) -> None:
+        assert skipped.apply(client, skipped.Plan([skipped.Doomed(1, None)])) == (0, 1)
+        client.delete_task.assert_called_once_with(1)
+
+    def test_a_page_that_will_not_unlink_keeps_its_task(
+        self, client: MagicMock, tmp_path: Path
+    ) -> None:
+        """The record of the skip outranks tidiness.
+
+        A file that survives comes back on the next sync, and it should come back
+        as a page somebody already refused — not as a fresh one.
+        """
+        locked = tmp_path / "locked"
+        locked.mkdir()  # unlink() refuses a directory
+
+        assert skipped.apply(client, skipped.Plan([skipped.Doomed(1, locked)])) == (
+            0,
+            0,
+        )
+        assert locked.exists()
+        client.delete_task.assert_not_called()
 
     def test_one_file_that_will_not_go_does_not_strand_the_rest(
-        self, tmp_path: Path, image: Path
+        self, client: MagicMock, tmp_path: Path, image: Path
     ) -> None:
         """A locked handle on one page must not keep the sweep from finishing."""
         locked = tmp_path / "locked"
-        locked.mkdir()  # unlink() refuses a directory
-        plan = skipped.Plan(deletions=[(1, locked), (2, image)])
+        locked.mkdir()
+        plan = skipped.Plan([skipped.Doomed(1, locked), skipped.Doomed(2, image)])
 
-        assert skipped.apply(plan) == 1
+        assert skipped.apply(client, plan) == (1, 1)
         assert not image.exists()
-        assert locked.exists()
+        client.delete_task.assert_called_once_with(2)
 
-    def test_a_plan_that_deletes_nothing_touches_nothing(self, image: Path) -> None:
-        assert skipped.apply(skipped.Plan()) == 0
+    def test_one_task_the_server_will_not_delete_does_not_strand_the_rest(
+        self, client: MagicMock, tmp_path: Path, image: Path
+    ) -> None:
+        other = tmp_path / "second.jpg"
+        other.write_bytes(b"jpeg")
+        client.delete_task.side_effect = [RuntimeError("500"), None]
+        plan = skipped.Plan([skipped.Doomed(1, image), skipped.Doomed(2, other)])
+
+        assert skipped.apply(client, plan) == (2, 1)
+        assert not image.exists()
+        assert not other.exists()
+
+    def test_a_plan_that_deletes_nothing_touches_nothing(
+        self, client: MagicMock, image: Path
+    ) -> None:
+        assert skipped.apply(client, skipped.Plan()) == (0, 0)
         assert image.exists()
+        client.delete_task.assert_not_called()
