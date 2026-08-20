@@ -1,8 +1,8 @@
 """Extraction CLI commands.
 
 Settings are resolved per command and handed to the collaborators the command
-builds, so importing this module reads no files and configures no logging —
-that happens in the Typer callback, once a command is actually running.
+builds, so importing this module reads no files and configures no logging — that
+happens in the Typer callback, once a command is actually running.
 """
 
 import shutil
@@ -47,6 +47,8 @@ from digitex.pipeline.subject import SubjectExtractor
 
 app = typer.Typer(help="Extraction commands for processing test books.")
 
+SUBJECT_ARGUMENT = typer.Argument(help="Subject name (e.g., biology, chemistry)")
+
 
 @app.callback()
 def configure() -> None:
@@ -54,8 +56,55 @@ def configure() -> None:
     setup_logging(get_settings())
 
 
+# ---------------------------------------------------------------------------
+# Reporting
+#
+# Three colours, three meanings: green finished, yellow happened and is worth
+# knowing, red produced nothing. Every command below reports through these, so a
+# new one cannot invent a fourth convention.
+# ---------------------------------------------------------------------------
+
+
+def _ok(message: str) -> None:
+    """Report a finished command."""
+    typer.echo(typer.style(message, fg="green"))
+
+
+def _note(message: str) -> None:
+    """Report something the operator should see that failed nothing."""
+    typer.echo(typer.style(message, fg="yellow"))
+
+
+def _echo_errors(errors: list[str]) -> None:
+    for error in errors:
+        typer.echo(f"  - {error}", err=True)
+
+
+def _report_failures(count: int, what: str, lines: list[str]) -> None:
+    """Say how many of *what* produced nothing, and name each one.
+
+    A run can finish with per-item failures, and one that swallows them reads as
+    "done" when it means "done, minus four". The count is passed rather than
+    taken from *lines* because a report may summarise more failures than it
+    lists.
+    """
+    if not lines:
+        return
+    typer.echo(typer.style(f"\n{count} {what} failed:", fg="red", bold=True))
+    _echo_errors(lines)
+
+
+# ---------------------------------------------------------------------------
+# Composition
+# ---------------------------------------------------------------------------
+
+
 def _require_model(path: Path) -> Path:
-    """Fail on a missing model file now, not when the lazy predictor loads."""
+    """Fail on a missing model file now, not when the lazy predictor loads.
+
+    Raises:
+        ModelNotFoundError: If no checkpoint is at *path*.
+    """
     if not path.exists():
         raise ModelNotFoundError(path)
     return path
@@ -72,11 +121,16 @@ def _extraction_config(settings: Settings) -> ExtractionConfig:
 def _subject_extractor(
     settings: Settings, subject: str = "", *, review: bool = False
 ) -> SubjectExtractor:
+    """Build the extraction chain, reviewer included when one is asked for.
+
+    Raises:
+        ModelNotFoundError: If the segmentation checkpoint is missing.
+    """
     on_review = None
 
     if review:
-        # Imported here so a machine with no display can still run every
-        # other command.
+        # Imported here so a machine with no display can still run every other
+        # command.
         from digitex.ui.page_review import TkPageReviewer
 
         output_dir = settings.paths.extraction_output_dir
@@ -88,8 +142,8 @@ def _subject_extractor(
 
     # The composition root for extraction: the only place a checkpoint path
     # becomes a model and a language becomes an OCR reader. Everything below
-    # names both by interface, which is what lets the differential suite
-    # replay a run with neither installed.
+    # names both by interface, which is what lets the differential suite replay a
+    # run with neither installed.
     #
     # The chain is built from the bottom: the config belongs to PageExtractor,
     # and the runners above it take the configured collaborator.
@@ -109,6 +163,11 @@ def _subject_extractor(
 
 
 def _answers_extractor(settings: Settings) -> AnswersExtractor:
+    """Build the answer-key extractor.
+
+    Raises:
+        APIError: If no OpenRouter API key is configured.
+    """
     api_key = settings.pipeline.openrouter.api_key
     if not api_key:
         raise APIError(
@@ -124,12 +183,9 @@ def _answers_extractor(settings: Settings) -> AnswersExtractor:
     )
 
 
-def _echo_errors(errors: list[str]) -> None:
-    for error in errors:
-        typer.echo(f"  - {error}", err=True)
-
-
-SUBJECT_ARGUMENT = typer.Argument(help="Subject name (e.g., biology, chemistry)")
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
 
 
 @app.command(name="rename-pages")
@@ -140,8 +196,8 @@ def rename_pages() -> None:
     after nothing in particular (10.jpg, which sorts ahead of 2.jpg). This
     renumbers each year's pages in reading order as 001, 002, … keeping the
     file's own format, and moves each page's processed twin with it so the two
-    variants never disagree. Answer sheets keep their names — {year}_{n} is
-    what says which year and sheet they are.
+    variants never disagree. Answer sheets keep their names — {year}_{n} is what
+    says which year and sheet they are.
 
     Safely re-runnable: pages already correctly named are left alone.
     """
@@ -154,18 +210,8 @@ def rename_pages() -> None:
     except DirectoryNotFoundError as exc:
         raise abort(f"✗ {exc}") from None
 
-    typer.echo(
-        typer.style(
-            f"✓ Renamed {result.renamed} page(s), {result.unchanged}"
-            f" already named right",
-            fg="green",
-        )
-    )
-    if result.errors:
-        typer.echo(
-            typer.style(f"\n{result.failed} page(s) failed:", fg="red", bold=True)
-        )
-        _echo_errors(result.errors)
+    _ok(f"✓ Renamed {result.renamed} page(s), {result.unchanged} already named right")
+    _report_failures(result.failed, "page(s)", result.errors)
 
 
 @app.command(name="preprocess-scans")
@@ -182,13 +228,13 @@ def preprocess_scans(
     tree. Then flattens gutter shadows out of the paper, burns its gray out to
     white, averages the scanner grain away and cuts off the scanner's white
     canvas, writing var/books/{subject}/raw/ to the matching path under
-    var/books/{subject}/processed/. Answer sheets keep their {year}_{n} names
-    and skip the shadow flatten so their printed shading survives; everything
-    else applies to them too.
+    var/books/{subject}/processed/. Answer sheets keep their {year}_{n} names and
+    skip the shadow flatten so their printed shading survives; everything else
+    applies to them too.
 
-    Safely re-runnable: scans already processed are skipped unless --force.
-    Note that --force can move edges, and annotations drawn on a processed page
-    move with them.
+    Safely re-runnable: scans already processed are skipped unless --force. Note
+    that --force can move edges, and annotations drawn on a processed page move
+    with them.
     """
     from digitex.pipeline.preprocessing import preprocess_scans as run_preprocessing
 
@@ -199,19 +245,12 @@ def preprocess_scans(
     except DirectoryNotFoundError as exc:
         raise abort(f"✗ {exc}") from None
 
-    typer.echo(
-        typer.style(
-            f"✓ Renamed {result.renamed} page(s), processed {result.processed}"
-            f" scan(s), skipped {result.skipped} already done"
-            f" → {settings.paths.books_dir}",
-            fg="green",
-        )
+    _ok(
+        f"✓ Renamed {result.renamed} page(s), processed {result.processed}"
+        f" scan(s), skipped {result.skipped} already done"
+        f" → {settings.paths.books_dir}"
     )
-    if result.errors:
-        typer.echo(
-            typer.style(f"\n{result.failed} scan(s) failed:", fg="red", bold=True)
-        )
-        _echo_errors(result.errors)
+    _report_failures(result.failed, "scan(s)", result.errors)
 
 
 @app.command(name="extract-questions")
@@ -229,10 +268,10 @@ def extract_questions(
 
     SUBJECT is the name of the subject folder in the books directory.
 
-    With --review, each page opens in a window showing its detected polygons
-    and the option/part/number every question would be saved as. Correct them
-    with the mouse, then approve, skip the page, or abort the run. The window's
-    second tab shows the subject's per-year counts and the answers.json check.
+    With --review, each page opens in a window showing its detected polygons and
+    the option/part/number every question would be saved as. Correct them with
+    the mouse, then approve, skip the page, or abort the run. The window's second
+    tab shows the subject's per-year counts and the answers.json check.
     """
     try:
         extractor = _subject_extractor(get_settings(), subject, review=review)
@@ -251,34 +290,23 @@ def extract_questions(
         _echo_errors([result.reason])
         raise typer.Exit(code=1)
 
-    typer.echo(
-        typer.style(
-            f"✓ Extraction completed: {result.extracted} processed,"
-            f" {len(result.skipped)} skipped (subject: {subject})",
-            fg="green",
-        )
+    _ok(
+        f"✓ Extraction completed: {result.extracted} processed,"
+        f" {len(result.skipped)} skipped (subject: {subject})"
     )
-    # Neither of these is a failure, but a run that swallows them silently
-    # loses crops — so they are said out loud on the way past.
+    # Neither of these is a failure, but a run that swallows them silently loses
+    # crops — so they are said out loud on the way past.
     for heading, items in (
         ("Kept existing images", result.collisions),
         ("Unfinished question pieces", result.unfinished),
     ):
         if items:
-            typer.echo(typer.style(f"\n{heading}:", fg="yellow"))
+            _note(f"\n{heading}:")
             for line in messages(items):
                 typer.echo(f"  - {line}")
     for note in result.notes:
-        typer.echo(typer.style(f"\n{note}", fg="yellow"))
-    # A run can finish with per-page failures; those pages produced no image,
-    # so saying so is the difference between "done" and "done, minus four".
-    if result.failures:
-        typer.echo(
-            typer.style(
-                f"\n{len(result.failures)} page(s) failed:", fg="red", bold=True
-            )
-        )
-        _echo_errors(messages(result.failures))
+        _note(f"\n{note}")
+    _report_failures(len(result.failures), "page(s)", messages(result.failures))
 
 
 @app.command(name="extract-answers")
@@ -305,8 +333,8 @@ def extract_answers(subject: Annotated[str, SUBJECT_ARGUMENT]) -> None:
         raise typer.Exit(code=1)
 
     if result.note:
-        typer.echo(typer.style(f"! {result.note}", fg="yellow"))
-    typer.echo(typer.style(f"✓ Extracted answers for {result.years} years", fg="green"))
+        _note(f"! {result.note}")
+    _ok(f"✓ Extracted answers for {result.years} years")
 
 
 @app.command(name="record-golden")
@@ -321,10 +349,10 @@ def record_golden(
     """Record one book's model and OCR answers as a replay fixture.
 
     Extracts YEAR of SUBJECT into a scratch folder under the data root, keeping
-    every answer the segmentation model and OCR gave and the digest of every
-    file written. `tests/differential` replays that recording to check a
-    restructuring wrote exactly the same images — on a machine with no
-    checkpoint, no GPU and no tesseract.
+    every answer the segmentation model and OCR gave and the digest of every file
+    written. `tests/differential` replays that recording to check a restructuring
+    wrote exactly the same images — on a machine with no checkpoint, no GPU and
+    no tesseract.
 
     Slow and rarely run: this is the one command that needs the real model. Its
     output stays under the data root and is never committed, so a checkout
@@ -341,11 +369,7 @@ def record_golden(
     if not pages_dir.is_dir():
         raise abort(f"✗ No processed pages for {subject}/{year} at {pages_dir}")
 
-    try:
-        config = _extraction_config(settings)
-    except ModelNotFoundError as exc:
-        raise abort(f"✗ {exc}") from None
-
+    config = _extraction_config(settings)
     recording = Recording(
         source=f"{subject}/{year}",
         image_format=config.image_format,
@@ -361,6 +385,15 @@ def record_golden(
     if not recording.pages:
         raise abort(f"✗ No page images in {pages_dir}")
 
+    # Guarded here, where the checkpoint is actually resolved. It used to guard
+    # `_extraction_config`, which reads settings and cannot raise this — so a
+    # machine with no model got a traceback out of the unguarded `_require_model`
+    # below, while `extract-questions` exited cleanly for the same reason.
+    try:
+        model_path = str(_require_model(settings.paths.extraction_model_path))
+    except ModelNotFoundError as exc:
+        raise abort(f"✗ {exc}") from None
+
     # Started from empty, so the numbering starts at 1 and the digests below
     # describe a whole book rather than a book plus whatever was there before.
     output_dir = recorded_output_dir(data_root, subject, year)
@@ -370,12 +403,7 @@ def record_golden(
 
     page_extractor = PageExtractor(
         config,
-        detector=RecordingPredictor(
-            YOLO_SegmentationPredictor(
-                str(_require_model(settings.paths.extraction_model_path))
-            ),
-            recording,
-        ),
+        detector=RecordingPredictor(YOLO_SegmentationPredictor(model_path), recording),
         text_reader=RecordingTextExtractor(
             TextExtractor(language=OCR_LANGUAGE), recording
         ),
@@ -385,22 +413,13 @@ def record_golden(
     recording.outputs = directory_digests(output_dir)
     recording.write(destination)
 
-    typer.echo(
-        typer.style(
-            f"✓ Recorded {subject}/{year}: {result.pages} pages,"
-            f" {len(recording.outputs)} images → {destination}",
-            fg="green",
-        )
+    _ok(
+        f"✓ Recorded {subject}/{year}: {result.pages} pages,"
+        f" {len(recording.outputs)} images → {destination}"
     )
     # A page that failed produced no image, so its answers are missing from the
     # recording too — a replay of it would refuse rather than diverge quietly.
-    if result.failures:
-        typer.echo(
-            typer.style(
-                f"\n{len(result.failures)} page(s) failed:", fg="red", bold=True
-            )
-        )
-        _echo_errors(messages(result.failures))
+    _report_failures(len(result.failures), "page(s)", messages(result.failures))
 
 
 if __name__ == "__main__":
