@@ -1,20 +1,22 @@
 """Pixel work: cropping, deskewing, resizing, and OCR.
 
-Everything here pulls in a heavy third-party stack — OpenCV, NumPy, Pillow,
-Tesseract — so this package is off-limits to the bot and the database layer.
-The production image installs none of it.
+Every module here reaches for a heavy third-party stack — OpenCV, NumPy,
+Pillow, Tesseract — which is what puts the package off-limits to the bot and
+the database layer. The production image installs none of it, so an import
+from there is an ImportError on the VPS rather than a slow start.
 
-``ocr`` is imported directly (``from digitex.imaging.ocr import
-TextExtractor``) rather than re-exported here, because pytesseract is the one
-dependency that needs a binary on PATH and only the extraction pipeline wants
-it.
+``ocr`` is the exception to the re-exports below. It is reached by module
+(``from digitex.imaging.ocr import TextExtractor``) because pytesseract is the
+one dependency that also wants a binary on PATH, and only the extraction
+pipeline asks for it.
 
-The pixel work is split by subject — ``scale`` fits an image to a box,
-``layout`` stacks the pieces of one question, ``levels`` reads a scan's black
-and white points, ``denoise`` removes speckle without crossing a stroke,
-``document`` is the whole-page correction pipeline, and ``crop`` cuts a polygon
-out straightened. All re-exported here, so a caller names what it wants rather
-than the file it happens to live in.
+The rest is split by subject rather than by pipeline stage — ``scale`` fits an
+image to a box, ``layout`` stacks the pieces of one question, ``levels`` reads
+a scan's black and white points and corrects to them, ``denoise`` averages
+grain out without crossing a stroke, ``document`` runs the whole-page
+correction end to end, and ``crop`` lifts a polygon off a page straightened.
+The names come back out here, so a caller asks for the operation rather than
+for the file it happens to live in.
 """
 
 from .crop import cut_out_image_by_polygon, rotate_image

@@ -1,7 +1,8 @@
-"""Fitting an image to a box, and giving it something to sit on.
+"""The two operations that read an image's shape rather than its content.
 
-The two operations that care about an image's size rather than its
-content.
+Fitting a picture inside a box, and flattening what a polygon crop left
+transparent onto white. Neither looks at a pixel to decide what to do —
+anything that does belongs in one of the neighbouring modules.
 """
 
 import numpy as np
@@ -9,6 +10,12 @@ from PIL import Image, ImageOps
 
 
 def resize_image(image: Image.Image, max_width: int, max_height: int) -> Image.Image:
+    """Scale *image* to the largest size that fits inside the given bounds.
+
+    The bounds are a target rather than a ceiling: a picture smaller than the
+    box is scaled up to meet it, not padded out to it. Aspect ratio survives
+    either way, so the result fills one of the two dimensions exactly.
+    """
     return ImageOps.contain(
         image, (max_width, max_height), method=Image.Resampling.BILINEAR
     )
@@ -27,8 +34,9 @@ def add_white_background(image: Image.Image) -> Image.Image:
     Returns:
         RGB image suitable for JPG format.
     """
-    img = np.array(image.convert("RGBA"))
-    alpha = img[:, :, 3:4] / 255.0
-    white_bg = np.ones_like(img[:, :, :3]) * 255
-    rgb = img[:, :, :3] * alpha + white_bg * (1 - alpha)
-    return Image.fromarray(rgb.astype(np.uint8), mode="RGB")
+    rgba = np.array(image.convert("RGBA"))
+    # Sliced as 3:4 rather than 3, keeping a trailing axis of length one, so
+    # one coverage value broadcasts across all three colour channels.
+    coverage = rgba[:, :, 3:4] / 255.0
+    blended = rgba[:, :, :3] * coverage + 255 * (1 - coverage)
+    return Image.fromarray(blended.astype(np.uint8), mode="RGB")

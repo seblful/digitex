@@ -1,10 +1,14 @@
 """Reading a scan's black and white points, and correcting to them.
 
-A scanned page is never black on white: the lamp falls off towards the
-spine, the paper is grey, and the ink is not the same grey twice. These
-find the two peaks a page's histogram actually has — paper and ink — and
-stretch what lies between them, rather than trusting a fixed threshold
-that a different scanner would need a different value for.
+No scan is black on white. The lamp falls off toward the spine, the paper is
+gray, and two pages of the same book are not the same gray. So nothing here
+trusts a fixed threshold — the page's own histogram is asked where its ink and
+its paper actually sit, and only what lies between the two is stretched.
+
+Three passes, in the order :mod:`digitex.imaging.document` runs them:
+:func:`flatten_scan` divides the uneven light out, :func:`scan_levels` finds
+the two points, :func:`whiten_scan` applies them. Each reads statistics the
+pass before it changed, which is why they stay three calls and not one.
 """
 
 import math
@@ -44,29 +48,54 @@ _LUM_MULTIPLIER = 16
 
 _MAX_LUM = 255 * _LUM_MULTIPLIER
 
+# Stored level to luminance. The dark end is spread out and the multiplier
+# gives it room, so a stretch from a black point well above zero has somewhere
+# to put the midtones instead of shifting them.
+_LUMINANCE = tuple(
+    round((value / 255) ** (1 / _GAMMA) * _MAX_LUM) for value in range(256)
+)
+
+
+def _background_grid(gray: np.ndarray) -> np.ndarray:
+    """The paper's own brightness, one sample per tile.
+
+    A bright percentile per tile rather than a mean, so the ink a tile holds
+    does not read as darkness. A tile holding no paper at all — a figure's
+    interior, a filled table cell — reads dark regardless and would be
+    brightened into a smear, so the grid is median-filtered to hand such a
+    tile its neighbours' paper instead, then blurred so that no tile boundary
+    shows through in the output.
+    """
+    height, width = gray.shape
+    # Padded up to whole tiles so the reshape below can split the page evenly.
+    # Edge padding, so the part-tile at the margin reads as the paper beside it.
+    padded = np.pad(
+        gray, ((0, -height % _BG_TILE), (0, -width % _BG_TILE)), mode="edge"
+    )
+    tiles = padded.reshape(
+        padded.shape[0] // _BG_TILE, _BG_TILE, padded.shape[1] // _BG_TILE, _BG_TILE
+    )
+    grid = np.percentile(tiles, _BG_PERCENTILE, axis=(1, 3)).astype(np.float32)
+    # Both kernels are 3 wide, so a page under three tiles either way has
+    # nothing to filter and keeps its raw grid.
+    if min(grid.shape) >= 3:
+        grid = cv2.GaussianBlur(cv2.medianBlur(grid, 3), (3, 3), 0)
+    return grid
+
 
 def flatten_scan(image: Image.Image) -> Image.Image:
     """Lift a scan's shadows by dividing its illumination out.
 
     A page is lit unevenly — a gutter shadow near the spine, a sag where the
-    paper lifted off the glass — and a global correction cannot fix that:
-    stretching levels turns a shadow darker rather than whiter, and hands
-    the black point to the shadow instead of the ink. Illumination is
-    multiplicative, so the fix is a division: estimate the paper's
-    brightness everywhere and scale each pixel by what its patch is missing.
-    The same division hands ink inside a shadow its unshadowed tone back.
-
-    The estimate is a coarse grid — a bright percentile per tile, so ink
-    does not read as darkness. A tile holding no paper at all (a figure's
-    interior, a filled table cell) reads dark all the same and would be
-    brightened into a smear, so the grid is median-filtered to hand it its
-    neighbours' paper instead, then blurred so no tile boundary shows in the
-    output. Anything brighter than the paper — the scanner's saturated
-    canvas — is left alone rather than darkened.
+    paper lifted off the glass — and no global correction fixes that:
+    stretching levels turns a shadow darker rather than whiter, and hands the
+    black point to the shadow instead of to the ink. Illumination is
+    multiplicative, so the answer is a division: estimate the paper's
+    brightness everywhere, then scale each patch by what it is missing. The
+    same division hands ink inside a shadow its unshadowed tone back.
 
     Runs before :func:`whiten_scan`: with the paper flat, the histogram's
-    white peak is tight and the black point falls to the ink where it
-    belongs.
+    white peak is tight and the black point falls to the ink where it belongs.
 
     Args:
         image: Input page, color or grayscale.
@@ -76,24 +105,23 @@ def flatten_scan(image: Image.Image) -> Image.Image:
     """
     gray = np.array(image.convert("L"), dtype=np.float32)
     height, width = gray.shape
-    padded = np.pad(
-        gray, ((0, -height % _BG_TILE), (0, -width % _BG_TILE)), mode="edge"
-    )
-    tiles = padded.reshape(
-        padded.shape[0] // _BG_TILE, _BG_TILE, padded.shape[1] // _BG_TILE, _BG_TILE
-    )
-    grid = np.percentile(tiles, _BG_PERCENTILE, axis=(1, 3)).astype(np.float32)
-    if min(grid.shape) >= 3:
-        grid = cv2.GaussianBlur(cv2.medianBlur(grid, 3), (3, 3), 0)
+    grid = _background_grid(gray)
+
+    rows, columns = grid.shape
     background = cv2.resize(
-        grid, (padded.shape[1], padded.shape[0]), interpolation=cv2.INTER_LINEAR
+        grid, (columns * _BG_TILE, rows * _BG_TILE), interpolation=cv2.INTER_LINEAR
     )[:height, :width]
     paper = float(np.percentile(grid, _BG_TARGET_PERCENTILE))
+
+    # Clipped at 1.0 so the gain only ever brightens: anything already above
+    # the paper level is the scanner's saturated canvas, and pulling that down
+    # would draw a gray border round the page. The floor of 1.0 under the
+    # background is for a tile that came back pure black.
     gain = np.clip(paper / np.maximum(background, 1.0), 1.0, _BG_MAX_GAIN)
     return Image.fromarray(np.clip(gray * gain, 0, 255).astype(np.uint8), mode="L")
 
 
-@dataclass
+@dataclass(frozen=True)
 class _Peak:
     """A histogram peak and the basin it drains, as shares of all pixels."""
 
@@ -106,37 +134,50 @@ class _Peak:
     mass: float
 
 
+def _share(shares: list[float], level: int) -> float:
+    """A level's share of the page, reading past either end of the range as 0."""
+    return shares[level] if 0 <= level < 256 else 0.0
+
+
+def _basin(
+    shares: list[float], value: int, mass: float, step: int
+) -> tuple[int, float, float]:
+    """One side of the basin around level *value*, walked *step* at a time.
+
+    Descends while the histogram keeps falling, tolerating a single level that
+    rises — a one-bin notch is noise inside a peak, not the next peak along.
+
+    *mass* arrives as the share collected so far and leaves with this side's
+    added, rather than each side returning its own subtotal. The two sides are
+    chained through one accumulator on purpose: a peak's mass decides which
+    peak is the paper, and re-associating the additions would move it by an
+    ulp — enough, at a tie, to pick the other peak.
+
+    Returns:
+        How far the basin reaches, how low it gets, and the running mass.
+    """
+    edge, floor = value, shares[value]
+    level = value + step
+    while 0 <= level < 256:
+        if shares[level] >= floor and _share(shares, level + step) >= floor:
+            break
+        floor = min(floor, shares[level])
+        edge = level
+        mass += shares[level]
+        level += step
+    return edge, floor, mass
+
+
 def _find_peaks(shares: list[float]) -> list[_Peak]:
     """Every level that outranks its two neighbours on each side, with basin."""
-
-    def share(level: int) -> float:
-        return shares[level] if 0 <= level < 256 else 0.0
-
     peaks = []
     for value in range(256):
         here = shares[value]
-        if not all(here > share(value + d) for d in (-2, -1, 1, 2)):
+        if not all(here > _share(shares, value + d) for d in (-2, -1, 1, 2)):
             continue
-
-        peak = _Peak(value, here, value, value, here, here, here)
-        for level in range(value - 1, -1, -1):
-            if not (
-                shares[level] < peak.left_bottom or share(level - 1) < peak.left_bottom
-            ):
-                break
-            peak.left_bottom = min(peak.left_bottom, shares[level])
-            peak.left = level
-            peak.mass += shares[level]
-        for level in range(value + 1, 256):
-            if not (
-                shares[level] < peak.right_bottom
-                or share(level + 1) < peak.right_bottom
-            ):
-                break
-            peak.right_bottom = min(peak.right_bottom, shares[level])
-            peak.right = level
-            peak.mass += shares[level]
-        peaks.append(peak)
+        left, left_bottom, mass = _basin(shares, value, here, -1)
+        right, right_bottom, mass = _basin(shares, value, mass, 1)
+        peaks.append(_Peak(value, here, left, right, left_bottom, right_bottom, mass))
     return peaks
 
 
@@ -146,6 +187,8 @@ def _magnitude(height: float) -> float:
 
 def _white_peak_score(peak: _Peak) -> float:
     """Favours a bright peak carrying a lot of the page — the paper."""
+    # The linear tail below a tenth of the page keeps the curve continuous
+    # where the two halves meet, and keeps log10 away from an empty peak.
     mass = math.log10(100 * peak.mass) if peak.mass > 0.1 else 10 * peak.mass
     return (peak.value / 255) ** 3 * mass
 
@@ -161,20 +204,29 @@ def _black_peak_score(peak: _Peak) -> float:
 def _shoulder(
     counts: list[int], peak: _Peak, *, from_below: bool, percentile: float
 ) -> int:
-    """Walk into *peak* until *percentile* of its mass is behind us."""
+    """The level a *percentile* of the way into *peak* from one side.
+
+    Neither the peak's edge nor its crest. Clipping a share of the mass on
+    purpose is what flattens near-white to white and near-black to black
+    rather than leaving both as noise. The share is measured against every
+    level from the basin edge outward, not against the peak alone.
+
+    Falls back to the far side of the peak, for a histogram whose mass sits
+    entirely outside the basin the walk covers.
+    """
     if from_below:
         levels = range(peak.left, peak.right)
-        total = sum(counts[peak.left :])
+        tail = sum(counts[peak.left :])
         fallback = peak.right
     else:
         levels = range(peak.right, peak.left, -1)
-        total = sum(counts[: peak.right + 1])
+        tail = sum(counts[: peak.right + 1])
         fallback = peak.left
 
     seen = 0
     for level in levels:
         seen += counts[level]
-        if seen >= percentile * total:
+        if seen >= percentile * tail:
             return level
     return fallback
 
@@ -219,6 +271,8 @@ def content_box(pixels: np.ndarray) -> tuple[slice, slice]:
     inked = pixels != 255
     rows = np.flatnonzero(inked.mean(axis=1) > 0.5)
     columns = np.flatnonzero(inked.mean(axis=0) > 0.5)
+    # A blank scan, or one whose page is a thin stripe: nothing found in one
+    # direction means there is no box to trust, so the caller keeps the lot.
     if not rows.size or not columns.size:
         return slice(0, height), slice(0, width)
     return (
@@ -274,12 +328,13 @@ def scan_levels(
 
 def _correction_ramp(black: int, white: int) -> list[int]:
     """The 256-entry curve that clamps to [*black*, *white*] and stretches."""
-    to_lum = [round((value / 255) ** (1 / _GAMMA) * _MAX_LUM) for value in range(256)]
-    black_lum, white_lum = to_lum[black], to_lum[white]
+    black_lum, white_lum = _LUMINANCE[black], _LUMINANCE[white]
 
     ramp = []
     for value in range(256):
-        lum = to_lum[min(max(value, black), white)]
+        # Clamped first, so everything past a point lands exactly on pure
+        # rather than running off the end of the stretch.
+        lum = _LUMINANCE[min(max(value, black), white)]
         scaled = (lum - black_lum) * _MAX_LUM // (white_lum - black_lum)
         ramp.append(round((scaled / _MAX_LUM) ** _GAMMA * 255))
     return ramp

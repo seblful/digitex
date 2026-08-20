@@ -1,26 +1,38 @@
-"""OCR utilities using Tesseract."""
+"""Reading a crop's text off tesseract.
+
+The project's one adapter over pytesseract, and deliberately not re-exported
+from the package: pytesseract is the single dependency that wants a binary on
+PATH, so importing it should be a decision rather than a side effect of
+importing :mod:`digitex.imaging`. Missing entirely, it stays missing until
+something actually asks for a read.
+
+Nothing here decides what a read means. Turning ``11`` into an option number,
+or a baseline slope into a rotation, belongs to the extraction pipeline — this
+module hands back what tesseract said and how far the lines lean.
+"""
 
 import math
 import re
 import statistics
 from types import ModuleType
-from typing import Final, cast
+from typing import Final
 
 import structlog
 from PIL import Image
 
+pytesseract: ModuleType | None
 try:
-    import pytesseract as _pytesseract_mod
-
-    pytesseract: ModuleType | None = _pytesseract_mod
+    import pytesseract
 except ImportError:
-    pytesseract = cast("ModuleType | None", None)
+    pytesseract = None
 
 logger = structlog.get_logger()
 
 # The corpus is Russian throughout.
 OCR_LANGUAGE = "rus"
 
+# psm 7 is "one line of text", which is what a marker crop holds; oem 1 picks
+# the LSTM engine over the legacy one.
 _TESSERACT_CONFIG_DEFAULT: Final = "--psm 7 --oem 1"
 _TESSERACT_CONFIG_DIGITS: Final = (
     f"{_TESSERACT_CONFIG_DEFAULT} -c tessedit_char_whitelist=0123456789"
@@ -33,10 +45,30 @@ _TESSERACT_CONFIG_HOCR: Final = "--psm 6 --oem 1"
 _BASELINE_RE: Final = re.compile(rb"baseline (-?[\d.]+) -?[\d.]+")
 
 
-class TextExtractor:
-    """Extract text from images using OCR."""
+def _require_tesseract() -> ModuleType:
+    """The pytesseract module, refusing to carry on without it.
 
-    def __init__(self, language: str = "rus") -> None:
+    Read out of the module globals on each call rather than bound once, which
+    is what lets a test stand a double in its place.
+
+    Raises:
+        ImportError: If pytesseract is not installed.
+    """
+    if pytesseract is None:
+        msg = "pytesseract is not installed. Install it with: uv add pytesseract"
+        raise ImportError(msg)
+    return pytesseract
+
+
+class TextExtractor:
+    """Tesseract, asked one crop at a time.
+
+    Carries the corpus language so no caller has to name it, and answers to
+    :class:`digitex.pipeline.ports.TextReader` — which is narrower, naming
+    neither the config nor the per-call language override.
+    """
+
+    def __init__(self, language: str = OCR_LANGUAGE) -> None:
         self._language = language
 
     @property
@@ -51,6 +83,9 @@ class TextExtractor:
     ) -> str:
         """Extract text from an image.
 
+        Stripped on the way out — tesseract ends every read with a newline,
+        and callers compare on the text, not on the whitespace around it.
+
         Args:
             image: PIL Image to extract text from.
             config: Tesseract configuration string.
@@ -58,14 +93,15 @@ class TextExtractor:
 
         Returns:
             Extracted text string.
+
+        Raises:
+            ImportError: If pytesseract is not installed.
         """
-        language = lang if lang is not None else self.language
-        if pytesseract is None:
-            msg = "pytesseract is not installed. Install it with: uv add pytesseract"
-            raise ImportError(msg)
-        text = pytesseract.image_to_string(image, lang=language, config=config)
-        logger.debug("OCR text", text=text.strip())
-        return text.strip()
+        language = self.language if lang is None else lang
+        read = _require_tesseract().image_to_string(image, lang=language, config=config)
+        text = read.strip()
+        logger.debug("OCR text", text=text)
+        return text
 
     def detect_skew(
         self,
@@ -85,15 +121,16 @@ class TextExtractor:
 
         Returns:
             Correction angle in degrees, 0.0 when no text line is found.
+
+        Raises:
+            ImportError: If pytesseract is not installed.
         """
-        language = lang if lang is not None else self.language
-        if pytesseract is None:
-            msg = "pytesseract is not installed. Install it with: uv add pytesseract"
-            raise ImportError(msg)
-        hocr = pytesseract.image_to_pdf_or_hocr(
+        language = self.language if lang is None else lang
+        hocr = _require_tesseract().image_to_pdf_or_hocr(
             image, extension="hocr", lang=language, config=_TESSERACT_CONFIG_HOCR
         )
         slopes = [float(m.group(1)) for m in _BASELINE_RE.finditer(hocr)]
+        # A blank or pictorial crop fits no baseline, and needs no rotation.
         if not slopes:
             return 0.0
         angle = math.degrees(math.atan(statistics.median(slopes)))
@@ -106,6 +143,10 @@ class TextExtractor:
         lang: str | None = None,
     ) -> list[int]:
         """Extract digits from an image.
+
+        The read is whitelisted to digits, which is what makes tesseract pick
+        a digit over its look-alike letter: left to itself it reads an option
+        marker's ``11`` as ``ll`` and the number is lost outright.
 
         Args:
             image: PIL Image to extract digits from.
