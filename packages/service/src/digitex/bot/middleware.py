@@ -1,8 +1,9 @@
-"""Middleware — what every callback query passes through before a handler.
+"""What an update passes through before a handler ever sees it.
 
-``AuthMiddleware`` drops taps from users who are not authorized;
-``AccessibleMessageMiddleware`` narrows the optional ``CallbackQuery.message``
-once, so handlers can declare a real ``Message`` and stop re-checking.
+Two narrowings, each done once here instead of at the top of every handler:
+:class:`AuthMiddleware` decides whether a tap is allowed to act at all, and
+:class:`AccessibleMessageMiddleware` turns the optional message behind a
+callback into one a handler can declare as ``Message``.
 """
 
 from __future__ import annotations
@@ -22,9 +23,13 @@ if TYPE_CHECKING:
 class AuthMiddleware(BaseMiddleware):
     """Outer middleware that blocks non-authorized users from using inline keyboards.
 
-    Unauthorized users can still send text messages (needed for registration),
-    but their callback queries are silently dropped so they can't interact
-    with inline keyboards (subject selection, answers, etc.).
+    Text messages always pass — registration is a conversation an unauthorized
+    user has to be able to hold — so the gate is on callback queries alone: an
+    unapproved student can talk to the bot but cannot tap a subject, a mode or
+    an answer.
+
+    The admin is let through on their configured id rather than on a row, so a
+    fresh deployment has someone who can approve the first student.
     """
 
     def __init__(self, admin_user_id: int, open_uow: OpenUow) -> None:
@@ -37,27 +42,15 @@ class AuthMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
-        # The handler's result rides back to the dispatcher — it is how
-        # UNHANDLED propagates, and how a webhook-mode reply would be sent.
-
-        # Text messages (/start, /help, registration flow) always pass through —
-        # their own handlers decide what to do with unauthorized users.
-        if not isinstance(event, CallbackQuery):
-            return await handler(event, data)
-
-        user = data.get("event_from_user")
-        if user is None:
-            return await handler(event, data)
-
-        telegram_id = user.id
-
-        if telegram_id == self._admin_user_id:
-            return await handler(event, data)
-
-        async with self._open_uow() as uow:
-            authorized = await uow.students.is_authorized(telegram_id)
-        if not authorized:
-            return UNHANDLED
+        # The handler's own result is returned untouched: it is how UNHANDLED
+        # propagates back to the dispatcher, and how a webhook-mode reply is
+        # sent. Returning None instead would read as "handled".
+        if isinstance(event, CallbackQuery):
+            user = data.get("event_from_user")
+            if user is not None and user.id != self._admin_user_id:
+                async with self._open_uow() as uow:
+                    if not await uow.students.is_authorized(user.id):
+                        return UNHANDLED
 
         return await handler(event, data)
 

@@ -1,4 +1,9 @@
-"""Question answering loop — Part A (callbacks) and Part B (text)."""
+"""The standard testing loop — Part A arrives as a tap, Part B as text.
+
+Both handlers do the same three things: refuse a reply that does not belong to
+the question on screen, disarm the guard, and hand the answer to the round.
+What the answer *means* is decided in :mod:`digitex.bot.answer_flow`.
+"""
 
 from __future__ import annotations
 
@@ -28,6 +33,7 @@ async def send_current_question(message: types.Message, round: Round) -> None:
     """Render the question at ``current_index`` (used to start the loop)."""
     testing = await fsm_data.load(round.state, TestingState)
 
+    # An option holding no questions finishes the moment it starts.
     if testing.current_index >= len(testing.question_ids):
         await show_results(message, round)
         return
@@ -44,6 +50,7 @@ async def send_current_question(message: types.Message, round: Round) -> None:
 async def _record_and_advance(
     message: types.Message, round: Round, answer: str
 ) -> None:
+    """Score the reply, then either show the next question or the results."""
     testing = await fsm_data.load(round.state, TestingState)
 
     async with round.open_uow() as uow:

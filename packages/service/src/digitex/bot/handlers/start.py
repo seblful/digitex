@@ -1,4 +1,10 @@
-"""Start command, registration flow, and admin approval callbacks."""
+"""First contact: /start, /help, the registration form, and the admin's verdict.
+
+A student's row is the person, not a request attached to one. It exists from
+their first message and carries their status, so an approved student running
+/start again is simply let through, and a rejected one re-applies over the top
+of the old decision — nothing is ever deleted to reopen a door.
+"""
 
 from __future__ import annotations
 
@@ -58,9 +64,10 @@ MONTHS_RU = [
 
 
 def _format_datetime(dt: datetime, tz: ZoneInfo) -> str:
+    """A timestamp as a Russian sentence, in the deployment's timezone."""
     local = dt.astimezone(tz)
-    time_str = f"{local.hour:02d}:{local.minute:02d}"
-    return f"{local.day} {MONTHS_RU[local.month - 1]} {local.year} в {time_str}"
+    clock = f"{local.hour:02d}:{local.minute:02d}"
+    return f"{local.day} {MONTHS_RU[local.month - 1]} {local.year} в {clock}"
 
 
 @dataclass(frozen=True)
@@ -99,6 +106,7 @@ async def _normal_start(
     open_uow: OpenUow,
     questions_dir: Path,
 ) -> None:
+    """Greet an admitted student and put the subject list in front of them."""
     telegram_id, name, username = student_identity(message)
 
     async with open_uow() as uow:
@@ -136,6 +144,8 @@ async def cmd_start(
 ) -> None:
     telegram_id, _name, _username = student_identity(message)
 
+    # The admin is admitted on their configured id rather than on a row, so a
+    # fresh deployment has someone who can approve the first student.
     if telegram_id == admin_user_id:
         await _normal_start(message, state, bot, open_uow, questions_dir)
         return
@@ -143,18 +153,19 @@ async def cmd_start(
     async with open_uow() as uow:
         gate = await open_registration_gate(uow, telegram_id)
 
-    if gate.status == "approved":
-        await _normal_start(message, state, bot, open_uow, questions_dir)
-        return
+    match gate.status:
+        case "approved":
+            await _normal_start(message, state, bot, open_uow, questions_dir)
 
-    if gate.status == "pending":
-        date_str = _format_datetime(gate.requested_at, tz) if gate.requested_at else "—"
-        await message.answer(MSG_PENDING.format(date=date_str), parse_mode="HTML")
-        return
+        case "pending":
+            requested = gate.requested_at
+            date = _format_datetime(requested, tz) if requested else "—"
+            await message.answer(MSG_PENDING.format(date=date), parse_mode="HTML")
 
-    await state.set_state(Registration.waiting_for_name)
-    await message.answer(MSG_REGISTRATION_INFO, parse_mode="HTML")
-    await message.answer(MSG_ASK_NAME, parse_mode="HTML")
+        case "new":
+            await state.set_state(Registration.waiting_for_name)
+            await message.answer(MSG_REGISTRATION_INFO, parse_mode="HTML")
+            await message.answer(MSG_ASK_NAME, parse_mode="HTML")
 
 
 @router.message(Registration.waiting_for_name)
@@ -169,6 +180,7 @@ async def process_name(
     telegram_id, telegram_name, username = student_identity(message)
     full_name = (message.text or "").strip()
 
+    # Nothing to submit, so the form stays open and the prompt is repeated.
     if not full_name:
         await message.answer(MSG_ASK_NAME, parse_mode="HTML")
         return
@@ -185,9 +197,9 @@ async def process_name(
     # The name is whatever the user typed, and both messages are parsed as
     # HTML — the admin's copy included.
     safe_name = html_decoration.quote(full_name)
-    date_str = _format_datetime(request.created_at, tz)
+    date = _format_datetime(request.created_at, tz)
     await message.answer(
-        MSG_REQUEST_SENT.format(name=safe_name, date=date_str),
+        MSG_REQUEST_SENT.format(name=safe_name, date=date),
         parse_mode="HTML",
     )
 
@@ -215,6 +227,8 @@ async def handle_reg_callback(
         await callback.answer(MSG_ADMIN_ONLY, show_alert=True)
         return
 
+    # From the keyboard, not from state: the admin's chat holds many requests
+    # and any of them can be decided at any time.
     target_id = callback_data.telegram_id
     admin_id, admin_name, admin_username = student_identity(callback)
 
@@ -236,6 +250,7 @@ async def handle_reg_callback(
             admin_reply = MSG_REJECTED_ADMIN.format(full_name=student.full_name)
 
     await bot.send_message(target_id, user_message)
+    # Drop the keyboard so the request cannot be decided twice.
     if isinstance(callback.message, TgMessage):
         await callback.message.edit_reply_markup(reply_markup=None)
     await callback.answer(admin_reply)

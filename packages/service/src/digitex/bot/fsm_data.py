@@ -1,11 +1,14 @@
-"""Typed FSM state payloads.
+"""Typed conversation state — one model per shape a conversation can be in.
 
-aiogram stores conversation state as a free-form dict; handlers historically
-read and write keys like ``"current_question_id"`` and ``"question_ids"`` with
-no type checks. A typo gives a silent KeyError at runtime.
+aiogram stores state as a free-form dict, so a key is whatever the last writer
+spelled it: a typo reads back as a default and takes a wrong turn, with no error
+anywhere. The models below name every key exactly once, and the three functions
+here are the only way the bot reaches the dict.
 
-These Pydantic models name every key exactly once. Handlers load and save
-state through ``load`` / ``save`` and never touch the raw dict.
+Three models rather than one because the two testing modes genuinely differ —
+standard mode walks a playlist and records to a Session, random mode holds one
+question at a time and records nothing. :class:`RoundDebt` is the slice both
+share, so a round can be settled without asking which mode it was.
 """
 
 from __future__ import annotations
@@ -24,7 +27,11 @@ if TYPE_CHECKING:
 
 
 class NavigationState(BaseModel):
-    """State carried while the user is picking subject / year / option."""
+    """State carried while the user is picking subject / year / option.
+
+    Every field is optional: navigation fills them in one screen at a time, and
+    a handler reached with a step missing answers the tap and stops.
+    """
 
     subject_id: int | None = None
     year: int | None = None
@@ -44,8 +51,8 @@ class TestingState(BaseModel):
     current_part: Part | None = None
     question_start_time: float | None = None
     waiting_for_answer: bool = False
-    # ``(question_id, telegram_file_id)`` from the just-rendered question.
-    # Flushed on the next UoW so we avoid a dedicated round-trip per upload.
+    # ``(question_id, telegram_file_id)`` owed by the last render. Settled
+    # inside the next round's transaction — see `answer_flow` for why.
     pending_file_id_cache: tuple[int, str] | None = None
 
 

@@ -1,4 +1,13 @@
-"""FSM states for the bot."""
+"""The conversation states an update is routed by.
+
+aiogram matches an update against the *name* a state resolves to, and a
+``StatesGroup`` prefixes its own onto every member. That prefix is what keeps
+``Testing.answering`` and ``RandomTesting.answering`` from colliding — the two
+modes score a reply against different questions, so one shared name would send
+a random-mode answer to the standard-mode handler.
+"""
+
+from __future__ import annotations
 
 from aiogram.fsm.state import State, StatesGroup
 

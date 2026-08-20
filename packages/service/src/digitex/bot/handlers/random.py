@@ -1,4 +1,14 @@
-"""Handler for random question mode."""
+"""Random and topic mode — one question at a time, scored on the spot.
+
+No Session is recorded: the student gets a verdict and a choice between another
+question and stopping. Topic mode is the same loop with the draw restricted to
+one topic name, which is why both arrive here.
+
+The two answer handlers deliberately mirror the pair in ``testing.py``. Topic
+mode draws from both Parts, so a Part A keyboard left in the chat can be tapped
+while a Part B question is showing — each handler refuses a reply that does not
+match the Part on screen.
+"""
 
 from __future__ import annotations
 
@@ -42,12 +52,14 @@ router = Router()
 
 
 def _build_caption(origin: QuestionOrigin, topic_name: str | None) -> str:
+    """Where the question came from, behind a spoiler so it gives nothing away."""
     origin_line = MSG_RANDOM_ORIGIN.format(
         exam_label=EXAM_LABELS[origin.exam_type],
         year=origin.year,
         option_number=origin.option_number,
     )
     if topic_name:
+        # Topic names come from the corpus and the caption is sent as HTML.
         return MSG_RANDOM_TOPIC.format(
             topic_name=html_decoration.quote(topic_name), origin=origin_line
         )
@@ -55,19 +67,21 @@ def _build_caption(origin: QuestionOrigin, topic_name: str | None) -> str:
 
 
 async def start_random_question(message: types.Message, round: Round) -> None:
+    """Draw a question and show it, or say there was none to draw."""
     rnd = await fsm_data.load(round.state, RandomState)
 
     async with round.open_uow() as uow:
         picked = await pick_random_question(uow, rnd)
 
     if picked is None:
-        if rnd.topic_name:
-            await message.answer(MSG_NO_TOPIC_QUESTION)
-        else:
-            await message.answer(MSG_NO_RANDOM_QUESTION)
+        # The two dead ends read differently to the student: an empty topic is
+        # a gap in the corpus, an empty draw is a gap in the whole subject.
+        await message.answer(
+            MSG_NO_TOPIC_QUESTION if rnd.topic_name else MSG_NO_RANDOM_QUESTION
+        )
         return
-    question, origin = picked
 
+    question, origin = picked
     await round.show_random_question(
         message,
         question,
@@ -127,6 +141,7 @@ async def on_random_part_b_answer(
 async def process_random_answer(
     message: types.Message, round: Round, answer: str
 ) -> None:
+    """Score the reply, show the verdict, and offer the next question."""
     rnd = await fsm_data.load(round.state, RandomState)
 
     async with round.open_uow() as uow:

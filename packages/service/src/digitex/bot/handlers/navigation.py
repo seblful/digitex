@@ -1,4 +1,15 @@
-"""Subject → Year → Option selection callbacks."""
+"""The walk down to a question set: subject → mode → year → exam type → option.
+
+Every screen here edits the message the tap came from, so the student sees one
+keyboard replaced by the next rather than a growing column of them. Each
+handler re-reads the navigation state it needs and answers the tap without
+acting when a step is missing — a keyboard from before a restart is still live
+in the chat.
+
+Two of these screens are where a question round begins, which is why this
+module builds :class:`Round`s: the mode chosen here decides which loop the
+conversation enters.
+"""
 
 from __future__ import annotations
 
@@ -94,17 +105,14 @@ async def on_mode_selected(
                 years = await uow.books.list_years(subject_id)
                 subjects = [] if years else await uow.books.list_subjects()
 
-            if not years:
-                await msg.edit_text(
-                    MSG_NO_YEARS,
-                    reply_markup=subjects_kb(subjects),
-                )
+            if years:
+                await msg.edit_text(MSG_YEAR_SELECT, reply_markup=years_kb(years))
+                await state.set_state(Navigation.select_year)
+            else:
+                # A subject nothing was extracted for yet: back to the subject
+                # list rather than a screen with no way on.
+                await msg.edit_text(MSG_NO_YEARS, reply_markup=subjects_kb(subjects))
                 await state.set_state(Navigation.select_subject)
-                await callback.answer()
-                return
-
-            await msg.edit_text(MSG_YEAR_SELECT, reply_markup=years_kb(years))
-            await state.set_state(Navigation.select_year)
 
         case "random":
             await msg.edit_text(MSG_EXAM_TYPE_SELECT, reply_markup=exam_type_kb())
@@ -113,15 +121,32 @@ async def on_mode_selected(
         case "topics":
             async with open_uow() as uow:
                 topics = await uow.topics.get_topics_for_subject(subject_id)
-            if not topics:
+
+            if topics:
+                await msg.edit_text(MSG_TOPIC_SELECT, reply_markup=topics_kb(topics))
+                # The names are kept because a topic button carries its
+                # position, not its name — the payload is too small for one.
+                await fsm_data.merge(state, NavigationState, topic_names=topics)
+                await state.set_state(Navigation.select_topic)
+            else:
+                # The mode screen's own keyboard is gone with the edit, but the
+                # state stays put, so /start is the way on.
                 await msg.edit_text(MSG_NO_TOPICS)
-                await callback.answer()
-                return
-            await msg.edit_text(MSG_TOPIC_SELECT, reply_markup=topics_kb(topics))
-            await fsm_data.merge(state, NavigationState, topic_names=topics)
-            await state.set_state(Navigation.select_topic)
 
     await callback.answer()
+
+
+async def _begin_random_round(
+    message: types.Message, round: Round, rnd: RandomState
+) -> None:
+    """Enter random / topic mode with its state built whole.
+
+    Built whole, the way the testing loop builds ``TestingState``, rather than
+    accumulated field by field: the round needs a subject, and a constructor
+    argument is what makes that a requirement instead of a hope.
+    """
+    await fsm_data.save(round.state, rnd)
+    await start_random_question(message, round)
 
 
 @router.callback_query(Navigation.select_topic, TopicCB.filter())
@@ -145,16 +170,14 @@ async def on_topic_selected(
         await callback.answer()
         return
 
-    # The round starts here: its state is built whole, the way the testing
-    # loop builds TestingState, rather than accumulated field by field.
-    await fsm_data.save(
-        state,
+    await _begin_random_round(
+        msg,
+        Round(bot, state, questions_dir, open_uow),
         RandomState(
             subject_id=nav.subject_id,
             topic_name=nav.topic_names[callback_data.index],
         ),
     )
-    await start_random_question(msg, Round(bot, state, questions_dir, open_uow))
     await callback.answer()
 
 
@@ -186,17 +209,15 @@ async def on_random_part_selected(
         await callback.answer()
         return
 
-    # The round starts here: its state is built whole, the way the testing
-    # loop builds TestingState, rather than accumulated field by field.
-    await fsm_data.save(
-        state,
+    await _begin_random_round(
+        msg,
+        Round(bot, state, questions_dir, open_uow),
         RandomState(
             subject_id=nav.subject_id,
             exam_type=nav.exam_type,
             random_part=callback_data.part,
         ),
     )
-    await start_random_question(msg, Round(bot, state, questions_dir, open_uow))
     await callback.answer()
 
 
@@ -208,6 +229,9 @@ async def on_year_selected(
     msg: types.Message,
     open_uow: OpenUow,
 ) -> None:
+    # Read before the write: the year is what changes, and the helper below
+    # only needs the subject the navigation started from.
+    nav = await fsm_data.load(state, NavigationState)
     year = callback_data.year
     await fsm_data.merge(state, NavigationState, year=year)
 
@@ -218,7 +242,9 @@ async def on_year_selected(
         )
         await state.set_state(Navigation.select_exam_type)
     else:
-        await _show_options_for_exam_type(msg, state, year, "CT", open_uow)
+        # Books before 2023 come in one flavour, so asking would offer a choice
+        # that does not exist.
+        await _show_options_for_exam_type(msg, state, nav, year, "CT", open_uow)
 
     await callback.answer()
 
@@ -236,7 +262,7 @@ async def on_exam_type_selected(
         await callback.answer()
         return
     await _show_options_for_exam_type(
-        msg, state, nav.year, callback_data.exam_type, open_uow
+        msg, state, nav, nav.year, callback_data.exam_type, open_uow
     )
     await callback.answer()
 
@@ -244,11 +270,17 @@ async def on_exam_type_selected(
 async def _show_options_for_exam_type(
     message: types.Message,
     state: FSMContext,
+    nav: NavigationState,
     year: int,
     exam_type: ExamType,
     open_uow: OpenUow,
 ) -> None:
-    nav = await fsm_data.load(state, NavigationState)
+    """Offer the options one book holds for *exam_type*, or send the year back.
+
+    Reached from two screens — a pre-2023 year, where the exam type is implied,
+    and the exam-type keyboard itself — so *year* and *exam_type* are arguments
+    rather than state reads.
+    """
     if nav.subject_id is None:
         return
 
@@ -310,4 +342,6 @@ async def on_option_selected(
     await state.set_state(Testing.answering)
     await callback.answer()
 
+    # Acknowledged first: the first render uploads an image, and Telegram would
+    # otherwise leave the tap spinning for the length of that upload.
     await send_current_question(msg, Round(bot, state, questions_dir, open_uow))

@@ -1,4 +1,8 @@
-"""Test results and mistake review."""
+"""The screen that closes a session: the score, and what was missed.
+
+No router. This screen is reached only by finishing the last question, so the
+testing loop draws it on its way out — there is no tap that leads here.
+"""
 
 from __future__ import annotations
 
@@ -67,20 +71,13 @@ async def finish_session(uow: Repositories, session_id: int) -> SessionOutcome:
     )
 
 
-def _format_result_lines(
-    result: TestResult,
-    wrong_rows: list[WrongAnswer],
-    info: SessionInfo,
-) -> list[str]:
-    exam_type_label = EXAM_LABELS[result.exam_type]
-    wrong_a = [r for r in wrong_rows if r.part == "A"]
-    wrong_b = [r for r in wrong_rows if r.part == "B"]
-
-    lines = [
+def _summary_lines(result: TestResult, info: SessionInfo) -> list[str]:
+    """What was taken, what it scored, and how long it took."""
+    return [
         MSG_RESULTS_HEADER,
         "",
         MSG_RESULTS_SUBJECT.format(subject_name=info.subject_name),
-        MSG_RESULTS_TYPE.format(exam_type=exam_type_label),
+        MSG_RESULTS_TYPE.format(exam_type=EXAM_LABELS[result.exam_type]),
         MSG_RESULTS_YEAR.format(year=info.year),
         MSG_RESULTS_OPTION.format(option_number=info.option_number),
         "",
@@ -93,35 +90,48 @@ def _format_result_lines(
         MSG_RESULTS_TIME.format(time_spent=result.time_spent),
     ]
 
-    if wrong_a or wrong_b:
+
+def _mistake_lines(wrong_rows: list[WrongAnswer]) -> list[str]:
+    """The review block, grouped by Part. Empty when nothing was missed.
+
+    A Part B line carries free text on both sides and the message is sent with
+    ``parse_mode="HTML"``, so both sides are escaped.
+    """
+    by_part = [
+        (MSG_RESULTS_PART_A_H, [row for row in wrong_rows if row.part == "A"]),
+        (MSG_RESULTS_PART_B_H, [row for row in wrong_rows if row.part == "B"]),
+    ]
+    if not any(rows for _, rows in by_part):
+        return []
+
+    lines: list[str] = ["", MSG_RESULTS_ERRORS]
+    for header, rows in by_part:
+        if not rows:
+            continue
         lines.append("")
-        lines.append(MSG_RESULTS_ERRORS)
-
-        for header, rows in (
-            (MSG_RESULTS_PART_A_H, wrong_a),
-            (MSG_RESULTS_PART_B_H, wrong_b),
-        ):
-            if not rows:
-                continue
-            lines.append("")
-            lines.append(header)
-            # Part B answers are free text on both sides, and the message is
-            # sent with parse_mode="HTML".
-            lines.extend(
-                MSG_RESULTS_ERROR_ITEM.format(
-                    qnum=row.question_number,
-                    user_ans=html_decoration.quote(row.student_answer),
-                    correct_ans=html_decoration.quote(
-                        format_answer(row.correct_answer)
-                    ),
-                )
-                for row in rows
+        lines.append(header)
+        lines.extend(
+            MSG_RESULTS_ERROR_ITEM.format(
+                qnum=row.question_number,
+                user_ans=html_decoration.quote(row.student_answer),
+                correct_ans=html_decoration.quote(format_answer(row.correct_answer)),
             )
-
+            for row in rows
+        )
     return lines
 
 
+def _format_result_lines(
+    result: TestResult,
+    wrong_rows: list[WrongAnswer],
+    info: SessionInfo,
+) -> list[str]:
+    """Every line of the results screen, in the order it is read."""
+    return _summary_lines(result, info) + _mistake_lines(wrong_rows)
+
+
 async def show_results(message: types.Message, round: Round) -> None:
+    """Send the results, end the round, and offer a new subject."""
     testing = await fsm_data.load(round.state, TestingState)
 
     async with round.open_uow() as uow:
@@ -131,6 +141,8 @@ async def show_results(message: types.Message, round: Round) -> None:
         _format_result_lines(outcome.result, outcome.wrong_answers, outcome.info)
     )
     await round.bot.send_message(message.chat.id, text, parse_mode="HTML")
+    # Ending the round pays the last render's file_id debt and clears the state,
+    # so the state below is set on an otherwise empty conversation.
     await round.end()
     await round.state.set_state(Navigation.select_subject)
 

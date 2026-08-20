@@ -1,24 +1,25 @@
-"""The question round — every decision between two Telegram messages.
+"""The question round — everything decided between two Telegram messages.
 
 The handlers in ``handlers/testing.py`` and ``handlers/random.py`` are thin
-adapters: they build a :class:`Round` from the injected dependencies, load the
-typed FSM state, open the round's transaction, call one function here, then
-perform the returned outcome. Everything that *decides* — scoring, recording,
-what question comes next, and the deferred ``file_id`` write owed after each
-render — lives here.
+adapters: build a :class:`Round` from the injected dependencies, load the typed
+FSM state, open the round's transaction, call one function here, perform the
+outcome it returns. Scoring, recording, which question comes next and the
+deferred ``file_id`` write each render leaves behind are all decided here.
 
-The file_id debt protocol: rendering a question with no cached Telegram
-``file_id`` uploads the image and yields a fresh ``file_id``. Writing it back
-would cost a dedicated round-trip, so the debt is parked in the FSM
-(``pending_file_id_cache``) and settled inside the *next* round's transaction.
-The round's ``show_*`` methods incur the debt, the two round functions pay it
-off on the way in, and :meth:`Round.end` pays whatever is left and clears the
-conversation state together.
+The ``file_id`` debt protocol. Rendering a question with no cached Telegram
+``file_id`` uploads the image, and Telegram answers with an id worth keeping —
+but writing it back inside the render would extend that transaction across a
+network round-trip to Telegram. So the id is parked in the FSM
+(``pending_file_id_cache``) and written inside the *next* round's transaction,
+where a statement is being sent anyway. The ``show_*`` methods incur the debt,
+the round functions pay it on the way in, and :meth:`Round.end` pays whatever
+is still outstanding as it clears the state.
 
-Clearing the state on its own would drop the parked write, and Telegram would
-re-upload that image the next time it was shown — which is why ``end`` holds
-the bot's only ``state.clear()``, and no handler names
-``pending_file_id_cache``. That key belongs to this module.
+Those last two happen together for a reason: clearing the state alone would
+drop the parked id, and Telegram would re-upload that image the next time the
+question came up. Which is why ``end`` holds the bot's only ``state.clear()``,
+and why no handler names ``pending_file_id_cache`` — the key belongs to this
+module.
 """
 
 from __future__ import annotations
@@ -62,10 +63,9 @@ class RoundFinished:
 class Round:
     """Handle on one question round: its dependencies and its exits.
 
-    Handlers build one per update from the injected dependencies and speak to
-    the round through it: render a question (``show_testing_question`` /
-    ``show_random_question``), open the round's transaction (``open_uow``),
-    and leave (``end``).
+    Handlers build one per update and speak to the round through it: render a
+    question (``show_testing_question`` / ``show_random_question``), open the
+    round's transaction (``open_uow``), and leave (``end``).
 
     ``open_uow`` is the transaction seam, and it is required rather than
     defaulted: a round does not know what a database is, so there is nothing
@@ -101,9 +101,11 @@ class Round:
             current_part=question.part,
             question_start_time=started_at,
             waiting_for_answer=True,
+            # The round that led here has already paid the previous render's
+            # debt; leaving it in place would write it a second time.
             pending_file_id_cache=None,
         )
-        await self._send(message, question)
+        await self._send_and_park(message, question)
 
     async def show_random_question(
         self,
@@ -128,7 +130,9 @@ class Round:
             waiting_for_answer=True,
             pending_file_id_cache=None,
         )
-        await self._send(message, question, caption=caption, parse_mode=parse_mode)
+        await self._send_and_park(
+            message, question, caption=caption, parse_mode=parse_mode
+        )
 
     async def end(self) -> None:
         """Leave the round: pay whatever ``file_id`` is owed, then clear the state.
@@ -137,13 +141,13 @@ class Round:
         transaction is opened only when something is actually owed, so ending
         a round that rendered from cache costs no round-trip.
         """
-        debt = await fsm_data.load(self.state, RoundDebt)
-        if debt.pending_file_id_cache is not None:
+        debt = (await fsm_data.load(self.state, RoundDebt)).pending_file_id_cache
+        if debt is not None:
             async with self.open_uow() as uow:
-                await uow.file_ids.cache_file_id(*debt.pending_file_id_cache)
+                await uow.file_ids.cache_file_id(*debt)
         await self.state.clear()
 
-    async def _send(
+    async def _send_and_park(
         self,
         message: types.Message,
         question: Question,
@@ -151,13 +155,13 @@ class Round:
         caption: str | None = None,
         parse_mode: str | None = None,
     ) -> None:
-        """Send the question, then park the debt if the upload produced one.
+        """Render the question, then park the debt if the upload produced one.
 
-        Part A goes out with the option-picker keyboard; Part B gets a
-        follow-up "enter your answer" prompt.
+        Part A carries the option-picker keyboard, so tapping a number is the
+        answer. Part B is typed, and gets a follow-up prompt saying so.
         """
         reply_markup = part_a_kb(PART_A_OPTION_COUNT) if question.part == "A" else None
-        new_file_id = await send_question(
+        fresh_file_id = await send_question(
             self.bot,
             message.chat.id,
             question,
@@ -168,11 +172,11 @@ class Round:
         )
         if question.part == "B":
             await message.answer(MSG_ENTER_ANSWER)
-        if new_file_id is not None:
+        if fresh_file_id is not None:
             await fsm_data.merge(
                 self.state,
                 RoundDebt,
-                pending_file_id_cache=(question.question_id, new_file_id),
+                pending_file_id_cache=(question.question_id, fresh_file_id),
             )
 
 
@@ -181,16 +185,14 @@ class Round:
 # ---------------------------------------------------------------------------
 
 
-async def _settle_file_id_debt(
-    uow: Repositories, state: TestingState | RandomState
-) -> None:
-    """Pay off the ``file_id`` debt parked by the last render, if any.
+async def _settle_file_id_debt(uow: Repositories, debt: tuple[int, str] | None) -> None:
+    """Write off the ``file_id`` parked by the last render, if there was one.
 
     Called at the top of a round so the write rides along in that round's
     transaction rather than costing one of its own.
     """
-    if state.pending_file_id_cache is not None:
-        await uow.file_ids.cache_file_id(*state.pending_file_id_cache)
+    if debt is not None:
+        await uow.file_ids.cache_file_id(*debt)
 
 
 async def run_testing_round(
@@ -206,10 +208,12 @@ async def run_testing_round(
     answer row, and the next question's metadata commit together.
     """
     question_id, _part = testing.question_ids[testing.current_index]
+    # A round whose render never recorded a start time scores as instant rather
+    # than as the whole time since the epoch.
     started = testing.question_start_time or now
     next_index = testing.current_index + 1
 
-    await _settle_file_id_debt(uow, testing)
+    await _settle_file_id_debt(uow, testing.pending_file_id_cache)
 
     key = await uow.questions.get_correct_answer(question_id)
     await uow.sessions.record_answer(
@@ -224,9 +228,9 @@ async def run_testing_round(
     if next_index >= len(testing.question_ids):
         return RoundFinished(next_index=next_index)
 
-    next_qid, _next_part = testing.question_ids[next_index]
+    next_question_id, _next_part = testing.question_ids[next_index]
     return NextQuestion(
-        question=await uow.questions.get(next_qid),
+        question=await uow.questions.get(next_question_id),
         next_index=next_index,
     )
 
@@ -236,18 +240,19 @@ async def pick_random_question(
 ) -> tuple[Question, QuestionOrigin] | None:
     """Settle the file_id debt and draw the next random / topic question.
 
-    Returns None when no question matches the student's filters (or the
-    filters are incomplete).
+    Returns None when no question matches the student's filters, and equally
+    when the filters are incomplete — a state that says nothing about what to
+    draw is the same dead end as a corpus with nothing in it.
     """
-    await _settle_file_id_debt(uow, rnd)
+    await _settle_file_id_debt(uow, rnd.pending_file_id_cache)
 
     try:
         if rnd.topic_name:
-            qid = await uow.draw.get_random_question_id_by_topic(
+            question_id = await uow.draw.get_random_question_id_by_topic(
                 rnd.subject_id, rnd.topic_name
             )
         elif rnd.random_part is not None:
-            qid = await uow.draw.get_random_question_id(
+            question_id = await uow.draw.get_random_question_id(
                 rnd.subject_id, rnd.random_part, rnd.exam_type
             )
         else:
@@ -255,7 +260,9 @@ async def pick_random_question(
     except KeyError:
         return None
 
-    return await uow.questions.get_full(qid)
+    # get_full, not get: the caption names the year and option the question came
+    # from, and that costs no second round-trip.
+    return await uow.questions.get_full(question_id)
 
 
 async def evaluate_random_answer(

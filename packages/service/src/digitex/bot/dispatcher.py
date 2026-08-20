@@ -1,8 +1,8 @@
-"""Dispatcher assembly — middleware and router wiring for the bot.
+"""Dispatcher assembly — the middleware stack and the router order.
 
-This lives beside the handlers rather than in ``bot/__init__.py`` because the
+Lives beside the handlers rather than in ``bot/__init__.py`` because the
 handlers import ``digitex.bot.fsm_data``, which runs the package's ``__init__``
-first. With the wiring in there, importing any handler imported every handler,
+first. With the wiring in there, importing any handler imported every handler
 and the package cycled with its own contents.
 """
 
@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 
 def create_dispatcher(admin_user_id: int, open_uow: OpenUow) -> Dispatcher:
+    """Wire up the bot. Takes the transaction seam, never a pool."""
     dp = Dispatcher()
     auth = AuthMiddleware(admin_user_id=admin_user_id, open_uow=open_uow)
     dp.message.outer_middleware(auth)

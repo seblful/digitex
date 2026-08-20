@@ -1,7 +1,10 @@
-"""Inline keyboard builders.
+"""Inline keyboard builders — buttons and their layout, no decisions.
 
-Callback payloads are produced via the typed factories in
-:mod:`digitex.bot.callbacks` — never as bare formatted strings.
+Every builder is the same shape: pair each label with a payload packed by a
+typed factory from :mod:`digitex.bot.callbacks`, then hand the pairs to
+:func:`_grid`. What goes on a keyboard is decided by the handler that asks for
+one; an empty sequence is an ordinary answer (a subject with no years, a year
+with no options) and yields an empty keyboard rather than raising.
 """
 
 from __future__ import annotations
@@ -10,9 +13,6 @@ from typing import TYPE_CHECKING
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
 
 from digitex.bot.callbacks import (
     AnswerCB,
@@ -42,7 +42,7 @@ from digitex.bot.messages import (
 from digitex.domain.entities import PART_A_OPTION_COUNT
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
 
 # Layout constants — one source of truth instead of magic adjust() numbers.
 COLUMNS_SUBJECTS = 1
@@ -57,6 +57,7 @@ COLUMNS_REGISTRATION = 2
 
 
 def _grid(items: Iterable[tuple[str, str]], columns: int) -> InlineKeyboardMarkup:
+    """Lay ``(label, payload)`` pairs out *columns* wide, in the order given."""
     builder = InlineKeyboardBuilder()
     for text, callback_data in items:
         builder.add(InlineKeyboardButton(text=text, callback_data=callback_data))
@@ -91,6 +92,7 @@ def options_kb(options: list[int]) -> InlineKeyboardMarkup:
 
 
 def part_a_kb(num_options: int = PART_A_OPTION_COUNT) -> InlineKeyboardMarkup:
+    """The numbered answers a Part A question offers, all on one row."""
     return _grid(
         ((str(i), AnswerCB(value=i).pack()) for i in range(1, num_options + 1)),
         num_options,
@@ -139,6 +141,7 @@ def random_part_kb() -> InlineKeyboardMarkup:
 
 
 def topics_kb(topics: list[str]) -> InlineKeyboardMarkup:
+    """Topic buttons carrying their position — a name would not fit the payload."""
     return _grid(
         ((name, TopicCB(index=i).pack()) for i, name in enumerate(topics)),
         COLUMNS_TOPICS,
@@ -146,6 +149,11 @@ def topics_kb(topics: list[str]) -> InlineKeyboardMarkup:
 
 
 def admin_registration_kb(telegram_id: int) -> InlineKeyboardMarkup:
+    """Approve / reject for one request.
+
+    Both payloads name the student, because the admin's chat holds many
+    requests at once and none of them is "the current one".
+    """
     return _grid(
         (
             (

@@ -1,4 +1,4 @@
-"""Shared bot-level constants and the Student-identity fallback they belong to."""
+"""Bot-level constants, and the one rule that needs them: who an update is from."""
 
 from __future__ import annotations
 
@@ -15,11 +15,12 @@ def student_identity(
 ) -> tuple[int, str, str | None]:
     """``(telegram_id, name, username)`` for the user behind *event*.
 
-    Both the /start flow and the option screen create Students, and they must
-    agree on what to do when Telegram gives us no user or no name — otherwise
-    the two paths write different rows for the same person.
+    Students are created down two separate paths — the /start flow and the
+    option screen — and both write the same row. Reading the identity through
+    one function is what stops them disagreeing about a user Telegram gave us
+    without a name, or without a user at all.
     """
     user = event.from_user
-    if user:
-        return user.id, user.full_name or FALLBACK_NAME, user.username
-    return 0, FALLBACK_NAME, None
+    if user is None:
+        return 0, FALLBACK_NAME, None
+    return user.id, user.full_name or FALLBACK_NAME, user.username

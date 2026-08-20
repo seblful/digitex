@@ -1,4 +1,17 @@
-"""User-facing message strings."""
+"""Every string a student reads — and nothing that decides which one they see.
+
+Templates only. The one function here exists because two different screens have
+to say the same thing about a question whose year shipped no answer key, and the
+wording for that belongs in one place.
+
+Callers format by keyword, never positionally, so a renamed placeholder is a
+``KeyError`` at the call site rather than a wrong word in front of a student.
+
+Russian throughout, which is why ``pyproject.toml`` grants this file the
+``RUF001`` and ``E501`` per-file ignores: several Cyrillic capitals are
+indistinguishable on screen from their Latin twins, and a template reads better
+whole than wrapped.
+"""
 
 from __future__ import annotations
 
@@ -117,8 +130,8 @@ CMD_HELP_DESC = "Помощь"
 def format_answer(answer: str | None) -> str:
     """Render an answer key's stored form for display.
 
-    A question whose year shipped without an answer key has none to name, and
-    both the random-mode verdict and the results screen have to say so — so the
-    wording for that case lives here once.
+    A question whose year shipped without an answer key has no value to name,
+    and both the random-mode verdict and the results screen have to say so —
+    so the wording for that case lives here once.
     """
     return MSG_ANSWER_UNKNOWN if answer is None else answer
