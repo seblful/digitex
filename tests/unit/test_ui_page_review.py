@@ -1,13 +1,18 @@
-"""Behaviour tests for the review window itself.
+"""Behaviour tests for a page review.
 
-The window is the one place where the editing rules meet a widget, so the parts
-that cannot be checked in `test_ui_geometry` and `test_ui_history` — that an
-edit reaches the tree, that undo puts the page back, that a bad number disables
-approve — are checked here against a real Tk window.
+Most of these take a `ReviewController` and no window at all: what a review is
+— which question each region lands in, what each row says, whether the page may
+be approved, what verdict comes back — needs no display to check, and every one
+of these used to skip on a machine without one.
 
-It is built directly rather than through `TkPageReviewer.present`, which blocks
-until a human answers. Every test skips where there is no display, so a
-headless CI runs the rest of the suite untouched.
+Eight still take a real `_ReviewWindow`, and they are the ones that are
+genuinely about the widget: turning canvas coordinates into page pixels,
+arrow keys scrolling a canvas rather than nudging a region, a spinbox echoing
+the model without echoing back. Those skip without a display, because a
+display is the thing under test.
+
+The window is built directly rather than through `TkPageReviewer.present`,
+which blocks until a human answers.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from digitex.imaging import stack_vertically
 from digitex.pipeline.exceptions import ReviewAborted
 from digitex.pipeline.pieces import HeldPiece
 from digitex.pipeline.review import PageProposal
+from digitex.ui.controller import ReviewController
 from digitex.ui.edits import PageEdits
 from digitex.ui.page_review import _ReviewWindow, resolve_verdict
 
@@ -152,7 +158,14 @@ def root() -> Iterator[tk.Tk]:
 
 
 @pytest.fixture
+def control() -> ReviewController:
+    """A review with no window around it — what most of these tests need."""
+    return ReviewController()
+
+
+@pytest.fixture
 def window(root: tk.Tk) -> Iterator[_ReviewWindow]:
+    """A real window, for the handful of tests that are about the widget."""
     made = _ReviewWindow(root)
     yield made
     made.top.destroy()
@@ -160,49 +173,52 @@ def window(root: tk.Tk) -> Iterator[_ReviewWindow]:
 
 class TestLoadingAPage:
     def test_the_proposal_is_copied_not_borrowed(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
         """Skipping must leave the extractor's own regions as they were."""
         proposal = _proposal(tmp_path)
-        window._load(proposal)
+        control.load(proposal)
 
-        window.edits.regions[2].label = "part"
+        control.edits.regions[2].label = "part"
 
         assert proposal.regions[2].label == "question"
 
     def test_every_question_is_shown_where_it_would_be_saved(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
+        control.load(_proposal(tmp_path))
 
-        assert [str(p) for p in window._numbering.placements] == ["1/A/1", "1/A/2"]
-        assert window._numbering.problem is None
-        assert str(window._approve["state"]) == "normal"
+        assert [str(p) for p in control.numbering.placements] == [
+            "1/A/1",
+            "1/A/2",
+        ]
+        assert control.numbering.problem is None
+        assert control.approve_enabled
 
     def test_the_region_list_matches_the_page(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
+        control.load(_proposal(tmp_path))
 
-        rows = window._tree.get_children()
-        values = [list(window._tree.item(row, "values")) for row in rows]
+        rows = control.rows()
+        values = [[row.label, row.reading, row.where] for row in rows]
 
         assert len(rows) == 4
         assert values[0][:2] == ["1. option", "1"]
         assert values[2] == ["3. question", "", "1/A/1"]
 
     def test_a_second_page_starts_with_a_clean_history(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
-        window._select(2)
-        window._delete_region()
-        assert window.edits.history.can_undo
+        control.load(_proposal(tmp_path))
+        control.select(2)
+        control.delete_selected(), control.refresh()
+        assert control.edits.history.can_undo
 
-        window._load(_proposal(tmp_path))
+        control.load(_proposal(tmp_path))
 
-        assert window.edits.history.can_undo is False
-        assert len(window.edits.regions) == 4
+        assert control.edits.history.can_undo is False
+        assert len(control.edits.regions) == 4
 
 
 class TestEditing:
@@ -211,12 +227,12 @@ class TestEditing:
     ) -> None:
         window._load(_proposal(tmp_path))
         window._select(2)
-        before = list(window.edits.regions[3].polygon)
+        before = list(window.control.edits.regions[3].polygon)
 
         window._on_arrow((1, 0), 10)
 
-        assert next(iter(window.edits.regions[2].polygon)) == (60, 200)
-        assert list(window.edits.regions[3].polygon) == before
+        assert next(iter(window.control.edits.regions[2].polygon)) == (60, 200)
+        assert list(window.control.edits.regions[3].polygon) == before
 
     def test_undo_puts_an_edit_back(
         self, window: _ReviewWindow, tmp_path: Path
@@ -227,8 +243,8 @@ class TestEditing:
 
         window._undo()
 
-        assert next(iter(window.edits.regions[2].polygon)) == (50, 200)
-        assert window.edits.history.can_redo
+        assert next(iter(window.control.edits.regions[2].polygon)) == (50, 200)
+        assert window.control.edits.history.can_redo
 
     def test_redo_puts_it_back_again(
         self, window: _ReviewWindow, tmp_path: Path
@@ -240,42 +256,42 @@ class TestEditing:
 
         window._redo()
 
-        assert next(iter(window.edits.regions[2].polygon)) == (50, 210)
+        assert next(iter(window.control.edits.regions[2].polygon)) == (50, 210)
 
     def test_relabelling_a_question_renumbers_the_rest(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
-        window._select(2)
+        control.load(_proposal(tmp_path))
+        control.select(2)
 
-        window._relabel_selected("part")
+        control.relabel_selected("part")
 
         # The first question is now a marker, so the second takes its number.
-        assert [str(p) for p in window._numbering.placements] == ["1/A/1"]
+        assert [str(p) for p in control.numbering.placements] == ["1/A/1"]
 
     def test_relabelling_drops_a_reading_that_belonged_to_the_old_kind(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
-        window._select(0)
+        control.load(_proposal(tmp_path))
+        control.select(0)
 
-        window._relabel_selected("part")
+        control.relabel_selected("part")
 
-        assert window.edits.regions[0].reading is None
+        assert control.edits.regions[0].reading is None
 
     def test_deleting_a_marker_is_caught_before_anything_is_written(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
         """Without a marker a crop would land outside {option}/{part}/."""
-        window._load(_proposal(tmp_path, state=PageExtractionState()))
-        window._select(0)
-        window._delete_region()
-        window._select(0)
-        window._delete_region()
+        control.load(_proposal(tmp_path, state=PageExtractionState()))
+        control.select(0)
+        control.delete_selected()
+        control.select(0)
+        control.delete_selected()
 
-        assert window._numbering.problem is not None
-        assert "before any option/part marker" in window._numbering.problem
-        assert str(window._approve["state"]) == "disabled"
+        assert control.numbering.problem is not None
+        assert "before any option/part marker" in control.numbering.problem
+        assert not control.approve_enabled
 
     def test_drawing_adds_a_region_in_page_pixels(
         self, window: _ReviewWindow, tmp_path: Path
@@ -287,8 +303,8 @@ class TestEditing:
         window._draw_from = (50.0, 100.0)
         window._finish_draw(150.0, 200.0)
 
-        assert len(window.edits.regions) == 5
-        assert list(window.edits.regions[4].polygon) == [
+        assert len(window.control.edits.regions) == 5
+        assert list(window.control.edits.regions[4].polygon) == [
             (100, 200),
             (300, 200),
             (300, 400),
@@ -304,72 +320,76 @@ class TestEditing:
         window._draw_from = (50.0, 100.0)
         window._finish_draw(52.0, 102.0)
 
-        assert len(window.edits.regions) == 4
+        assert len(window.control.edits.regions) == 4
 
     def test_sorting_puts_the_regions_in_reading_order(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
         regions = [
             _region("question", 300),
             _region("option", 10, 1),
             _region("part", 90, "A"),
         ]
-        window._load(_proposal(tmp_path, regions=regions))
-        assert window._numbering.problem is not None  # question before its markers
+        control.load(_proposal(tmp_path, regions=regions))
+        assert control.numbering.problem is not None  # question before its markers
 
-        window._sort()
+        control.sort_by_reading_order(), control.refresh()
 
-        assert [r.label for r in window.edits.regions] == ["option", "part", "question"]
-        assert window._numbering.problem is None
+        assert [r.label for r in control.edits.regions] == [
+            "option",
+            "part",
+            "question",
+        ]
+        assert control.numbering.problem is None
 
 
 class TestNumbering:
     def test_a_number_already_on_disk_blocks_approval(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
         taken = tmp_path / "1" / "A"
         taken.mkdir(parents=True)
         (taken / "1.jpg").write_bytes(b"x")
 
-        window._load(_proposal(tmp_path))
+        control.load(_proposal(tmp_path))
 
-        assert window._numbering.problem is not None
-        assert "already exists" in window._numbering.problem
-        assert str(window._approve["state"]) == "disabled"
-        assert window._numbering.misnumbered == {2}
+        assert control.numbering.problem is not None
+        assert "already exists" in control.numbering.problem
+        assert not control.approve_enabled
+        assert control.numbering.misnumbered == {2}
 
     def test_continue_from_disk_is_offered_only_when_it_would_help(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
         """A marker leads this page, so the entry counter cannot move it."""
         taken = tmp_path / "1" / "A"
         taken.mkdir(parents=True)
         (taken / "1.jpg").write_bytes(b"x")
 
-        window._load(_proposal(tmp_path))
+        control.load(_proposal(tmp_path))
 
-        assert str(window._continue_button["state"]) == "disabled"
+        assert not control.continue_helps
 
     def test_continue_from_disk_picks_up_where_the_folder_left_off(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
         taken = tmp_path / "2" / "B"
         taken.mkdir(parents=True)
         for number in (1, 2, 3):
             (taken / f"{number}.jpg").write_bytes(b"x")
-        window._load(
+        control.load(
             _proposal(
                 tmp_path,
                 regions=[_region("question", 200)],
                 state=PageExtractionState(option=2, part="B"),
             )
         )
-        assert str(window._continue_button["state"]) == "normal"
+        assert control.continue_helps
 
-        window._continue_from_disk()
+        control.continue_from_disk()
 
-        assert [str(p) for p in window._numbering.placements] == ["2/B/4"]
-        assert window._numbering.problem is None
+        assert [str(p) for p in control.numbering.placements] == ["2/B/4"]
+        assert control.numbering.problem is None
 
     def test_the_entry_state_can_be_typed_in(
         self, window: _ReviewWindow, tmp_path: Path
@@ -384,8 +404,8 @@ class TestNumbering:
 
         window._question_var.set("5")
 
-        assert window.edits.state.question == 5
-        assert [str(p) for p in window._numbering.placements] == ["1/A/6"]
+        assert window.control.edits.state.question == 5
+        assert [str(p) for p in window.control.numbering.placements] == ["1/A/6"]
 
     def test_an_emptied_spinbox_does_not_lose_the_number(
         self, window: _ReviewWindow, tmp_path: Path
@@ -401,42 +421,42 @@ class TestNumbering:
 
         window._option_var.set("")
 
-        assert window.edits.state.option == 3
+        assert window.control.edits.state.option == 3
 
 
 class TestCropPreview:
     def test_a_question_previews_the_file_that_would_be_written(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
-        window._select(2)
+        control.load(_proposal(tmp_path))
+        control.select(2)
 
-        window._render_preview()
+        control.preview()
 
-        assert "saved as 1/A/1" in window._preview_caption["text"]
-        assert window._preview.find_all() != ()
+        assert "saved as 1/A/1" in control.preview().caption
+        assert control.preview().image is not None
 
     def test_a_marker_previews_what_ocr_was_pointed_at(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
-        window._select(0)
+        control.load(_proposal(tmp_path))
+        control.select(0)
 
-        window._render_preview()
+        control.preview()
 
-        assert "option marker" in window._preview_caption["text"]
+        assert "option marker" in control.preview().caption
 
     def test_nothing_selected_previews_nothing(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
-        window._select(2)
-        window._render_preview()
+        control.load(_proposal(tmp_path))
+        control.select(2)
+        control.preview()
 
-        window._select(None)
-        window._render_preview()
+        control.select(None)
+        control.preview()
 
-        assert "select a region" in window._preview_caption["text"]
+        assert "select a region" in control.preview().caption
 
     def test_a_page_without_a_crop_callable_still_previews(
         self, window: _ReviewWindow, tmp_path: Path
@@ -453,215 +473,217 @@ class TestCropPreview:
         )
         window._select(0)
 
-        window._render_preview()
+        window.control.preview()
 
-        assert window._preview.find_all() != ()
+        assert window.control.preview().image is not None
 
 
 class TestJoiningPieces:
     """Marking a question as printed in pieces, and lining the pieces up."""
 
     def test_the_checkbox_marks_the_selected_question(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
-        window._select(2)
+        control.load(_proposal(tmp_path))
+        control.select(2)
 
-        window._joins_next.set(True)
-        window._toggle_join()
+        control.toggle_join()
 
-        assert window.edits.regions[2].joins_next is True
-        assert "piece 2 of 2" in list(window._tree.item("3", "values"))[2]
+        assert control.edits.regions[2].joins_next is True
+        assert "piece 2 of 2" in control.rows()[3].where
 
     def test_a_marker_cannot_be_marked_as_a_piece(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
-        window._select(0)
+        control.load(_proposal(tmp_path))
+        control.select(0)
 
-        window._joins_next.set(True)
-        window._toggle_join()
+        control.toggle_join()
 
-        assert window.edits.regions[0].joins_next is False
+        assert control.edits.regions[0].joins_next is False
         # The box is put back from the model rather than left lying.
-        assert window._joins_next.get() is False
-        assert str(window._joins_button["state"]) == "disabled"
+        assert control.join_controls().joins_next is False
+        assert not control.join_controls().can_toggle
 
     def test_the_last_question_shows_that_it_waits_for_the_next_page(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
-        window._select(3)
-        window._toggle_join()
+        control.load(_proposal(tmp_path))
+        control.select(3)
+        control.toggle_join()
 
-        assert list(window._tree.item("3", "values"))[2] == "piece 1 → next page"
-        assert "1 piece held" in window._counts_label["text"]
+        assert control.rows()[3].where == "piece 1 → next page"
+        assert "1 piece held" in control.status().counts
         # Holding a piece is not a fault: the next page finishes it.
-        assert str(window._approve["state"]) == "normal"
+        assert control.approve_enabled
 
     def test_the_controls_follow_the_selection(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
         """A checkbox left showing the region before it would mark the wrong one."""
-        window._load(_proposal(tmp_path))
-        window._select(3)
-        window._toggle_join()
+        control.load(_proposal(tmp_path))
+        control.select(3)
+        control.toggle_join()
 
-        window._select(2)
+        control.select(2)
 
-        assert window._joins_next.get() is False
-        assert str(window._joins_button["state"]) == "normal"
+        assert control.join_controls().joins_next is False
+        assert control.join_controls().can_toggle
 
-        window._select(0)
+        control.select(0)
 
-        assert str(window._joins_button["state"]) == "disabled"
+        assert not control.join_controls().can_toggle
 
     def test_lining_pieces_up_needs_more_than_one_piece(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
-        window._select(2)
-        assert str(window._line_up_button["state"]) == "disabled"
+        control.load(_proposal(tmp_path))
+        control.select(2)
+        assert not control.join_controls().can_line_up
 
-        window._toggle_join()
+        control.toggle_join()
 
-        assert str(window._line_up_button["state"]) == "normal"
+        assert control.join_controls().can_line_up
 
     def test_the_pieces_handed_to_the_editor_come_from_the_page(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
-        window._select(2)
-        window._toggle_join()
+        control.load(_proposal(tmp_path))
+        control.select(2)
+        control.toggle_join(), control.refresh()
 
-        pieces, origins = window._join_pieces(2)
+        pieces, origins = control.join_pieces(2)
 
         assert origins == [2, 3]
         assert [piece.movable for piece in pieces] == [True, True]
 
     def test_a_joined_question_previews_all_of_its_pieces(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
-        window._select(2)
-        window._toggle_join()
+        control.load(_proposal(tmp_path))
+        control.select(2)
+        control.toggle_join()
 
-        window._render_preview()
+        control.preview()
 
-        assert "2 pieces joined" in window._preview_caption["text"]
+        assert "2 pieces joined" in control.preview().caption
 
 
 class TestCarriedPieces:
     """A page finishing a question the page before it started."""
 
     def test_the_carried_piece_is_named_and_the_question_opens_selected(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path, carried=_carried("003.jpg")))
+        control.load(_proposal(tmp_path, carried=_carried("003.jpg")))
 
-        assert "003.jpg" in window._carried_label["text"]
-        assert window._carried_frame.grid_info()
+        assert "003.jpg" in (control.carried_summary() or "")
+        assert control.carried_summary() is not None
         # The joined crop is what the reviewer has to check first.
-        assert window.edits.selected == 2
+        assert control.edits.selected == 2
 
     def test_a_page_handed_nothing_says_nothing(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
+        control.load(_proposal(tmp_path))
 
-        assert not window._carried_frame.grid_info()
+        assert control.carried_summary() is None
 
     def test_the_first_question_previews_the_carried_piece_with_it(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path, carried=_carried()))
-        window._select(2)
+        control.load(_proposal(tmp_path, carried=_carried()))
+        control.select(2)
 
-        window._render_preview()
+        control.preview()
 
-        assert "2 pieces joined" in window._preview_caption["text"]
-        row = list(window._tree.item("2", "values"))
+        assert "2 pieces joined" in control.preview().caption
+        row = [
+            control.rows()[2].label,
+            control.rows()[2].reading,
+            control.rows()[2].where,
+        ]
         assert row[2] == "1/A/1  piece 2 of 2"
 
     def test_the_editor_cannot_move_a_piece_from_an_earlier_page(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path, carried=_carried()))
+        control.load(_proposal(tmp_path, carried=_carried()))
 
-        pieces, origins = window._join_pieces(2)
+        pieces, origins = control.join_pieces(2)
 
         assert origins == [None, 2]
         assert [piece.movable for piece in pieces] == [False, True]
 
     def test_discarding_the_carried_piece_drops_it_from_the_page(
-        self, window: _ReviewWindow, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, control: ReviewController, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
             "digitex.ui.page_review.messagebox.askokcancel", lambda *a, **k: True
         )
-        window._load(_proposal(tmp_path, carried=_carried()))
+        control.load(_proposal(tmp_path, carried=_carried()))
 
-        window._discard_carried()
+        control.discard_carried_pieces()
 
-        assert window.discard_carried is True
-        assert not window._carried_frame.grid_info()
-        assert window.edits.takes_carried(2) is False
+        assert control.discard_carried is True
+        assert control.carried_summary() is None
+        assert control.edits.takes_carried(2) is False
 
     def test_a_page_is_handed_the_pieces_unless_it_says_otherwise(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
         """Only a discard drops them — a plain approval joins them."""
-        window._load(_proposal(tmp_path, carried=_carried()))
+        control.load(_proposal(tmp_path, carried=_carried()))
 
-        window._finish("approve")
+        control.finish("approve")
 
-        assert window.discard_carried is False
+        assert control.discard_carried is False
 
 
 class TestStatusLine:
     def test_the_page_reports_its_place_in_the_run(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path, page_number=3, page_count=40))
+        control.load(_proposal(tmp_path, page_number=3, page_count=40))
 
-        assert "page 3 of 40" in window._page_label["text"]
-        assert "2 questions, 2 markers" in window._counts_label["text"]
+        assert "page 3 of 40" in control.status().where
+        assert "2 questions, 2 markers" in control.status().counts
 
     def test_a_page_extracted_outside_a_book_says_only_its_name(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
+        control.load(_proposal(tmp_path))
 
-        assert window._page_label["text"].strip() == "1.jpg"
+        assert control.status().where.strip() == "1.jpg"
 
 
 class TestVerdict:
     def test_approving_a_faulty_page_is_refused(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
         taken = tmp_path / "1" / "A"
         taken.mkdir(parents=True)
         (taken / "1.jpg").write_bytes(b"x")
-        window._load(_proposal(tmp_path))
+        control.load(_proposal(tmp_path))
 
-        window._finish("approve")
+        control.finish("approve")
 
-        assert window.verdict == "abort"  # unchanged: the click did nothing
+        assert control.verdict == "abort"  # unchanged: the click did nothing
 
     def test_approving_a_clean_page_settles_it(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
+        control.load(_proposal(tmp_path))
 
-        window._finish("approve")
+        control.finish("approve")
 
-        assert window.verdict == "approve"
+        assert control.verdict == "approve"
 
     def test_skipping_needs_no_confirmation(
-        self, window: _ReviewWindow, tmp_path: Path
+        self, control: ReviewController, tmp_path: Path
     ) -> None:
-        window._load(_proposal(tmp_path))
+        control.load(_proposal(tmp_path))
 
-        window._finish("skip")
+        control.finish("skip")
 
-        assert window.verdict == "skip"
+        assert control.verdict == "skip"
