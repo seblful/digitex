@@ -105,7 +105,7 @@ async def _populate_year(
                 question_id: int | None = None
                 if raw_answer:
                     try:
-                        question_id = await uow.questions.get_or_create(
+                        question_id = await uow.corpus.get_or_create(
                             option_id, key, raw_answer
                         )
                         answers_loaded += 1
@@ -116,11 +116,9 @@ async def _populate_year(
                     # A Question whose answers.json entry is missing or unusable
                     # is still loaded, so its image is servable — with a NULL
                     # key, which no reply can match.
-                    question_id = await uow.questions.get_or_create(
-                        option_id, key, None
-                    )
+                    question_id = await uow.corpus.get_or_create(option_id, key, None)
 
-                await uow.questions.set_image(
+                await uow.corpus.set_image(
                     question_id,
                     question_object_key(output_dir, img_file),
                     file_digest(img_file),
@@ -144,7 +142,7 @@ async def _populate_topics(
         for topic_name, years in tqdm(topics_data.items(), desc="topics"):
             # The name is stored once, on the topic; the mappings below carry
             # its id.
-            topic_id = await uow.questions.get_or_create_topic(subject_id, topic_name)
+            topic_id = await uow.topics.get_or_create_topic(subject_id, topic_name)
             for year_str, exam_types in years.items():
                 year = int(year_str)
                 book_id = await uow.books.get_book(subject_id, year)
@@ -162,13 +160,13 @@ async def _populate_topics(
                     for key in keys:
                         question_key = QuestionKey.parse(key)
                         for option_id in option_ids:
-                            await uow.questions.upsert_topic(
+                            await uow.topics.upsert_topic(
                                 option_id,
                                 question_key.number,
                                 question_key.part,
                                 topic_id,
                             )
-        return await uow.questions.count_topics()
+        return await uow.topics.count_topics()
 
 
 async def populate_subject(
@@ -271,7 +269,7 @@ class ImageCheck:
 async def check_images(pool: AsyncConnectionPool, output_dir: Path) -> ImageCheck:
     """Compare every stored image key and hash against the files on disk."""
     async with UnitOfWork(pool) as uow:
-        stored = dict(await uow.questions.list_images())
+        stored = dict(await uow.corpus.list_images())
 
     on_disk = {
         question_object_key(output_dir, path): path

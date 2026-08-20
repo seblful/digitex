@@ -68,7 +68,7 @@ class TestPopulateAndCheck:
         await populate(pg_pool, corpus, books, "biology")
 
         async with UnitOfWork(pg_pool) as uow:
-            images = await uow.questions.list_images()
+            images = await uow.corpus.list_images()
 
         assert [key for key, _hash in images] == [_A1, _B1]
 
@@ -137,8 +137,8 @@ class TestPopulateTopics:
             subject_id = await uow.books.get_or_create_subject(
                 get_subject_name("biology")
             )
-            assert await uow.questions.get_topics_for_subject(subject_id) == ["Клетка"]
-            assert await uow.questions.count_topics() == 1
+            assert await uow.topics.get_topics_for_subject(subject_id) == ["Клетка"]
+            assert await uow.topics.count_topics() == 1
 
     async def test_a_subject_without_a_topic_map_still_seeds(
         self, pg_pool: AsyncConnectionPool, corpus: Path, books: Path
@@ -149,5 +149,5 @@ class TestPopulateTopics:
         await populate(pg_pool, corpus, books, "biology")
 
         async with UnitOfWork(pg_pool) as uow:
-            assert len(await uow.questions.list_images()) == 2
-            assert await uow.questions.count_topics() == 0
+            assert len(await uow.corpus.list_images()) == 2
+            assert await uow.topics.count_topics() == 0

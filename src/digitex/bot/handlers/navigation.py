@@ -113,7 +113,7 @@ async def on_mode_selected(
 
         case "topics":
             async with UnitOfWork(pool) as uow:
-                topics = await uow.questions.get_topics_for_subject(subject_id)
+                topics = await uow.topics.get_topics_for_subject(subject_id)
             if not topics:
                 await msg.edit_text(MSG_NO_TOPICS)
                 await callback.answer()

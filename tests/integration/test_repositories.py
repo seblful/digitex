@@ -132,7 +132,7 @@ class TestQuestionRepository:
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
             with pytest.raises(ValueError, match="Part A answer must be a digit"):
-                await uow.questions.get_or_create(
+                await uow.corpus.get_or_create(
                     option_id, QuestionKey(part="A", number=1), "abc"
                 )
 
@@ -142,8 +142,8 @@ class TestQuestionRepository:
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
             key = QuestionKey(part="A", number=1)
-            qid1 = await uow.questions.get_or_create(option_id, key, "3")
-            qid2 = await uow.questions.get_or_create(option_id, key, "5")
+            qid1 = await uow.corpus.get_or_create(option_id, key, "3")
+            qid2 = await uow.corpus.get_or_create(option_id, key, "5")
             assert qid1 == qid2
             answer = await uow.questions.get_correct_answer(qid2)
         assert answer == AnswerKey(part="A", value=5)
@@ -159,7 +159,7 @@ class TestQuestionRepository:
         """
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
-            qid = await uow.questions.get_or_create(
+            qid = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="A", number=1), None
             )
             answer = await uow.questions.get_correct_answer(qid)
@@ -170,13 +170,13 @@ class TestQuestionRepository:
     ) -> None:
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
-            qid = await uow.questions.get_or_create(
+            qid = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="A", number=1), "1"
             )
-            await uow.questions.set_image(qid, "s/2016/1/A/1.jpg", "hash-1")
-            await uow.questions.set_image(qid, "s/2016/1/A/1.jpg", "hash-1")
-            await uow.questions.set_image(qid, "s/2016/1/A/1.jpg", "hash-2")
-            images = await uow.questions.list_images()
+            await uow.corpus.set_image(qid, "s/2016/1/A/1.jpg", "hash-1")
+            await uow.corpus.set_image(qid, "s/2016/1/A/1.jpg", "hash-1")
+            await uow.corpus.set_image(qid, "s/2016/1/A/1.jpg", "hash-2")
+            images = await uow.corpus.list_images()
         assert images == [("s/2016/1/A/1.jpg", "hash-2")]
 
     async def test_get_random_question_id_raises_when_empty(
@@ -185,19 +185,19 @@ class TestQuestionRepository:
         async with UnitOfWork(pg_pool) as uow:
             subject_id = await uow.books.get_or_create_subject("Empty")
             with pytest.raises(KeyError):
-                await uow.questions.get_random_question_id(subject_id, "A")
+                await uow.draw.get_random_question_id(subject_id, "A")
 
     async def test_topic_upsert_then_query(self, pg_pool: AsyncConnectionPool) -> None:
         async with UnitOfWork(pg_pool) as uow:
             subject_id, _, option_id = await _seed_option(uow)
-            await uow.questions.get_or_create(
+            await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="A", number=1), "1"
             )
-            topic_id = await uow.questions.get_or_create_topic(subject_id, "kinematics")
-            await uow.questions.upsert_topic(option_id, 1, "A", topic_id)
-            await uow.questions.upsert_topic(option_id, 1, "A", topic_id)
-            count = await uow.questions.count_topics()
-            topics = await uow.questions.get_topics_for_subject(subject_id)
+            topic_id = await uow.topics.get_or_create_topic(subject_id, "kinematics")
+            await uow.topics.upsert_topic(option_id, 1, "A", topic_id)
+            await uow.topics.upsert_topic(option_id, 1, "A", topic_id)
+            count = await uow.topics.count_topics()
+            topics = await uow.topics.get_topics_for_subject(subject_id)
         assert count == 1
         assert topics == ["kinematics"]
 
@@ -206,8 +206,8 @@ class TestQuestionRepository:
     ) -> None:
         async with UnitOfWork(pg_pool) as uow:
             subject_id, _, _ = await _seed_option(uow)
-            first = await uow.questions.get_or_create_topic(subject_id, "optics")
-            second = await uow.questions.get_or_create_topic(subject_id, "optics")
+            first = await uow.topics.get_or_create_topic(subject_id, "optics")
+            second = await uow.topics.get_or_create_topic(subject_id, "optics")
         assert first == second
 
     async def test_a_topic_belongs_to_its_subject(
@@ -218,17 +218,17 @@ class TestQuestionRepository:
             physics, _, physics_option = await _seed_option(uow)
             chemistry, _, _ = await _seed_option(uow, subject_name="Chemistry")
 
-            physics_topic = await uow.questions.get_or_create_topic(physics, "Атом")
-            chemistry_topic = await uow.questions.get_or_create_topic(chemistry, "Атом")
-            await uow.questions.get_or_create(
+            physics_topic = await uow.topics.get_or_create_topic(physics, "Атом")
+            chemistry_topic = await uow.topics.get_or_create_topic(chemistry, "Атом")
+            await uow.corpus.get_or_create(
                 physics_option, QuestionKey(part="A", number=1), "1"
             )
-            await uow.questions.upsert_topic(physics_option, 1, "A", physics_topic)
+            await uow.topics.upsert_topic(physics_option, 1, "A", physics_topic)
 
             assert physics_topic != chemistry_topic
-            assert await uow.questions.get_topics_for_subject(physics) == ["Атом"]
+            assert await uow.topics.get_topics_for_subject(physics) == ["Атом"]
             # Named but unmapped, so it is not offered as a round to play.
-            assert await uow.questions.get_topics_for_subject(chemistry) == []
+            assert await uow.topics.get_topics_for_subject(chemistry) == []
 
     async def test_same_number_in_both_parts_are_distinct_questions(
         self, pg_pool: AsyncConnectionPool
@@ -241,10 +241,10 @@ class TestQuestionRepository:
         """
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
-            qa = await uow.questions.get_or_create(
+            qa = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="A", number=1), "3"
             )
-            qb = await uow.questions.get_or_create(
+            qb = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="B", number=1), "neutron"
             )
         assert qa != qb
@@ -254,7 +254,7 @@ class TestQuestionRepository:
     ) -> None:
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
-            qid = await uow.questions.get_or_create(
+            qid = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="B", number=1), "ВЕРНАДСКИЙ"
             )
             answer = await uow.questions.get_correct_answer(qid)
@@ -266,7 +266,7 @@ class TestQuestionRepository:
         """The part is read off the row, so no caller has to say which it is."""
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
-            qid = await uow.questions.get_or_create(
+            qid = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="A", number=1), "4"
             )
             answer = await uow.questions.get_correct_answer(qid)
@@ -277,13 +277,13 @@ class TestQuestionRepository:
     ) -> None:
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
-            qid = await uow.questions.get_or_create(
+            qid = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="A", number=4), "2"
             )
-            await uow.questions.set_image(qid, "s/2016/1/A/4.jpg", "hash-1")
+            await uow.corpus.set_image(qid, "s/2016/1/A/4.jpg", "hash-1")
 
             before = await uow.questions.get(qid)
-            await uow.questions.cache_file_id(qid, "tg-file-1")
+            await uow.file_ids.cache_file_id(qid, "tg-file-1")
             after = await uow.questions.get(qid)
 
         assert before.question_number == 4
@@ -299,7 +299,7 @@ class TestQuestionRepository:
         """The join is LEFT: a question loads before its image is seeded."""
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
-            qid = await uow.questions.get_or_create(
+            qid = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="A", number=9), "1"
             )
             question = await uow.questions.get(qid)
@@ -316,13 +316,13 @@ class TestQuestionRepository:
         """
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
-            qid = await uow.questions.get_or_create(
+            qid = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="A", number=5), "1"
             )
-            await uow.questions.set_image(qid, "s/2016/1/A/5.jpg", "hash-1")
-            await uow.questions.cache_file_id(qid, "tg-file-1")
+            await uow.corpus.set_image(qid, "s/2016/1/A/5.jpg", "hash-1")
+            await uow.file_ids.cache_file_id(qid, "tg-file-1")
 
-            await uow.questions.set_image(qid, "s/2016/1/A/5.jpg", "hash-1")
+            await uow.corpus.set_image(qid, "s/2016/1/A/5.jpg", "hash-1")
             question = await uow.questions.get(qid)
 
         assert question.telegram_file_id == "tg-file-1"
@@ -339,13 +339,13 @@ class TestQuestionRepository:
         """
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
-            qid = await uow.questions.get_or_create(
+            qid = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="A", number=6), "1"
             )
-            await uow.questions.set_image(qid, "s/2016/1/A/6.jpg", "hash-1")
-            await uow.questions.cache_file_id(qid, "tg-file-1")
+            await uow.corpus.set_image(qid, "s/2016/1/A/6.jpg", "hash-1")
+            await uow.file_ids.cache_file_id(qid, "tg-file-1")
 
-            await uow.questions.set_image(qid, "s/2016/1/A/6.jpg", "hash-2")
+            await uow.corpus.set_image(qid, "s/2016/1/A/6.jpg", "hash-2")
             question = await uow.questions.get(qid)
 
         assert question.telegram_file_id is None
@@ -357,13 +357,13 @@ class TestQuestionRepository:
         """Same bytes at a new path is still a change the cache must not survive."""
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
-            qid = await uow.questions.get_or_create(
+            qid = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="A", number=7), "1"
             )
-            await uow.questions.set_image(qid, "s/2016/1/A/7.jpg", "hash-1")
-            await uow.questions.cache_file_id(qid, "tg-file-1")
+            await uow.corpus.set_image(qid, "s/2016/1/A/7.jpg", "hash-1")
+            await uow.file_ids.cache_file_id(qid, "tg-file-1")
 
-            await uow.questions.set_image(qid, "s/2017/1/A/7.jpg", "hash-1")
+            await uow.corpus.set_image(qid, "s/2017/1/A/7.jpg", "hash-1")
             question = await uow.questions.get(qid)
 
         assert question.telegram_file_id is None
@@ -376,7 +376,7 @@ class TestQuestionRepository:
             _, _, option_id = await _seed_option(
                 uow, year=2023, option_number=2, exam_type="CE"
             )
-            qid = await uow.questions.get_or_create(
+            qid = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="B", number=7), "photon"
             )
             question, origin = await uow.questions.get_full(qid)
@@ -401,11 +401,11 @@ class TestQuestionRepository:
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
             for number in (2, 1, 10):
-                await uow.questions.get_or_create(
+                await uow.corpus.get_or_create(
                     option_id, QuestionKey(part="A", number=number), "1"
                 )
             for number in (2, 1):
-                await uow.questions.get_or_create(
+                await uow.corpus.get_or_create(
                     option_id, QuestionKey(part="B", number=number), "x"
                 )
             playlist = await uow.questions.list_ids_for_option(option_id)
@@ -423,13 +423,13 @@ class TestQuestionRepository:
     ) -> None:
         async with UnitOfWork(pg_pool) as uow:
             subject_id, _, option_id = await _seed_option(uow)
-            await uow.questions.get_or_create(
+            await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="A", number=1), "1"
             )
-            qb = await uow.questions.get_or_create(
+            qb = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="B", number=1), "x"
             )
-            drawn = await uow.questions.get_random_question_id(subject_id, "B")
+            drawn = await uow.draw.get_random_question_id(subject_id, "B")
         assert drawn == qb
 
     async def test_random_question_honours_the_exam_type_filter(
@@ -442,13 +442,13 @@ class TestQuestionRepository:
             _, _, ce_option = await _seed_option(
                 uow, year=2023, option_number=1, exam_type="CE"
             )
-            await uow.questions.get_or_create(
+            await uow.corpus.get_or_create(
                 ct_option, QuestionKey(part="A", number=1), "1"
             )
-            expected = await uow.questions.get_or_create(
+            expected = await uow.corpus.get_or_create(
                 ce_option, QuestionKey(part="A", number=1), "2"
             )
-            drawn = await uow.questions.get_random_question_id(subject_id, "A", "CE")
+            drawn = await uow.draw.get_random_question_id(subject_id, "A", "CE")
         assert drawn == expected
 
     async def test_random_topic_question_is_drawn_from_the_topic(
@@ -456,14 +456,12 @@ class TestQuestionRepository:
     ) -> None:
         async with UnitOfWork(pg_pool) as uow:
             subject_id, _, option_id = await _seed_option(uow)
-            expected = await uow.questions.get_or_create(
+            expected = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="B", number=3), "x"
             )
-            topic_id = await uow.questions.get_or_create_topic(subject_id, "optics")
-            await uow.questions.upsert_topic(option_id, 3, "B", topic_id)
-            drawn = await uow.questions.get_random_question_id_by_topic(
-                subject_id, "optics"
-            )
+            topic_id = await uow.topics.get_or_create_topic(subject_id, "optics")
+            await uow.topics.upsert_topic(option_id, 3, "B", topic_id)
+            drawn = await uow.draw.get_random_question_id_by_topic(subject_id, "optics")
         assert drawn == expected
 
     async def test_topic_lookup_for_an_unknown_topic_raises(
@@ -472,7 +470,7 @@ class TestQuestionRepository:
         async with UnitOfWork(pg_pool) as uow:
             subject_id, _, _ = await _seed_option(uow)
             with pytest.raises(KeyError):
-                await uow.questions.get_random_question_id_by_topic(subject_id, "nope")
+                await uow.draw.get_random_question_id_by_topic(subject_id, "nope")
 
 
 # ---------------------------------------------------------------------------
@@ -571,10 +569,10 @@ class TestSessionRepository:
     async def test_full_session_lifecycle(self, pg_pool: AsyncConnectionPool) -> None:
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
-            qa = await uow.questions.get_or_create(
+            qa = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="A", number=1), "3"
             )
-            qb = await uow.questions.get_or_create(
+            qb = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="B", number=1), "neutron"
             )
             student = await uow.students.get_or_create(42, "Bob")
@@ -624,10 +622,10 @@ class TestSessionRepository:
         """
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
-            qa = await uow.questions.get_or_create(
+            qa = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="A", number=1), "3"
             )
-            qb = await uow.questions.get_or_create(
+            qb = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="B", number=1), "neutron"
             )
             student = await uow.students.get_or_create(43, "Cleo")
@@ -670,7 +668,7 @@ class TestSessionRepository:
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
             key = QuestionKey(part="B", number=1)
-            qid = await uow.questions.get_or_create(option_id, key, "neutron")
+            qid = await uow.corpus.get_or_create(option_id, key, "neutron")
             student = await uow.students.get_or_create(45, "Eli")
             session = await uow.sessions.create(student.telegram_id, option_id)
             await uow.sessions.record_answer(
@@ -683,7 +681,7 @@ class TestSessionRepository:
             )
 
             # The answer key is corrected after the test was taken.
-            await uow.questions.get_or_create(option_id, key, "neutrino")
+            await uow.corpus.get_or_create(option_id, key, "neutrino")
             wrong = await uow.sessions.get_wrong_answers(session.session_id)
 
         assert [w.correct_answer for w in wrong] == ["neutron"]
@@ -693,7 +691,7 @@ class TestSessionRepository:
     ) -> None:
         async with UnitOfWork(pg_pool) as uow:
             _, _, option_id = await _seed_option(uow)
-            qid = await uow.questions.get_or_create(
+            qid = await uow.corpus.get_or_create(
                 option_id, QuestionKey(part="B", number=1), None
             )
             student = await uow.students.get_or_create(46, "Fay")

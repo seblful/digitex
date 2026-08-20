@@ -144,7 +144,7 @@ class Round:
         debt = await fsm_data.load(self.state, RoundDebt)
         if debt.pending_file_id_cache is not None:
             async with self.open_uow() as uow:
-                await uow.questions.cache_file_id(*debt.pending_file_id_cache)
+                await uow.file_ids.cache_file_id(*debt.pending_file_id_cache)
         await self.state.clear()
 
     async def _send(
@@ -194,7 +194,7 @@ async def _settle_file_id_debt(
     transaction rather than costing one of its own.
     """
     if state.pending_file_id_cache is not None:
-        await uow.questions.cache_file_id(*state.pending_file_id_cache)
+        await uow.file_ids.cache_file_id(*state.pending_file_id_cache)
 
 
 async def run_testing_round(
@@ -247,11 +247,11 @@ async def pick_random_question(
 
     try:
         if rnd.topic_name:
-            qid = await uow.questions.get_random_question_id_by_topic(
+            qid = await uow.draw.get_random_question_id_by_topic(
                 rnd.subject_id, rnd.topic_name
             )
         elif rnd.random_part is not None:
-            qid = await uow.questions.get_random_question_id(
+            qid = await uow.draw.get_random_question_id(
                 rnd.subject_id, rnd.random_part, rnd.exam_type
             )
         else:

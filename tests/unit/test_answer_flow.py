@@ -37,19 +37,13 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class FakeQuestions:
-    """Keyed by question id alone — the part is a property of the row it names."""
+class FakeCatalog:
+    """Reading a question. Keyed by id alone — the part is a column of the row."""
 
     by_id: dict[int, Question] = field(default_factory=dict)
     correct: dict[int, AnswerKey] = field(default_factory=dict)
     full: dict[int, tuple[Question, QuestionOrigin]] = field(default_factory=dict)
-    random_result: int | None = None
-    topic_result: int | None = None
-    cached: list[tuple[int, str]] = field(default_factory=list)
     lookups: list[int] = field(default_factory=list)
-
-    async def cache_file_id(self, question_id: int, file_id: str) -> None:
-        self.cached.append((question_id, file_id))
 
     async def get_correct_answer(self, question_id: int) -> AnswerKey:
         return self.correct[question_id]
@@ -60,6 +54,14 @@ class FakeQuestions:
 
     async def get_full(self, question_id: int) -> tuple[Question, QuestionOrigin]:
         return self.full[question_id]
+
+
+@dataclass
+class FakeDraw:
+    """Drawing one at random. A missing result raises, as an empty corpus does."""
+
+    random_result: int | None = None
+    topic_result: int | None = None
 
     async def get_random_question_id(
         self, subject_id: int, part: str, exam_type: str | None
@@ -77,6 +79,16 @@ class FakeQuestions:
 
 
 @dataclass
+class FakeFileIds:
+    """The parked file_id debt, recorded in the order it was settled."""
+
+    cached: list[tuple[int, str]] = field(default_factory=list)
+
+    async def cache_file_id(self, question_id: int, file_id: str) -> None:
+        self.cached.append((question_id, file_id))
+
+
+@dataclass
 class FakeSessions:
     recorded: list[dict[str, Any]] = field(default_factory=list)
 
@@ -86,7 +98,16 @@ class FakeSessions:
 
 @dataclass
 class FakeUow:
-    questions: FakeQuestions = field(default_factory=FakeQuestions)
+    """One fake per role the bot actually reaches for.
+
+    Four small objects instead of one carrying fourteen methods, which is the
+    split under test as much as the repository is: a fake that has to implement
+    a method nobody calls is a fake that will drift from the real thing.
+    """
+
+    questions: FakeCatalog = field(default_factory=FakeCatalog)
+    draw: FakeDraw = field(default_factory=FakeDraw)
+    file_ids: FakeFileIds = field(default_factory=FakeFileIds)
     sessions: FakeSessions = field(default_factory=FakeSessions)
 
 
@@ -315,7 +336,7 @@ class TestRunTestingRound:
 
         await run_testing_round(as_uow(uow), testing, "1", now=1.0)
 
-        assert uow.questions.cached == [(5, "file123")]
+        assert uow.file_ids.cached == [(5, "file123")]
 
     async def test_next_question_carries_its_image_key_in_one_lookup(self) -> None:
         """An uncached question costs no extra round-trip: the key rides along."""
@@ -447,7 +468,7 @@ class TestEndRound:
 
         await _round(state, uow=uow).end()
 
-        assert uow.questions.cached == [(5, "file9")]
+        assert uow.file_ids.cached == [(5, "file9")]
         assert state.cleared is True
         assert state.data == {}
 
@@ -473,7 +494,7 @@ class TestEndRound:
 
         await _round(state, uow=uow).end()
 
-        assert uow.questions.cached == [(5, "file9")]
+        assert uow.file_ids.cached == [(5, "file9")]
 
 
 class TestPickRandomQuestion:
@@ -496,7 +517,7 @@ class TestPickRandomQuestion:
         uow = FakeUow()
         question = _question(10, "A", file_id="cached")
         origin = QuestionOrigin(2023, 1, "CE")
-        uow.questions.random_result = 10
+        uow.draw.random_result = 10
         uow.questions.full[10] = (question, origin)
 
         picked = await pick_random_question(
@@ -505,12 +526,12 @@ class TestPickRandomQuestion:
         )
 
         assert picked == (question, origin)
-        assert uow.questions.cached == [(5, "file9")]
+        assert uow.file_ids.cached == [(5, "file9")]
 
     async def test_topic_mode_uses_topic_lookup(self) -> None:
         uow = FakeUow()
         question = _question(11, "B", file_id=None)
-        uow.questions.topic_result = 11
+        uow.draw.topic_result = 11
         uow.questions.full[11] = (question, QuestionOrigin(2020, 2, "CT"))
 
         picked = await pick_random_question(

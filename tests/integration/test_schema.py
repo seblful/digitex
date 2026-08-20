@@ -45,7 +45,7 @@ async def seeded(pg_pool: AsyncConnectionPool) -> Seeded:
         subject_id = await uow.books.get_or_create_subject("Physics")
         book_id = await uow.books.create_book(subject_id, 2024)
         option_id = await uow.books.get_or_create_option(book_id, 1, "CT")
-        question_id = await uow.questions.get_or_create(
+        question_id = await uow.corpus.get_or_create(
             option_id, QuestionKey(part="A", number=1), "3"
         )
         student = await uow.students.get_or_create(500, "Ada")

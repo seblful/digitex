@@ -169,7 +169,7 @@ def file_digest(path: Path) -> str:
     """Hex SHA-256 of a file's contents.
 
     Seeded alongside the key so a question re-extracted to the same path is
-    still recognisable as changed — see ``QuestionRepository.set_image``.
+    still recognisable as changed — see ``QuestionCorpus.set_image``.
     """
     with path.open("rb") as fh:
         return hashlib.file_digest(fh, "sha256").hexdigest()

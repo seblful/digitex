@@ -14,9 +14,13 @@ from typing import TYPE_CHECKING, cast
 
 from digitex.db.repositories import (
     BookRepository,
-    QuestionRepository,
+    FileIdCache,
+    QuestionCatalog,
+    QuestionCorpus,
+    QuestionDraw,
     SessionRepository,
     StudentRepository,
+    TopicIndex,
 )
 
 if TYPE_CHECKING:
@@ -52,7 +56,11 @@ class UnitOfWork:
         conn = cast("DictConn", raw_conn)
         self._conn = conn
         self.books = BookRepository(conn)
-        self.questions = QuestionRepository(conn)
+        self.questions = QuestionCatalog(conn)
+        self.draw = QuestionDraw(conn)
+        self.topics = TopicIndex(conn)
+        self.file_ids = FileIdCache(conn)
+        self.corpus = QuestionCorpus(conn)
         self.students = StudentRepository(conn)
         self.sessions = SessionRepository(conn)
         return self
