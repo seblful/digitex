@@ -9,6 +9,10 @@ The shape mirrors `conflict_resolution`: a type alias rather than a Protocol,
 because a callable is the smallest thing that expresses "given a page, approve
 it". The one interactive reviewer lives in `digitex.ui.page_review`; nothing
 in this package imports it, so the pipeline stays free of any GUI toolkit.
+
+The rule about *which numbers* a page may be approved onto is not here — it is
+numbering, not reviewing, and lives in :mod:`digitex.domain.numbering` where
+both sides of this seam reach it.
 """
 
 from __future__ import annotations
@@ -17,21 +21,14 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from digitex.domain.corpus import highest_question_number
-
 if TYPE_CHECKING:
     from pathlib import Path
 
     from PIL import Image
 
     from digitex.domain.entities import PixelPolygon
+    from digitex.domain.placement import PageExtractionState, PageRegion
     from digitex.pipeline.pieces import HeldPiece
-    from digitex.pipeline.placement import (
-        PageExtractionState,
-        PageRegion,
-        PlacedQuestion,
-        QuestionPlacement,
-    )
 
 
 QuestionCrop = Callable[[Sequence["PageRegion"], Sequence["HeldPiece"]], "Image.Image"]
@@ -114,50 +111,3 @@ PageReviewer = Callable[[PageProposal], "ReviewedPage | None"]
 def accept_page(proposal: PageProposal) -> ReviewedPage:
     """Default reviewer: take the proposal as it stands, no interaction."""
     return ReviewedPage(regions=proposal.regions, state=proposal.state)
-
-
-@dataclass(frozen=True)
-class NumberingFault:
-    """A question whose number would not continue its option/part folder."""
-
-    position: int
-    """Index into the placed questions, so a caller can point at the region."""
-
-    placement: QuestionPlacement
-    free: int
-    """The number the folder's next image must carry."""
-
-    @property
-    def collides(self) -> bool:
-        """True when the slot is taken, False when a gap would be left."""
-        return self.placement.number < self.free
-
-
-def numbering_fault(
-    placed: Sequence[PlacedQuestion], output_dir: Path
-) -> NumberingFault | None:
-    """The first placement that does not continue what *output_dir* already holds.
-
-    A question's file has to be the next one in its option/part folder. Landing
-    on a number already there would overwrite an extracted question; landing
-    past the end leaves the folder with a hole. Catching both before the write
-    is what keeps the output tree in order without a renumbering pass after it.
-
-    Only where each folder run starts is checked — within a run the numbers
-    follow by construction. A page that re-enters a folder (a marker read
-    mid-page resets the counter) starts a new run, checked like the first.
-    """
-    previous: tuple[int, str] | None = None
-
-    for position, question in enumerate(placed):
-        placement = question.placement
-        folder = (placement.option, placement.part)
-        if folder == previous:
-            continue
-        previous = folder
-
-        free = highest_question_number(output_dir, placement.option, placement.part) + 1
-        if placement.number != free:
-            return NumberingFault(position=position, placement=placement, free=free)
-
-    return None

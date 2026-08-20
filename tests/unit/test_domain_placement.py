@@ -10,7 +10,7 @@ from dataclasses import replace
 import pytest
 
 from digitex.domain.entities import PixelPolygon
-from digitex.pipeline.placement import (
+from digitex.domain.placement import (
     PageExtractionState,
     PageLabel,
     PageRegion,

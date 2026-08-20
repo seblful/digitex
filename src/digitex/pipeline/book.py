@@ -9,10 +9,10 @@ from PIL import Image
 from tqdm import tqdm
 
 from digitex.domain.corpus import is_image, natural_sort_key
+from digitex.domain.placement import PageExtractionState
 from digitex.pipeline.base import ExtractionResult
 from digitex.pipeline.exceptions import DirectoryNotFoundError, ReviewAborted
 from digitex.pipeline.pieces import PageCarry
-from digitex.pipeline.placement import PageExtractionState
 
 if TYPE_CHECKING:
     from pathlib import Path

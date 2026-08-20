@@ -13,10 +13,10 @@ import pytest
 from PIL import Image
 
 from digitex.domain.entities import Detection, PixelPolygon
+from digitex.domain.placement import PageExtractionState, PageRegion
 from digitex.pipeline.base import ExtractionConfig
 from digitex.pipeline.page import PageExtractor
 from digitex.pipeline.pieces import HeldPiece, PageCarry
-from digitex.pipeline.placement import PageExtractionState, PageRegion
 from digitex.pipeline.review import PageProposal, ReviewedPage
 
 OPTION_REGION = PixelPolygon([(10, 0), (40, 0), (40, 10), (10, 10)])

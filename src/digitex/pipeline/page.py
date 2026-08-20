@@ -22,6 +22,15 @@ from PIL import Image
 
 from digitex.domain.corpus import question_image_path, question_slot_taken
 from digitex.domain.entities import Detection, PixelPolygon, normalize_option_number
+from digitex.domain.numbering import numbering_fault
+from digitex.domain.placement import (
+    PageExtractionState,
+    PageRegion,
+    QuestionPlacement,
+    copy_regions,
+    place_questions,
+    reading_order_key,
+)
 from digitex.imaging import (
     add_white_background,
     cut_out_image_by_polygon,
@@ -31,20 +40,11 @@ from digitex.imaging import (
 )
 from digitex.pipeline.base import ExtractionConfig
 from digitex.pipeline.pieces import PIECE_GAP, HeldPiece, PageCarry
-from digitex.pipeline.placement import (
-    PageExtractionState,
-    PageRegion,
-    QuestionPlacement,
-    copy_regions,
-    place_questions,
-    reading_order_key,
-)
 from digitex.pipeline.ports import RegionDetector, TextReader
 from digitex.pipeline.review import (
     PageProposal,
     PageReviewer,
     accept_page,
-    numbering_fault,
 )
 
 logger = structlog.get_logger()

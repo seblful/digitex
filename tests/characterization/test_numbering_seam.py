@@ -28,9 +28,9 @@ from PIL import Image
 
 from digitex.domain.corpus import question_image_path
 from digitex.domain.entities import Detection, PixelPolygon
+from digitex.domain.placement import PageExtractionState, PageRegion
 from digitex.pipeline.base import ExtractionConfig
 from digitex.pipeline.page import PageExtractor
-from digitex.pipeline.placement import PageExtractionState, PageRegion
 from digitex.ui.edits import PageEdits
 
 if TYPE_CHECKING:

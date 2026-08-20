@@ -7,7 +7,7 @@ and then quietly move with the next drag.
 """
 
 from digitex.domain.entities import PixelPolygon
-from digitex.pipeline.placement import (
+from digitex.domain.placement import (
     PageExtractionState,
     PageLabel,
     PageRegion,

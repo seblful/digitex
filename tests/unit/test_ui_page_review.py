@@ -19,10 +19,10 @@ import pytest
 from PIL import Image
 
 from digitex.domain.entities import PixelPolygon
+from digitex.domain.placement import PageExtractionState, PageLabel, PageRegion
 from digitex.imaging import stack_vertically
 from digitex.pipeline.exceptions import ReviewAborted
 from digitex.pipeline.pieces import HeldPiece
-from digitex.pipeline.placement import PageExtractionState, PageLabel, PageRegion
 from digitex.pipeline.review import PageProposal
 from digitex.ui.edits import PageEdits
 from digitex.ui.page_review import _ReviewWindow, resolve_verdict

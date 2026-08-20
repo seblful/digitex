@@ -26,7 +26,8 @@ from typing import TYPE_CHECKING
 
 from digitex.domain.corpus import highest_question_number
 from digitex.domain.entities import PixelPolygon
-from digitex.pipeline.placement import (
+from digitex.domain.numbering import numbering_fault
+from digitex.domain.placement import (
     PageExtractionState,
     PageRegion,
     QuestionPlacement,
@@ -34,13 +35,12 @@ from digitex.pipeline.placement import (
     place_questions,
     reading_order_key,
 )
-from digitex.pipeline.review import numbering_fault
 from digitex.ui import geometry
 from digitex.ui.history import EditHistory
 
 if TYPE_CHECKING:
-    from digitex.pipeline.placement import PageLabel
-    from digitex.pipeline.review import NumberingFault
+    from digitex.domain.numbering import NumberingFault
+    from digitex.domain.placement import PageLabel
     from digitex.ui.history import EditSnapshot
 
 # A crop needs four points — cut_out_image_by_polygon refuses fewer.

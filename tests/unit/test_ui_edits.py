@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from digitex.domain.entities import PixelPolygon
-from digitex.pipeline.placement import PageExtractionState, PageLabel, PageRegion
+from digitex.domain.placement import PageExtractionState, PageLabel, PageRegion
 from digitex.ui.edits import MIN_DRAWN_SIZE, MIN_POINTS, PageEdits
 
 if TYPE_CHECKING:

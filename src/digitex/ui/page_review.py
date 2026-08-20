@@ -42,10 +42,10 @@ from digitex.ui.stats_panel import StatsPanel
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from digitex.domain.placement import PageLabel, PageRegion
     from digitex.pipeline.audit.census import ImageCensus
     from digitex.pipeline.audit.validator import AnswerValidator
     from digitex.pipeline.pieces import HeldPiece
-    from digitex.pipeline.placement import PageLabel, PageRegion
     from digitex.pipeline.review import PieceCrop
 
 logger = structlog.get_logger()

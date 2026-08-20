@@ -6,12 +6,12 @@ from typing import cast
 import pytest
 from PIL import Image
 
+from digitex.domain.placement import PageExtractionState, QuestionPlacement
 from digitex.pipeline.base import ExtractionResult
 from digitex.pipeline.book import BookExtractor
 from digitex.pipeline.exceptions import DirectoryNotFoundError, ReviewAborted
 from digitex.pipeline.page import PageExtractor
 from digitex.pipeline.pieces import HeldPiece, PageCarry
-from digitex.pipeline.placement import PageExtractionState, QuestionPlacement
 from digitex.pipeline.subject import PROGRESS_FILE, SubjectExtractor
 
 
