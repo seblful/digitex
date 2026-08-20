@@ -23,8 +23,6 @@ from digitex.pipeline.page import PageExtractor
 from digitex.pipeline.recording import (
     ReplayPredictor,
     ReplayTextExtractor,
-    as_predictor,
-    as_text_extractor,
     directory_digests,
     replay_config,
 )
@@ -47,8 +45,8 @@ def _extract(
     """Extract the recorded book again, into *output_dir*."""
     extractor = PageExtractor(
         config or replay_config(recording),
-        predictor=as_predictor(ReplayPredictor(recording)),
-        text_extractor=as_text_extractor(ReplayTextExtractor(recording)),
+        detector=ReplayPredictor(recording),
+        text_reader=ReplayTextExtractor(recording),
     )
     BookExtractor(extractor).extract(pages_dir, output_dir)
 

@@ -21,8 +21,7 @@ the phase getting the rule wrong, not the test needing an edit.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import pytest
 from PIL import Image
@@ -35,8 +34,7 @@ from digitex.pipeline.placement import PageExtractionState, PageRegion
 from digitex.ui.edits import PageEdits
 
 if TYPE_CHECKING:
-    from digitex.imaging.ocr import TextExtractor
-    from digitex.ml.predictors import YOLO_SegmentationPredictor
+    from pathlib import Path
 
 FIRST_QUESTION = PixelPolygon([(10, 40), (200, 40), (200, 80), (10, 80)])
 SECOND_QUESTION = PixelPolygon([(10, 90), (200, 90), (200, 130), (10, 130)])
@@ -103,13 +101,12 @@ def _extractor_verdict(output_dir: Path, entering_at: int) -> tuple[str, list[st
     """
     extractor = PageExtractor(
         ExtractionConfig(
-            model_path=Path("unused.pt"),
             image_format="jpg",
             question_max_width=50,
             question_max_height=50,
         ),
-        predictor=cast("YOLO_SegmentationPredictor", _FakePredictor()),
-        text_extractor=cast("TextExtractor", _FakeTextExtractor()),
+        detector=_FakePredictor(),
+        text_reader=_FakeTextExtractor(),
     )
     state = _entering_at(entering_at)
     try:

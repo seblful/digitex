@@ -18,6 +18,9 @@ except ImportError:
 
 logger = structlog.get_logger()
 
+# The corpus is Russian throughout.
+OCR_LANGUAGE = "rus"
+
 _TESSERACT_CONFIG_DEFAULT: Final = "--psm 7 --oem 1"
 _TESSERACT_CONFIG_DIGITS: Final = (
     f"{_TESSERACT_CONFIG_DEFAULT} -c tessedit_char_whitelist=0123456789"

@@ -7,7 +7,6 @@ The numbering itself is exercised in ``test_placement``.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import pytest
@@ -19,10 +18,6 @@ from digitex.pipeline.page import PageExtractor
 from digitex.pipeline.pieces import HeldPiece, PageCarry
 from digitex.pipeline.placement import PageExtractionState, PageRegion
 from digitex.pipeline.review import PageProposal, ReviewedPage
-
-if TYPE_CHECKING:
-    from digitex.imaging.ocr import TextExtractor
-    from digitex.ml.predictors import YOLO_SegmentationPredictor
 
 OPTION_REGION = PixelPolygon([(10, 0), (40, 0), (40, 10), (10, 10)])
 PART_REGION = PixelPolygon([(10, 20), (40, 20), (40, 30), (10, 30)])
@@ -68,18 +63,15 @@ def _extractor(
     on_review=None,
     max_size: int = 50,
 ) -> PageExtractor:
-    # The fakes satisfy the collaborators' contracts structurally.
+    # The fakes satisfy the ports structurally — no cast, no registration.
     return PageExtractor(
         ExtractionConfig(
-            model_path=Path("model.pt"),
             image_format="jpg",
             question_max_width=max_size,
             question_max_height=max_size,
         ),
-        predictor=cast("YOLO_SegmentationPredictor", _FakePredictor(detections)),
-        text_extractor=cast(
-            "TextExtractor", _FakeTextExtractor(digits=digits, text=text)
-        ),
+        detector=_FakePredictor(detections),
+        text_reader=_FakeTextExtractor(digits=digits, text=text),
         on_review=on_review,
     )
 

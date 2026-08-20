@@ -25,18 +25,18 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from digitex.domain.corpus import file_digest
 from digitex.domain.entities import Detection, PixelPolygon
 from digitex.pipeline.base import ExtractionConfig
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from PIL import Image
 
-    from digitex.imaging.ocr import TextExtractor
-    from digitex.ml.predictors import YOLO_SegmentationPredictor
+    from digitex.pipeline.ports import RegionDetector, TextReader
 
 RECORDING_VERSION = 1
 """Bumped when the on-disk shape changes, so a stale fixture fails loudly."""
@@ -219,9 +219,7 @@ def directory_digests(root: Path) -> dict[str, str]:
 class RecordingPredictor:
     """Wraps the real predictor and keeps every answer it gives."""
 
-    def __init__(
-        self, predictor: YOLO_SegmentationPredictor, recording: Recording
-    ) -> None:
+    def __init__(self, predictor: RegionDetector, recording: Recording) -> None:
         self._predictor = predictor
         self._recording = recording
 
@@ -234,13 +232,9 @@ class RecordingPredictor:
 class RecordingTextExtractor:
     """Wraps the real OCR and keeps every answer it gives."""
 
-    def __init__(self, extractor: TextExtractor, recording: Recording) -> None:
+    def __init__(self, extractor: TextReader, recording: Recording) -> None:
         self._extractor = extractor
         self._recording = recording
-
-    @property
-    def language(self) -> str:
-        return self._extractor.language
 
     def extract_text(self, image: Image.Image, **kwargs: Any) -> str:
         text = self._extractor.extract_text(image, **kwargs)
@@ -281,13 +275,8 @@ class ReplayPredictor:
 class ReplayTextExtractor:
     """Hands back recorded OCR answers, or refuses."""
 
-    def __init__(self, recording: Recording, language: str = "rus") -> None:
+    def __init__(self, recording: Recording) -> None:
         self._recording = recording
-        self._language = language
-
-    @property
-    def language(self) -> str:
-        return self._language
 
     def extract_text(self, image: Image.Image, **_kwargs: Any) -> str:
         digest = image_digest(image)
@@ -314,37 +303,13 @@ class ReplayTextExtractor:
 def replay_config(recording: Recording) -> ExtractionConfig:
     """The extraction config the recorded run used.
 
-    ``model_path`` points at a file that does not exist, deliberately: a replay
-    answers from the recording, so reaching for a checkpoint means the replay
-    predictor was not wired in and the run is about to measure the wrong thing.
+    Since ``ExtractionConfig`` stopped carrying a model path this is only the
+    size cap and the format — but those change the bytes of every file, so a
+    replay that used the settings live on the replaying machine would report a
+    difference whenever they had been retuned since.
     """
     return ExtractionConfig(
-        model_path=Path("recorded-run-loads-no-model.pt"),
         image_format=recording.image_format,
         question_max_width=recording.question_max_width,
         question_max_height=recording.question_max_height,
     )
-
-
-def as_predictor(
-    stand_in: ReplayPredictor | RecordingPredictor,
-) -> YOLO_SegmentationPredictor:
-    """Present a stand-in predictor where the concrete one is annotated.
-
-    ``PageExtractor`` names ``YOLO_SegmentationPredictor`` at its constructor
-    rather than an interface, so neither a recorder nor a replay can be passed
-    without saying here that it is one. Phase 1 replaces that annotation with a
-    ``RegionDetector`` protocol and this function goes away — it marks the
-    seam, it is not a trick to keep.
-    """
-    return cast("YOLO_SegmentationPredictor", stand_in)
-
-
-def as_text_extractor(
-    stand_in: ReplayTextExtractor | RecordingTextExtractor,
-) -> TextExtractor:
-    """Present a stand-in OCR where the concrete ``TextExtractor`` is annotated.
-
-    Same seam as :func:`as_predictor`, and it goes the same way.
-    """
-    return cast("TextExtractor", stand_in)

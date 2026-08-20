@@ -29,8 +29,6 @@ from digitex.imaging import (
     rotate_image,
     stack_vertically,
 )
-from digitex.imaging.ocr import TextExtractor
-from digitex.ml.predictors import YOLO_SegmentationPredictor
 from digitex.pipeline.base import ExtractionConfig
 from digitex.pipeline.pieces import PIECE_GAP, HeldPiece, PageCarry
 from digitex.pipeline.placement import (
@@ -41,6 +39,7 @@ from digitex.pipeline.placement import (
     place_questions,
     reading_order_key,
 )
+from digitex.pipeline.ports import RegionDetector, TextReader
 from digitex.pipeline.review import (
     PageProposal,
     PageReviewer,
@@ -50,8 +49,6 @@ from digitex.pipeline.review import (
 
 logger = structlog.get_logger()
 
-OCR_LANGUAGE = "rus"
-
 
 class PageExtractor:
     """Extract question images from a single page using YOLO segmentation."""
@@ -59,22 +56,15 @@ class PageExtractor:
     def __init__(
         self,
         config: ExtractionConfig,
-        predictor: YOLO_SegmentationPredictor | None = None,
-        text_extractor: TextExtractor | None = None,
+        detector: RegionDetector,
+        text_reader: TextReader,
         on_review: PageReviewer | None = None,
     ) -> None:
         self.config = config
 
-        self._predictor = predictor
-        self._text_extractor = text_extractor or TextExtractor(language=OCR_LANGUAGE)
+        self._detector = detector
+        self._text_reader = text_reader
         self._on_review = on_review or accept_page
-
-    @property
-    def predictor(self) -> YOLO_SegmentationPredictor:
-        """Get or initialize the YOLO predictor."""
-        if self._predictor is None:
-            self._predictor = YOLO_SegmentationPredictor(str(self.config.model_path))
-        return self._predictor
 
     def _crop_piece(self, image: Image.Image, polygon: PixelPolygon) -> Image.Image:
         """Cut *polygon* out of the page and deskew it, at the page's own scale.
@@ -86,7 +76,7 @@ class PageExtractor:
         cropped = cut_out_image_by_polygon(image, polygon)
         piece = add_white_background(cropped)
 
-        angle = self._text_extractor.detect_skew(piece)
+        angle = self._text_reader.detect_skew(piece)
         if angle:
             logger.debug("Correcting skew", angle=angle)
             piece = rotate_image(piece, angle)
@@ -129,7 +119,7 @@ class PageExtractor:
     ) -> int | None:
         """Extract option number from image region."""
         cropped = cut_out_image_by_polygon(image, polygon)
-        digits = self._text_extractor.extract_digits(cropped)
+        digits = self._text_reader.extract_digits(cropped)
         if digits:
             return normalize_option_number(digits[0])
         return None
@@ -139,7 +129,7 @@ class PageExtractor:
     ) -> str | None:
         """Extract part letter (A/B) from image region."""
         cropped = cut_out_image_by_polygon(image, polygon)
-        text = self._text_extractor.extract_text(cropped).upper()
+        text = self._text_reader.extract_text(cropped).upper()
         # Uppercase and drop the part word before transliterating. Its second
         # letter is a Cyrillic A, which maps to a Latin "A" and would win the
         # Part A test below for every marker, Part B included.
@@ -158,7 +148,7 @@ class PageExtractor:
         Raises:
             ValueError: If no detections are found on the page.
         """
-        detections = self.predictor.predict(image)
+        detections = self._detector.predict(image)
 
         if not detections:
             raise ValueError("No detections found on page")

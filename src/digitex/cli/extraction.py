@@ -19,7 +19,7 @@ from digitex.domain.corpus import (
     is_image,
     natural_sort_key,
 )
-from digitex.imaging.ocr import TextExtractor
+from digitex.imaging.ocr import OCR_LANGUAGE, TextExtractor
 from digitex.logging import setup_logging
 from digitex.ml.predictors import YOLO_SegmentationPredictor
 from digitex.pipeline.answers import AnswersExtractor
@@ -33,13 +33,11 @@ from digitex.pipeline.exceptions import (
     ModelNotFoundError,
     ReviewAborted,
 )
-from digitex.pipeline.page import OCR_LANGUAGE, PageExtractor
+from digitex.pipeline.page import PageExtractor
 from digitex.pipeline.recording import (
     Recording,
     RecordingPredictor,
     RecordingTextExtractor,
-    as_predictor,
-    as_text_extractor,
     directory_digests,
     recorded_output_dir,
     recording_path,
@@ -64,7 +62,6 @@ def _require_model(path: Path) -> Path:
 
 def _extraction_config(settings: Settings) -> ExtractionConfig:
     return ExtractionConfig(
-        model_path=_require_model(settings.paths.extraction_model_path),
         image_format=settings.pipeline.extraction.image_format,
         question_max_width=settings.pipeline.extraction.question_max_width,
         question_max_height=settings.pipeline.extraction.question_max_height,
@@ -88,9 +85,21 @@ def _subject_extractor(
             validator=AnswerValidator(output_dir),
         )
 
+    # The composition root for extraction: the only place a checkpoint path
+    # becomes a model and a language becomes an OCR reader. Everything below
+    # names both by interface, which is what lets the differential suite
+    # replay a run with neither installed.
+    #
     # The chain is built from the bottom: the config belongs to PageExtractor,
     # and the runners above it take the configured collaborator.
-    page_extractor = PageExtractor(_extraction_config(settings), on_review=on_review)
+    page_extractor = PageExtractor(
+        _extraction_config(settings),
+        detector=YOLO_SegmentationPredictor(
+            str(_require_model(settings.paths.extraction_model_path))
+        ),
+        text_reader=TextExtractor(language=OCR_LANGUAGE),
+        on_review=on_review,
+    )
     return SubjectExtractor(
         books_dir=settings.paths.books_dir,
         extraction_dir=settings.paths.extraction_output_dir,
@@ -354,13 +363,14 @@ def record_golden(
 
     page_extractor = PageExtractor(
         config,
-        predictor=as_predictor(
-            RecordingPredictor(
-                YOLO_SegmentationPredictor(str(config.model_path)), recording
-            )
+        detector=RecordingPredictor(
+            YOLO_SegmentationPredictor(
+                str(_require_model(settings.paths.extraction_model_path))
+            ),
+            recording,
         ),
-        text_extractor=as_text_extractor(
-            RecordingTextExtractor(TextExtractor(language=OCR_LANGUAGE), recording)
+        text_reader=RecordingTextExtractor(
+            TextExtractor(language=OCR_LANGUAGE), recording
         ),
     )
     result = BookExtractor(page_extractor).extract(pages_dir, output_dir)

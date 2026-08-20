@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
 
 import pytest
 from PIL import Image
@@ -27,18 +26,12 @@ from digitex.pipeline.recording import (
     RecordingTextExtractor,
     ReplayPredictor,
     ReplayTextExtractor,
-    as_predictor,
-    as_text_extractor,
     directory_digests,
     image_digest,
     recorded_output_dir,
     recording_path,
     replay_config,
 )
-
-if TYPE_CHECKING:
-    from digitex.imaging.ocr import TextExtractor
-    from digitex.ml.predictors import YOLO_SegmentationPredictor
 
 OPTION_REGION = PixelPolygon([(10, 0), (40, 0), (40, 10), (10, 10)])
 PART_REGION = PixelPolygon([(10, 20), (40, 20), (40, 30), (10, 30)])
@@ -87,9 +80,8 @@ class _FakeTextExtractor:
         return round(image.size[0] % 3 * 0.5, 3)
 
 
-def _config(tmp_path: Path) -> ExtractionConfig:
+def _config() -> ExtractionConfig:
     return ExtractionConfig(
-        model_path=tmp_path / "model.pt",
         image_format="jpg",
         question_max_width=120,
         question_max_height=160,
@@ -183,17 +175,9 @@ class TestRecordThenReplay:
         output_dir = tmp_path / "recorded"
         output_dir.mkdir()
         extractor = PageExtractor(
-            _config(tmp_path),
-            predictor=as_predictor(
-                RecordingPredictor(
-                    cast("YOLO_SegmentationPredictor", _FakePredictor()), recording
-                )
-            ),
-            text_extractor=as_text_extractor(
-                RecordingTextExtractor(
-                    cast("TextExtractor", _FakeTextExtractor()), recording
-                )
-            ),
+            _config(),
+            detector=RecordingPredictor(_FakePredictor(), recording),
+            text_reader=RecordingTextExtractor(_FakeTextExtractor(), recording),
         )
         state = PageExtractionState()
         for page_number in range(1, 3):
@@ -206,8 +190,8 @@ class TestRecordThenReplay:
         output_dir.mkdir()
         extractor = PageExtractor(
             replay_config(recording),
-            predictor=as_predictor(ReplayPredictor(recording)),
-            text_extractor=as_text_extractor(ReplayTextExtractor(recording)),
+            detector=ReplayPredictor(recording),
+            text_reader=ReplayTextExtractor(recording),
         )
         state = PageExtractionState()
         for page_number in range(1, 3):
