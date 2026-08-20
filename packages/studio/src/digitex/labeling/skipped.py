@@ -1,17 +1,13 @@
 """Retiring the pages an annotator refused, task and image both.
 
-Clicking "Skip" in Label Studio does not reject the page — it files a cancelled
-annotation against the task and leaves both where they are. The image stays in
-the pool the local-files storage syncs from, so it comes back as a task on the
-next sync, and stays in the pool a training dataset is built out of. Deleting
-the file is what actually retires the page; deleting the task is what stops the
-project filling up with skips nobody will look at again.
+Clicking "Skip" in Label Studio does not reject the page. It files a cancelled
+annotation against the task and leaves both where they are: the image stays in
+the pool the local-files storage syncs from, so the page returns as a task on
+the next sync, and it stays in the pool a training dataset is built out of.
+Deleting the file is what actually retires the page; deleting the task is what
+keeps the project from filling up with skips nobody will look at again.
 
-The image goes first and the task only after it, because a page whose file
-survives comes back on the next sync — and if its task went, the record of the
-skip went with it, so the page comes back as one nobody has ever seen.
-
-Two kinds of cancelled task are left alone: one that also carries an annotation
+Two kinds of cancelled task are left alone — one that also carries an annotation
 somebody completed, and one whose image a second task holds. Both are somebody
 else's work standing behind the same file, and the second is
 :mod:`digitex.labeling.repair`'s to resolve first.
@@ -80,6 +76,7 @@ class Plan:
 
 
 def _was_cancelled(annotations: Iterable[dict[str, Any]]) -> bool:
+    """Whether anybody skipped the page these annotations belong to."""
     return any(annotation.get("was_cancelled", False) for annotation in annotations)
 
 
@@ -89,11 +86,11 @@ def plan(tasks: Sequence[LabelStudioTask]) -> Plan:
     A cancelled task is kept in three cases: the task also carries an annotation
     somebody actually completed, another task in the project points at the same
     file, or the task names no local file at all. The first two are what stops
-    an annotator's work being thrown out with a colleague's skip — a project with
-    two completions per task can hold both verdicts at once, and a pool that has
-    moved holds two tasks over one image until :mod:`digitex.labeling.repair` has
-    run. The third is a task whose image cannot be found to check, so it is
-    reported rather than guessed at.
+    an annotator's work being thrown out with a colleague's skip — a project
+    with two completions per task can hold both verdicts at once, and a pool
+    that has moved holds two tasks over one image until
+    :mod:`digitex.labeling.repair` has run. The third is a task whose image
+    cannot be found to check, so it is reported rather than guessed at.
 
     A cancelled task whose file is already gone is not kept: it is a page an
     earlier sweep retired and left a task behind for, so the task is deleted and
@@ -106,30 +103,33 @@ def plan(tasks: Sequence[LabelStudioTask]) -> Plan:
         The tasks to delete with their images, and every cancelled task left
         alone with a reason.
     """
-    result = Plan()
+    # Parsed once and carried: the paths decide both who holds what and what
+    # each cancelled task would lose.
+    resolved = [(task, task_image_path(task.data)) for task in tasks]
+
+    # Keyed casefolded, because the same file reached through two tasks can be
+    # spelled with different case on the Windows host that indexed it.
     holders: dict[str, list[int]] = collections.defaultdict(list)
-    for task in tasks:
-        path = task_image_path(task.data)
+    for task, path in resolved:
         if path is not None:
             holders[str(path).casefold()].append(task.id)
 
-    for task in tasks:
+    result = Plan()
+    for task, path in resolved:
         annotations = list(task.annotations or [])
         if not _was_cancelled(annotations):
             continue
 
         if any(not a.get("was_cancelled", False) for a in annotations):
             result.kept.append(Kept(task.id, "also holds a completed annotation"))
-            continue
-
-        path = task_image_path(task.data)
-        if path is None:
+        elif path is None:
             result.kept.append(Kept(task.id, "no local-file URI in the task"))
         elif len(others := holders[str(path).casefold()]) > 1:
             result.kept.append(
                 Kept(task.id, f"{len(others)} tasks hold {path.name}: {others}")
             )
         else:
+            # A file that is already gone leaves only the task to delete.
             result.deletions.append(Doomed(task.id, path if path.exists() else None))
 
     logger.info(
@@ -145,11 +145,11 @@ def plan(tasks: Sequence[LabelStudioTask]) -> Plan:
 def apply(client: LabelStudioClient, plan: Plan) -> tuple[int, int]:
     """Unlink every image the plan named, and delete the task behind it.
 
-    A task whose image will not delete is left where it is: the file surviving
-    means the page returns on the next sync, and it should return as one that has
-    already been skipped rather than as a fresh page. One locked handle must not
-    strand the rest of the sweep either, so a failure of either step is logged
-    and passed over.
+    The image goes first and the task only after it: a page whose file survives
+    comes back on the next sync, and if its task went with the attempt, the
+    record of the skip went too — so the page returns as one nobody has ever
+    seen. One locked handle must not strand the rest of the sweep either, so a
+    failure of either step is logged and passed over.
 
     Args:
         client: Label Studio API adapter.
@@ -158,14 +158,15 @@ def apply(client: LabelStudioClient, plan: Plan) -> tuple[int, int]:
     Returns:
         How many images were unlinked, and how many tasks were deleted.
     """
-    images = 0
-    tasks = 0
+    unlinked = 0
+    deleted = 0
 
     for doomed in plan.deletions:
         if doomed.path is not None:
             try:
                 doomed.path.unlink()
             except Exception as e:
+                # The task stays: the record of the skip outranks tidiness.
                 logger.error(
                     "delete_failed",
                     task_id=doomed.task_id,
@@ -173,7 +174,7 @@ def apply(client: LabelStudioClient, plan: Plan) -> tuple[int, int]:
                     error=str(e),
                 )
                 continue
-            images += 1
+            unlinked += 1
             logger.info("deleted_file", task_id=doomed.task_id, path=str(doomed.path))
 
         try:
@@ -181,7 +182,7 @@ def apply(client: LabelStudioClient, plan: Plan) -> tuple[int, int]:
         except Exception as e:
             logger.error("task_delete_failed", task_id=doomed.task_id, error=str(e))
             continue
-        tasks += 1
+        deleted += 1
 
-    logger.info("skipped_sweep_complete", images=images, tasks=tasks)
-    return images, tasks
+    logger.info("skipped_sweep_complete", images=unlinked, tasks=deleted)
+    return unlinked, deleted
