@@ -11,7 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 # Closed on purpose: the JSON log renderer keys off ``== "production"``, so a
-# near-miss like "prod" must fail at startup, not ship console logs.
+# near-miss like "prod" must fail at startup rather than ship console logs.
 Environment = Literal["development", "production"]
 
 

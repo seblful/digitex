@@ -12,18 +12,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class PathsSettings(BaseSettings):
     """Where the non-code inputs and outputs live.
 
-    Everything the project reads or writes that is not source — the book
-    archive, the extraction output tree, model weights, training data — sits
-    under ``data_root``. Code never derives a data path from its own location,
-    so the package behaves the same installed into a container as it does run
-    out of a checkout.
+    Everything the project reads or writes that is not source — the book archive,
+    the extraction output tree, model weights, training data — sits under
+    ``data_root``. Code never derives a data path from its own location, so the
+    package behaves the same installed into a container as it does run out of a
+    checkout.
 
-    ``data_root`` is resolved against the working directory, which is
-    deliberate: an installed package cannot find the checkout it was built
-    from, and guessing is exactly what the old ``BASE_DIR`` did. Set
-    ``PATH_DATA_ROOT`` to be explicit. Every command that needs a directory
-    reports the resolved path when it is missing, so the wrong cwd fails loudly
-    instead of quietly extracting nothing.
+    ``data_root`` resolves against the working directory, which is deliberate: an
+    installed package cannot find the checkout it was built from, and guessing is
+    exactly what the old ``BASE_DIR`` did. Set ``PATH_DATA_ROOT`` to be explicit.
+    Every command that needs a directory reports the resolved path when it is
+    missing, so the wrong cwd fails loudly instead of quietly extracting nothing.
     """
 
     model_config = SettingsConfigDict(env_prefix="PATH_", extra="ignore")
@@ -33,10 +32,10 @@ class PathsSettings(BaseSettings):
         description="Root of every non-code input and output.",
     )
 
-    # Where the bot resolves an image's object_key against. Production rsyncs
-    # the corpus to a directory of its own and bind-mounts it, so this is not
-    # derivable from data_root there; unset, it is the extraction output tree
-    # the keys were written from, which is what a laptop wants.
+    # Where the bot resolves an image's object_key against. Production rsyncs the
+    # corpus to a directory of its own and bind-mounts it, so this is not
+    # derivable from data_root there; unset, it is the extraction output tree the
+    # keys were written from, which is what a laptop wants.
     questions_dir: Path | None = None
 
     # Repo content, not data: these YAMLs are hand-tuned hyperparameters under
@@ -56,7 +55,8 @@ class PathsSettings(BaseSettings):
         """
         return value.resolve() if value is not None else None
 
-    # Top-level directories
+    # Top-level directories. Each is a `computed_field` so it appears in a dumped
+    # Settings, and a `cached_property` so repeated reads do not re-join paths.
 
     @computed_field
     @cached_property

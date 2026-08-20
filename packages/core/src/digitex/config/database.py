@@ -7,12 +7,18 @@ from typing import Literal
 from pydantic import AliasChoices, Field, PostgresDsn, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+SslMode = Literal["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]
+
 
 class DatabaseSettings(BaseSettings):
     """PostgreSQL connection settings.
 
-    The DSN is read from the ``DATABASE_URL`` env var (12-factor convention)
-    or ``DB_DSN`` as a fallback.
+    The DSN is read from the ``DATABASE_URL`` env var (the 12-factor
+    convention Compose passes it under) or ``DB_DSN`` as a fallback.
+
+    The two server-side timeouts are here rather than in the schema because they
+    belong to this application's connections, not to the database: a psql session
+    debugging the same server should not inherit a 5-second statement limit.
     """
 
     model_config = SettingsConfigDict(env_prefix="DB_", extra="ignore")
@@ -38,10 +44,7 @@ class DatabaseSettings(BaseSettings):
         ge=0,
         description="Server-side idle-in-transaction timeout in milliseconds.",
     )
-    sslmode: (
-        Literal["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]
-        | None
-    ) = Field(
+    sslmode: SslMode | None = Field(
         default=None,
         description="If set, appended to the DSN as ?sslmode=...",
     )
@@ -49,13 +52,17 @@ class DatabaseSettings(BaseSettings):
     @computed_field
     @property
     def conninfo(self) -> str:
-        """DSN as a libpq conninfo string suitable for psycopg/AsyncConnectionPool."""
-        dsn_str = str(self.dsn)
-        params: list[str] = [f"connect_timeout={self.connect_timeout}"]
+        """DSN as a libpq conninfo string suitable for psycopg/AsyncConnectionPool.
+
+        Appended to rather than rebuilt, because a DSN may already carry query
+        parameters — hence the separator check.
+        """
+        dsn = str(self.dsn)
+        params = [f"connect_timeout={self.connect_timeout}"]
         if self.sslmode is not None:
             params.append(f"sslmode={self.sslmode}")
-        sep = "&" if "?" in dsn_str else "?"
-        return f"{dsn_str}{sep}{'&'.join(params)}"
+        separator = "&" if "?" in dsn else "?"
+        return f"{dsn}{separator}{'&'.join(params)}"
 
     @computed_field
     @property

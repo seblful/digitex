@@ -1,4 +1,4 @@
-"""Composition and the one process-wide cache.
+"""Composition, and the one process-wide cache.
 
 Entry points call :func:`get_settings` once and thread the result down, so
 importing a module never reads the environment or a file.
@@ -6,7 +6,7 @@ importing a module never reads the environment or a file.
 
 from __future__ import annotations
 
-from threading import Lock
+from functools import lru_cache
 from typing import Self
 
 from dotenv import find_dotenv, load_dotenv
@@ -23,15 +23,14 @@ from digitex.config.runtime import AppSettings, LoggingSettings, TimezoneSetting
 def _load_env() -> None:
     """Load this machine's ``.env``, if it has one.
 
-    One file per machine — the laptop's carries development values, the
-    server's production ones — so nothing has to be kept in sync with a
-    second copy. Real environment variables win over the file: Compose passes
-    ``DATABASE_URL`` and ``ENVIRONMENT`` that way, and CI passes everything
-    that way.
+    One file per machine — the laptop's carries development values, the server's
+    production ones — so nothing has to be kept in sync with a second copy. Real
+    environment variables win over the file: Compose passes ``DATABASE_URL`` and
+    ``ENVIRONMENT`` that way, and CI passes everything that way.
 
     Searched for upwards from the working directory rather than beside the
     package, which is what makes an installed wheel workable: the container has
-    no ``.env`` at all and gets every value from Compose, while a checkout is
+    no ``.env`` at all and takes every value from Compose, while a checkout is
     found from any subdirectory of it.
     """
     env_file = find_dotenv(usecwd=True)
@@ -43,9 +42,9 @@ class Settings(BaseSettings):
     """Every setting, grouped by the layer that reads it.
 
     ``pipeline`` holds the groups only the local workflows touch. It is a plain
-    field rather than something lazy so tests can inject one, and because every
-    field inside it has a default — the deployed bot constructing the group
-    costs an environment read, not a chance of failing to start.
+    field rather than something lazy so a test can inject one, and because every
+    field inside it has a default — the deployed bot constructing the group costs
+    an environment read, not a chance of failing to start.
     """
 
     model_config = SettingsConfigDict(extra="ignore")
@@ -64,19 +63,15 @@ class Settings(BaseSettings):
         return cls()
 
 
-_settings: Settings | None = None
-_settings_lock = Lock()
-
-
+@lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    global _settings  # noqa: PLW0603 — module-level cache is the intended pattern
+    """The process's settings, resolved once.
 
-    if _settings is None:
-        with _settings_lock:
-            if _settings is None:
-                _settings = Settings.load()
-
-    return _settings
+    ``lru_cache`` rather than a module global behind a lock: it is the same
+    double-checked singleton, already thread-safe, and it comes with the
+    invalidation hook :func:`reset_settings_cache` needs.
+    """
+    return Settings.load()
 
 
 def reset_settings_cache() -> None:
@@ -86,7 +81,4 @@ def reset_settings_cache() -> None:
     Postgres, say — after something has already resolved settings. Production
     code has no reason to call this.
     """
-    global _settings  # noqa: PLW0603 — same cache as get_settings
-
-    with _settings_lock:
-        _settings = None
+    get_settings.cache_clear()

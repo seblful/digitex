@@ -3,15 +3,15 @@
 The corpus lives in two trees:
 
 - book archive:      ``books/{subject}/{variant}/pages/{year}/{page}.{ext}``
-  and ``books/{subject}/{variant}/answers/{year}_{n}.{ext}``, where *variant*
-  is ``raw`` (the scans as they arrived) or ``processed`` (the same files,
+  and ``books/{subject}/{variant}/answers/{year}_{n}.{ext}``, where *variant* is
+  ``raw`` (the scans as they arrived) or ``processed`` (the same files,
   corrected, file for file), plus a per-subject ``topics.json`` above both
   variants
 - extraction output: ``output/{subject}/{year}/{option}/{part}/{number}.{ext}``
   plus a per-year ``answers.json``
 
-Every module that walks these trees or parses/formats their filenames goes
-through this one, so a layout change is a one-file edit.
+Every module that walks these trees, or parses or formats their filenames, goes
+through this one — so a layout change is a single-file edit.
 """
 
 from __future__ import annotations
@@ -29,15 +29,18 @@ IMAGE_EXTENSIONS: Final = frozenset(
     {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tiff"}
 )
 
-# The sheet number is optional: a year that fits on one sheet is often exported
-# as just ``2016``, and that sheet is sheet 1.
+# The sheet number is optional: a year whose key fits on one sheet is often
+# exported as just ``2016``, and that sheet is sheet 1.
 _ANSWER_SHEET_STEM = re.compile(r"(\d{4})(?:_(\d+))?")
+
+# Splits a stem into its digit and non-digit runs, for `natural_sort_key`.
+_DIGIT_RUNS = re.compile(r"(\d+)")
 
 PAGE_NUMBER_WIDTH: Final = 3
 
 # The two variants a subject's scans exist in. ``raw`` is what came off the
-# scanner and is never written to again; ``processed`` is derived from it and
-# can be rebuilt at any time.
+# scanner and is never written to again; ``processed`` is derived from it and can
+# be rebuilt at any time.
 RAW: Final = "raw"
 PROCESSED: Final = "processed"
 
@@ -45,6 +48,11 @@ PROCESSED: Final = "processed"
 def is_image(path: Path) -> bool:
     """Return True for files with a known image extension."""
     return path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+
+
+# ---------------------------------------------------------------------------
+# The book archive
+# ---------------------------------------------------------------------------
 
 
 def book_variant_dir(books_dir: Path, subject: str, variant: str) -> Path:
@@ -65,8 +73,8 @@ def book_answers_dir(books_dir: Path, subject: str, variant: str) -> Path:
 def book_topics_file(books_dir: Path, subject: str) -> Path:
     """Where a subject's topic map lives — hand-written, so above the variants.
 
-    Topics name questions by year and key, not by scan, so the file belongs to
-    the subject rather than to ``raw`` or ``processed``.
+    Topics name questions by year and key rather than by scan, so the file
+    belongs to the subject rather than to ``raw`` or ``processed``.
     """
     return books_dir / subject / "topics.json"
 
@@ -83,8 +91,8 @@ def walk_book_pages(
 ) -> Iterator[Path]:
     """Every scanned page in one variant, of *subject* or of every subject.
 
-    Answer sheets are not pages and are not yielded — they sit beside
-    ``pages`` rather than under it.
+    Answer sheets are not pages and are not yielded — they sit beside ``pages``
+    rather than under it.
     """
     subjects = [subject] if subject is not None else book_subjects(books_dir)
     for name in subjects:
@@ -102,10 +110,54 @@ def book_page_name(number: int, image_format: str) -> str:
     The subject, variant and year are all in the path already, so the filename
     carries only the page number. Padded, because reading order and
     lexicographic order then agree everywhere the corpus is looked at — a file
-    browser, a Label Studio task list — and not just where the code remembers
-    to sort numerically.
+    browser, a Label Studio task list — and not only where the code remembers to
+    sort numerically.
     """
     return f"{number:0{PAGE_NUMBER_WIDTH}d}.{image_format}"
+
+
+def parse_answer_sheet_stem(stem: str) -> tuple[int, int] | None:
+    """Parse a ``{year}`` or ``{year}_{sheet}`` stem into (year, sheet_number).
+
+    A year whose key fits on one sheet is often exported under the bare year, and
+    reading that as sheet 1 is what the name means. Only the year is ever used
+    downstream; the sheet number orders a year's sheets and keeps their names
+    apart.
+    """
+    match = _ANSWER_SHEET_STEM.match(stem)
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2) or 1)
+
+
+def parse_book_page_path(page_path: Path) -> tuple[str, str]:
+    """Extract (subject, year) from ``{subject}/{variant}/pages/{year}/{page}``.
+
+    Anchored on the ``pages`` segment — the subject sits two above it, the year
+    directly below — so a page parses the same in either variant, and a raw page
+    and its processed twin give the same :func:`training_page_name`.
+
+    Raises:
+        ValueError: If the path has no ``pages`` segment, or the segment sits too
+            near an end for a subject and a year to be around it.
+    """
+    parts = page_path.parts
+    marker = parts.index("pages") if "pages" in parts else 0
+    # Two above and one below is the whole rule; anything shorter is some other
+    # tree that happens to have a ``pages`` directory in it.
+    if marker < 2 or marker + 1 >= len(parts):
+        raise ValueError(f"No subject/year segment in {page_path}")
+    return parts[marker - 2], parts[marker + 1]
+
+
+def training_page_name(subject: str, year: str, stem: str) -> str:
+    """Name a book page copied into the training images pool."""
+    return f"{subject}_{year}_{stem}.jpg"
+
+
+# ---------------------------------------------------------------------------
+# The extraction output tree
+# ---------------------------------------------------------------------------
 
 
 def question_image_number(path: Path) -> int | None:
@@ -114,7 +166,7 @@ def question_image_number(path: Path) -> int | None:
     Question images are named ``{number}.{ext}`` with a positive integer, so a
     stem that is not all digits belongs to something else — a stray export, a
     thumbnail. Every walker of the output tree asks this one question, and each
-    decides for itself whether to warn about a None.
+    decides for itself whether a None is worth warning about.
     """
     if not is_image(path) or not path.stem.isdigit():
         return None
@@ -155,38 +207,6 @@ def highest_question_number(year_dir: Path, option: int | str, part: str) -> int
     return max((number for number in numbers if number is not None), default=0)
 
 
-def question_object_key(output_dir: Path, image_path: Path) -> str:
-    """The stored key for a question image: its path relative to the corpus root.
-
-    POSIX-separated whichever platform writes it, because the key is seeded from
-    a Windows laptop and resolved on a Linux server — a backslash in the column
-    would name nothing there.
-    """
-    return image_path.relative_to(output_dir).as_posix()
-
-
-def file_digest(path: Path) -> str:
-    """Hex SHA-256 of a file's contents.
-
-    Seeded alongside the key so a question re-extracted to the same path is
-    still recognisable as changed — see ``QuestionCorpus.set_image``.
-    """
-    with path.open("rb") as fh:
-        return hashlib.file_digest(fh, "sha256").hexdigest()
-
-
-def natural_sort_key(path: Path) -> list[int | str]:
-    """Sort key that orders embedded numbers numerically.
-
-    Keeps ``page_2`` ahead of ``page_10``, which plain lexicographic sorting
-    gets backwards — and page order decides question numbering.
-    """
-    parts: list[int | str] = []
-    for chunk in re.split(r"(\d+)", path.stem):
-        parts.append(int(chunk) if chunk.isdigit() else chunk.lower())
-    return parts
-
-
 @dataclass(frozen=True)
 class QuestionImage:
     """One numbered question image inside a year's extraction output."""
@@ -208,48 +228,45 @@ def walk_question_images(year_dir: Path) -> Iterator[QuestionImage]:
         for part_dir in option_dir.iterdir():
             if not part_dir.is_dir():
                 continue
-            for img in part_dir.iterdir():
-                number = question_image_number(img)
+            for image in part_dir.iterdir():
+                number = question_image_number(image)
                 if number is None:
                     continue
-                yield QuestionImage(option_dir.name, part_dir.name, number, img)
+                yield QuestionImage(option_dir.name, part_dir.name, number, image)
 
 
-def parse_answer_sheet_stem(stem: str) -> tuple[int, int] | None:
-    """Parse a ``{year}`` or ``{year}_{sheet}`` stem into (year, sheet_number).
+def question_object_key(output_dir: Path, image_path: Path) -> str:
+    """The stored key for a question image: its path relative to the corpus root.
 
-    A year whose key fits on one sheet is often exported under the bare year,
-    and reading that as sheet 1 is what the name means. Only the year is ever
-    used downstream; the sheet number orders a year's sheets and keeps their
-    names apart.
+    POSIX-separated whichever platform writes it, because the key is seeded from
+    a Windows laptop and resolved on a Linux server — a backslash in the column
+    would name nothing there.
     """
-    match = _ANSWER_SHEET_STEM.match(stem)
-    if not match:
-        return None
-    return int(match.group(1)), int(match.group(2) or 1)
+    return image_path.relative_to(output_dir).as_posix()
 
 
-def parse_book_page_path(page_path: Path) -> tuple[str, str]:
-    """Extract (subject, year) from ``{subject}/{variant}/pages/{year}/{page}``.
+# ---------------------------------------------------------------------------
+# File-level helpers
+# ---------------------------------------------------------------------------
 
-    Anchored on the ``pages`` segment — the subject sits two above it, the
-    year directly below — so a page parses the same in either variant, and a
-    raw page and its processed twin give the same
-    :func:`training_page_name`.
 
-    Raises:
-        ValueError: If the path has no ``pages`` segment, or the segment sits
-            too near an end for a subject and a year to be around it.
+def file_digest(path: Path) -> str:
+    """Hex SHA-256 of a file's contents.
+
+    Seeded alongside the key so a question re-extracted to the same path is
+    still recognisable as changed — see ``QuestionCorpus.set_image``.
     """
-    parts = page_path.parts
-    marker = parts.index("pages") if "pages" in parts else 0
-    # Two above and one below is the whole rule; anything shorter is some other
-    # tree that happens to have a ``pages`` directory in it.
-    if marker < 2 or marker + 1 >= len(parts):
-        raise ValueError(f"No subject/year segment in {page_path}")
-    return parts[marker - 2], parts[marker + 1]
+    with path.open("rb") as fh:
+        return hashlib.file_digest(fh, "sha256").hexdigest()
 
 
-def training_page_name(subject: str, year: str, stem: str) -> str:
-    """Name a book page copied into the training images pool."""
-    return f"{subject}_{year}_{stem}.jpg"
+def natural_sort_key(path: Path) -> list[int | str]:
+    """Sort key that orders embedded numbers numerically.
+
+    Keeps ``page_2`` ahead of ``page_10``, which plain lexicographic sorting gets
+    backwards — and page order decides question numbering.
+    """
+    return [
+        int(chunk) if chunk.isdigit() else chunk.lower()
+        for chunk in _DIGIT_RUNS.split(path.stem)
+    ]

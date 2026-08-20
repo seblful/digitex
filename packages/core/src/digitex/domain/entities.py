@@ -1,9 +1,9 @@
 """Domain types — the single home for entities and value objects.
 
-`ExamType` and `QuestionKey` are value objects (immutable, no identity).
-`Question`, `Session`, `Student`, `TestResult` are repository return-shapes
-(Pydantic). Everything that crosses a module boundary should import from this
-file.
+`ExamType` and `QuestionKey` are value objects: immutable, no identity.
+`Question`, `Session`, `Student` and `TestResult` are the shapes repositories
+hand back, so they are Pydantic. Anything that crosses a module boundary is
+imported from here rather than from wherever it happens to be produced.
 """
 
 from __future__ import annotations
@@ -18,12 +18,18 @@ ExamType = Literal["CE", "CT"]
 Part = Literal["A", "B"]
 RegistrationStatus = Literal["pending", "approved", "rejected"]
 
-# A polygon crosses several coordinate spaces between the YOLO mask it starts
-# as and the crop or Label Studio annotation it ends as. Percent and normalized
+
+# ---------------------------------------------------------------------------
+# Polygon spaces
+# ---------------------------------------------------------------------------
+
+# A polygon crosses several coordinate spaces between the YOLO mask it starts as
+# and the crop or Label Studio annotation it ends as. Percent and normalized
 # points are both pairs of floats, so without distinct types a percent polygon
-# converted a second time type-checks and silently divides by 10 000. Each
-# space is its own type: whoever produces it wraps once, and every hop
-# downstream then says which space it is in.
+# converted a second time type-checks and silently divides by 10 000. Each space
+# is its own type: whoever produces it wraps once, and every hop downstream then
+# has to say which space it is in.
+
 PixelPolygon = NewType("PixelPolygon", list[tuple[int, int]])
 """Points in source-image pixels — what a :class:`Detection` carries."""
 
@@ -33,10 +39,18 @@ PercentPolygon = NewType("PercentPolygon", list[list[float]])
 NormalizedPolygon = NewType("NormalizedPolygon", list[tuple[float, float]])
 """Points scaled to 0-1 — the space YOLO label files are written in."""
 
+
+# ---------------------------------------------------------------------------
+# Corpus shape constants
+# ---------------------------------------------------------------------------
+
+# Spelled out rather than derived from `ExamType` with `get_args`: membership in
+# this tuple is what narrows a `str` to the literal in `parse_exam_type`, and a
+# tuple of `Any` would not narrow anything.
 _EXAM_TYPES: Final = ("CE", "CT")
 
-# From 2023 each year's books exist in two exam variants: CE (options 1-5)
-# and CT (the rest). Earlier years are CT only.
+# From 2023 each year's books exist in two exam variants: CE (options 1-5) and
+# CT (the rest). Earlier years are CT only.
 EXAM_TYPE_INTRO_YEAR: Final = 2023
 _CE_MAX_OPTION: Final = 5
 
@@ -44,7 +58,7 @@ _CE_MAX_OPTION: Final = 5
 OPTIONS_PER_BOOK: Final = 10
 
 # A Part A question offers this many numbered answers, and the option keyboard
-# is built from it. Fixed across the corpus: ``books`` used to carry a per-book
+# is built from it. Fixed across the corpus: `books` used to carry a per-book
 # override that nothing ever wrote, so every question already had five.
 PART_A_OPTION_COUNT: Final = 5
 
@@ -53,13 +67,15 @@ PART_A_OPTION_COUNT: Final = 5
 # and rejected as a bad part letter without this fold.
 _CYRILLIC_PART_LETTERS: Final = str.maketrans("АВ", "AB")  # noqa: RUF001
 
+_PART_LETTERS: Final = ("A", "B")
+
 
 def normalize_option_number(raw: int) -> int:
     """Fold an absolute option number onto the 1..``OPTIONS_PER_BOOK`` range.
 
     Answer sheets and page markers number options in blocks — 1-10, then 11-20,
-    then 21-30 — and every block is the same ten Options, so 11 and 21 both
-    mean Option 1.
+    then 21-30 — and every block is the same ten Options, so 11 and 21 both mean
+    Option 1.
     """
     return (raw - 1) % OPTIONS_PER_BOOK + 1
 
@@ -89,6 +105,11 @@ def parse_exam_type(raw: str) -> ExamType:
     return raw
 
 
+# ---------------------------------------------------------------------------
+# Value objects
+# ---------------------------------------------------------------------------
+
+
 @dataclass(frozen=True)
 class Detection:
     """One thing the segmentation model found on a page.
@@ -96,11 +117,11 @@ class Detection:
     The label is already resolved against the model's class map and the polygon
     is in source-image pixels, so a consumer needs neither the class id nor the
     id-to-label mapping. One detection is one record, which is why there is no
-    "same number of labels as polygons" invariant to check.
+    "as many labels as polygons" invariant to check.
 
-    The score is the model's confidence in this one region. Extraction ignores
-    it — a region either placed or it didn't — but a pre-annotation carries it
-    to Label Studio, where it is what an annotator sorts a review queue by.
+    The score is the model's confidence in this one region. Extraction ignores it
+    — a region either placed or it did not — but a pre-annotation carries it to
+    Label Studio, where it is what an annotator sorts a review queue by.
     """
 
     label: str
@@ -112,8 +133,8 @@ class Detection:
 class QuestionKey:
     """Identifies a question within an option by part and number.
 
-    Corresponds to keys in answers.json (e.g. "A1", "B12") and the
-    filesystem path segment {part}/{number}.jpg.
+    Corresponds to the keys in answers.json (``"A1"``, ``"B12"``) and to the
+    ``{part}/{number}.jpg`` path segment under a year's output tree.
     """
 
     part: Part
@@ -121,14 +142,26 @@ class QuestionKey:
 
     @classmethod
     def parse(cls, raw: str) -> QuestionKey:
-        raw = raw.strip().upper().translate(_CYRILLIC_PART_LETTERS)
-        if len(raw) < 2 or raw[0] not in ("A", "B") or not raw[1:].isdigit():
-            raise ValueError(f"Invalid question key: {raw!r}")
-        part: Part = "A" if raw[0] == "A" else "B"
-        return cls(part=part, number=int(raw[1:]))
+        """Read a key off a filename or a hand-typed answers.json entry.
+
+        Raises:
+            ValueError: If *raw* is not a part letter followed by digits.
+        """
+        key = raw.strip().upper().translate(_CYRILLIC_PART_LETTERS)
+        letter, digits = key[:1], key[1:]
+        if letter not in _PART_LETTERS or not digits.isdigit():
+            raise ValueError(f"Invalid question key: {key!r}")
+        # `letter` is one of `_PART_LETTERS`, which is exactly `Part`.
+        part: Part = "A" if letter == "A" else "B"
+        return cls(part=part, number=int(digits))
 
     def __str__(self) -> str:
         return f"{self.part}{self.number}"
+
+
+# ---------------------------------------------------------------------------
+# Repository return shapes
+# ---------------------------------------------------------------------------
 
 
 class Student(BaseModel):
@@ -138,8 +171,8 @@ class Student(BaseModel):
     status: there is no state in which a person is registered twice, or approved
     without existing.
 
-    ``telegram_name`` is the display name Telegram reports. ``full_name`` is
-    what the student typed when applying, so it is None until they have.
+    ``telegram_name`` is the display name Telegram reports. ``full_name`` is what
+    the student typed when applying, so it is None until they have.
     """
 
     telegram_id: int
@@ -182,9 +215,9 @@ class TestResult(BaseModel):
     completed_at: datetime
 
 
-# Narrow read-shapes the repositories hand back. They live here rather than
+# The narrow read-shapes the repositories hand back. They live here rather than
 # beside the SQL because they cross module boundaries — the bot's question round
-# and results screen both read them.
+# and its results screen both read them.
 
 
 class SubjectRow(NamedTuple):
@@ -201,9 +234,9 @@ class SessionInfo(NamedTuple):
 class WrongAnswer(NamedTuple):
     """One question a student got wrong, as it was scored at the time.
 
-    ``correct_answer`` is the snapshot taken when the answer was recorded, not
-    the current key — a later correction to the corpus must not rewrite what a
-    finished test reported. It is None when the question had no key at all.
+    ``correct_answer`` is the snapshot taken when the answer was recorded rather
+    than the current key: a later correction to the corpus must not rewrite what
+    a finished test reported. It is None when the question had no key at all.
     """
 
     question_number: int

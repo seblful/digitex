@@ -7,7 +7,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class BotSettings(BaseSettings):
-    """Telegram bot settings."""
+    """Telegram bot settings.
+
+    Both fields default to a falsy value rather than being required, so
+    importing the bot and running ``--help`` works on a machine with no
+    credentials. The entry point checks the token and refuses to start polling
+    without one.
+    """
 
     model_config = SettingsConfigDict(env_prefix="BOT_", extra="ignore")
 

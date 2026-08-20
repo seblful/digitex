@@ -1,26 +1,26 @@
 """What the bot needs from a database, stated without naming one.
 
-Handlers used to import ``digitex.db.UnitOfWork`` and construct it from a
-``psycopg`` pool. That is ordinary layering — dependencies pointing down into
-infrastructure — but it is not inversion, and the difference was being paid for
-in `pyproject.toml`: four `import-linter` contracts, two of them near-duplicate
-``forbidden`` lists with a comment warning they must be kept in sync by hand,
+Handlers used to import ``digitex.db.UnitOfWork`` and build it from a ``psycopg``
+pool. That is ordinary layering — dependencies pointing down into infrastructure
+— but it is not inversion, and the difference was being paid for in
+`pyproject.toml`: four `import-linter` contracts, two of them near-duplicate
+``forbidden`` lists with a comment warning they had to be kept in sync by hand,
 plus a third list in ``tests/contracts``. Three hand-maintained lists defending
 one boundary, because the boundary was policy rather than structure.
 
 These protocols invert it. The bot says what it needs; ``digitex.db`` provides
 classes that answer to it; only a composition root names both. The boundary
-becomes a fact about the direction of imports, which a contract can state once.
+becomes a fact about the direction of imports, which one contract can state.
 
 Deliberately narrow. Each protocol lists what the bot calls and nothing more —
-``QuestionCatalog`` here has four methods where the Postgres class has the same
-four, but ``TopicIndex`` has one where the class has four, because the bot only
-ever reads a subject's topics. A protocol that mirrored the implementation
-would be a second spelling of it rather than a statement of what is required.
+``QuestionCatalog`` here has the same four methods as the Postgres class, but
+``TopicIndex`` has one where the class has four, because the bot only ever reads
+a subject's topics. A protocol mirroring its implementation would be a second
+spelling of it rather than a statement of what is required.
 
-Runtime-checkable so a test can assert the concrete classes still answer; that
-check is method presence only, and whether the signatures line up is ``ty``'s
-job at every call site.
+Runtime-checkable so a test can assert the concrete classes still answer. That
+check is method presence only; whether the signatures line up is ``ty``'s job, at
+every call site.
 """
 
 from __future__ import annotations
@@ -163,8 +163,8 @@ class Repositories(Protocol):
     """The roles reachable inside one transaction.
 
     Named for the attributes a unit of work exposes, so the concrete one
-    satisfies this without being told about it — and so a fake is five small
-    objects rather than one carrying every method any of them has.
+    satisfies this without being told about it — and so a fake is a handful of
+    small objects rather than one carrying every method any of them has.
     """
 
     @property
@@ -192,9 +192,9 @@ class Repositories(Protocol):
 type OpenUow = Callable[[], AbstractAsyncContextManager[Repositories]]
 """Start a transaction and hand back the roles inside it.
 
-A factory rather than an open transaction: a handler decides when its
-transaction begins and ends, and the two things it does with a round — render a
-question, settle the parked ``file_id`` — happen in different ones.
+A factory rather than an open transaction: a handler decides when its transaction
+begins and ends, and the two things it does with a round — render a question,
+settle the parked ``file_id`` — happen in different ones.
 
 A ``type`` alias, so the names it is built from stay behind ``TYPE_CHECKING``:
 this module needs nothing at runtime and is imported by the layer that must not

@@ -1,14 +1,16 @@
 """Conversions between the polygon spaces.
 
-Label Studio stores polygon points as percentages (0-100) of the image size;
-YOLO label files use 0-1; a mask off a page is in source pixels. Each space is
-its own type, and every hop between them is here.
+A polygon passes through three coordinate systems on its way from a YOLO mask
+to a crop or an annotation: source-image pixels, Label Studio's percentages of
+the image size (0-100), and the 0-1 range YOLO label files are written in. Each
+space is its own type, and every hop between them is one function here.
 
-Pure arithmetic, so it belongs in ``domain``: the spaces themselves are named
-in :mod:`digitex.domain.entities` and nothing here imports beyond them. Parsing
-the tool's own URIs is not arithmetic and lives with the tool, in
-:mod:`digitex.labeling.uris`. Scaling a YOLO mask up to pixels belongs to
-:mod:`digitex.ml.predictors`, which is where masks come from.
+Pure arithmetic, which is why it sits in ``domain``: the spaces are named in
+:mod:`digitex.domain.entities` and nothing here reaches past them. Two nearby
+jobs deliberately live elsewhere — parsing the tool's own URIs is not
+arithmetic and belongs with the tool (:mod:`digitex.labeling.uris`), and
+scaling a YOLO mask up into pixels belongs where masks come from
+(:mod:`digitex.ml.predictors`).
 """
 
 from digitex.domain.entities import NormalizedPolygon, PercentPolygon, PixelPolygon

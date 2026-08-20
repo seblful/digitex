@@ -3,9 +3,8 @@
 Grouped behind :class:`PipelineSettings` rather than sitting flat on
 :class:`~digitex.config.settings.Settings`, so that reading
 ``settings.pipeline.openrouter`` says which layer the value belongs to. Nothing
-the deployed bot runs touches this group — the packages it configures
-(``digitex.pipeline``, ``digitex.ml``, ``digitex.labeling``, ``digitex.imaging``)
-are not installed in the production image.
+the deployed bot runs touches this group — the packages it configures all live in
+`digitex-studio`, which the production image does not install.
 """
 
 from __future__ import annotations
