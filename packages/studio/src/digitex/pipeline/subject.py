@@ -1,4 +1,9 @@
-"""Tests extractor that orchestrates extraction of all image books."""
+"""Every year of one subject, skipping the years already recorded finished.
+
+The outermost of the three runners, and the only one that remembers anything
+between runs: it consults the progress log before opening a year and writes to
+it after finishing one, which is what makes a subject's extraction resumable.
+"""
 
 from __future__ import annotations
 
@@ -34,10 +39,10 @@ class SubjectExtractor:
     implementation detail: completed years are skipped and newly finished ones
     recorded, with no tracker handed back to the caller.
 
-    ``book_extractor`` does every year, mirroring :class:`BookExtractor`'s
-    own ``page_extractor``. Configuring anything deeper — a reviewer, a
-    stand-in predictor — means building the chain from the bottom and passing
-    the result in here, so no extraction config reaches this class either.
+    ``book_extractor`` does every year, mirroring :class:`BookExtractor`'s own
+    ``page_extractor``. Configuring anything deeper — a reviewer, a stand-in
+    predictor — means building the chain from the bottom and passing the result
+    in here, so no extraction config reaches this class either.
     """
 
     def __init__(
@@ -56,9 +61,38 @@ class SubjectExtractor:
         self._progress = JSONProgressTracker(self.data_dir / PROGRESS_FILE)
         self._book_extractor = book_extractor
 
-    def _validate_books_dir(self) -> None:
+    def _pages_dir(self, subject: str) -> Path:
+        """Where *subject*'s books live.
+
+        The processed variant, never the raw one: the segmentation model is
+        trained on corrected pages, so it has to be shown corrected pages.
+        """
+        return book_pages_dir(self.books_dir, subject, PROCESSED)
+
+    def _refusal(self, subject: str) -> SubjectRefused | None:
+        """Why the run cannot begin, or None when it can.
+
+        Three ways to have nowhere to look — no archive, no subject, no
+        processed pages — and each says something different to an operator, so
+        each carries its own reason rather than one "not found".
+        """
         if not self.books_dir.exists():
-            raise DirectoryNotFoundError(self.books_dir)
+            return SubjectRefused(reason=str(DirectoryNotFoundError(self.books_dir)))
+
+        subject_dir = self.books_dir / subject
+        if not subject_dir.exists():
+            return SubjectRefused(
+                reason=f"Subject '{subject}' not found in {self.books_dir}"
+            )
+
+        if not self._pages_dir(subject).exists():
+            logger.warning("No pages folder found", subject_dir=str(subject_dir))
+            return SubjectRefused(
+                reason=f"No processed pages folder found for subject '{subject}';"
+                " run preprocess-scans first"
+            )
+
+        return None
 
     def extract(self, subject: str) -> SubjectOutcome:
         """Extract question images for a specific subject.
@@ -68,30 +102,12 @@ class SubjectExtractor:
         distinct from a report holding no years, which means there was nothing
         left to do.
         """
-        try:
-            self._validate_books_dir()
-        except DirectoryNotFoundError as e:
-            return SubjectRefused(reason=str(e))
+        refusal = self._refusal(subject)
+        if refusal is not None:
+            return refusal
 
-        subject_dir = self.books_dir / subject
-
-        if not subject_dir.exists():
-            return SubjectRefused(
-                reason=f"Subject '{subject}' not found in {self.books_dir}"
-            )
-
-        # The processed variant, never the raw one: the segmentation model is
-        # trained on corrected pages, so it has to be shown corrected pages.
-        pages_dir = book_pages_dir(self.books_dir, subject, PROCESSED)
-
-        if not pages_dir.exists():
-            logger.warning("No pages folder found", subject_dir=str(subject_dir))
-            return SubjectRefused(
-                reason=f"No processed pages folder found for subject '{subject}';"
-                " run preprocess-scans first"
-            )
-
-        year_dirs = [d for d in pages_dir.iterdir() if d.is_dir()]
+        pages_dir = self._pages_dir(subject)
+        year_dirs = [path for path in pages_dir.iterdir() if path.is_dir()]
 
         if not year_dirs:
             logger.warning("No year folders found", pages_dir=str(pages_dir))

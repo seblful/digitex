@@ -1,18 +1,27 @@
-"""Custom exceptions for the extraction module.
+"""The failures extraction raises, each also wearing a builtin's face.
 
-Each subclass also inherits the closest builtin, so a caller that only knows
-about ``FileNotFoundError`` or ``ValueError`` still catches the right thing.
+Every class inherits :class:`ExtractionError` *and* the closest builtin, so a
+caller that never heard of this module still catches the right thing: a missing
+book directory answers to ``FileNotFoundError``, an unparseable page name to
+``ValueError``. That pairing is the reason these exist at all rather than bare
+builtins carrying a formatted message.
+
+Each one keeps what it was raised about as an attribute. The message is for a
+human reading a terminal; the attribute is for the caller that has to name the
+offending file.
 """
+
+from __future__ import annotations
 
 from pathlib import Path
 
 
 class ExtractionError(Exception):
-    """Base exception for all extraction-related errors."""
+    """Base for everything the extraction pipeline raises."""
 
 
 class DirectoryNotFoundError(ExtractionError, FileNotFoundError):
-    """Raised when a required directory does not exist."""
+    """A directory the run needs — an archive, a subject, a year — is not there."""
 
     def __init__(self, path: Path | str) -> None:
         super().__init__(f"Directory not found: {path}")
@@ -20,7 +29,7 @@ class DirectoryNotFoundError(ExtractionError, FileNotFoundError):
 
 
 class InvalidFilenameError(ExtractionError, ValueError):
-    """Raised when a filename doesn't match the expected pattern."""
+    """A filename the corpus layout cannot read, and the shape it wanted."""
 
     def __init__(self, filename: str, expected_format: str) -> None:
         super().__init__(
@@ -30,7 +39,11 @@ class InvalidFilenameError(ExtractionError, ValueError):
 
 
 class ModelNotFoundError(ExtractionError, FileNotFoundError):
-    """Raised when a required ML model file is not found."""
+    """The segmentation checkpoint is missing.
+
+    Raised where the model is built rather than where it is first used, so the
+    command fails before it has walked an archive.
+    """
 
     def __init__(self, model_path: Path | str) -> None:
         super().__init__(f"Model file not found: {model_path}")
@@ -38,7 +51,7 @@ class ModelNotFoundError(ExtractionError, FileNotFoundError):
 
 
 class APIError(ExtractionError):
-    """Raised when an external API call fails."""
+    """An external service failed. Carries which one, so the message says so."""
 
     def __init__(self, service: str, message: str) -> None:
         super().__init__(f"{service} API error: {message}")
@@ -46,11 +59,12 @@ class APIError(ExtractionError):
 
 
 class ReviewAborted(ExtractionError):
-    """Raised by a page reviewer to stop the whole run, not just this page.
+    """A page reviewer walked away: stop the whole run, not just this page.
 
-    Deliberately not caught by the per-page error handling in BookExtractor: a
-    run the reviewer walked away from must not mark its year completed, or the
-    unreviewed pages would be skipped forever.
+    Deliberately outside the per-page error handling in ``BookExtractor``.
+    Counted as one page's failure, the book would still finish — and a year
+    recorded as finished is never reopened, so every page the reviewer never
+    saw would be skipped forever.
     """
 
     def __init__(self, page_name: str = "") -> None:

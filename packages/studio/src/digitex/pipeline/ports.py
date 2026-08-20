@@ -1,25 +1,26 @@
-"""What page extraction needs from the outside world, as interfaces.
+"""The two things page extraction cannot work out for itself, as interfaces.
 
-Extraction reaches outside itself for exactly two things: what the segmentation
-model found on a page, and what OCR read off a crop. Everything else it does is
-arithmetic on pixels. Naming those two by interface rather than by class is
-what lets the differential harness replay a run with neither installed, and
-what stops importing the page extractor from dragging in ~3 GB of CUDA wheels
-to do arithmetic.
+Everything extraction does is arithmetic on pixels except for two answers it
+has to be given: which labelled regions the segmentation model found on a page,
+and what OCR reads off a crop. Naming those two by interface rather than by
+class is what lets the differential harness replay a whole book with neither
+installed, and what stops ``import digitex.pipeline.page`` pulling in ~3 GB of
+CUDA wheels to crop a rectangle.
 
-They live here rather than in :mod:`digitex.domain` because both speak in PIL
-images, and ``domain`` may not import PIL — the deployed bot imports ``domain``
-and the production image installs no image library. A port belongs with the
-layer that can name its vocabulary.
+They live here and not in :mod:`digitex.domain` because both speak PIL images,
+and ``domain`` may not: the deployed bot imports ``domain`` and the production
+image installs no image library. A port belongs to the layer that can name its
+vocabulary.
 
-Both are deliberately narrower than the classes that satisfy them.
-``TextExtractor`` also takes a tesseract config string and a language override;
-extraction passes neither, so neither is asked for here. An interface that
-listed them would oblige every stand-in to accept arguments nothing sends.
+Both are narrower than the classes that satisfy them, on purpose.
+``TextExtractor`` also accepts a tesseract config string and a language
+override; extraction passes neither, so neither is asked for here — an
+interface listing them would oblige every stand-in to accept arguments nothing
+ever sends.
 
 Both are ``runtime_checkable`` so a test can assert the concrete classes still
-answer to them. That check is method presence only — whether the signatures
-line up is ``ty``'s job, and it does it at every call site.
+answer to them. That check sees method *names* only; whether the signatures fit
+is ``ty``'s job, which it does at every call site.
 """
 
 from __future__ import annotations
@@ -39,7 +40,7 @@ class RegionDetector(Protocol):
     def predict(self, image: Image.Image) -> list[Detection]:
         """Every region found on *image*, in no particular order.
 
-        The caller sorts into reading order — which regions come back is the
+        The caller sorts into reading order — *which* regions come back is the
         model's business, what order they are consumed in is the numbering's.
         """
         ...

@@ -1,18 +1,18 @@
 """Checking a page's regions by hand before anything is cropped.
 
-A `PageReviewer` is a callable that, given what the extractor is about to do to
-one page, returns the version to actually carry out — or None to skip the page
+A ``PageReviewer`` is a callable: given what the extractor is about to do to one
+page, it returns the version to actually carry out — or None to skip the page
 and write nothing. The default accepts the proposal untouched, so extraction
 without a reviewer behaves exactly as it did before there was one.
 
-The shape mirrors `conflict_resolution`: a type alias rather than a Protocol,
-because a callable is the smallest thing that expresses "given a page, approve
-it". The one interactive reviewer lives in `digitex.ui.page_review`; nothing
-in this package imports it, so the pipeline stays free of any GUI toolkit.
+A type alias rather than a Protocol class, because a callable is the smallest
+thing that expresses "given a page, approve it". The one interactive reviewer
+lives in :mod:`digitex.ui.page_review`; nothing here imports it, which is what
+keeps the pipeline free of any GUI toolkit.
 
-The rule about *which numbers* a page may be approved onto is not here — it is
-numbering, not reviewing, and lives in :mod:`digitex.domain.numbering` where
-both sides of this seam reach it.
+Which *numbers* a page may be approved onto is not here. That is numbering, not
+reviewing, and lives in :mod:`digitex.domain.numbering` where both sides of
+this seam reach it.
 """
 
 from __future__ import annotations
@@ -34,19 +34,19 @@ if TYPE_CHECKING:
 QuestionCrop = Callable[[Sequence["PageRegion"], Sequence["HeldPiece"]], "Image.Image"]
 """Cut one question out of the page exactly as saving it would.
 
-A question is its pieces stacked, so it comes as a sequence of regions — one
-for a whole question, more for one printed across a page break, each carrying
-how it is lined up against the piece above it. The second argument is the
-pieces cut from an earlier page: already cut, so they are handed over as images
-rather than as polygons of a page that is no longer open.
+A question is its pieces stacked, so it takes a sequence of regions — one for a
+whole question, more for one printed across a page break, each carrying how it
+lines up against the piece above it. The second argument is the pieces cut from
+an earlier page: already cut, so they arrive as images rather than as polygons
+of a page that is no longer open.
 """
 
 PieceCrop = Callable[["PixelPolygon"], "Image.Image"]
 """Cut one piece of a question out of the page, at the page's own scale.
 
 What a reviewer lines two pieces up against each other on. The saved file is
-the pieces stacked and then capped to the question size, so the cap is no part
-of this.
+the pieces stacked and *then* capped to the question size, so the cap is no
+part of this.
 """
 
 
@@ -55,26 +55,25 @@ class PageProposal:
     """What the extractor is about to write for one page, before it writes it.
 
     ``regions`` and ``state`` are the reviewer's own copies: edit them, hand
-    them back, or drop them — the extractor's originals move only when it
-    adopts a returned :class:`ReviewedPage`. ``output_dir`` is the year
-    directory the crops land in, which is also what a reviewer counts to show
-    its progress.
+    them back, or drop them — the extractor's originals move only when it adopts
+    a returned :class:`ReviewedPage`. ``output_dir`` is the year directory the
+    crops land in, which is also what a reviewer counts to show its progress.
 
-    ``crop`` is the extractor's own cropping pipeline, bound to this page. A
-    reviewer showing a question's crop shows the file that would be written,
-    not its own idea of one — the same reason the numbering preview replays
-    :func:`place_questions` rather than reimplementing it. ``crop_piece`` is the
-    same pipeline stopped one step earlier, at a single piece before the pieces
-    are stacked, for lining two of them up. Both are None when the extractor
-    was not asked for them.
+    ``crop`` is the extractor's own cropping pipeline, bound to this page, so a
+    reviewer previewing a question shows the file that *would be written* rather
+    than its own likeness of one — the same reason the numbering preview replays
+    :func:`place_questions` instead of reimplementing it. ``crop_piece`` is that
+    pipeline stopped one step earlier, at a single piece before the pieces are
+    stacked, for lining two of them up. Both are None when the extractor was not
+    asked for them.
 
-    ``page_number`` and ``page_count`` are the page's place in its book, for a
-    reviewer that wants to say how far along the run is. Both are 0 when the
+    ``page_number`` and ``page_count`` place the page in its book, for a
+    reviewer that wants to say how far along the run is. Both are 0 when a
     caller extracts a page on its own, outside a book.
 
     ``carried`` holds the pieces an earlier page could not finish, in reading
     order. They belong to this page's first question, whose image is saved as
-    them stacked on top of it — a reviewer must show that, because the file
+    them stacked on top of it — a reviewer has to show that, because the file
     approving writes is not the crop of this page alone.
     """
 
@@ -96,7 +95,7 @@ class ReviewedPage:
 
     ``discard_carried`` throws away the pieces handed to this page instead of
     joining them to its first question — the way out when the page before left
-    a piece behind that this page does not continue.
+    behind a piece this page does not continue.
     """
 
     regions: list[PageRegion]

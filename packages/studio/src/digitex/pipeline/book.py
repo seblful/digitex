@@ -1,4 +1,9 @@
-"""Book extractor for extracting question images from image files."""
+"""One year of one subject: every page in a book directory, in reading order.
+
+The middle of the three runners. It owns the two things a book's pages share and
+two books never do — the numbering state and the carried question pieces — and
+it owns the decision that a bad page is worth one report rather than the run.
+"""
 
 from __future__ import annotations
 
@@ -31,9 +36,9 @@ class BookExtractor:
     """Extract question images from a directory of images (a "book").
 
     ``page_extractor`` does every page. A caller that needs a reviewer or a
-    custom conflict resolver configures the :class:`PageExtractor` and passes
-    it in, rather than threading those knobs down through here — which is
-    also why no extraction config reaches this class.
+    different detector configures the :class:`PageExtractor` and passes it in
+    rather than threading those knobs down through here — which is also why no
+    extraction config reaches this class.
     """
 
     def __init__(self, page_extractor: PageExtractor) -> None:
@@ -46,67 +51,72 @@ class BookExtractor:
     ) -> BookReport:
         """Extract question images from a directory of images.
 
-        A page that raises is recorded as a failure and the run carries on —
-        the caller decides whether one bad page invalidates the whole book.
+        A page that raises is recorded as a failure and the run carries on — the
+        caller decides whether one bad page invalidates the whole book.
         Collisions are recorded too, and are not failures: an interrupted year
         meets its own earlier output on every page it replays.
+
+        Raises:
+            DirectoryNotFoundError: If *image_dir* does not exist.
+            ReviewAborted: If the reviewer stopped the run. Deliberately not
+                caught: no caller may count this book as finished.
         """
         if not image_dir.exists():
             raise DirectoryNotFoundError(image_dir)
 
-        images = sorted(
-            (p for p in image_dir.iterdir() if is_image(p)),
+        pages = sorted(
+            (path for path in image_dir.iterdir() if is_image(path)),
             key=natural_sort_key,
         )
 
-        if not images:
+        if not pages:
             logger.warning("No images found", image_dir=str(image_dir))
             return BookReport(note="No images found")
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # One state for the whole book: question numbering continues across
-        # page boundaries. A page that fails leaves it partly advanced, which
-        # is why a book with any error is never marked completed.
+        # One state for the whole book: question numbering continues across page
+        # boundaries. A page that fails leaves it partly advanced, which is why a
+        # book with any error is never marked completed.
         state = PageExtractionState()
-        # One carry too: a question printed across a page break is written by
-        # the page that finishes it, out of the piece the page before it left
-        # here. Per book, because no question spans two years.
+        # One carry too: a question printed across a page break is written by the
+        # page that finishes it, out of the piece the page before it left here.
+        # Per book, because no question spans two years.
         carry = PageCarry()
-        processed_count = 0
-        collisions_seen: list[Collision] = []
+
+        processed = 0
+        collisions: list[Collision] = []
         failures: list[PageFailure] = []
 
-        for page_number, image_path in enumerate(
-            tqdm(images, desc=f"Processing {image_dir.name}", leave=False), start=1
+        for page_number, page_path in enumerate(
+            tqdm(pages, desc=f"Processing {image_dir.name}", leave=False), start=1
         ):
             try:
-                with Image.open(image_path) as image:
-                    collisions = self._page_extractor.extract(
+                with Image.open(page_path) as image:
+                    taken = self._page_extractor.extract(
                         image,
                         output_dir,
                         state,
                         page_number=page_number,
-                        page_count=len(images),
+                        page_count=len(pages),
                         carry=carry,
                     )
-                processed_count += 1
+                processed += 1
                 # Not a page failure — resuming an unfinished year replays its
-                # pages over their own output — but the caller must see it, or
-                # a diverged numbering silently loses crops.
-                collisions_seen.extend(
-                    Collision(page=image_path.name, placement=placement)
-                    for placement in collisions
+                # pages over their own output — but the caller must see it, or a
+                # diverged numbering silently loses crops.
+                collisions.extend(
+                    Collision(page=page_path.name, placement=placement)
+                    for placement in taken
                 )
             except ReviewAborted:
-                # Not a page failure: the reviewer stopped the run. Let it out
-                # so no caller counts this book as finished.
+                # The reviewer stopped the run rather than this page failing.
                 raise
             except Exception as e:
-                failures.append(PageFailure(page=image_path.name, cause=str(e)))
+                failures.append(PageFailure(page=page_path.name, cause=str(e)))
                 logger.error(
                     "Failed to process page",
-                    image_path=str(image_path),
+                    image_path=str(page_path),
                     error=str(e),
                     exc_info=True,
                 )
@@ -120,13 +130,13 @@ class BookExtractor:
         logger.info(
             "Extracted images from book",
             output_dir=str(output_dir),
-            processed=processed_count,
+            processed=processed,
             failed=len(failures),
         )
 
         return BookReport(
-            pages=processed_count,
-            collisions=tuple(collisions_seen),
+            pages=processed,
+            collisions=tuple(collisions),
             failures=tuple(failures),
             unfinished=unfinished,
         )

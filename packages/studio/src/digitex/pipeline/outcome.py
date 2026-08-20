@@ -1,24 +1,24 @@
 """What an extraction run produced, as values a caller can act on.
 
-The type this replaces carried ``success: bool``, three counters, two lists of
-formatted strings and a ``dict[str, Any]``, and its own docstring had to warn
-that ``success=True`` did not mean everything succeeded. Nothing downstream
-could ask *which* pages failed or *what* was kept without parsing prose, and
-merging two runs shallow-merged their metadata dicts, so two books sharing a
-key silently lost one.
+The type these replace carried ``success: bool``, three counters, two lists of
+already-formatted strings and a ``dict[str, Any]`` — and its own docstring had
+to warn that ``success=True`` did not mean everything succeeded. Nothing
+downstream could ask *which* pages failed or *what* was kept without parsing
+prose, and merging two runs shallow-merged their metadata dicts, so two books
+sharing a key silently lost one.
 
-Three things happen during a book that are not "a page was extracted", and
-each is now a value rather than a sentence:
+Three things happen during a book that are not "a page was extracted", and each
+is a value here rather than a sentence:
 
-- a **collision** — the slot was taken, so the existing file was kept. Not a
+- a **collision** — the slot was taken, so the existing file stayed. Not a
   failure: replaying an interrupted year meets its own output on every page.
 - a **failure** — the page raised and produced nothing.
 - **unfinished pieces** — a question was still open when the book ended, so
   nothing was written for it.
 
-A report holds those, and answers questions about itself. Formatting them for
-a terminal is the CLI's job, which is the point: the report says what happened,
-the renderer says how it reads.
+A report holds those and answers questions about itself. Turning them into
+terminal output is the CLI's job, which is the point of the split: the report
+says what happened, the renderer says how it reads.
 """
 
 from __future__ import annotations
@@ -74,8 +74,8 @@ class UnfinishedPieces:
 class BookReport:
     """One book's run.
 
-    ``pages`` counts pages that came through, not questions written — a page
-    of nothing but markers is processed and writes no file.
+    ``pages`` counts pages that came through, not questions written — a page of
+    nothing but markers is processed and writes no file.
     """
 
     pages: int = 0
@@ -95,9 +95,9 @@ class BookReport:
     def complete(self) -> bool:
         """True when this year may be recorded as finished.
 
-        A clean run over at least one page. An empty book directory reports a
-        clean run over nothing and must not be marked done, or the year is
-        never retried.
+        A clean run over at least one page. An empty book directory is a clean
+        run over nothing and must not be marked done, or the year is never
+        retried once its scans arrive.
         """
         return self.clean and self.pages > 0
 
@@ -116,6 +116,9 @@ class SubjectReport:
 
     ``skipped`` names years already recorded complete, which are not opened at
     all — distinct from a year that ran and wrote nothing.
+
+    The rest is what its years said, gathered rather than merged: two books
+    reporting the same page name keep both reports.
     """
 
     years: tuple[YearReport, ...] = ()
@@ -131,15 +134,15 @@ class SubjectReport:
 
     @property
     def collisions(self) -> list[Collision]:
-        return [c for year in self.years for c in year.book.collisions]
+        return [collision for year in self.years for collision in year.book.collisions]
 
     @property
     def failures(self) -> list[PageFailure]:
-        return [f for year in self.years for f in year.book.failures]
+        return [failure for year in self.years for failure in year.book.failures]
 
     @property
     def unfinished(self) -> list[UnfinishedPieces]:
-        return [u for year in self.years for u in year.book.unfinished]
+        return [piece for year in self.years for piece in year.book.unfinished]
 
     @property
     def notes(self) -> list[str]:
@@ -148,11 +151,11 @@ class SubjectReport:
 
 @dataclass(frozen=True)
 class SubjectRefused:
-    """The run never started: there was nothing to extract, or nowhere to look.
+    """The run never started: nothing to extract, or nowhere to look.
 
     Separate from a report with no years, because the two mean opposite things
     to a caller — one is "your archive is missing", the other "nothing left to
-    do". The old type spelled both ``success=False`` and ``success=True`` with
+    do". The old type spelled them ``success=False`` and ``success=True`` with
     zero counters respectively, and callers had to know which was which.
     """
 
@@ -185,8 +188,8 @@ class AnswersReport:
 def messages(items: Iterable[object]) -> list[str]:
     """Render outcome values for a terminal, in the order they happened.
 
-    The one place a report becomes prose. Kept here beside the values so the
-    wording of a collision lives next to what a collision is, rather than
-    being reinvented at each of the three commands that report one.
+    The one place a report becomes prose. Here beside the values so the wording
+    of a collision lives next to what a collision *is*, rather than being
+    reinvented at each of the three commands that report one.
     """
     return [str(item) for item in items]

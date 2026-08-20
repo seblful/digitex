@@ -1,11 +1,12 @@
 """Count a subject's extracted question images and judge them complete or not.
 
-The rules live here as values so they can be asserted on and rendered by any
-front end — today that is the review window's stats tab.
+The verdict lives here as values, so any front end can render it and a test can
+assert on it — today the front end is the review window's stats tab.
 
-The signal is modal: within one year, every Option should hold the same number
-of Part A images as its neighbours, and likewise for Part B. A Part whose count
-is off its year's mode means a page was missed or double-extracted.
+The signal is modal rather than absolute. Nothing knows how many questions a
+given year's paper held, but within one year every Option should hold the same
+number of Part A images as its neighbours, and likewise for Part B. A Part whose
+count is off its year's mode is where a page was missed or extracted twice.
 """
 
 from __future__ import annotations
@@ -24,14 +25,23 @@ if TYPE_CHECKING:
 def _modes(values: list[int]) -> set[int]:
     """The most frequent value(s) in *values*, or empty for no values.
 
-    Ties are all returned: two Options with 20 images and two with 21 leaves
-    both counts modal, and neither is evidence of a missed page.
+    Every tied value comes back: two Options with 20 images and two with 21
+    leaves both counts modal, and neither is evidence of a missed page.
     """
     if not values:
         return set()
-    counter = Counter(values)
-    max_count = counter.most_common(1)[0][1]
-    return {value for value, count in counter.items() if count == max_count}
+    counts = Counter(values)
+    most = counts.most_common(1)[0][1]
+    return {value for value, count in counts.items() if count == most}
+
+
+def _numeric_key(name: str) -> tuple[int, str]:
+    """Order numeric names numerically, non-numeric ones after them by name.
+
+    Option and year directories are hand-editable, so one of them is eventually
+    called ``1a``. ``int(name)`` on that used to abort the whole count.
+    """
+    return (int(name), "") if name.isdigit() else (1 << 31, name)
 
 
 @dataclass(frozen=True)
@@ -66,7 +76,9 @@ class YearCensus:
 
     @property
     def is_complete(self) -> bool:
-        return not self.missing_options and not any(p.off_mode for p in self.parts)
+        return not self.missing_options and not any(
+            part.off_mode for part in self.parts
+        )
 
 
 @dataclass(frozen=True)
@@ -99,6 +111,9 @@ class ImageCensus:
     def take(self, subject: str) -> SubjectCensus:
         """Count every year of *subject*, newest-numbered year last.
 
+        A year that produced no image at all is left out rather than reported
+        empty: it is a year nobody has extracted yet, not a year with a problem.
+
         Raises:
             FileNotFoundError: If the subject has no extraction output folder.
         """
@@ -108,7 +123,9 @@ class ImageCensus:
 
         years = [
             self.take_year(year_dir)
-            for year_dir in sorted(subject_dir.iterdir(), key=_year_key)
+            for year_dir in sorted(
+                subject_dir.iterdir(), key=lambda d: _numeric_key(d.name)
+            )
             if year_dir.is_dir()
         ]
         return SubjectCensus(
@@ -121,33 +138,30 @@ class ImageCensus:
         if not year_dir.is_dir():
             return YearCensus(year=year_dir.name)
 
-        counts: defaultdict[str, Counter[str]] = defaultdict(Counter)
+        # {option: {part: images}}, which is the shape both the modal
+        # comparison and the reported rows are read out of.
+        held: defaultdict[str, Counter[str]] = defaultdict(Counter)
         for image in walk_question_images(year_dir):
-            counts[image.option][image.part] += 1
+            held[image.option][image.part] += 1
 
-        by_part: defaultdict[str, list[int]] = defaultdict(list)
-        for per_part in counts.values():
-            for part, count in per_part.items():
-                by_part[part].append(count)
-        modes = {part: _modes(values) for part, values in by_part.items()}
+        # A Part is scored against its own Part across the year's Options: Part
+        # B holding a third of Part A's images is normal, not a miss.
+        per_part: defaultdict[str, list[int]] = defaultdict(list)
+        for parts in held.values():
+            for part, count in parts.items():
+                per_part[part].append(count)
+        modes = {part: _modes(counts) for part, counts in per_part.items()}
 
-        parts = [
-            PartCount(
-                option=option,
-                part=part,
-                images=count,
-                off_mode=count not in modes[part],
-            )
-            for option in sorted(counts, key=_numeric_key)
-            for part, count in sorted(counts[option].items())
-        ]
-        return YearCensus(year=year_dir.name, parts=parts)
-
-
-def _year_key(path: Path) -> tuple[int, str]:
-    return _numeric_key(path.name)
-
-
-def _numeric_key(name: str) -> tuple[int, str]:
-    """Order numeric names numerically, non-numeric ones after them by name."""
-    return (int(name), "") if name.isdigit() else (1 << 31, name)
+        return YearCensus(
+            year=year_dir.name,
+            parts=[
+                PartCount(
+                    option=option,
+                    part=part,
+                    images=count,
+                    off_mode=count not in modes[part],
+                )
+                for option in sorted(held, key=_numeric_key)
+                for part, count in sorted(held[option].items())
+            ],
+        )

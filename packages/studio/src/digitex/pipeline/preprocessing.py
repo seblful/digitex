@@ -1,7 +1,7 @@
 """Get the scan archive into the shape everything downstream reads.
 
-Two passes over ``books/{subject}/raw/``, both safe to re-run, and
-:func:`preprocess_scans` runs them in order:
+Two passes over ``books/{subject}/raw/``, both safe to re-run, which
+:func:`preprocess_scans` performs in order:
 
 - :func:`rename_pages` gives every page its canonical ``{number}.{ext}``,
   numbered in reading order within its year. Scanner exports arrive named for
@@ -16,13 +16,13 @@ corpus honest: annotation, training and inference all see the same bytes, so a
 model cannot be trained on one rendering of a page and asked to predict on
 another.
 
-The scanner's white canvas is cut off on the way out, which is worth about 6%
-of a page and is why nothing downstream ever wants the raw variant. It also
-means a processed scan is *not* pixel-aligned with its original — the crop box
-is measured per scan — so geometry only ever refers to the processed file. Draw
-annotations on the processed page, and reprocess with ``force`` only when you
-are willing to redraw them: a correction that moves an edge moves every
-percentage coordinate with it.
+The scanner's white canvas is cut off on the way out, which is worth about 6% of
+a page and is why nothing downstream ever wants the raw variant. It also means a
+processed scan is *not* pixel-aligned with its original — the crop box is
+measured per scan — so geometry only ever refers to the processed file. Draw
+annotations on the processed page, and reprocess with ``force`` only when you are
+willing to redraw them: a correction that moves an edge moves every percentage
+coordinate with it.
 
 A scan costs a few seconds and the archive rebuilds across a process pool, so
 there is no cache to invalidate: an existing output is skipped, and ``force``
@@ -66,9 +66,9 @@ class PreprocessResult:
     """What one pass over the archive did.
 
     ``skipped`` is scans already processed, which is the steady state — a run
-    that processes nothing and skips everything is the archive being up to
-    date, not a failure. ``renamed`` is the pages the run gave a canonical name
-    before correcting anything.
+    that processes nothing and skips everything is the archive being up to date,
+    not a failure. ``renamed`` is the pages the run gave a canonical name before
+    correcting anything.
     """
 
     processed: int = 0
@@ -102,8 +102,8 @@ def preprocess_scan(source: Path, target: Path) -> None:
     wherever a fold's shadow crossed it. Pages carry no light print worth
     keeping, so they get the full treatment.
 
-    Module-level, and taking only paths, because a process pool has to pickle
-    it by name and hand it arguments that survive the trip.
+    Module-level, and taking only paths, because a process pool has to pickle it
+    by name and hand it arguments that survive the trip.
     """
     with Image.open(source) as scan:
         dpi = scan.info.get("dpi")
@@ -112,7 +112,7 @@ def preprocess_scan(source: Path, target: Path) -> None:
 
 
 def _twin(source: Path, raw_root: Path, processed_root: Path) -> Path:
-    """Where *source*'s processed counterpart sits, same place, same name."""
+    """Where *source*'s processed counterpart sits: same place, same name."""
     return (processed_root / source.relative_to(raw_root)).with_suffix(
         f".{PROCESSED_FORMAT}"
     )
@@ -126,7 +126,7 @@ def _scans(raw_root: Path) -> list[Path]:
 def _plan(books_dir: Path, *, force: bool) -> tuple[list[tuple[Path, Path]], int]:
     """Pair each raw scan with where it goes, dropping the ones already done.
 
-    Returns the work and the number skipped, so a caller can report both
+    Returns the work and how many were skipped, so a caller can report both
     without walking the archive twice.
     """
     work: list[tuple[Path, Path]] = []
@@ -143,6 +143,42 @@ def _plan(books_dir: Path, *, force: bool) -> tuple[list[tuple[Path, Path]], int
     return work, skipped
 
 
+def _correct_all(work: list[tuple[Path, Path]]) -> list[str]:
+    """Run the corrections across a process pool, naming the scans that failed.
+
+    The filter is seconds of arithmetic per scan and no scan depends on another,
+    so this is the one pass worth spending processes on. A scan that cannot be
+    read is named and counted rather than raised: a thousand-page archive is too
+    many to restart because one file is truncated.
+    """
+    # Once, here, rather than racing to create the same year directory from
+    # twenty workers.
+    for _, target in work:
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+    errors: list[str] = []
+    with ProcessPoolExecutor() as pool:
+        pending = {
+            pool.submit(preprocess_scan, source, target): source
+            for source, target in work
+        }
+        for done in tqdm(
+            as_completed(pending), total=len(pending), desc="Preprocessing scans"
+        ):
+            source = pending[done]
+            try:
+                done.result()
+            except Exception as e:
+                logger.error(
+                    "Failed to preprocess scan",
+                    path=str(source),
+                    error=str(e),
+                    exc_info=True,
+                )
+                errors.append(f"{source.name}: {e}")
+    return errors
+
+
 def preprocess_scans(books_dir: Path, *, force: bool = False) -> PreprocessResult:
     """Name every page canonically, then correct the raw scans into *processed*.
 
@@ -150,10 +186,6 @@ def preprocess_scans(books_dir: Path, *, force: bool = False) -> PreprocessResul
     its raw page's name: correcting a page called ``bio.01.png`` and renaming
     afterwards would move a file this run had just written, and a run that
     stopped in between would leave the archive half-named.
-
-    Scans go out to worker processes: the filter is seconds of arithmetic each
-    and no scan depends on another. One that cannot be read is counted and
-    named rather than raised, so a single bad file does not cost the run.
 
     Args:
         books_dir: Root of the archive, ``{subject}/{variant}/`` below.
@@ -174,31 +206,7 @@ def preprocess_scans(books_dir: Path, *, force: bool = False) -> PreprocessResul
             skipped=skipped, renamed=rename.renamed, errors=rename.errors
         )
 
-    # Once, here, rather than racing to create the same year directory from
-    # twenty workers.
-    for _, target in work:
-        target.parent.mkdir(parents=True, exist_ok=True)
-
-    errors: list[str] = []
-    with ProcessPoolExecutor() as pool:
-        futures = {
-            pool.submit(preprocess_scan, source, target): source
-            for source, target in work
-        }
-        for future in tqdm(
-            as_completed(futures), total=len(futures), desc="Preprocessing scans"
-        ):
-            source = futures[future]
-            try:
-                future.result()
-            except Exception as e:
-                logger.error(
-                    "Failed to preprocess scan",
-                    path=str(source),
-                    error=str(e),
-                    exc_info=True,
-                )
-                errors.append(f"{source.name}: {e}")
+    errors = _correct_all(work)
 
     logger.info(
         "Preprocessed archive",
@@ -252,6 +260,8 @@ def rename_pages(books_dir: Path) -> RenameResult:
     for subject in book_subjects(books_dir):
         raw_root = book_variant_dir(books_dir, subject, RAW)
         processed_root = book_variant_dir(books_dir, subject, PROCESSED)
+        # Pages only. An answer sheet's own name is what says which year and
+        # sheet it is, so renumbering one would destroy the only copy of that.
         pages_dir = book_pages_dir(books_dir, subject, RAW)
         if not pages_dir.is_dir():
             continue
@@ -268,9 +278,9 @@ def rename_pages(books_dir: Path) -> RenameResult:
 
                 twin = _twin(source, raw_root, processed_root)
                 twin_target = _twin(target, raw_root, processed_root)
-                # Checked before anything moves, and the twin moves first, so
-                # a name already taken leaves both variants as they were rather
-                # than half-renamed.
+                # Both names are checked before either file moves, and the twin
+                # moves first, so a name already taken leaves the two variants
+                # as they were rather than half-renamed.
                 if target.exists() or (twin.exists() and twin_target.exists()):
                     errors.append(f"{source.name}: {target.name} is already taken")
                     continue

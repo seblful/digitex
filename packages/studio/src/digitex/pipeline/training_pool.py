@@ -1,4 +1,14 @@
-"""Page data creator for extracting images for training."""
+"""The pool of book pages copied out flat for annotation.
+
+Annotation tools want one directory of images, not a corpus tree, so a page is
+resized to the training size and renamed to carry the subject and year it came
+from. Two ways in — sample a books tree (:meth:`PageDataCreator.create`) or take
+a hand-written list (:meth:`PageDataCreator.add_from_file`) — and both funnel
+into the same per-page save, because what a page is worth is the same question
+either way.
+"""
+
+from __future__ import annotations
 
 import random
 from collections import Counter
@@ -33,7 +43,7 @@ class PageOutcome(Enum):
 
 
 class PageDataCreator:
-    """Creator for preparing training images from book scans."""
+    """Copies book pages into the flat pool an annotation run reads."""
 
     def __init__(self, image_size: int) -> None:
         self.image_size = image_size
@@ -47,13 +57,17 @@ class PageDataCreator:
         try:
             subject, year = parse_book_page_path(img_path)
         except ValueError:
-            # Paths come from a user-supplied txt file in add_from_file.
+            # add_from_file's paths are typed by hand, so anything at all can
+            # arrive here — including a directory, which passes exists().
             logger.warning("Skipping unrecognized book path", path=str(img_path))
             return PageOutcome.UNRECOGNIZED_PATH
+
         output_path = output_dir / training_page_name(subject, year, img_path.stem)
         if output_path.exists():
             return PageOutcome.ALREADY_PRESENT
+
         with Image.open(img_path) as source:
+            # The pool is written as JPEG, which has no alpha channel to write.
             image = source if source.mode == "RGB" else source.convert("RGB")
             resize_image(image, self.image_size, self.image_size).save(
                 output_path, "JPEG"
@@ -86,31 +100,34 @@ class PageDataCreator:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        lines = paths_file.read_text(encoding="utf-8").strip().splitlines()
-        if not lines:
+        listed = paths_file.read_text(encoding="utf-8").strip().splitlines()
+        if not listed:
             logger.warning("Paths file is empty")
             return
 
-        valid_paths: list[Path] = []
-        skipped_missing = 0
-        for raw_line in lines:
-            line = raw_line.strip()
-            if not line:
+        found: list[Path] = []
+        missing = 0
+        for line in listed:
+            entry = line.strip()
+            # A blank line between two entries — the file's own ends were
+            # already stripped off above.
+            if not entry:
                 continue
-            img_path = Path(line)
-            if not img_path.exists():
-                logger.warning("Source not found", path=str(img_path))
-                skipped_missing += 1
+            path = Path(entry)
+            if not path.exists():
+                # One mistyped line must not cost the rest of the list.
+                logger.warning("Source not found", path=str(path))
+                missing += 1
                 continue
-            valid_paths.append(img_path)
+            found.append(path)
 
-        counts = self._save_images(valid_paths, output_dir, "Adding images")
+        counts = self._save_images(found, output_dir, "Adding images")
         logger.info(
             "Done",
             processed=counts[PageOutcome.SAVED],
             skipped_exist=counts[PageOutcome.ALREADY_PRESENT],
             skipped_unrecognized=counts[PageOutcome.UNRECOGNIZED_PATH],
-            skipped_missing=skipped_missing,
+            skipped_missing=missing,
         )
 
     def create(
@@ -120,7 +137,14 @@ class PageDataCreator:
         num_images: int,
         subject: str | None = None,
     ) -> None:
-        """Sample *num_images* pages, from *subject* alone or from all of them."""
+        """Sample *num_images* pages, from *subject* alone or from all of them.
+
+        Raises:
+            FileNotFoundError: If there is no page to sample. Naming where it
+                looked, because blaming the whole archive for one empty book
+                sends the operator to the wrong place — and producing nothing
+                quietly would read as "the pool is up to date".
+        """
         books_dir = Path(books_dir)
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)

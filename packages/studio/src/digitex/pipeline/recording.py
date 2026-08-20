@@ -1,9 +1,9 @@
 """Recorded detections and OCR answers, so an extraction run replays exactly.
 
 Page extraction is deterministic given three answers it cannot work out for
-itself: what the segmentation model found on a page, what OCR read off a
-marker, and how far OCR thinks a piece is tilted. Everything after those —
-masking, deskewing, stacking, capping, numbering — is arithmetic on pixels.
+itself: what the segmentation model found on a page, what OCR read off a marker,
+and how far OCR thinks a piece is tilted. Everything after those — masking,
+deskewing, stacking, capping, numbering — is arithmetic on pixels.
 
 Recording those three and replaying them makes a run byte-reproducible on a
 machine with no checkpoint, no GPU and no tesseract. Which is what lets a
@@ -15,9 +15,9 @@ the polygon that cut it, because ``detect_skew`` is handed a finished crop and
 never sees a polygon. Keying by content also means a recording survives its
 pages being renamed, and that two identical crops share one answer.
 
-A recording is a test fixture, not corpus data. It is small — polygons and a
-few hundred short strings — but the pages it refers to are not, so it stores
-their names and leaves them in the book they came from.
+A recording is a test fixture, not corpus data. It is small — polygons and a few
+hundred short strings — but the pages it refers to are not, so it stores their
+names and leaves them in the book they came from.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ from digitex.domain.entities import Detection, PixelPolygon
 from digitex.pipeline.base import ExtractionConfig
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
     from PIL import Image
@@ -46,8 +47,8 @@ class MissingAnswer(LookupError):
     """A replayed run asked something the recording does not hold.
 
     Always a real problem rather than a fixture to patch up: it means the run
-    being replayed fed OCR an image the recorded run never produced, so the
-    two runs have already diverged by the time this is raised.
+    being replayed fed OCR an image the recorded run never produced, so the two
+    runs have already diverged by the time this is raised.
     """
 
     def __init__(self, kind: str, digest: str) -> None:
@@ -72,6 +73,24 @@ def image_digest(image: Image.Image) -> str:
     return digest.hexdigest()
 
 
+def _recall[T](table: Mapping[str, T], kind: str, image: Image.Image) -> T:
+    """The recorded *kind* answer for *image*, or a refusal naming what is gone.
+
+    Refusing beats any default a caller could invent: an empty detection list is
+    a legal answer that the extractor turns into "no detections found on page",
+    which would read as a behaviour difference rather than as a fixture that
+    does not cover the run.
+
+    Raises:
+        MissingAnswer: If the recording holds no answer for this image.
+    """
+    digest = image_digest(image)
+    try:
+        return table[digest]
+    except KeyError:
+        raise MissingAnswer(kind, digest) from None
+
+
 def _detection_to_json(detection: Detection) -> dict[str, Any]:
     return {
         "label": detection.label,
@@ -81,6 +100,8 @@ def _detection_to_json(detection: Detection) -> dict[str, Any]:
 
 
 def _detection_from_json(raw: dict[str, Any]) -> Detection:
+    # Back to int: JSON has no tuples, and a float point would shift the crop
+    # every polygon cuts by a fraction of a pixel.
     points = [(int(point[0]), int(point[1])) for point in raw["polygon"]]
     return Detection(
         label=str(raw["label"]),
@@ -97,9 +118,9 @@ class Recording:
     is the order a replay has to feed them back in — the numbering state is
     threaded across pages, so a reordered replay is a different run.
 
-    ``outputs`` maps each written file's path, relative to the year directory,
-    to its content digest. That mapping is the actual assertion a differential
-    run makes; everything else in here exists to make reproducing it possible.
+    ``outputs`` maps each written file's path, relative to the year directory, to
+    its content digest. That mapping is the actual assertion a differential run
+    makes; everything else in here exists to make reproducing it possible.
     """
 
     source: str = ""
@@ -113,8 +134,7 @@ class Recording:
     Carried because they change the bytes of every file: a replay that used the
     settings live on the replaying machine would report a difference whenever
     those had been retuned since, which is not what this fixture measures.
-    ``model_path`` is not carried — a replay never loads a checkpoint.
-    """
+    ``model_path`` is not carried — a replay never loads a checkpoint."""
 
     pages: list[str] = field(default_factory=list)
     detections: dict[str, list[Detection]] = field(default_factory=dict)
@@ -182,8 +202,8 @@ class Recording:
 def golden_dir(data_root: Path) -> Path:
     """Where recordings and their replay output live, under the data root.
 
-    A fixture rather than corpus data, but it is still not code, so it hangs
-    off ``data_root`` like everything else that is not.
+    A fixture rather than corpus data, but it is still not code, so it hangs off
+    ``data_root`` like everything else that is not.
     """
     return data_root / "golden"
 
@@ -196,9 +216,9 @@ def recording_path(data_root: Path, subject: str, year: str) -> Path:
 def recorded_output_dir(data_root: Path, subject: str, year: str) -> Path:
     """Where a recording run writes its question images.
 
-    Beside the recording rather than into the real extraction tree: a
-    recording run starts from an empty folder so its numbering starts at 1,
-    and it must never be able to overwrite the corpus the bot serves.
+    Beside the recording rather than into the real extraction tree: a recording
+    run starts from an empty folder so its numbering starts at 1, and it must
+    never be able to overwrite the corpus the bot serves.
     """
     return golden_dir(data_root) / f"{subject}-{year}" / "output"
 
@@ -209,11 +229,11 @@ def directory_digests(root: Path) -> dict[str, str]:
     Paths use forward slashes whatever the platform, so a recording taken on
     Windows compares against a replay on Linux.
     """
-    digests: dict[str, str] = {}
-    for path in sorted(root.rglob("*")):
-        if path.is_file():
-            digests[path.relative_to(root).as_posix()] = file_digest(path)
-    return digests
+    return {
+        path.relative_to(root).as_posix(): file_digest(path)
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
 
 
 class RecordingPredictor:
@@ -253,23 +273,15 @@ class RecordingTextExtractor:
 
 
 class ReplayPredictor:
-    """Hands back the recorded detections for a page, or refuses.
-
-    Refusing rather than returning nothing is deliberate: an empty detection
-    list is a legal answer that the extractor turns into "no detections found
-    on page", which would read as a behaviour difference rather than as a
-    fixture that does not cover the run.
-    """
+    """Hands back the recorded detections for a page, or refuses."""
 
     def __init__(self, recording: Recording) -> None:
         self._recording = recording
 
     def predict(self, image: Image.Image) -> list[Detection]:
-        digest = image_digest(image)
-        try:
-            return list(self._recording.detections[digest])
-        except KeyError:
-            raise MissingAnswer("detections", digest) from None
+        # Copied, so a replayed extractor sorting them in place cannot reorder
+        # what a later page would be given.
+        return list(_recall(self._recording.detections, "detections", image))
 
 
 class ReplayTextExtractor:
@@ -279,25 +291,13 @@ class ReplayTextExtractor:
         self._recording = recording
 
     def extract_text(self, image: Image.Image, **_kwargs: Any) -> str:
-        digest = image_digest(image)
-        try:
-            return self._recording.text[digest]
-        except KeyError:
-            raise MissingAnswer("text", digest) from None
+        return _recall(self._recording.text, "text", image)
 
     def extract_digits(self, image: Image.Image, **_kwargs: Any) -> list[int]:
-        digest = image_digest(image)
-        try:
-            return list(self._recording.digits[digest])
-        except KeyError:
-            raise MissingAnswer("digits", digest) from None
+        return list(_recall(self._recording.digits, "digits", image))
 
     def detect_skew(self, image: Image.Image, **_kwargs: Any) -> float:
-        digest = image_digest(image)
-        try:
-            return self._recording.skew[digest]
-        except KeyError:
-            raise MissingAnswer("skew", digest) from None
+        return _recall(self._recording.skew, "skew", image)
 
 
 def replay_config(recording: Recording) -> ExtractionConfig:
