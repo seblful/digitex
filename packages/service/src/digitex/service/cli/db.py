@@ -19,8 +19,8 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 from alembic import command
 
-from digitex.cli._shared import abort, run_async
 from digitex.config import get_settings
+from digitex.console import abort, run_async
 from digitex.db.schema import alembic_config as _cfg
 
 if TYPE_CHECKING:

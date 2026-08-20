@@ -1,0 +1,33 @@
+[project]
+name = "digitex-service"
+version = "0.2.0"
+description = "The Digitex Telegram bot and its Postgres layer — the only thing that deploys"
+requires-python = ">=3.13"
+# What production runs, and the whole of it. The Dockerfile installs this
+# member from the lockfile, so anything added here lands in the deployed image
+# and anything absent is an ImportError on the VPS. That is the point: the
+# deploy boundary is this dependency list, not a lint rule.
+dependencies = [
+  "digitex-core",
+  "aiogram>=3.27.0",
+  "alembic>=1.13",
+  "psycopg[binary,pool]>=3.2",
+  "tqdm",
+]
+
+[project.scripts]
+digitex-bot = "digitex.service.cli.bot:main"
+digitex-db = "digitex.service.cli.db:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Contributes `digitex.bot`, `digitex.db` and `digitex.service` to the
+# namespace. See the note in packages/core/pyproject.toml.
+[tool.hatch.build.targets.wheel]
+only-include = ["src/digitex"]
+sources = ["src"]
+
+[tool.uv.sources]
+digitex-core = { workspace = true }

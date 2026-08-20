@@ -109,11 +109,12 @@ jobs:
       - name: Run tests
         run: uv run --no-sync pytest
 
-  # Only the bot deploys, and its image installs [project.dependencies] alone.
-  # An accidental import of an extras-only module is otherwise invisible until
-  # the bot ImportErrors on the VPS: the test job above installs every extra,
-  # and the docker build imports no application code. Both halves of the check
-  # live here because both need an environment built on purpose.
+  # Only the service half deploys, and its image installs `digitex-service` and
+  # `digitex-core` alone — the studio member is never resolved. An accidental
+  # import of a studio module is otherwise invisible until the bot ImportErrors
+  # on the VPS: the test job above installs every member, and the docker build
+  # imports no application code. Both halves of the check live here because both
+  # need an environment built on purpose.
   deploy-boundary:
     name: deploy boundary
     runs-on: ubuntu-latest
@@ -177,11 +178,11 @@ jobs:
 
       # The bot entrypoint's real import graph, not just the CLI shim, and the
       # migrations resolved out of the installed package rather than a copy of
-      # src/ that the image no longer carries.
+      # the source tree that the image no longer carries.
       - name: Prove the entrypoint and the packaged migrations import
         run: |
           docker run --rm digitex-bot:ci python -c "
-          import digitex.cli.bot, digitex.bot.dispatcher
+          import digitex.service.cli.bot, digitex.bot.dispatcher
           from digitex.db.schema import alembic_config
           from pathlib import Path
           loc = Path(alembic_config().get_main_option('script_location'))

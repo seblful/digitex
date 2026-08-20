@@ -20,7 +20,7 @@ training/
 └── runs/               # Ultralytics runs (gitignored)
 ```
 
-The CLI itself lives in `src/digitex/cli/training.py` and is registered as the `digitex-train` entry point.
+The CLI itself lives in `packages/studio/src/digitex/studio/cli/training.py` and is registered as the `digitex-train` entry point.
 
 ## Commands
 

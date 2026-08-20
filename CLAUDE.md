@@ -53,11 +53,18 @@ ______________________________________________________________________
 - **Code**: Follow patterns in `python-patterns` — see `python-testing` for tests, `commits` for git
 - **Tests**: All features and bug fixes require tests
 - **Commits**: Only commit when explicitly asked
-- **Layers**: Only `bot`, `db`, `domain` and `config` deploy. Never import
-  `imaging`, `ml`, `labeling`, `pipeline` or `ui` from them — the production
-  image does not install those dependencies, so it is an ImportError on the
-  VPS. `uv run lint-imports` checks it; `[tool.importlinter]` in
-  `pyproject.toml` is the contract, `CONTEXT.md` explains it
+- **Workspace**: three members under `packages/` — `core` (`domain`, `config`,
+  `logging`, `console`), `service` (`bot`, `db`, `service`) and `studio`
+  (`imaging`, `ml`, `labeling`, `pipeline`, `ui`, `studio`). Put a new module in
+  the member that already holds its dependencies; adding a studio dependency to
+  core or service is the one change that breaks the deploy
+- **Layers**: Only `core` and `service` deploy. Never import `imaging`, `ml`,
+  `labeling`, `pipeline` or `ui` from them — the production image does not
+  install those distributions at all. `bot` may not reach `db` or `psycopg`
+  either: handlers take an `OpenUow` from `domain.ports`, and
+  `service/cli/bot.py` is the only module that names both sides.
+  `uv run lint-imports` checks both; `[tool.importlinter]` in `pyproject.toml`
+  is the contract, `CONTEXT.md` explains it
 - **Paths**: Non-code paths derive from `settings.paths.data_root`, never from
   a module's `__file__`
 

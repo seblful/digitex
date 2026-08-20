@@ -9,8 +9,8 @@ from pathlib import Path
 
 import typer
 
-from digitex.cli._shared import abort
 from digitex.config import Settings, get_settings
+from digitex.console import abort
 from digitex.domain.corpus import book_subjects
 from digitex.logging import setup_logging
 

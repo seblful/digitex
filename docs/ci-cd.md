@@ -160,4 +160,4 @@ migration, restore from a backup — production.md §4.2.
 | `no .env in /opt/digitex` | env file never created | `cp .env.example .env` and fill it in (production.md §1.3) |
 | Release rolled itself back | Bot never reported healthy | Read the job log's `docker compose logs` tail — usually config |
 | `uv.lock` out of date in CI | Dependency change not locked | `uv lock` locally and commit the result |
-| Local `import cv2` / `import torch` breaks after a `uv sync` | those live in extras now | `uv sync --all-extras --no-extra cpu` (local-setup.md §1) |
+| Local `import cv2` / `import torch` breaks after a `uv sync` | those live in `digitex-studio` now | `uv sync --all-extras --no-extra cpu` (local-setup.md §1) |

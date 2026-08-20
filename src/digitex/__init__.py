@@ -1,1 +1,0 @@
-"""Digitex - Document digitization toolkit."""

@@ -172,6 +172,9 @@ celerybeat.pid
 .env.*
 !.env.example
 .venv
+# The contracts job builds a second, production-shaped environment beside it
+# (docs/ci-cd.md); a `--no-editable` copy for checking the image is a third.
+.venv-*
 env/
 venv/
 ENV/

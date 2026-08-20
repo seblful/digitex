@@ -17,7 +17,7 @@ from urllib.parse import quote
 import pytest
 from typer.testing import CliRunner
 
-from digitex.cli import labeling
+from digitex.studio.cli import labeling
 
 if TYPE_CHECKING:
     from pathlib import Path

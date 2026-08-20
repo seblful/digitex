@@ -9,17 +9,18 @@ repos:
     rev: 1.0.0
     hooks:
       - id: mdformat
-  # The deploy boundary — see [tool.importlinter] in pyproject.toml. Runs from
-  # the project venv (language: system) because it resolves the third-party
-  # packages it forbids, so it has to be able to import them.
+  # Which layer may import which, inside a member — see [tool.importlinter] in
+  # pyproject.toml. Runs from the project venv (language: system) because it
+  # resolves the third-party packages it forbids, so it has to be able to
+  # import them.
   - repo: local
     hooks:
       - id: lint-imports
-        name: lint imports (deploy boundary)
+        name: lint imports (layering)
         entry: uv run --no-sync lint-imports
         language: system
         pass_filenames: false
-        files: ^src/digitex/.*\.py$
+        files: ^packages/.+/src/digitex/.+\.py$
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:

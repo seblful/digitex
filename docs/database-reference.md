@@ -41,14 +41,14 @@ Two consequences worth knowing before you touch this table:
 ## Authoring a migration
 
 The scripts and `alembic.ini` live *inside* the package, at
-`src/digitex/db/`, and are found through `importlib.resources` — see
-`digitex.db.schema.alembic_config()`. That is what lets the production image
-install the project as an ordinary wheel with no copy of `src/`: nothing
-resolves a migration path by walking up from a source file. A dev checkout is
-an editable install, so `revision` still writes into the tree below.
+`packages/service/src/digitex/db/`, and are found through `importlib.resources`
+— see `digitex.db.schema.alembic_config()`. That is what lets the production
+image install `digitex-service` as an ordinary wheel with no copy of the source
+tree: nothing resolves a migration path by walking up from a source file. A dev
+checkout is an editable install, so `revision` still writes into the tree below.
 
 1. `uv run digitex-db revision "short description"` — scaffolds a new file
-   under `src/digitex/db/migrations/versions/`.
+   under `packages/service/src/digitex/db/migrations/versions/`.
 1. Write raw SQL in the `upgrade()` and `downgrade()` functions. Use
    `op.execute("…")`.
 1. Commit the new file alongside any code that depends on it.

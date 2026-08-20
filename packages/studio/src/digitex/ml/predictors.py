@@ -11,6 +11,7 @@ import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import structlog
@@ -227,14 +228,22 @@ class YOLO_SegmentationPredictor:
         # once per model instance — so it is read off the first predict() call
         # and every later one is ignored. Passing a constant is what keeps the
         # first call from deciding something else.
-        preds = self.model.predict(
-            image,
-            conf=PREDICT_CONF,
-            imgsz=PREDICT_IMGSZ,
-            max_det=PREDICT_MAX_DET,
-            end2end=PREDICT_END2END,
-            agnostic_nms=PREDICT_AGNOSTIC_NMS,
-            verbose=False,
+        # ultralytics annotates `predict` for every mode it has at once: a
+        # generator when `stream=True`, bare tensors for some heads. One PIL
+        # image and no streaming is the list-of-Results case, which is the only
+        # shape `detections_from` reads — so narrow it here, at the vendor
+        # boundary, rather than widening the function to shapes it cannot take.
+        preds = cast(
+            "list[Results]",
+            self.model.predict(
+                image,
+                conf=PREDICT_CONF,
+                imgsz=PREDICT_IMGSZ,
+                max_det=PREDICT_MAX_DET,
+                end2end=PREDICT_END2END,
+                agnostic_nms=PREDICT_AGNOSTIC_NMS,
+                verbose=False,
+            ),
         )
         return detections_from(
             preds,

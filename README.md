@@ -4,25 +4,31 @@ Document digitization toolkit for processing images, ML-based document segmentat
 
 ## Project Structure
 
-The package is layered, and the layering is enforced rather than described —
-see [`[tool.importlinter]`](pyproject.toml) and `tests/contracts/`. Only the bot
-deploys, so nothing it can reach may touch a dependency the production image
-does not install.
+Digitex is two products over one domain, and the split is a **uv workspace of
+three distributions** rather than a rule about one package. `digitex` itself is
+a PEP 420 namespace: no member owns a `digitex/__init__.py`, and each
+contributes its own subpackages to it.
 
 ```
 digitex/
-├── src/digitex/
-│   ├── domain/               # pure: entities, answer rules, numbering, ports
-│   ├── db/                   # Postgres: pool, unit of work, role repositories
-│   │   └── migrations/       # Alembic scripts, shipped inside the package
-│   ├── bot/                  # Telegram bot (aiogram)        ← the deploy layer
-│   ├── imaging/              # scale · layout · levels · denoise · document · crop
-│   ├── ml/                   # YOLO segmentation and training
-│   ├── labeling/             # Label Studio client, export reader, URIs
-│   ├── pipeline/             # books → question images (+ audit/)
-│   ├── ui/                   # the review controller, and the Tk view over it
-│   ├── config/               # settings, one module per layer
-│   └── cli/                  # entry points
+├── packages/
+│   ├── core/src/digitex/            # digitex-core — importable by anything
+│   │   ├── domain/                  # pure: entities, answer rules, numbering, ports
+│   │   ├── config/                  # settings, one module per layer
+│   │   ├── logging.py               # structlog setup
+│   │   └── console.py               # the two things every entry point needs
+│   ├── service/src/digitex/         # digitex-service — the only thing that deploys
+│   │   ├── bot/                     # Telegram bot (aiogram)
+│   │   ├── db/                      # Postgres: pool, unit of work, role repositories
+│   │   │   └── migrations/          # Alembic scripts, shipped inside the package
+│   │   └── service/cli/             # digitex-bot, digitex-db — the composition roots
+│   └── studio/src/digitex/          # digitex-studio — laptop only, never shipped
+│       ├── imaging/                 # scale · layout · levels · denoise · document · crop
+│       ├── ml/                      # YOLO segmentation and training
+│       ├── labeling/                # Label Studio client, export reader, URIs
+│       ├── pipeline/                # books → question images (+ audit/)
+│       ├── ui/                      # the review controller, and the Tk view over it
+│       └── studio/cli/              # digitex-extract, digitex-train, digitex-label
 ├── configs/training/         # YOLO hyperparameter YAMLs
 ├── deploy/                   # Dockerfile, deploy.sh, seed_prod.ps1
 ├── docker-compose.yml        # stays at the root: its relative paths are $APP_DIR
@@ -36,20 +42,27 @@ digitex/
 Dependencies point one way, and the two branches never meet:
 
 ```
-cli ──▶ ui ──▶ pipeline ──▶ labeling ──▶ ml ──▶ imaging ──┐
- │                                                        ├──▶ domain
- ├────▶ bot ────────────────────────────────────────────  ┘
- └────▶ db  ────────────────────────────────────────────  ┘
+studio ──▶ ui ──▶ pipeline ──▶ labeling ──▶ ml ──▶ imaging ──┐
+                                                             ├──▶ domain
+service ──▶ bot ───────────────────────────────────────────  ┘
+    └─────▶ db  ───────────────────────────────────────────  ┘
 ```
 
-`bot` and `db` are siblings, not a stack. The bot is written against the
-protocols in `domain/ports.py`; `db` provides classes that answer to them; and
-`cli/bot.py` is the only module that names both. An import from `bot` to `db`
-fails a contract rather than surfacing as an ImportError on the VPS.
+Most of that is now a **packaging fact rather than a policy**:
+`digitex-service` does not depend on `digitex-studio`, so in the production
+image OpenCV, torch and Tesseract are not forbidden — they were never resolved.
+[`[tool.importlinter]`](pyproject.toml) is down to the rules packaging cannot
+state, chiefly the direction of imports *inside* a member.
+
+The one that matters most: `bot` and `db` are siblings, not a stack. The bot is
+written against the protocols in `domain/ports.py`; `db` provides classes that
+answer to them; and `service/cli/bot.py` is the only module that names both. An
+import from `bot` to `db` fails a contract rather than surfacing as an
+ImportError on the VPS.
 
 ### The data root
 
-Nothing outside `src/` is code. The book archive, extraction output, model
+Nothing outside `packages/` is code. The book archive, extraction output, model
 weights and training data all live under one directory — `var/` by default,
 or wherever `PATH_DATA_ROOT` points — so the checkout stays small and an
 installed package never guesses where a corpus is.
@@ -141,10 +154,11 @@ This project uses `uv` for dependency management.
 # Everything (--no-extra cu130 on a machine without an NVIDIA GPU)
 uv sync --all-extras --no-extra cpu
 
-# Or just the workflow you are on
-uv sync --extra pipeline      # books → question images
-uv sync --extra ml            # YOLO training and prediction
-uv sync --extra labeling      # the annotation server and its SDK
+# The studio half alone — scans, training, annotation
+uv sync --extra studio --extra cpu
+
+# The service half alone — bot and database, no gigabytes
+uv sync
 
 # Run extraction
 uv run digitex-extract --help
@@ -153,8 +167,8 @@ uv run digitex-extract --help
 uv run digitex-train --help
 ```
 
-The bot needs no extra at all: its dependencies are the base
-`[project.dependencies]`, which is exactly what the production image installs.
+The bot needs no extra at all: `uv sync` on its own installs `digitex-core` and
+`digitex-service`, which is exactly what the production image gets.
 
 ### Requirements
 
@@ -195,7 +209,7 @@ uv run pytest tests/unit
 # One file
 uv run pytest tests/unit/test_bot_handlers.py
 
-# The deploy boundary, statically
+# Layering and the bot/db inversion, statically
 uv run lint-imports
 ```
 

@@ -1,56 +1,31 @@
+# Workspace root. Builds nothing itself (`package = false`); it exists to hold
+# the member list, the dev toolchain, and the tool configuration the whole
+# repo shares.
+#
+# Sync what you work on:
+#
+#     uv sync --all-extras --no-extra cpu      # laptop with CUDA: everything
+#     uv sync --all-extras --no-extra cu130    # CI, or any machine without CUDA
+#     uv sync                                  # service only — bot + db
+#     uv sync --no-dev --group contracts       # what production installs
+#
 [project]
 name = "digitex"
-version = "0.1.0"
+version = "0.2.0"
 description = "Document digitization toolkit"
 readme = "README.md"
 requires-python = ">=3.13"
-# What production runs — the bot process and the migrations it applies on
-# deploy, and nothing else. The Dockerfile installs exactly this list from
-# uv.lock, so anything added here lands in the deployed image.
+# The service half is always present: it is small, and it is what the tests
+# import most. The studio is opt-in because it costs gigabytes.
 dependencies = [
-  "aiogram>=3.27.0",
-  "alembic>=1.13",
-  "psycopg[binary,pool]>=3.2",
-  "pydantic>=2.0",
-  "pydantic-settings>=2.0",
-  "python-dotenv>=1.0",
-  "structlog>=26",
-  "tqdm",
-  "typer",
+  "digitex-core",
+  "digitex-service",
 ]
 
-# Everything else belongs to one of the local workflows, and is an extra so it
-# stays out of the image. Sync what you work on:
-#
-#     uv sync --all-extras --no-extra cpu     # laptop / GPU: everything
-#     uv sync --extra pipeline                # books -> question images
-#     uv sync --all-extras --no-extra cu130   # CI, or any machine without CUDA
-#
-# Each extra names the package it installs the dependencies of, so
-# [tool.importlinter] can state which ones the deployed bot may not reach.
 [project.optional-dependencies]
-# digitex.pipeline, digitex.imaging, digitex.ui — docs/extraction.md
-pipeline = [
-  "numpy",
-  "openai",
-  "opencv-python",
-  "pillow",
-  "pytesseract",
-]
-# YOLO segmentation, training and prediction — docs/training.md
-ml = [
-  "numpy",
-  "pillow",
-  "pyyaml",
-  "shapely>=2.1.2",
-  "ultralytics",
-]
-# Annotation server and its SDK — docs/label-studio.md
-labeling = [
-  "label-studio>=1.23.0",
-  "label-studio-sdk",
-  "legacy-cgi>=2.6.4",
-]
+# Scans to a question corpus — docs/extraction.md, docs/training.md,
+# docs/label-studio.md.
+studio = ["digitex-studio[labeling,ml]"]
 
 # `ml` needs torch, and these two decide which wheel index it comes from:
 # `cu130` is the CUDA build, `cpu` is ~200MB instead of ~3GB. They conflict, so
@@ -58,6 +33,26 @@ labeling = [
 # build PyPI offers.
 cpu = ["torch", "torchvision"]
 cu130 = ["torch", "torchvision"]
+
+[tool.uv]
+package = false
+conflicts = [[{ extra = "cpu" }, { extra = "cu130" }]]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+digitex-core = { workspace = true }
+digitex-service = { workspace = true }
+digitex-studio = { workspace = true }
+torch = [
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cu130", extra = "cu130" },
+]
+torchvision = [
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cu130", extra = "cu130" },
+]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
@@ -69,25 +64,8 @@ name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
-[tool.uv]
-conflicts = [[{ extra = "cpu" }, { extra = "cu130" }]]
-
-[tool.uv.sources]
-torch = [
-  { index = "pytorch-cpu", extra = "cpu" },
-  { index = "pytorch-cu130", extra = "cu130" },
-]
-torchvision = [
-  { index = "pytorch-cpu", extra = "cpu" },
-  { index = "pytorch-cu130", extra = "cu130" },
-]
-
 [tool.uv.extra-build-dependencies]
 htmlmin = ["legacy-cgi"]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
@@ -103,27 +81,18 @@ dev = [
     "testcontainers[postgres]>=4.0",
 ]
 # Just enough to run tests/contracts in an environment built the way production
-# is — `uv sync --no-dev --group contracts`, no extras. Adding anything from an
-# extra here would defeat the point of the job that uses it.
+# is — `uv sync --no-dev --group contracts`, which installs digitex-service and
+# nothing from the studio. Adding a studio dependency here would defeat the
+# point of the job that uses it.
 contracts = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/digitex"]
-
-[project.scripts]
-digitex-extract = "digitex.cli.extraction:app"
-digitex-train = "digitex.cli.training:app"
-digitex-label = "digitex.cli.labeling:app"
-digitex-bot = "digitex.cli.bot:app"
-digitex-db = "digitex.cli.db:app"
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-ra --strict-markers --cov=src/digitex --cov-report=term-missing"
+addopts = "-ra --strict-markers --cov=digitex --cov-report=term-missing"
 markers = [
     "integration: exercises a real Postgres via testcontainers (requires Docker)",
     "differential: replays a recorded book (requires a recording under the data root)",
@@ -141,33 +110,38 @@ filterwarnings = [
     "ignore:cannot collect test class 'TestingState':pytest.PytestCollectionWarning",
 ]
 
-# The deploy boundary, enforced. Only the bot ships, so nothing it reaches may
-# touch a dependency the production image does not install — and an accidental
-# import is otherwise invisible until the bot ImportErrors on the VPS, because
-# CI installs every extra and the Docker build imports nothing.
+# Most of what four contracts used to defend is now a packaging fact:
+# `digitex-service` does not depend on `digitex-studio`, so the deployed bot
+# cannot reach opencv or torch however hard it tries. What is left is the rule
+# packaging cannot express — the direction of imports *inside* a member — plus
+# one belt-and-braces check, because lint runs in a dev environment where the
+# studio is installed and an accidental import would otherwise stay invisible
+# until the contracts job.
 #
 # Run with `uv run lint-imports`; also a pre-commit hook and a CI job.
 [tool.importlinter]
-root_package = "digitex"
-# Needed by the third contract, which names third-party packages.
+root_packages = [
+    "digitex.bot",
+    "digitex.config",
+    "digitex.db",
+    "digitex.domain",
+    "digitex.imaging",
+    "digitex.labeling",
+    "digitex.ml",
+    "digitex.pipeline",
+    "digitex.service",
+    "digitex.studio",
+    "digitex.ui",
+]
+# Needed by the last contract, which names third-party packages.
 include_external_packages = true
-
-# Two contracts rather than one list: the bot and the pipeline are parallel
-# branches over db/domain, and a single ordering would quietly grant the
-# pipeline permission to import the bot.
-[[tool.importlinter.contracts]]
-name = "Deploy branch is layered"
-type = "layers"
-layers = ["digitex.cli", "digitex.bot", "digitex.db", "digitex.domain"]
 
 # The inversion, stated. The bot is written against the protocols in
 # `digitex.domain.ports`; `digitex.db` provides classes that answer to them and
-# `cli/bot.py` is the only module that names both. Before that, handlers built a
-# `UnitOfWork` from a psycopg pool, and this contract could not have held.
-#
-# It is what makes the boundary structural rather than policed: with the arrow
-# pointing the other way, an accidental import is a contract failure here rather
-# than an ImportError on the VPS.
+# `digitex.service.cli.bot` is the one module that names both. It is what makes
+# the boundary structural rather than policed: with the arrow pointing the other
+# way, an accidental import is a contract failure here rather than an
+# ImportError on the VPS.
 [[tool.importlinter.contracts]]
 name = "The bot does not know what a database is"
 type = "forbidden"
@@ -175,10 +149,15 @@ source_modules = ["digitex.bot"]
 forbidden_modules = ["digitex.db", "psycopg", "psycopg_pool"]
 
 [[tool.importlinter.contracts]]
-name = "Pipeline branch is layered"
+name = "Service branch is layered"
+type = "layers"
+layers = ["digitex.service", "digitex.bot", "digitex.db", "digitex.domain"]
+
+[[tool.importlinter.contracts]]
+name = "Studio branch is layered"
 type = "layers"
 layers = [
-    "digitex.cli",
+    "digitex.studio",
     "digitex.ui",
     "digitex.pipeline",
     "digitex.labeling",
@@ -187,21 +166,18 @@ layers = [
     "digitex.domain",
 ]
 
-# Both forbidden contracts guard the same module set: everything the deployed
-# bot can reach. Keep their source_modules in sync with each other and with
-# DEPLOY_PACKAGES in tests/contracts/test_deploy_boundary.py.
+# Belt and braces over the packaging boundary. `digitex-service` cannot import
+# these in production because they are not installed; this catches the mistake
+# on a dev machine, where they are.
 [[tool.importlinter.contracts]]
-name = "The deployed bot cannot reach the pipeline"
+name = "The deployed half cannot reach the studio"
 type = "forbidden"
 source_modules = [
     "digitex.bot",
-    "digitex.cli._shared",
-    "digitex.cli.bot",
-    "digitex.cli.db",
     "digitex.config",
     "digitex.db",
     "digitex.domain",
-    "digitex.logging",
+    "digitex.service",
 ]
 forbidden_modules = [
     "digitex.imaging",
@@ -209,25 +185,6 @@ forbidden_modules = [
     "digitex.ml",
     "digitex.pipeline",
     "digitex.ui",
-]
-
-# The contract that actually protects the image: the production dependency list
-# in [project.dependencies] is the whole of what gets installed, so reaching any
-# of these from the deploy layer is an ImportError in production.
-[[tool.importlinter.contracts]]
-name = "The deployed bot cannot reach a non-production dependency"
-type = "forbidden"
-source_modules = [
-    "digitex.bot",
-    "digitex.cli._shared",
-    "digitex.cli.bot",
-    "digitex.cli.db",
-    "digitex.config",
-    "digitex.db",
-    "digitex.domain",
-    "digitex.logging",
-]
-forbidden_modules = [
     "cv2",
     "label_studio_sdk",
     "numpy",
@@ -245,7 +202,7 @@ python-version = "3.13"
 [tool.ruff]
 target-version = "py313"
 line-length = 88
-src = ["src"]
+src = ["packages/core/src", "packages/service/src", "packages/studio/src"]
 
 [tool.ruff.lint]
 select = [
@@ -267,7 +224,8 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ARG", "PLR2004", "S101"]
-"src/digitex/bot/messages.py" = ["RUF001", "E501"]  # Russian user-facing strings; long format strings
+# Russian user-facing strings; long format strings
+"packages/service/src/digitex/bot/messages.py" = ["RUF001", "E501"]
 "tests/unit/test_pipeline_answers.py" = ["RUF001"]  # Cyrillic/Latin normalization is under test
 "tests/unit/test_domain_entities.py" = ["RUF001", "RUF002"]  # Cyrillic question keys are under test
 "tests/unit/test_pipeline_page.py" = ["RUF001"]  # Cyrillic part markers are under test

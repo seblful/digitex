@@ -114,8 +114,8 @@ ______________________________________________________________________
   it: handlers take an **OpenUow** and open the transaction through that.
 - **OpenUow** — the transaction seam (`domain.ports.OpenUow`): a factory that
   starts a transaction and hands back the **Repositories** inside it. Injected
-  through aiogram's `workflow_data` by `cli/bot.py`, which is the one module
-  that turns a psycopg pool into one. A factory rather than an open
+  through aiogram's `workflow_data` by `service/cli/bot.py`, which is the one
+  module that turns a psycopg pool into one. A factory rather than an open
   transaction, because a round renders a question in one and settles the parked
   `file_id` in the next.
 - **Ports** — the protocols in `domain/ports.py` that the bot is written
@@ -129,7 +129,7 @@ ______________________________________________________________________
   autogenerate). The `digitex-db` CLI is the entry point. The scripts and
   `alembic.ini` live *inside* the package at `db/migrations/`, resolved through
   `importlib.resources` by `db.schema.alembic_config()` — which is what lets the
-  image install the project as an ordinary wheel with no copy of `src/`.
+  image install `digitex-service` as an ordinary wheel carrying no source tree.
 - **Repository** — the only layer that touches raw SQL. One class per *role*
   rather than per aggregate, because a question is addressed five different
   ways and no caller wanted more than three of them: `QuestionCatalog` (reading
@@ -160,14 +160,25 @@ ______________________________________________________________________
 - **Data root** — `PathsSettings.data_root` (`PATH_DATA_ROOT`, default `var/`).
   Every non-code input and output hangs off it. No path is ever derived from the
   package's own location, which is why there is no `BASE_DIR`.
-- **Deploy boundary** — only `bot`, `db`, `domain` and `config` ship. Enforced
-  two ways, because neither covers the other: `[tool.importlinter]` states which
-  packages and which third-party distributions the deploy layer may reach, and
-  `tests/contracts/` imports every deployed module in an environment built the
-  way production is. Adding an import from `bot` to `imaging`, `ml`, `labeling`,
-  `pipeline` or `ui` fails both. A fifth contract states the inversion — `bot`
-  may not reach `db`, `psycopg` or `psycopg_pool` at all — which is a direction
-  rather than a list, and so needs no second copy anywhere.
+- **Workspace member** — one of the three distributions the repo builds:
+  `digitex-core` (`domain`, `config`, `logging`, `console`), `digitex-service`
+  (`bot`, `db`, `service`) and `digitex-studio` (`imaging`, `ml`, `labeling`,
+  `pipeline`, `ui`, `studio`). `digitex` is a PEP 420 namespace, so no member
+  owns a `digitex/__init__.py` and each contributes subpackages to the same
+  import root. Which member a module lives in is the load-bearing fact about
+  it; the directory prefix (`packages/<member>/src/`) is just where that is
+  written down.
+- **Deploy boundary** — only `digitex-core` and `digitex-service` ship, and
+  that is a property of the dependency graph rather than a rule about it: the
+  service member does not depend on the studio member, so the production image
+  never resolves OpenCV, torch or Tesseract. They are absent, not forbidden.
+  Two things still have jobs packaging cannot do. `[tool.importlinter]` states
+  the direction of imports *inside* a member — chiefly the inversion, that
+  `bot` may not reach `db`, `psycopg` or `psycopg_pool` at all — plus one
+  belt-and-braces contract that catches a studio import on a dev machine, where
+  the studio *is* installed. `tests/contracts/` imports every deployed module
+  in an environment built the way production is, which proves the declared
+  dependency list is *sufficient* to run the bot rather than merely minimal.
 
 ## ML terms
 

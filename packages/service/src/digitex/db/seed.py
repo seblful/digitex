@@ -13,7 +13,7 @@ and costs the guarantee that a row and its bytes agree — which is what
 rather than after.
 
 The caller supplies the pool and the output directory; migrating the schema
-first is :mod:`digitex.cli.db`'s job.
+first is :mod:`digitex.service.cli.db`'s job.
 """
 
 from __future__ import annotations
@@ -167,6 +167,12 @@ async def _populate_topics(
                                 topic_id,
                             )
         return await uow.topics.count_topics()
+
+    # Reached only when ``__aexit__`` suppressed a ``Rollback``: psycopg's
+    # transaction manager does that, so the ``async with`` can finish without
+    # its body having. Nothing was committed on that path, so nothing was
+    # mapped — and the count the caller prints has to say so.
+    return 0
 
 
 async def populate_subject(

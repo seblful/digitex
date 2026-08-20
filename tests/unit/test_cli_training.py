@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import pytest
 from typer.testing import CliRunner
 
-from digitex.cli import training
+from digitex.studio.cli import training
 
 if TYPE_CHECKING:
     from pathlib import Path

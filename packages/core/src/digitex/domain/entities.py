@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime  # noqa: TC003 — Pydantic needs runtime type
-from typing import Final, Literal, NamedTuple, NewType, cast
+from typing import Final, Literal, NamedTuple, NewType
 
 from pydantic import BaseModel, Field
 
@@ -84,7 +84,9 @@ def parse_exam_type(raw: str) -> ExamType:
     """
     if raw not in _EXAM_TYPES:
         raise ValueError(f"Unknown exam type {raw!r}; expected 'CE' or 'CT'")
-    return cast("ExamType", raw)
+    # No cast: membership in `_EXAM_TYPES` is what narrows `raw` to the literal,
+    # so the checker already knows. A cast here would only hide it going wrong.
+    return raw
 
 
 @dataclass(frozen=True)

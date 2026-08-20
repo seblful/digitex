@@ -1,0 +1,29 @@
+[project]
+name = "digitex-core"
+version = "0.2.0"
+description = "Digitex domain rules, settings and logging — the layer everything depends on"
+requires-python = ">=3.13"
+# Deliberately tiny. Everything here is pure Python plus validation: the exam
+# entities, the answer-matching rules, the on-disk corpus layout, the settings
+# tree. No database driver, no image library, no model runtime, no web
+# framework — which is what makes it safe for both the bot and the studio to
+# build on.
+dependencies = [
+  "pydantic>=2.0",
+  "pydantic-settings>=2.0",
+  "python-dotenv>=1.0",
+  "structlog>=26",
+  "typer",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# `digitex` is a PEP 420 namespace: this member contributes `digitex.domain`,
+# `digitex.config`, `digitex.logging` and `digitex.console`, and no member owns
+# a `digitex/__init__.py`. `only-include` rather than `packages`, because the
+# latter expects a regular package with an `__init__.py` at its root.
+[tool.hatch.build.targets.wheel]
+only-include = ["src/digitex"]
+sources = ["src"]

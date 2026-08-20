@@ -8,8 +8,8 @@ from zoneinfo import ZoneInfo
 import structlog
 
 from digitex.bot.dispatcher import create_dispatcher
-from digitex.cli._shared import run_async
 from digitex.config import get_settings
+from digitex.console import run_async
 from digitex.db import UnitOfWork, null_pool_lifespan, pool_lifespan
 from digitex.logging import setup_logging
 
@@ -82,10 +82,6 @@ def main() -> None:
             )
 
     run_async(_main())
-
-
-# typer-compatible app object for the project script entry point.
-app = main
 
 
 if __name__ == "__main__":

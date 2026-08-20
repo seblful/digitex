@@ -1,0 +1,53 @@
+[project]
+name = "digitex-studio"
+version = "0.2.0"
+description = "Scans to a question corpus: preprocessing, detection, review, training"
+requires-python = ">=3.13"
+# The laptop half of Digitex. None of this ships to the VPS, so the heavy
+# dependencies live here and the service package never sees them.
+#
+# The extraction path is the base install; the two workflows with their own
+# large trees are extras, so a machine that only runs extraction does not pull
+# an annotation server or a model runtime.
+dependencies = [
+  "digitex-core",
+  "numpy",
+  "openai",
+  "opencv-python",
+  "pillow",
+  "pytesseract",
+]
+
+[project.optional-dependencies]
+# YOLO segmentation, training and prediction — docs/training.md. torch arrives
+# with ultralytics; which wheel index it comes from is the workspace root's
+# `cpu` / `cu130` extras.
+ml = [
+  "pyyaml",
+  "shapely>=2.1.2",
+  "ultralytics",
+]
+# Annotation server and its SDK — docs/label-studio.md
+labeling = [
+  "label-studio>=1.23.0",
+  "label-studio-sdk",
+  "legacy-cgi>=2.6.4",
+]
+
+[project.scripts]
+digitex-extract = "digitex.studio.cli.extraction:app"
+digitex-train = "digitex.studio.cli.training:app"
+digitex-label = "digitex.studio.cli.labeling:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Contributes `digitex.imaging`, `digitex.ml`, `digitex.labeling`,
+# `digitex.pipeline`, `digitex.ui` and `digitex.studio` to the namespace.
+[tool.hatch.build.targets.wheel]
+only-include = ["src/digitex"]
+sources = ["src"]
+
+[tool.uv.sources]
+digitex-core = { workspace = true }

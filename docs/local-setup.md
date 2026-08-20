@@ -19,20 +19,23 @@ uv sync --all-extras --no-extra cpu
 ```
 
 Plain `uv sync` installs only what production runs — the bot, its database
-layer, and the migration CLI. The rest is grouped by workflow:
+layer, and the migration CLI. That is the whole of `digitex-service`, and the
+workspace root always installs it. The laptop half is one extra on top:
 
 | Extra | For | Notable weight |
-| ------------ | ---------------------------------- | ------------------------- |
-| `extraction` | books → question images | OpenCV, Pillow, Tesseract |
-| `ml` | YOLO training and prediction | ultralytics (needs torch) |
-| `labeling` | the Label Studio annotation server | a whole Django app |
+| -------- | -------------------------------------------- | ------------------------- |
+| `studio` | scans → question images, training, annotation | OpenCV, Tesseract, ultralytics, a whole Django app |
 | `cu130` | torch from the CUDA wheel index | ~3GB |
 | `cpu` | torch from the CPU wheel index | ~200MB |
 
+`studio` pulls `digitex-studio` with both of its own extras — `ml` (ultralytics,
+which brings torch) and `labeling` (the Label Studio server) — so there is
+nothing finer-grained to pick between here.
+
 `cpu` and `cu130` conflict, so exactly one can be active — which is why the
 command above takes everything *except* `cpu`. On a machine without an NVIDIA
-GPU, swap it: `uv sync --all-extras --no-extra cu130`. Working on one thing
-only? `uv sync --extra pipeline` is enough.
+GPU, swap it: `uv sync --all-extras --no-extra cu130`, which is the same install
+as `uv sync --extra studio --extra cpu`.
 
 ## 2. Configure environment
 

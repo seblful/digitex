@@ -13,13 +13,13 @@ from typing import TYPE_CHECKING
 import pytest
 from typer.testing import CliRunner
 
-from digitex.cli import extraction
 from digitex.config import (
     OpenRouterSettings,
     PathsSettings,
     PipelineSettings,
     Settings,
 )
+from digitex.studio.cli import extraction
 
 if TYPE_CHECKING:
     from pathlib import Path

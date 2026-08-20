@@ -52,7 +52,7 @@ takes either key.
 ## Commands
 
 Everything that talks to the server is one CLI, `digitex-label`
-(`src/digitex/cli/labeling.py`):
+(`packages/studio/src/digitex/studio/cli/labeling.py`):
 
 | Command | What it does |
 | :--- | :--- |
