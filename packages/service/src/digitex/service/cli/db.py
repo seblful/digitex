@@ -21,42 +21,52 @@ from alembic import command
 
 from digitex.config import get_settings
 from digitex.console import abort, run_async
-from digitex.db.schema import alembic_config as _cfg
+from digitex.db.schema import alembic_config
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    # Type-only, so the seed loader still is not imported at module scope: it
+    # pulls the whole data-access layer in, and `upgrade` runs in a container
+    # that has no corpus to load.
+    from digitex.db.seed import ImageCheck
+
 app = typer.Typer(help="Alembic-backed migrations and corpus loading.")
+
+
+# The migration commands are thin on purpose: Alembic's own API is the interface,
+# and wrapping it in anything richer would be a second place for a revision
+# argument to mean something.
 
 
 @app.command()
 def upgrade(revision: str = "head") -> None:
     """Upgrade schema to the given revision (default: head)."""
-    command.upgrade(_cfg(), revision)
+    command.upgrade(alembic_config(), revision)
 
 
 @app.command()
 def downgrade(revision: str = "-1") -> None:
     """Downgrade schema by one revision (or to a given target)."""
-    command.downgrade(_cfg(), revision)
+    command.downgrade(alembic_config(), revision)
 
 
 @app.command()
 def current() -> None:
     """Print the current revision applied to the database."""
-    command.current(_cfg(), verbose=True)
+    command.current(alembic_config(), verbose=True)
 
 
 @app.command()
 def history() -> None:
     """List the full revision history."""
-    command.history(_cfg(), verbose=True)
+    command.history(alembic_config(), verbose=True)
 
 
 @app.command()
 def revision(message: str) -> None:
     """Create a new (empty, hand-written) revision file."""
-    command.revision(_cfg(), message=message, autogenerate=False)
+    command.revision(alembic_config(), message=message, autogenerate=False)
 
 
 def _require_dir(path: Path, what: str) -> None:
@@ -77,12 +87,12 @@ def populate(
     Idempotent — every write is a ``get_or_create``, so re-running after a new
     extraction adds what is new and leaves the rest alone.
     """
-    # Imported here, not at module scope: `upgrade` runs in a container that
-    # has no corpus, and this pulls the whole data-access layer in with it.
+    # Imported here, not at module scope: `upgrade` runs in a container that has
+    # no corpus, and this pulls the whole data-access layer in with it.
     from digitex.db import null_pool_lifespan
     from digitex.db.seed import populate as populate_db
 
-    command.upgrade(_cfg(), "head")
+    command.upgrade(alembic_config(), "head")
 
     settings = get_settings()
     output_dir = settings.paths.extraction_output_dir
@@ -109,7 +119,6 @@ def check_images() -> None:
     anything is off, so a deploy can gate on it.
     """
     from digitex.db import null_pool_lifespan
-    from digitex.db.seed import ImageCheck
     from digitex.db.seed import check_images as run_check
 
     settings = get_settings()
@@ -121,7 +130,20 @@ def check_images() -> None:
             return await run_check(pool, questions_dir)
 
     result = run_async(_run())
+    _report_drift(result)
 
+    if result.ok:
+        typer.echo(typer.style("\nImages and rows agree.", fg="green"))
+        return
+    raise typer.Exit(code=1)
+
+
+def _report_drift(result: ImageCheck) -> None:
+    """Print each way the rows and the files disagree, with the remedy.
+
+    The label carries the fix because the three cases have three different
+    ones, and the operator reading this is deciding which to run.
+    """
     for label, keys in (
         ("missing on disk (sync the corpus)", result.missing),
         ("changed since seeding (run populate)", result.stale),
@@ -134,11 +156,6 @@ def check_images() -> None:
         # page of scrollback, not a problem.
         for key in keys:
             typer.echo(f"  {key}")
-
-    if result.ok:
-        typer.echo(typer.style("\nImages and rows agree.", fg="green"))
-        return
-    raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":

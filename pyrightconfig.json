@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "For editors only. `ty` is the type checker CI runs (see [tool.ty] in",
+    "pyproject.toml); this file exists because Pylance and Pyright resolve",
+    "imports from the workspace folder rather than from the installed",
+    "environment, and `digitex` is a PEP 420 namespace contributed to by three",
+    "workspace members. Without the roots listed here every `import",
+    "digitex.domain.entities` in the editor reads as unresolved, while `ty`,",
+    "pytest and the running bot all resolve it fine.",
+    "Add a member here when you add one to [tool.uv.workspace].",
+    "Only the paths are set. `typeCheckingMode` is deliberately left alone so",
+    "the editor keeps whatever the developer chose — this file fixes resolution,",
+    "it does not appoint a second type checker with opinions of its own."
+  ],
+  "extraPaths": [
+    "packages/core/src",
+    "packages/service/src",
+    "packages/studio/src"
+  ],
+  "include": ["packages", "tests"],
+  "exclude": ["**/__pycache__", ".venv", "var", "logs", "graphify-out"],
+  "pythonVersion": "3.13",
+  "venvPath": ".",
+  "venv": ".venv"
+}
