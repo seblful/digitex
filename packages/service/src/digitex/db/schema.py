@@ -1,14 +1,14 @@
-"""Locating the migrations, wherever the package was installed.
+"""Finding the migrations, wherever the package ended up installed.
 
-``alembic.ini`` and ``migrations/`` ship inside this package, so they are found
-through :mod:`importlib.resources` rather than by walking up from a source
-file's ``__file__``. That is what lets the production image install the project
-as an ordinary wheel: nothing has to guess where a checkout was, and the
-container needs no copy of ``src/``.
+``alembic.ini`` and ``migrations/`` are package data, not repository files, and
+they are located through :mod:`importlib.resources` rather than by walking up
+from some module's ``__file__``. That is what lets the production image install
+``digitex-service`` as an ordinary wheel: nothing has to guess where a checkout
+was, and the container carries no ``src/`` tree to guess about.
 
-Both the ``digitex-db`` CLI and the integration test suite build their Alembic
-config here, so there is one answer to "where are the migrations" rather than
-two that can drift apart.
+One function, used by both the ``digitex-db`` CLI and the integration suite, so
+"where are the migrations" has a single answer rather than two that can drift.
+Applying them is Alembic's job and lives in the CLI; this only points at them.
 """
 
 from __future__ import annotations
@@ -23,16 +23,16 @@ PACKAGE = "digitex.db"
 
 
 def alembic_config() -> Config:
-    """Build an Alembic config pointed at the packaged migration scripts.
+    """Build an Alembic config aimed at the packaged migration scripts.
 
-    The paths are used directly rather than through
-    :func:`importlib.resources.as_file`, because Alembic needs a
-    ``script_location`` that outlives a context manager. Wheels are always
-    unpacked on install, so the resources are real files — this would only
-    break if the project were ever run from a zipapp.
+    The resource paths are stringified directly rather than borrowed through
+    :func:`importlib.resources.as_file`, because Alembic keeps
+    ``script_location`` well past the point a context manager would have closed.
+    Installing a wheel unpacks it, so these are real files on disk; only running
+    from a zipapp would break the assumption, and nothing does.
     """
-    # Imported here rather than at module scope: the bot imports digitex.db for
-    # its connection pool and never migrates, and Alembic drags in SQLAlchemy.
+    # Deferred on purpose: Alembic pulls in SQLAlchemy, and the bot imports
+    # digitex.db for its pool without ever migrating anything.
     from alembic.config import Config
 
     package = files(PACKAGE)

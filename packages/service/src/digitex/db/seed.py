@@ -1,19 +1,20 @@
-"""Load extraction output into the database, and check that it still matches.
+"""Loading the extraction output into the database, and checking it stayed true.
 
-The on-disk corpus (``{subject}/{year}/{option}/{part}/{n}.png`` plus its
-``answers.json``) becomes rows, and so does the book archive's per-subject
-``topics.json``. Every write goes through ``get_or_create``, so a re-run of the
-same output is a no-op rather than a duplicate — which is what makes re-seeding
-after new extractions safe.
+Two directions over the same corpus. :func:`populate` turns the output tree
+(``{subject}/{year}/{option}/{part}/{n}.png`` plus a per-year ``answers.json``,
+plus the book archive's hand-written ``topics.json``) into rows. Every write is
+an upsert, so re-running after a new extraction adds what is new and leaves the
+rest alone — which is what makes re-seeding a routine step rather than a
+migration.
 
 Images are the exception to "becomes rows": the file stays on disk and the row
-records its key and content hash. That buys a small database and a cheap seed,
-and costs the guarantee that a row and its bytes agree — which is what
-:func:`check_images` is for, and why the runbook syncs the files before seeding
-rather than after.
+records its key and content hash. That keeps the database a few megabytes and
+the seed cheap, and costs the guarantee that a row and its bytes still agree —
+which is what :func:`check_images` exists to re-establish, and why the runbook
+syncs files *before* seeding rather than after.
 
-The caller supplies the pool and the output directory; migrating the schema
-first is :mod:`digitex.service.cli.db`'s job.
+Migrating the schema first is :mod:`digitex.service.cli.db`'s job; the caller
+hands in an open pool and the two corpus roots.
 """
 
 from __future__ import annotations
@@ -40,6 +41,11 @@ if TYPE_CHECKING:
 
     from psycopg_pool import AsyncConnectionPool
 
+    from digitex.domain.entities import ExamType
+
+# The output tree names subjects in English because that is what the pipeline
+# writes; the bot shows a student the Russian name. Anything unmapped is shown
+# capitalised, so a new subject seeds before it is translated.
 SUBJECT_NAMES = {
     "biology": "Биология",
     "chemistry": "Химия",
@@ -52,21 +58,97 @@ SUBJECT_NAMES = {
 
 
 def get_subject_name(subject: str) -> str:
-    """Translate subject name to Russian if mapping exists."""
+    """The name a subject directory is stored and displayed under."""
     return SUBJECT_NAMES.get(subject.lower(), subject.capitalize())
+
+
+# ---------------------------------------------------------------------------
+# Walking the output tree
+# ---------------------------------------------------------------------------
+
+
+def _numbered_subdirs(parent: Path) -> list[Path]:
+    """The numerically named subdirectories of *parent*, in numeric order.
+
+    Both numbered levels of the output tree — years under a subject, options
+    under a year — are read through this, so ``10`` lands after ``9`` at each
+    of them rather than after ``1``. Anything else in the directory belongs to
+    something other than the corpus and is skipped.
+    """
+    numbered = (
+        path for path in parent.iterdir() if path.is_dir() and path.name.isdigit()
+    )
+    return sorted(numbered, key=lambda path: int(path.name))
+
+
+def _question_images(option_dir: Path) -> Iterator[tuple[QuestionKey, Path]]:
+    """Every question image under one option, Part A first and then by number.
+
+    Sorting the part directories puts A before B; the numbers are sorted as
+    numbers, because ``10.png`` is not between ``1.png`` and ``2.png``. That
+    ordering is the order rows are written in, so a re-seed replays the same
+    sequence it did the first time.
+    """
+    for part_dir in sorted(option_dir.iterdir()):
+        if not part_dir.is_dir() or part_dir.name not in ("A", "B"):
+            continue
+        numbered = sorted(
+            (number, path)
+            for path in part_dir.iterdir()
+            if (number := question_image_number(path)) is not None
+        )
+        for number, path in numbered:
+            yield QuestionKey.parse(f"{part_dir.name}{number}"), path
+
+
+def _read_answers(year_dir: Path) -> dict[str, dict[str, str]]:
+    """One year's answer key, as ``{option number: {question key: answer}}``.
+
+    Empty when the year shipped without one. Worth saying out loud, because
+    every question in that year will load with a NULL key — but not worth
+    refusing the year over: the images are still servable.
+    """
+    answers_file = year_dir / "answers.json"
+    if not answers_file.exists():
+        tqdm.write(f"  Warning: no answers.json in {year_dir}")
+        return {}
+    return json.loads(answers_file.read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# Populate
+# ---------------------------------------------------------------------------
+
+
+async def _load_question(
+    uow: UnitOfWork, option_id: int, key: QuestionKey, raw_answer: str | None
+) -> tuple[int, bool]:
+    """Store one question; return its id and whether a key came with it.
+
+    A question whose ``answers.json`` entry is absent, blank or unusable is
+    loaded anyway with a NULL key, so its image stays servable and nothing a
+    student sends can match it. An answer that was present but rejected earns a
+    warning — that is a typo in a hand-checked file rather than an absence.
+    """
+    if raw_answer:
+        try:
+            return await uow.corpus.get_or_create(option_id, key, raw_answer), True
+        except ValueError as e:
+            tqdm.write(f"  Warning: {e} — storing it without a key")
+    return await uow.corpus.get_or_create(option_id, key, None), False
 
 
 async def _populate_year(
     uow: UnitOfWork, subject_id: int, output_dir: Path, year_dir: Path
 ) -> tuple[int, int]:
-    year = int(year_dir.name)
+    """Load one year: its options, questions and images.
 
-    answers: dict[str, dict[str, str]] = {}
-    answers_file = year_dir / "answers.json"
-    if answers_file.exists():
-        answers = json.loads(answers_file.read_text(encoding="utf-8"))
-    else:
-        tqdm.write(f"  Warning: no answers.json in {year_dir}")
+    Returns ``(questions loaded, answer keys among them)`` — the two numbers the
+    caller reports, and the gap between them is how much of the year is
+    unscoreable.
+    """
+    year = int(year_dir.name)
+    answers = _read_answers(year_dir)
 
     book_id = await uow.books.get_book(subject_id, year)
     if book_id is None:
@@ -75,63 +157,56 @@ async def _populate_year(
     questions_loaded = 0
     answers_loaded = 0
 
-    option_dirs = sorted(
-        (d for d in year_dir.iterdir() if d.is_dir() and d.name.isdigit()),
-        key=lambda d: int(d.name),
-    )
-
-    for option_dir in option_dirs:
+    for option_dir in _numbered_subdirs(year_dir):
         option_number = int(option_dir.name)
-        exam_type = exam_type_for(year, option_number)
+        # Which exam variant an option is depends on its year and number, so it
+        # is derived here rather than read off the tree, which does not say.
         option_id = await uow.books.get_or_create_option(
-            book_id, option_number, exam_type
+            book_id, option_number, exam_type_for(year, option_number)
         )
         option_answers = answers.get(str(option_number), {})
 
-        for part_dir in sorted(option_dir.iterdir()):
-            if not part_dir.is_dir() or part_dir.name not in ("A", "B"):
-                continue
-
-            numbered = sorted(
-                (number, f)
-                for f in part_dir.iterdir()
-                if (number := question_image_number(f)) is not None
+        for key, image in _question_images(option_dir):
+            question_id, keyed = await _load_question(
+                uow, option_id, key, option_answers.get(str(key))
             )
-
-            for number, img_file in numbered:
-                key = QuestionKey.parse(f"{part_dir.name}{number}")
-                raw_answer = option_answers.get(str(key))
-
-                question_id: int | None = None
-                if raw_answer:
-                    try:
-                        question_id = await uow.corpus.get_or_create(
-                            option_id, key, raw_answer
-                        )
-                        answers_loaded += 1
-                    except ValueError as e:
-                        tqdm.write(f"  Warning: {e} — storing it without a key")
-
-                if question_id is None:
-                    # A Question whose answers.json entry is missing or unusable
-                    # is still loaded, so its image is servable — with a NULL
-                    # key, which no reply can match.
-                    question_id = await uow.corpus.get_or_create(option_id, key, None)
-
-                await uow.corpus.set_image(
-                    question_id,
-                    question_object_key(output_dir, img_file),
-                    file_digest(img_file),
-                )
-                questions_loaded += 1
+            await uow.corpus.set_image(
+                question_id,
+                question_object_key(output_dir, image),
+                file_digest(image),
+            )
+            questions_loaded += 1
+            if keyed:
+                answers_loaded += 1
 
     return questions_loaded, answers_loaded
+
+
+async def _option_ids(uow: UnitOfWork, book_id: int, exam_type: ExamType) -> list[int]:
+    """The ids of one book's options in one exam variant.
+
+    An option id depends only on its book and number, so a topic's whole key
+    list resolves against one of these rather than a lookup per key.
+    """
+    return [
+        await uow.books.get_option_id(book_id, option_number)
+        for option_number in await uow.books.list_options(book_id, exam_type)
+    ]
 
 
 async def _populate_topics(
     pool: AsyncConnectionPool, subject_id: int, topics_file: Path
 ) -> int:
-    """Populate question_topics from topics.json. Returns mapping count."""
+    """Map a subject's hand-written topics onto the questions already loaded.
+
+    Returns how many mappings the database holds afterwards. Optional: a subject
+    with no ``topics.json`` keeps every question and simply offers no topic
+    rounds.
+
+    A topic names questions by year, exam type and key rather than by id, and it
+    names them for every option of that year at once — the same question number
+    is the same topic whichever option a student draws it from.
+    """
     if not topics_file.exists():
         tqdm.write(f"  No {topics_file}, skipping topics")
         return 0
@@ -140,38 +215,28 @@ async def _populate_topics(
 
     async with UnitOfWork(pool) as uow:
         for topic_name, years in tqdm(topics_data.items(), desc="topics"):
-            # The name is stored once, on the topic; the mappings below carry
-            # its id.
             topic_id = await uow.topics.get_or_create_topic(subject_id, topic_name)
             for year_str, exam_types in years.items():
-                year = int(year_str)
-                book_id = await uow.books.get_book(subject_id, year)
+                book_id = await uow.books.get_book(subject_id, int(year_str))
+                # A topic may name a year that was never extracted.
                 if book_id is None:
                     continue
                 for exam_type_name, keys in exam_types.items():
-                    exam_type = parse_exam_type(exam_type_name)
-                    option_numbers = await uow.books.list_options(book_id, exam_type)
-                    # Option ids depend only on (book_id, option_number), so
-                    # resolve them once rather than per topic key.
-                    option_ids = [
-                        await uow.books.get_option_id(book_id, option_number)
-                        for option_number in option_numbers
-                    ]
-                    for key in keys:
-                        question_key = QuestionKey.parse(key)
+                    option_ids = await _option_ids(
+                        uow, book_id, parse_exam_type(exam_type_name)
+                    )
+                    for raw_key in keys:
+                        key = QuestionKey.parse(raw_key)
                         for option_id in option_ids:
                             await uow.topics.upsert_topic(
-                                option_id,
-                                question_key.number,
-                                question_key.part,
-                                topic_id,
+                                option_id, key.number, key.part, topic_id
                             )
         return await uow.topics.count_topics()
 
     # Reached only when ``__aexit__`` suppressed a ``Rollback``: psycopg's
-    # transaction manager does that, so the ``async with`` can finish without
-    # its body having. Nothing was committed on that path, so nothing was
-    # mapped — and the count the caller prints has to say so.
+    # transaction manager does that, so the ``async with`` can finish without its
+    # body having. Nothing committed on that path means nothing was mapped, and
+    # the count the caller prints has to say so.
     return 0
 
 
@@ -180,18 +245,19 @@ async def populate_subject(
 ) -> None:
     """Load one subject's years from *output_dir*, then its topic mappings.
 
-    The topic map is hand-written and lives in the book archive, not in the
-    extraction output, so both roots are needed.
+    Both roots are needed because the topic map is hand-written and lives in the
+    book archive rather than in the extraction output.
+
+    A transaction per year, not per subject: a year is the unit worth keeping
+    when the next one fails, and a whole subject in one transaction would hold a
+    connection open for the length of the hashing.
     """
     subject_dir = output_dir / subject
     if not subject_dir.exists():
         tqdm.write(f"Not found: {subject_dir}")
         return
 
-    year_dirs = sorted(
-        (d for d in subject_dir.iterdir() if d.is_dir() and d.name.isdigit()),
-        key=lambda d: int(d.name),
-    )
+    year_dirs = _numbered_subdirs(subject_dir)
     if not year_dirs:
         tqdm.write(f"No year directories found under {subject_dir}")
         return
@@ -221,12 +287,12 @@ async def populate(
     books_dir: Path,
     subject: str | None = None,
 ) -> None:
-    """Load *subject* from *output_dir*, or every subject found there."""
+    """Load *subject* from *output_dir*, or every subject the tree holds."""
     if subject is not None:
         await populate_subject(pool, output_dir, books_dir, subject)
         return
 
-    subjects = sorted(d.name for d in output_dir.iterdir() if d.is_dir())
+    subjects = sorted(path.name for path in output_dir.iterdir() if path.is_dir())
     if not subjects:
         tqdm.write("No subjects found in extraction output.")
         return
@@ -245,22 +311,20 @@ def _all_question_images(output_dir: Path) -> Iterator[Path]:
     for subject_dir in sorted(output_dir.iterdir()):
         if not subject_dir.is_dir():
             continue
-        for year_dir in sorted(subject_dir.iterdir()):
-            if not year_dir.is_dir() or not year_dir.name.isdigit():
-                continue
+        for year_dir in _numbered_subdirs(subject_dir):
             for image in walk_question_images(year_dir):
                 yield image.path
 
 
 @dataclass(frozen=True)
 class ImageCheck:
-    """Where the ``images`` table and the image corpus disagree.
+    """Where the ``images`` rows and the image files disagree.
 
-    Each list holds object keys. They are separate because the fixes differ:
-    *missing* means the files never reached this machine (sync them), *stale*
-    means they did but the rows were not re-seeded afterwards (populate), and
-    *orphaned* means files nothing points at (a subject that was never seeded,
-    or extraction output that outlived its questions).
+    Three lists of object keys, kept apart because each names a different fix:
+    *missing* means the files never reached this machine (sync the corpus),
+    *stale* means they did but the rows were not re-seeded afterwards (populate),
+    and *orphaned* means files nothing points at — a subject that was never
+    seeded, or output that outlived its questions.
     """
 
     missing: list[str]
@@ -269,11 +333,17 @@ class ImageCheck:
 
     @property
     def ok(self) -> bool:
+        """True when every row has its file and every file has its row."""
         return not (self.missing or self.stale or self.orphaned)
 
 
 async def check_images(pool: AsyncConnectionPool, output_dir: Path) -> ImageCheck:
-    """Compare every stored image key and hash against the files on disk."""
+    """Compare every stored key and hash against the files on this machine.
+
+    Hashing is the expensive half and only the keys present on both sides need
+    it: a key with no file is already missing, and a file with no key is already
+    orphaned, whatever their bytes say.
+    """
     async with UnitOfWork(pool) as uow:
         stored = dict(await uow.corpus.list_images())
 
