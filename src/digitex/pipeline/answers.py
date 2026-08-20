@@ -16,12 +16,12 @@ from digitex.domain.corpus import (
     parse_answer_sheet_stem,
 )
 from digitex.domain.entities import QuestionKey, normalize_option_number
-from digitex.pipeline.base import ExtractionResult
 from digitex.pipeline.exceptions import (
     APIError,
     DirectoryNotFoundError,
     InvalidFilenameError,
 )
+from digitex.pipeline.outcome import AnswersReport
 
 logger = structlog.get_logger()
 
@@ -169,7 +169,7 @@ class AnswersExtractor:
         year, _ = parsed
         return year
 
-    def extract(self, subject: str) -> ExtractionResult:
+    def extract(self, subject: str) -> AnswersReport:
         answers_dir = book_answers_dir(self._books_dir, subject, PROCESSED)
         if not answers_dir.exists():
             raise DirectoryNotFoundError(answers_dir)
@@ -181,9 +181,7 @@ class AnswersExtractor:
 
         if not image_files:
             logger.warning("No answer images found", answers_dir=str(answers_dir))
-            return ExtractionResult.success_result(
-                processed=0, warnings=["No answer images found"]
-            )
+            return AnswersReport(note="No answer images found")
 
         years_data: dict[int, dict[str, dict[str, str]]] = {}
         errors: list[str] = []
@@ -245,12 +243,8 @@ class AnswersExtractor:
             )
             processed_count += 1
 
-        if errors:
-            return ExtractionResult.failure_result(
-                errors=errors,
-                processed=processed_count,
-            )
-        return ExtractionResult.success_result(
-            processed=processed_count,
-            metadata={"years_processed": len(years_data)},
+        return AnswersReport(
+            years=len(years_data),
+            sheets=processed_count,
+            failures=tuple(errors),
         )

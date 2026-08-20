@@ -1,4 +1,4 @@
-"""Tests for the book / subject extractors and the shared ExtractionResult."""
+"""Tests for the book and subject extractors, and the reports they return."""
 
 from pathlib import Path
 from typing import cast
@@ -7,9 +7,18 @@ import pytest
 from PIL import Image
 
 from digitex.domain.placement import PageExtractionState, QuestionPlacement
-from digitex.pipeline.base import ExtractionResult
 from digitex.pipeline.book import BookExtractor
 from digitex.pipeline.exceptions import DirectoryNotFoundError, ReviewAborted
+from digitex.pipeline.outcome import (
+    BookReport,
+    Collision,
+    PageFailure,
+    SubjectRefused,
+    SubjectReport,
+    UnfinishedPieces,
+    YearReport,
+    messages,
+)
 from digitex.pipeline.page import PageExtractor
 from digitex.pipeline.pieces import HeldPiece, PageCarry
 from digitex.pipeline.subject import PROGRESS_FILE, SubjectExtractor
@@ -85,9 +94,10 @@ class TestBookExtractor:
     def test_extract_no_images_warns(self, tmp_path: Path) -> None:
         extractor = BookExtractor(_RecordingPageExtractor().as_page_extractor())
         result = extractor.extract(tmp_path, tmp_path / "output")
-        assert result.success
-        assert result.processed == 0
-        assert result.warnings == ["No images found"]
+        assert result.clean
+        assert result.pages == 0
+        assert result.note == "No images found"
+        assert not result.complete, "an empty book must stay retryable"
 
     def test_extract_processes_pages_in_natural_order(self, tmp_path: Path) -> None:
         image_dir = tmp_path / "book"
@@ -102,8 +112,8 @@ class TestBookExtractor:
 
         assert output_dir.exists()
         assert pages.pages == ["page_1.jpg", "page_2.jpg", "page_10.jpg"]
-        assert result.success
-        assert result.processed == 3
+        assert result.clean
+        assert result.pages == 3
 
     def test_each_page_is_told_its_place_in_the_book(self, tmp_path: Path) -> None:
         """Numbered in reading order, so a reviewer can say how far it has got."""
@@ -128,11 +138,9 @@ class TestBookExtractor:
 
         result = extractor.extract(image_dir, tmp_path / "output")
 
-        assert result.success  # partial success — caller inspects errors
-        assert result.processed == 1
-        assert len(result.errors) == 1
-        assert "page_1.jpg" in result.errors[0]
-        assert result.failed == 1
+        assert not result.clean
+        assert result.pages == 1
+        assert [f.page for f in result.failures] == ["page_1.jpg"]
 
     def test_a_collision_is_a_warning_not_an_error(self, tmp_path: Path) -> None:
         """A kept-existing file must reach the caller without failing the book.
@@ -149,9 +157,15 @@ class TestBookExtractor:
 
         result = extractor.extract(image_dir, tmp_path / "output")
 
-        assert result.success
-        assert result.errors == []
-        assert result.warnings == [
+        assert result.clean, "a collision is not a failure"
+        assert result.failures == ()
+        assert result.collisions == (
+            Collision(
+                page="page_1.jpg",
+                placement=QuestionPlacement(option=1, part="A", number=1),
+            ),
+        )
+        assert messages(result.collisions) == [
             "page_1.jpg: 1/A/1 already extracted, kept the existing image"
         ]
 
@@ -185,8 +199,8 @@ class TestBookExtractor:
 
         assert pages.pages == ["page_1.jpg", "page_3.jpg"]
         assert pages.questions_on_arrival == [0, 1]
-        assert result.processed == 2
-        assert len(result.errors) == 1
+        assert result.pages == 2
+        assert len(result.failures) == 1
 
     def test_an_aborted_review_stops_the_book_instead_of_counting_a_failure(
         self, tmp_path: Path
@@ -234,8 +248,9 @@ class TestBookExtractorPieces:
             image_dir, tmp_path / "output"
         )
 
-        assert result.success
-        assert result.warnings == [
+        assert result.clean
+        assert result.unfinished == (UnfinishedPieces(page="1.jpg", count=1),)
+        assert messages(result.unfinished) == [
             "1.jpg: a question piece was left unfinished, nothing was written for it"
         ]
 
@@ -278,27 +293,37 @@ class TestSubjectExtractor:
 
     def test_extract_fails_on_missing_books_dir(self, tmp_path: Path) -> None:
         result = self._extractor(tmp_path).extract("math")
-        assert not result.success
-        assert len(result.errors) > 0
+        assert isinstance(result, SubjectRefused)
+        assert result.reason
 
     def test_extract_fails_on_unknown_subject(self, tmp_path: Path) -> None:
         (tmp_path / "books").mkdir()
         result = self._extractor(tmp_path).extract("nonexistent")
-        assert not result.success
-        assert "Subject 'nonexistent' not found" in result.errors[0]
+        assert isinstance(result, SubjectRefused)
+        assert "Subject 'nonexistent' not found" in result.reason
 
     def test_extract_fails_without_pages_folder(self, tmp_path: Path) -> None:
         (tmp_path / "books" / "math").mkdir(parents=True)
         result = self._extractor(tmp_path).extract("math")
-        assert not result.success
-        assert "No processed pages folder found" in result.errors[0]
+        assert isinstance(result, SubjectRefused)
+        assert "No processed pages folder found" in result.reason
 
-    def test_extract_warns_on_empty_pages_folder(self, tmp_path: Path) -> None:
+    def test_a_subject_with_no_years_is_nothing_to_do_not_a_refusal(
+        self, tmp_path: Path
+    ) -> None:
+        """The distinction the old boolean could not draw.
+
+        A missing archive and an archive with nothing left in it were both
+        reported by one type, and callers had to know which counters to read
+        to tell them apart.
+        """
         (tmp_path / "books" / "math" / "processed" / "pages").mkdir(parents=True)
+
         result = self._extractor(tmp_path).extract("math")
-        assert result.success
-        assert result.processed == 0
-        assert len(result.warnings) > 0
+
+        assert isinstance(result, SubjectReport)
+        assert result.extracted == 0
+        assert result.clean
 
     def test_extract_skips_completed_years(self, tmp_path: Path) -> None:
         year_dir = tmp_path / "books" / "math" / "processed" / "pages" / "2020"
@@ -312,9 +337,10 @@ class TestSubjectExtractor:
         (data_dir / PROGRESS_FILE).write_text('{"math": ["2020"]}')
 
         result = self._extractor(tmp_path, data_dir=data_dir).extract("math")
+        assert isinstance(result, SubjectReport)
 
-        assert result.skipped == 1
-        assert result.processed == 0
+        assert result.skipped == ("2020",)
+        assert result.extracted == 0
         # Nothing was written for the year — the book was never opened.
         assert not (tmp_path / "extraction" / "math").exists()
 
@@ -334,8 +360,9 @@ class TestSubjectExtractor:
         )
 
         result = extractor.extract("math")
+        assert isinstance(result, SubjectReport)
 
-        assert result.processed == 1
+        assert result.extracted == 1
         assert pages.pages == ["page_1.jpg"]
         # Progress persists without the caller asking for a save.
         assert '"2020"' in (data_dir / PROGRESS_FILE).read_text()
@@ -362,7 +389,9 @@ class TestSubjectExtractor:
 
         result = extractor.extract("math")
 
-        assert result.warnings
+        assert isinstance(result, SubjectReport)
+        assert result.collisions
+        assert result.clean, "collisions must not stop the year being recorded"
         assert '"2020"' in (data_dir / PROGRESS_FILE).read_text()
 
     def test_extract_does_not_record_a_year_whose_pages_failed(
@@ -370,8 +399,8 @@ class TestSubjectExtractor:
     ) -> None:
         """A partially-failed book stays retryable.
 
-        BookExtractor reports ``success=True`` alongside per-page errors, and a
-        year written to the progress file is skipped on every later run.
+        A year written to the progress file is skipped on every later run, so
+        one failed page has to keep the whole year retryable.
         """
         year_dir = tmp_path / "books" / "math" / "processed" / "pages" / "2020"
         year_dir.mkdir(parents=True)
@@ -388,14 +417,16 @@ class TestSubjectExtractor:
 
         result = extractor.extract("math")
 
-        assert result.errors
+        assert isinstance(result, SubjectReport)
+        assert result.failures
+        assert not result.clean
         assert not (data_dir / PROGRESS_FILE).exists()
 
     def test_extract_does_not_record_a_year_with_no_pages(self, tmp_path: Path) -> None:
         """An empty year directory is "nothing to do", not "done".
 
-        BookExtractor reports success over zero pages, and a year written to
-        the progress file is never retried — so scans copied in afterwards
+        A book over zero pages is clean but not complete, and a year written
+        to the progress file is never retried — so scans copied in afterwards
         would be skipped forever.
         """
         (tmp_path / "books" / "math" / "processed" / "pages" / "2020").mkdir(
@@ -405,36 +436,63 @@ class TestSubjectExtractor:
 
         result = self._extractor(tmp_path, data_dir=data_dir).extract("math")
 
-        assert result.success
+        assert isinstance(result, SubjectReport)
+        assert result.clean
         assert not (data_dir / PROGRESS_FILE).exists()
 
 
-class TestExtractionResult:
-    def test_success_result(self) -> None:
-        result = ExtractionResult.success_result(
-            processed=10, skipped=2, warnings=["Warning 1"]
+class TestReports:
+    """What the reports answer, and the two questions the old type conflated."""
+
+    def test_a_clean_book_over_no_pages_is_not_complete(self) -> None:
+        """`clean` is "nothing went wrong"; `complete` is "record it as done"."""
+        empty = BookReport(note="No images found")
+
+        assert empty.clean
+        assert not empty.complete
+
+    def test_a_book_with_only_collisions_is_complete(self) -> None:
+        """Which is what lets an interrupted year finish on a re-run."""
+        resumed = BookReport(
+            pages=2,
+            collisions=(
+                Collision(
+                    page="1.jpg",
+                    placement=QuestionPlacement(option=1, part="A", number=1),
+                ),
+            ),
         )
-        assert result.success is True
-        assert result.processed == 10
-        assert result.skipped == 2
-        assert result.warnings == ["Warning 1"]
-        assert result.errors == []
 
-    def test_failure_result(self) -> None:
-        result = ExtractionResult.failure_result(
-            errors=["Error 1", "Error 2"], processed=5
+        assert resumed.clean
+        assert resumed.complete
+
+    def test_a_book_with_a_failed_page_is_neither(self) -> None:
+        broken = BookReport(pages=1, failures=(PageFailure(page="2.jpg", cause="x"),))
+
+        assert not broken.clean
+        assert not broken.complete
+
+    def test_a_subject_gathers_what_its_years_reported(self) -> None:
+        """No merge step, so nothing can be lost to a shared key."""
+        report = SubjectReport(
+            years=(
+                YearReport(
+                    year="2020",
+                    book=BookReport(
+                        pages=1, failures=(PageFailure(page="a.jpg", cause="one"),)
+                    ),
+                ),
+                YearReport(
+                    year="2021",
+                    book=BookReport(
+                        pages=1, failures=(PageFailure(page="b.jpg", cause="two"),)
+                    ),
+                ),
+            ),
+            skipped=("2019",),
         )
-        assert result.success is False
-        assert result.processed == 5
-        assert result.errors == ["Error 1", "Error 2"]
-        assert result.warnings == []
 
-    def test_merge_results(self) -> None:
-        result1 = ExtractionResult.success_result(processed=10, warnings=["Warning 1"])
-        result2 = ExtractionResult.success_result(processed=5, warnings=["Warning 2"])
-
-        merged = result1.merge(result2)
-
-        assert merged.processed == 15
-        assert merged.warnings == ["Warning 1", "Warning 2"]
-        assert merged.success is True
+        assert report.extracted == 2
+        assert report.skipped == ("2019",)
+        assert [f.page for f in report.failures] == ["a.jpg", "b.jpg"]
+        assert not report.clean

@@ -10,8 +10,13 @@ from tqdm import tqdm
 
 from digitex.domain.corpus import is_image, natural_sort_key
 from digitex.domain.placement import PageExtractionState
-from digitex.pipeline.base import ExtractionResult
 from digitex.pipeline.exceptions import DirectoryNotFoundError, ReviewAborted
+from digitex.pipeline.outcome import (
+    BookReport,
+    Collision,
+    PageFailure,
+    UnfinishedPieces,
+)
 from digitex.pipeline.pieces import PageCarry
 
 if TYPE_CHECKING:
@@ -38,12 +43,13 @@ class BookExtractor:
         self,
         image_dir: Path,
         output_dir: Path,
-    ) -> ExtractionResult:
+    ) -> BookReport:
         """Extract question images from a directory of images.
 
-        Failed page reads are counted in ``failed`` and surfaced as ``errors``
-        alongside ``success=True`` — the caller decides whether one bad page
-        invalidates the whole book.
+        A page that raises is recorded as a failure and the run carries on —
+        the caller decides whether one bad page invalidates the whole book.
+        Collisions are recorded too, and are not failures: an interrupted year
+        meets its own earlier output on every page it replays.
         """
         if not image_dir.exists():
             raise DirectoryNotFoundError(image_dir)
@@ -55,9 +61,7 @@ class BookExtractor:
 
         if not images:
             logger.warning("No images found", image_dir=str(image_dir))
-            return ExtractionResult.success_result(
-                processed=0, warnings=["No images found"]
-            )
+            return BookReport(note="No images found")
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -70,8 +74,8 @@ class BookExtractor:
         # here. Per book, because no question spans two years.
         carry = PageCarry()
         processed_count = 0
-        errors: list[str] = []
-        warnings: list[str] = []
+        collisions_seen: list[Collision] = []
+        failures: list[PageFailure] = []
 
         for page_number, image_path in enumerate(
             tqdm(images, desc=f"Processing {image_dir.name}", leave=False), start=1
@@ -90,9 +94,8 @@ class BookExtractor:
                 # Not a page failure — resuming an unfinished year replays its
                 # pages over their own output — but the caller must see it, or
                 # a diverged numbering silently loses crops.
-                warnings.extend(
-                    f"{image_path.name}: {placement} already extracted,"
-                    " kept the existing image"
+                collisions_seen.extend(
+                    Collision(page=image_path.name, placement=placement)
                     for placement in collisions
                 )
             except ReviewAborted:
@@ -100,34 +103,30 @@ class BookExtractor:
                 # so no caller counts this book as finished.
                 raise
             except Exception as e:
-                msg = f"Failed to process {image_path.name}: {e}"
+                failures.append(PageFailure(page=image_path.name, cause=str(e)))
                 logger.error(
                     "Failed to process page",
                     image_path=str(image_path),
                     error=str(e),
                     exc_info=True,
                 )
-                errors.append(msg)
 
         # A piece still held at the end of the book was never joined to
         # anything, so no file carries it — which the caller has to hear.
-        warnings.extend(
-            f"{piece.page_name}: a question piece was left unfinished,"
-            " nothing was written for it"
-            for piece in carry.take()
+        unfinished = tuple(
+            UnfinishedPieces(page=piece.page_name, count=1) for piece in carry.take()
         )
 
         logger.info(
             "Extracted images from book",
             output_dir=str(output_dir),
             processed=processed_count,
-            failed=len(errors),
+            failed=len(failures),
         )
 
-        return ExtractionResult(
-            success=True,  # partial success — caller can inspect errors
-            processed=processed_count,
-            failed=len(errors),
-            errors=errors,
-            warnings=warnings,
+        return BookReport(
+            pages=processed_count,
+            collisions=tuple(collisions_seen),
+            failures=tuple(failures),
+            unfinished=unfinished,
         )

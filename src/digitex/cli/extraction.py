@@ -33,6 +33,7 @@ from digitex.pipeline.exceptions import (
     ModelNotFoundError,
     ReviewAborted,
 )
+from digitex.pipeline.outcome import SubjectRefused, messages
 from digitex.pipeline.page import PageExtractor
 from digitex.pipeline.recording import (
     Recording,
@@ -245,29 +246,39 @@ def extract_questions(
         # re-running picks up where the reviewer left off.
         raise abort(f"✗ {exc}. Re-run to continue.") from None
 
-    if not result.success:
+    if isinstance(result, SubjectRefused):
         typer.echo(typer.style("✗ Extraction failed:", fg="red", bold=True), err=True)
-        _echo_errors(result.errors)
+        _echo_errors([result.reason])
         raise typer.Exit(code=1)
 
     typer.echo(
         typer.style(
-            f"✓ Extraction completed: {result.processed} processed,"
-            f" {result.skipped} skipped (subject: {subject})",
+            f"✓ Extraction completed: {result.extracted} processed,"
+            f" {len(result.skipped)} skipped (subject: {subject})",
             fg="green",
         )
     )
-    if result.warnings:
-        typer.echo(typer.style("\nWarnings:", fg="yellow"))
-        for warning in result.warnings:
-            typer.echo(f"  - {warning}")
-    # A run can succeed with per-page failures; those pages produced no image,
+    # Neither of these is a failure, but a run that swallows them silently
+    # loses crops — so they are said out loud on the way past.
+    for heading, items in (
+        ("Kept existing images", result.collisions),
+        ("Unfinished question pieces", result.unfinished),
+    ):
+        if items:
+            typer.echo(typer.style(f"\n{heading}:", fg="yellow"))
+            for line in messages(items):
+                typer.echo(f"  - {line}")
+    for note in result.notes:
+        typer.echo(typer.style(f"\n{note}", fg="yellow"))
+    # A run can finish with per-page failures; those pages produced no image,
     # so saying so is the difference between "done" and "done, minus four".
-    if result.failed:
+    if result.failures:
         typer.echo(
-            typer.style(f"\n{result.failed} page(s) failed:", fg="red", bold=True)
+            typer.style(
+                f"\n{len(result.failures)} page(s) failed:", fg="red", bold=True
+            )
         )
-        _echo_errors(result.errors)
+        _echo_errors(messages(result.failures))
 
 
 @app.command(name="extract-answers")
@@ -286,20 +297,16 @@ def extract_answers(subject: Annotated[str, SUBJECT_ARGUMENT]) -> None:
 
     result = extractor.extract(subject=subject)
 
-    if not result.success:
+    if not result.clean:
         typer.echo(
             typer.style("✗ Answer extraction failed:", fg="red", bold=True), err=True
         )
-        _echo_errors(result.errors)
+        _echo_errors(list(result.failures))
         raise typer.Exit(code=1)
 
-    typer.echo(
-        typer.style(
-            f"✓ Extracted answers for"
-            f" {result.metadata.get('years_processed', 0)} years",
-            fg="green",
-        )
-    )
+    if result.note:
+        typer.echo(typer.style(f"! {result.note}", fg="yellow"))
+    typer.echo(typer.style(f"✓ Extracted answers for {result.years} years", fg="green"))
 
 
 @app.command(name="record-golden")
@@ -380,18 +387,20 @@ def record_golden(
 
     typer.echo(
         typer.style(
-            f"✓ Recorded {subject}/{year}: {result.processed} pages,"
+            f"✓ Recorded {subject}/{year}: {result.pages} pages,"
             f" {len(recording.outputs)} images → {destination}",
             fg="green",
         )
     )
     # A page that failed produced no image, so its answers are missing from the
     # recording too — a replay of it would refuse rather than diverge quietly.
-    if result.failed:
+    if result.failures:
         typer.echo(
-            typer.style(f"\n{result.failed} page(s) failed:", fg="red", bold=True)
+            typer.style(
+                f"\n{len(result.failures)} page(s) failed:", fg="red", bold=True
+            )
         )
-        _echo_errors(result.errors)
+        _echo_errors(messages(result.failures))
 
 
 if __name__ == "__main__":

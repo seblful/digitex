@@ -8,8 +8,13 @@ import structlog
 from tqdm import tqdm
 
 from digitex.domain.corpus import PROCESSED, book_pages_dir
-from digitex.pipeline.base import ExtractionResult
 from digitex.pipeline.exceptions import DirectoryNotFoundError
+from digitex.pipeline.outcome import (
+    SubjectOutcome,
+    SubjectRefused,
+    SubjectReport,
+    YearReport,
+)
 from digitex.pipeline.progress import JSONProgressTracker
 
 if TYPE_CHECKING:
@@ -55,22 +60,24 @@ class SubjectExtractor:
         if not self.books_dir.exists():
             raise DirectoryNotFoundError(self.books_dir)
 
-    def extract(self, subject: str) -> ExtractionResult:
+    def extract(self, subject: str) -> SubjectOutcome:
         """Extract question images for a specific subject.
 
-        Per-book failures are merged into the returned result so the caller
-        sees an honest count of processed/failed years.
+        Every year that ran comes back in the report, whether or not its pages
+        all succeeded. A :class:`SubjectRefused` means the run never began —
+        distinct from a report holding no years, which means there was nothing
+        left to do.
         """
         try:
             self._validate_books_dir()
         except DirectoryNotFoundError as e:
-            return ExtractionResult.failure_result(errors=[str(e)])
+            return SubjectRefused(reason=str(e))
 
         subject_dir = self.books_dir / subject
 
         if not subject_dir.exists():
-            return ExtractionResult.failure_result(
-                errors=[f"Subject '{subject}' not found in {self.books_dir}"]
+            return SubjectRefused(
+                reason=f"Subject '{subject}' not found in {self.books_dir}"
             )
 
         # The processed variant, never the raw one: the segmentation model is
@@ -79,53 +86,35 @@ class SubjectExtractor:
 
         if not pages_dir.exists():
             logger.warning("No pages folder found", subject_dir=str(subject_dir))
-            return ExtractionResult.failure_result(
-                errors=[
-                    f"No processed pages folder found for subject '{subject}';"
-                    " run preprocess-scans first"
-                ]
+            return SubjectRefused(
+                reason=f"No processed pages folder found for subject '{subject}';"
+                " run preprocess-scans first"
             )
 
         year_dirs = [d for d in pages_dir.iterdir() if d.is_dir()]
 
         if not year_dirs:
             logger.warning("No year folders found", pages_dir=str(pages_dir))
-            return ExtractionResult.success_result(
-                processed=0, warnings=[f"No year folders found for subject '{subject}'"]
-            )
+            return SubjectReport()
 
-        accumulated = ExtractionResult.success_result()
+        years: list[YearReport] = []
+        skipped: list[str] = []
 
         for year_dir in tqdm(year_dirs, desc=f"Extracting {subject}"):
             year = year_dir.name
 
             if self._progress.is_completed(subject, year):
                 logger.info("Skipping, already extracted", subject=subject, year=year)
-                accumulated = accumulated.merge(
-                    ExtractionResult.success_result(skipped=1)
-                )
+                skipped.append(year)
                 continue
 
             output_dir = self.extraction_dir / subject / year
-            book_result = self._book_extractor.extract(year_dir, output_dir)
-            # ``processed`` counts years here, not pages, so the book's own
-            # count is replaced by 1 — but its failed pages and messages carry
-            # up, or the caller would be told a partial year was clean.
-            accumulated = accumulated.merge(
-                ExtractionResult(
-                    success=book_result.success,
-                    processed=1,
-                    failed=book_result.failed,
-                    errors=book_result.errors,
-                    warnings=book_result.warnings,
-                )
-            )
+            book = self._book_extractor.extract(year_dir, output_dir)
+            years.append(YearReport(year=year, book=book))
 
-            # Only a clean run over at least one page counts as done —
-            # BookExtractor reports partial success, an empty book directory
-            # reports success over nothing, and a year marked completed is
-            # never retried.
-            if book_result.success and not book_result.errors and book_result.processed:
+            # A year marked completed is never retried, so the bar is a clean
+            # run over at least one page — which is what ``complete`` says.
+            if book.complete:
                 self._progress.mark_completed(subject, year)
 
-        return accumulated
+        return SubjectReport(years=tuple(years), skipped=tuple(skipped))

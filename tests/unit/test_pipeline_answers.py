@@ -154,7 +154,7 @@ class TestAnswersExtractorExtract:
 
         result = extractor.extract("bio")
 
-        assert result.success
+        assert result.clean
         assert (tmp_path / "output" / "bio" / "2016" / "answers.json").exists()
 
     def test_partial_failure_leaves_the_year_unwritten(
@@ -179,7 +179,7 @@ class TestAnswersExtractorExtract:
 
         result = extractor.extract("bio")
 
-        assert not result.success
+        assert not result.clean
         assert not (tmp_path / "output" / "bio" / "2016" / "answers.json").exists()
 
     def test_a_malformed_label_fails_only_its_own_year(
@@ -205,7 +205,7 @@ class TestAnswersExtractorExtract:
 
         result = extractor.extract("bio")
 
-        assert not result.success
+        assert not result.clean
         assert not (tmp_path / "output" / "bio" / "2016" / "answers.json").exists()
         assert (tmp_path / "output" / "bio" / "2017" / "answers.json").exists()
 
