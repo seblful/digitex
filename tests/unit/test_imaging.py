@@ -17,14 +17,13 @@ from digitex.imaging import (
     stacked_layout,
     whiten_scan,
 )
-from digitex.imaging.image import (
-    _content_box,
-    _levels_from,
+from digitex.imaging.crop import (
     _order_quad_points,
     _perspective_transform,
     _polygon_to_quad,
     cut_out_image_by_polygon,
 )
+from digitex.imaging.levels import _levels_from, content_box
 
 _INK_ROWS = (slice(10, 14), slice(20, 100))
 _PAPER_PATCH = (slice(80, 110), slice(40, 100))
@@ -285,7 +284,7 @@ class TestContentBox:
         pixels = np.full((60, 60), 255, dtype=np.uint8)
         pixels[10:50, 20:55] = 200
 
-        rows, columns = _content_box(pixels)
+        rows, columns = content_box(pixels)
 
         assert (rows.start, rows.stop) == (10, 50)
         assert (columns.start, columns.stop) == (20, 55)
@@ -293,7 +292,7 @@ class TestContentBox:
     def test_a_page_with_no_margin_is_kept_whole(self) -> None:
         pixels = np.full((60, 60), 200, dtype=np.uint8)
 
-        rows, columns = _content_box(pixels)
+        rows, columns = content_box(pixels)
 
         assert pixels[rows, columns].shape == (60, 60)
 
@@ -301,7 +300,7 @@ class TestContentBox:
         """Nothing to find, so nothing is cut — the caller still gets a page."""
         pixels = np.full((60, 60), 255, dtype=np.uint8)
 
-        rows, columns = _content_box(pixels)
+        rows, columns = content_box(pixels)
 
         assert pixels[rows, columns].shape == (60, 60)
 
