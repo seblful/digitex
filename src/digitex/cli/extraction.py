@@ -5,6 +5,7 @@ builds, so importing this module reads no files and configures no logging —
 that happens in the Typer callback, once a command is actually running.
 """
 
+import shutil
 from pathlib import Path
 from typing import Annotated
 
@@ -12,7 +13,15 @@ import typer
 
 from digitex.cli._shared import abort
 from digitex.config import Settings, get_settings
+from digitex.domain.corpus import (
+    PROCESSED,
+    book_pages_dir,
+    is_image,
+    natural_sort_key,
+)
+from digitex.imaging.ocr import TextExtractor
 from digitex.logging import setup_logging
+from digitex.ml.predictors import YOLO_SegmentationPredictor
 from digitex.pipeline.answers import AnswersExtractor
 from digitex.pipeline.audit.census import ImageCensus
 from digitex.pipeline.audit.validator import AnswerValidator
@@ -24,7 +33,17 @@ from digitex.pipeline.exceptions import (
     ModelNotFoundError,
     ReviewAborted,
 )
-from digitex.pipeline.page import PageExtractor
+from digitex.pipeline.page import OCR_LANGUAGE, PageExtractor
+from digitex.pipeline.recording import (
+    Recording,
+    RecordingPredictor,
+    RecordingTextExtractor,
+    as_predictor,
+    as_text_extractor,
+    directory_digests,
+    recorded_output_dir,
+    recording_path,
+)
 from digitex.pipeline.subject import SubjectExtractor
 
 app = typer.Typer(help="Extraction commands for processing test books.")
@@ -272,6 +291,97 @@ def extract_answers(subject: Annotated[str, SUBJECT_ARGUMENT]) -> None:
             fg="green",
         )
     )
+
+
+@app.command(name="record-golden")
+def record_golden(
+    subject: Annotated[str, SUBJECT_ARGUMENT],
+    year: Annotated[str, typer.Argument(help="Year folder to record, e.g. 2024")],
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Overwrite an existing recording for this book"),
+    ] = False,
+) -> None:
+    """Record one book's model and OCR answers as a replay fixture.
+
+    Extracts YEAR of SUBJECT into a scratch folder under the data root, keeping
+    every answer the segmentation model and OCR gave and the digest of every
+    file written. `tests/differential` replays that recording to check a
+    restructuring wrote exactly the same images — on a machine with no
+    checkpoint, no GPU and no tesseract.
+
+    Slow and rarely run: this is the one command that needs the real model. Its
+    output stays under the data root and is never committed, so a checkout
+    without it simply skips the differential suite.
+    """
+    settings = get_settings()
+    data_root = settings.paths.data_root
+
+    destination = recording_path(data_root, subject, year)
+    if destination.exists() and not force:
+        raise abort(f"✗ {destination} already exists. Pass --force to replace it.")
+
+    pages_dir = book_pages_dir(settings.paths.books_dir, subject, PROCESSED) / year
+    if not pages_dir.is_dir():
+        raise abort(f"✗ No processed pages for {subject}/{year} at {pages_dir}")
+
+    try:
+        config = _extraction_config(settings)
+    except ModelNotFoundError as exc:
+        raise abort(f"✗ {exc}") from None
+
+    recording = Recording(
+        source=f"{subject}/{year}",
+        image_format=config.image_format,
+        question_max_width=config.question_max_width,
+        question_max_height=config.question_max_height,
+    )
+    recording.pages = [
+        path.name
+        for path in sorted(
+            (p for p in pages_dir.iterdir() if is_image(p)), key=natural_sort_key
+        )
+    ]
+    if not recording.pages:
+        raise abort(f"✗ No page images in {pages_dir}")
+
+    # Started from empty, so the numbering starts at 1 and the digests below
+    # describe a whole book rather than a book plus whatever was there before.
+    output_dir = recorded_output_dir(data_root, subject, year)
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True)
+
+    page_extractor = PageExtractor(
+        config,
+        predictor=as_predictor(
+            RecordingPredictor(
+                YOLO_SegmentationPredictor(str(config.model_path)), recording
+            )
+        ),
+        text_extractor=as_text_extractor(
+            RecordingTextExtractor(TextExtractor(language=OCR_LANGUAGE), recording)
+        ),
+    )
+    result = BookExtractor(page_extractor).extract(pages_dir, output_dir)
+
+    recording.outputs = directory_digests(output_dir)
+    recording.write(destination)
+
+    typer.echo(
+        typer.style(
+            f"✓ Recorded {subject}/{year}: {result.processed} pages,"
+            f" {len(recording.outputs)} images → {destination}",
+            fg="green",
+        )
+    )
+    # A page that failed produced no image, so its answers are missing from the
+    # recording too — a replay of it would refuse rather than diverge quietly.
+    if result.failed:
+        typer.echo(
+            typer.style(f"\n{result.failed} page(s) failed:", fg="red", bold=True)
+        )
+        _echo_errors(result.errors)
 
 
 if __name__ == "__main__":

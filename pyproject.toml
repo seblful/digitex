@@ -126,6 +126,7 @@ testpaths = ["tests"]
 addopts = "-ra --strict-markers --cov=src/digitex --cov-report=term-missing"
 markers = [
     "integration: exercises a real Postgres via testcontainers (requires Docker)",
+    "differential: replays a recorded book (requires a recording under the data root)",
 ]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
