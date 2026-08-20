@@ -12,21 +12,22 @@ does not install.
 ```
 digitex/
 ├── src/digitex/
-│   ├── domain/               # pure: entities, answer rules, corpus layout, geometry
-│   ├── db/                   # Postgres: pool, unit of work, repositories, seed
+│   ├── domain/               # pure: entities, answer rules, numbering, ports
+│   ├── db/                   # Postgres: pool, unit of work, role repositories
 │   │   └── migrations/       # Alembic scripts, shipped inside the package
 │   ├── bot/                  # Telegram bot (aiogram)        ← the deploy layer
-│   ├── imaging/              # OpenCV / Pillow / Tesseract
+│   ├── imaging/              # scale · layout · levels · denoise · document · crop
 │   ├── ml/                   # YOLO segmentation and training
-│   ├── labeling/             # Label Studio client
+│   ├── labeling/             # Label Studio client, export reader, URIs
 │   ├── pipeline/             # books → question images (+ audit/)
-│   ├── ui/                   # the Tk review window
+│   ├── ui/                   # the review controller, and the Tk view over it
 │   ├── config/               # settings, one module per layer
 │   └── cli/                  # entry points
 ├── configs/training/         # YOLO hyperparameter YAMLs
 ├── deploy/                   # Dockerfile, deploy.sh, seed_prod.ps1
 ├── docker-compose.yml        # stays at the root: its relative paths are $APP_DIR
-├── tests/                    # unit, integration, contracts
+├── tests/                    # unit, characterization, differential,
+│                             #   integration, contracts
 ├── docs/                     # setup, deployment, workflows (see docs/README.md)
 ├── var/                      # the data root — gitignored, PATH_DATA_ROOT
 └── CLAUDE.md                 # AI agent instructions
@@ -37,8 +38,14 @@ Dependencies point one way, and the two branches never meet:
 ```
 cli ──▶ ui ──▶ pipeline ──▶ labeling ──▶ ml ──▶ imaging ──┐
  │                                                        ├──▶ domain
- └────▶ bot ──▶ db ─────────────────────────────────────  ┘
+ ├────▶ bot ────────────────────────────────────────────  ┘
+ └────▶ db  ────────────────────────────────────────────  ┘
 ```
+
+`bot` and `db` are siblings, not a stack. The bot is written against the
+protocols in `domain/ports.py`; `db` provides classes that answer to them; and
+`cli/bot.py` is the only module that names both. An import from `bot` to `db`
+fails a contract rather than surfacing as an ImportError on the VPS.
 
 ### The data root
 
@@ -88,6 +95,9 @@ uv run digitex-db populate
 
 # Check the image rows still match the files on disk
 uv run digitex-db check-images
+
+# Record a book's model and OCR answers as a replay fixture
+uv run digitex-extract record-golden <subject> <year>
 ```
 
 ## Telegram Bot
@@ -153,17 +163,20 @@ The bot needs no extra at all: its dependencies are the base
 
 ## Modules
 
-- **domain**: exam entities, answer matching, corpus layout, polygon spaces —
-  pure Python and pydantic, importable by anything
-- **db**: the only layer that writes SQL; one repository per aggregate, all
-  writes through a `UnitOfWork`
-- **bot**: the aiogram bot — the only thing that deploys
+- **domain**: exam entities, answer matching, question numbering, corpus
+  layout, polygon spaces, and the ports the bot is written against — pure
+  Python and pydantic, importable by anything
+- **db**: the only layer that writes SQL; one class per role rather than per
+  aggregate, all writes through a `UnitOfWork`
+- **bot**: the aiogram bot — the only thing that deploys, and it names no
+  database
 - **pipeline**: question images out of book scans, page → book → subject, plus
   `audit/` to check what came out
 - **ml**: YOLO segmentation, dataset building and training
 - **labeling**: Label Studio client and prediction upload
 - **imaging**: cropping, deskewing, resizing, OCR
-- **ui**: the Tk page-review window, the only package that imports tkinter
+- **ui**: `ReviewController` — a page review with no widget in it — and the
+  Tk window that draws it, the only module that imports tkinter
 
 ## Development
 
@@ -173,7 +186,7 @@ testing guidelines, and git workflow.
 ## Testing
 
 ```bash
-# Everything: unit, integration (needs Docker for Postgres), contracts
+# Everything: unit, characterization, differential, integration, contracts
 uv run pytest
 
 # The unit suite alone — no Docker required
@@ -185,6 +198,11 @@ uv run pytest tests/unit/test_bot_handlers.py
 # The deploy boundary, statically
 uv run lint-imports
 ```
+
+`tests/differential/` replays a recorded book and checks the bytes of every
+question image it writes — the guarantee any change to extraction is measured
+against. It needs a recording under the data root (`record-golden` above) and
+skips without one, the way the integration suite skips without Docker.
 
 `tests/contracts/` is only meaningful in an environment built the way
 production is, which is what the `deploy boundary` CI job does:
