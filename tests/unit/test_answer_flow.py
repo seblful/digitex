@@ -253,13 +253,12 @@ def _round(
     uow: FakeUow | None = None,
     opened: list[object] | None = None,
 ) -> Round:
-    """A Round over fakes; ``pool`` is never touched, the factory replaces it."""
+    """A Round over fakes. There is no pool to stand in for any more."""
     return Round(
         as_bot(bot or FakeBot()),
         as_state(state),
-        cast("Any", None),
         CORPUS,
-        open_uow=_uow_factory(uow or FakeUow(), opened if opened is not None else []),
+        _uow_factory(uow or FakeUow(), opened if opened is not None else []),
     )
 
 

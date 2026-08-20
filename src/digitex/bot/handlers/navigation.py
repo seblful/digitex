@@ -43,16 +43,15 @@ from digitex.bot.messages import (
     MSG_YEAR_SELECT,
 )
 from digitex.bot.states import Navigation, Testing
-from digitex.db import UnitOfWork
 from digitex.domain.entities import year_has_exam_types
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from aiogram.fsm.context import FSMContext
-    from psycopg_pool import AsyncConnectionPool
 
     from digitex.domain.entities import ExamType
+    from digitex.domain.ports import OpenUow
 
 router = Router()
 
@@ -79,7 +78,7 @@ async def on_mode_selected(
     callback_data: ModeCB,
     state: FSMContext,
     msg: types.Message,
-    pool: AsyncConnectionPool,
+    open_uow: OpenUow,
 ) -> None:
     nav = await fsm_data.load(state, NavigationState)
     if nav.subject_id is None:
@@ -91,7 +90,7 @@ async def on_mode_selected(
         case "standard":
             # Read everything first: a Telegram round-trip inside the
             # transaction would hold it open past the statement timeout.
-            async with UnitOfWork(pool) as uow:
+            async with open_uow() as uow:
                 years = await uow.books.list_years(subject_id)
                 subjects = [] if years else await uow.books.list_subjects()
 
@@ -112,7 +111,7 @@ async def on_mode_selected(
             await state.set_state(Navigation.select_random_exam_type)
 
         case "topics":
-            async with UnitOfWork(pool) as uow:
+            async with open_uow() as uow:
                 topics = await uow.topics.get_topics_for_subject(subject_id)
             if not topics:
                 await msg.edit_text(MSG_NO_TOPICS)
@@ -132,7 +131,7 @@ async def on_topic_selected(
     state: FSMContext,
     bot: Bot,
     msg: types.Message,
-    pool: AsyncConnectionPool,
+    open_uow: OpenUow,
     questions_dir: Path,
 ) -> None:
     nav = await fsm_data.load(state, NavigationState)
@@ -155,7 +154,7 @@ async def on_topic_selected(
             topic_name=nav.topic_names[callback_data.index],
         ),
     )
-    await start_random_question(msg, Round(bot, state, pool, questions_dir))
+    await start_random_question(msg, Round(bot, state, questions_dir, open_uow))
     await callback.answer()
 
 
@@ -179,7 +178,7 @@ async def on_random_part_selected(
     state: FSMContext,
     bot: Bot,
     msg: types.Message,
-    pool: AsyncConnectionPool,
+    open_uow: OpenUow,
     questions_dir: Path,
 ) -> None:
     nav = await fsm_data.load(state, NavigationState)
@@ -197,7 +196,7 @@ async def on_random_part_selected(
             random_part=callback_data.part,
         ),
     )
-    await start_random_question(msg, Round(bot, state, pool, questions_dir))
+    await start_random_question(msg, Round(bot, state, questions_dir, open_uow))
     await callback.answer()
 
 
@@ -207,7 +206,7 @@ async def on_year_selected(
     callback_data: YearCB,
     state: FSMContext,
     msg: types.Message,
-    pool: AsyncConnectionPool,
+    open_uow: OpenUow,
 ) -> None:
     year = callback_data.year
     await fsm_data.merge(state, NavigationState, year=year)
@@ -219,7 +218,7 @@ async def on_year_selected(
         )
         await state.set_state(Navigation.select_exam_type)
     else:
-        await _show_options_for_exam_type(msg, state, year, "CT", pool)
+        await _show_options_for_exam_type(msg, state, year, "CT", open_uow)
 
     await callback.answer()
 
@@ -230,14 +229,14 @@ async def on_exam_type_selected(
     callback_data: ExamTypeCB,
     state: FSMContext,
     msg: types.Message,
-    pool: AsyncConnectionPool,
+    open_uow: OpenUow,
 ) -> None:
     nav = await fsm_data.load(state, NavigationState)
     if nav.year is None:
         await callback.answer()
         return
     await _show_options_for_exam_type(
-        msg, state, nav.year, callback_data.exam_type, pool
+        msg, state, nav.year, callback_data.exam_type, open_uow
     )
     await callback.answer()
 
@@ -247,13 +246,13 @@ async def _show_options_for_exam_type(
     state: FSMContext,
     year: int,
     exam_type: ExamType,
-    pool: AsyncConnectionPool,
+    open_uow: OpenUow,
 ) -> None:
     nav = await fsm_data.load(state, NavigationState)
     if nav.subject_id is None:
         return
 
-    async with UnitOfWork(pool) as uow:
+    async with open_uow() as uow:
         book_id = await uow.books.get_book(nav.subject_id, year)
         options = await uow.books.list_options(book_id, exam_type) if book_id else []
 
@@ -274,7 +273,7 @@ async def on_option_selected(
     state: FSMContext,
     bot: Bot,
     msg: types.Message,
-    pool: AsyncConnectionPool,
+    open_uow: OpenUow,
     questions_dir: Path,
 ) -> None:
     nav = await fsm_data.load(state, NavigationState)
@@ -283,7 +282,7 @@ async def on_option_selected(
         return
     book_id = nav.book_id
 
-    async with UnitOfWork(pool) as uow:
+    async with open_uow() as uow:
         # The session references the student, so the row has to exist — and
         # the tap in hand says who is asking. Deriving the identity from the
         # event every time also covers a tap that arrives after the FSM was
@@ -311,4 +310,4 @@ async def on_option_selected(
     await state.set_state(Testing.answering)
     await callback.answer()
 
-    await send_current_question(msg, Round(bot, state, pool, questions_dir))
+    await send_current_question(msg, Round(bot, state, questions_dir, open_uow))

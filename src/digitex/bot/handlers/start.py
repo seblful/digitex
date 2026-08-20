@@ -29,7 +29,6 @@ from digitex.bot.messages import (
     MSG_REQUEST_SENT,
 )
 from digitex.bot.states import Navigation, Registration
-from digitex.db import UnitOfWork
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -37,7 +36,8 @@ if TYPE_CHECKING:
     from zoneinfo import ZoneInfo
 
     from aiogram.fsm.context import FSMContext
-    from psycopg_pool import AsyncConnectionPool
+
+    from digitex.domain.ports import OpenUow, Repositories
 
 router = Router()
 
@@ -75,7 +75,7 @@ class StartGate:
     requested_at: datetime | None = None
 
 
-async def open_registration_gate(uow: UnitOfWork, telegram_id: int) -> StartGate:
+async def open_registration_gate(uow: Repositories, telegram_id: int) -> StartGate:
     """Read the user's registration record.
 
     One round-trip, and a pure read: the student row carries both the status and
@@ -96,12 +96,12 @@ async def _normal_start(
     message: types.Message,
     state: FSMContext,
     bot: Bot,
-    pool: AsyncConnectionPool,
+    open_uow: OpenUow,
     questions_dir: Path,
 ) -> None:
     telegram_id, name, username = student_identity(message)
 
-    async with UnitOfWork(pool) as uow:
+    async with open_uow() as uow:
         await uow.students.get_or_create(
             telegram_id=telegram_id,
             telegram_name=name,
@@ -111,7 +111,7 @@ async def _normal_start(
 
     # /start can land mid-test, where the last render may still owe a file_id
     # write; ending the round pays it before the state goes away.
-    await Round(bot, state, pool, questions_dir).end()
+    await Round(bot, state, questions_dir, open_uow).end()
     await message.answer(
         MSG_GREETING.format(name=name),
         reply_markup=subjects_kb(subjects),
@@ -129,7 +129,7 @@ async def cmd_start(
     message: types.Message,
     state: FSMContext,
     bot: Bot,
-    pool: AsyncConnectionPool,
+    open_uow: OpenUow,
     questions_dir: Path,
     admin_user_id: int,
     tz: ZoneInfo,
@@ -137,14 +137,14 @@ async def cmd_start(
     telegram_id, _name, _username = student_identity(message)
 
     if telegram_id == admin_user_id:
-        await _normal_start(message, state, bot, pool, questions_dir)
+        await _normal_start(message, state, bot, open_uow, questions_dir)
         return
 
-    async with UnitOfWork(pool) as uow:
+    async with open_uow() as uow:
         gate = await open_registration_gate(uow, telegram_id)
 
     if gate.status == "approved":
-        await _normal_start(message, state, bot, pool, questions_dir)
+        await _normal_start(message, state, bot, open_uow, questions_dir)
         return
 
     if gate.status == "pending":
@@ -162,7 +162,7 @@ async def process_name(
     message: types.Message,
     state: FSMContext,
     bot: Bot,
-    pool: AsyncConnectionPool,
+    open_uow: OpenUow,
     admin_user_id: int,
     tz: ZoneInfo,
 ) -> None:
@@ -173,7 +173,7 @@ async def process_name(
         await message.answer(MSG_ASK_NAME, parse_mode="HTML")
         return
 
-    async with UnitOfWork(pool) as uow:
+    async with open_uow() as uow:
         request = await uow.students.create_request(
             telegram_id=telegram_id,
             full_name=full_name,
@@ -208,7 +208,7 @@ async def handle_reg_callback(
     callback: types.CallbackQuery,
     callback_data: RegistrationCB,
     bot: Bot,
-    pool: AsyncConnectionPool,
+    open_uow: OpenUow,
     admin_user_id: int,
 ) -> None:
     if callback.from_user.id != admin_user_id:
@@ -218,7 +218,7 @@ async def handle_reg_callback(
     target_id = callback_data.telegram_id
     admin_id, admin_name, admin_username = student_identity(callback)
 
-    async with UnitOfWork(pool) as uow:
+    async with open_uow() as uow:
         # A decision names the student who made it, so the admin needs a row of
         # their own before it can be recorded against them.
         await uow.students.get_or_create(

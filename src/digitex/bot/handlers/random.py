@@ -34,9 +34,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from aiogram.fsm.context import FSMContext
-    from psycopg_pool import AsyncConnectionPool
 
     from digitex.domain.entities import QuestionOrigin
+    from digitex.domain.ports import OpenUow
 
 router = Router()
 
@@ -85,7 +85,7 @@ async def on_random_part_a_answer(
     state: FSMContext,
     msg: types.Message,
     bot: Bot,
-    pool: AsyncConnectionPool,
+    open_uow: OpenUow,
     questions_dir: Path,
 ) -> None:
     # Old keyboards stay live in the chat, so a tap can arrive while a Part B
@@ -98,7 +98,7 @@ async def on_random_part_a_answer(
 
     await fsm_data.merge(state, RandomState, waiting_for_answer=False)
     await process_random_answer(
-        msg, Round(bot, state, pool, questions_dir), str(callback_data.value)
+        msg, Round(bot, state, questions_dir, open_uow), str(callback_data.value)
     )
     await callback.answer()
 
@@ -108,7 +108,7 @@ async def on_random_part_b_answer(
     message: types.Message,
     state: FSMContext,
     bot: Bot,
-    pool: AsyncConnectionPool,
+    open_uow: OpenUow,
     questions_dir: Path,
 ) -> None:
     if not message.text:
@@ -120,7 +120,7 @@ async def on_random_part_b_answer(
 
     await fsm_data.merge(state, RandomState, waiting_for_answer=False)
     await process_random_answer(
-        message, Round(bot, state, pool, questions_dir), message.text
+        message, Round(bot, state, questions_dir, open_uow), message.text
     )
 
 
@@ -160,10 +160,10 @@ async def on_random_feedback(
     state: FSMContext,
     msg: types.Message,
     bot: Bot,
-    pool: AsyncConnectionPool,
+    open_uow: OpenUow,
     questions_dir: Path,
 ) -> None:
-    round = Round(bot, state, pool, questions_dir)
+    round = Round(bot, state, questions_dir, open_uow)
     if callback_data.action == "next":
         await start_random_question(msg, round)
     else:

@@ -31,20 +31,17 @@ from digitex.bot.fsm_data import RandomState, RoundDebt, TestingState
 from digitex.bot.keyboards import part_a_kb
 from digitex.bot.messages import MSG_ENTER_ANSWER
 from digitex.bot.renderer import send_question
-from digitex.db import UnitOfWork
 from digitex.domain.entities import PART_A_OPTION_COUNT
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    from contextlib import AbstractAsyncContextManager
     from pathlib import Path
 
     from aiogram import Bot, types
     from aiogram.fsm.context import FSMContext
-    from psycopg_pool import AsyncConnectionPool
 
     from digitex.domain.answer import AnswerKey
     from digitex.domain.entities import Question, QuestionOrigin
+    from digitex.domain.ports import OpenUow, Repositories
 
 
 @dataclass(frozen=True)
@@ -70,24 +67,23 @@ class Round:
     ``show_random_question``), open the round's transaction (``open_uow``),
     and leave (``end``).
 
-    ``open_uow`` is the transaction seam: production opens a
-    :class:`~digitex.db.UnitOfWork` on the pool, tests hand in a factory
-    yielding their fake.
+    ``open_uow`` is the transaction seam, and it is required rather than
+    defaulted: a round does not know what a database is, so there is nothing
+    for it to fall back to. Production hands in a factory opening a unit of
+    work on the pool; tests hand in one yielding their fakes.
     """
 
     def __init__(
         self,
         bot: Bot,
         state: FSMContext,
-        pool: AsyncConnectionPool,
         questions_dir: Path,
-        *,
-        open_uow: Callable[[], AbstractAsyncContextManager[UnitOfWork]] | None = None,
+        open_uow: OpenUow,
     ) -> None:
         self.bot = bot
         self.state = state
         self.questions_dir = questions_dir
-        self.open_uow = open_uow or (lambda: UnitOfWork(pool))
+        self.open_uow = open_uow
 
     async def show_testing_question(
         self,
@@ -186,7 +182,7 @@ class Round:
 
 
 async def _settle_file_id_debt(
-    uow: UnitOfWork, state: TestingState | RandomState
+    uow: Repositories, state: TestingState | RandomState
 ) -> None:
     """Pay off the ``file_id`` debt parked by the last render, if any.
 
@@ -198,7 +194,7 @@ async def _settle_file_id_debt(
 
 
 async def run_testing_round(
-    uow: UnitOfWork,
+    uow: Repositories,
     testing: TestingState,
     answer: str,
     *,
@@ -236,7 +232,7 @@ async def run_testing_round(
 
 
 async def pick_random_question(
-    uow: UnitOfWork, rnd: RandomState
+    uow: Repositories, rnd: RandomState
 ) -> tuple[Question, QuestionOrigin] | None:
     """Settle the file_id debt and draw the next random / topic question.
 
@@ -263,7 +259,7 @@ async def pick_random_question(
 
 
 async def evaluate_random_answer(
-    uow: UnitOfWork, rnd: RandomState, answer: str
+    uow: Repositories, rnd: RandomState, answer: str
 ) -> tuple[bool, AnswerKey] | None:
     """Score a random-mode reply. Returns (is_correct, key).
 

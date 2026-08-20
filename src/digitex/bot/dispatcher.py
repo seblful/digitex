@@ -19,12 +19,12 @@ from digitex.bot.handlers.testing import router as testing_router
 from digitex.bot.middleware import AccessibleMessageMiddleware, AuthMiddleware
 
 if TYPE_CHECKING:
-    from psycopg_pool import AsyncConnectionPool
+    from digitex.domain.ports import OpenUow
 
 
-def create_dispatcher(admin_user_id: int, pool: AsyncConnectionPool) -> Dispatcher:
+def create_dispatcher(admin_user_id: int, open_uow: OpenUow) -> Dispatcher:
     dp = Dispatcher()
-    auth = AuthMiddleware(admin_user_id=admin_user_id, pool=pool)
+    auth = AuthMiddleware(admin_user_id=admin_user_id, open_uow=open_uow)
     dp.message.outer_middleware(auth)
     dp.callback_query.outer_middleware(auth)
     # After auth: an unauthorized tap is dropped before it is acknowledged.

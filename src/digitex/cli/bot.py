@@ -10,7 +10,7 @@ import structlog
 from digitex.bot.dispatcher import create_dispatcher
 from digitex.cli._shared import run_async
 from digitex.config import get_settings
-from digitex.db import null_pool_lifespan, pool_lifespan
+from digitex.db import UnitOfWork, null_pool_lifespan, pool_lifespan
 from digitex.logging import setup_logging
 
 logger = structlog.get_logger()
@@ -56,6 +56,12 @@ def main() -> None:
             return
 
         async with _pool_lifespan(settings.database) as pool:
+            # The composition root: the one place a Postgres pool becomes the
+            # transaction factory the bot is written against. Nothing under
+            # `digitex.bot` names a pool, a unit of work, or psycopg.
+            def open_uow() -> UnitOfWork:
+                return UnitOfWork(pool)
+
             bot = Bot(token=token)
             await bot.set_my_commands(
                 [
@@ -63,11 +69,13 @@ def main() -> None:
                     BotCommand(command="help", description=CMD_HELP_DESC),
                 ]
             )
-            dispatcher = create_dispatcher(admin_user_id=admin_user_id, pool=pool)
+            dispatcher = create_dispatcher(
+                admin_user_id=admin_user_id, open_uow=open_uow
+            )
             logger.info("Starting bot polling...")
             await dispatcher.start_polling(
                 bot,
-                pool=pool,
+                open_uow=open_uow,
                 admin_user_id=admin_user_id,
                 tz=tz,
                 questions_dir=questions_dir,

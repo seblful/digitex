@@ -160,6 +160,20 @@ name = "Deploy branch is layered"
 type = "layers"
 layers = ["digitex.cli", "digitex.bot", "digitex.db", "digitex.domain"]
 
+# The inversion, stated. The bot is written against the protocols in
+# `digitex.domain.ports`; `digitex.db` provides classes that answer to them and
+# `cli/bot.py` is the only module that names both. Before that, handlers built a
+# `UnitOfWork` from a psycopg pool, and this contract could not have held.
+#
+# It is what makes the boundary structural rather than policed: with the arrow
+# pointing the other way, an accidental import is a contract failure here rather
+# than an ImportError on the VPS.
+[[tool.importlinter.contracts]]
+name = "The bot does not know what a database is"
+type = "forbidden"
+source_modules = ["digitex.bot"]
+forbidden_modules = ["digitex.db", "psycopg", "psycopg_pool"]
+
 [[tool.importlinter.contracts]]
 name = "Pipeline branch is layered"
 type = "layers"

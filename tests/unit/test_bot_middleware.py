@@ -13,15 +13,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from aiogram import types
 from aiogram.dispatcher.event.bases import UNHANDLED
 
 from digitex.bot.middleware import AccessibleMessageMiddleware, AuthMiddleware
-
-if TYPE_CHECKING:
-    import pytest
 
 
 @dataclass
@@ -78,11 +75,16 @@ class _FakeStudents:
         return self.authorized
 
 
-def _uow_class(*, authorized: bool) -> type:
-    """A UnitOfWork stand-in answering ``is_authorized`` with *authorized*."""
+def _open_uow(*, authorized: bool) -> Any:
+    """A transaction factory whose students answer ``is_authorized``.
+
+    Handed to the middleware rather than patched over a module global: the
+    middleware takes the factory now, so there is nothing to reach in and
+    replace.
+    """
 
     class _FakeUow:
-        def __init__(self, pool: Any) -> None:
+        def __init__(self) -> None:
             self.students = _FakeStudents(authorized)
 
         async def __aenter__(self) -> _FakeUow:
@@ -104,35 +106,29 @@ def _tap(user_id: int) -> tuple[types.CallbackQuery, dict[str, Any]]:
 class TestAuthMiddleware:
     async def test_a_plain_message_passes_through_with_its_result(self) -> None:
         handler = _Recorder()
-        middleware = AuthMiddleware(admin_user_id=1, pool=cast("Any", None))
+        middleware = AuthMiddleware(admin_user_id=1, open_uow=cast("Any", None))
 
         result = await middleware(handler, _message(), {})
 
         assert result == "handled"
 
-    async def test_an_authorized_tap_passes_through_with_its_result(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(
-            "digitex.bot.middleware.UnitOfWork", _uow_class(authorized=True)
-        )
+    async def test_an_authorized_tap_passes_through_with_its_result(self) -> None:
         handler = _Recorder()
-        middleware = AuthMiddleware(admin_user_id=1, pool=cast("Any", None))
+        middleware = AuthMiddleware(
+            admin_user_id=1, open_uow=_open_uow(authorized=True)
+        )
         query, data = _tap(user_id=2)
 
         result = await middleware(handler, query, data)
 
         assert result == "handled"
 
-    async def test_an_unauthorized_tap_reports_unhandled(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_an_unauthorized_tap_reports_unhandled(self) -> None:
         """None would look handled to the dispatcher; UNHANDLED is what it reads."""
-        monkeypatch.setattr(
-            "digitex.bot.middleware.UnitOfWork", _uow_class(authorized=False)
-        )
         handler = _Recorder()
-        middleware = AuthMiddleware(admin_user_id=1, pool=cast("Any", None))
+        middleware = AuthMiddleware(
+            admin_user_id=1, open_uow=_open_uow(authorized=False)
+        )
         query, data = _tap(user_id=2)
 
         result = await middleware(handler, query, data)

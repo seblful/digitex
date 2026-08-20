@@ -34,13 +34,13 @@ if TYPE_CHECKING:
     from aiogram import types
 
     from digitex.bot.answer_flow import Round
-    from digitex.db import UnitOfWork
     from digitex.domain.entities import (
         SessionInfo,
         SubjectRow,
         TestResult,
         WrongAnswer,
     )
+    from digitex.domain.ports import Repositories
 
 
 @dataclass(frozen=True)
@@ -53,7 +53,7 @@ class SessionOutcome:
     subjects: list[SubjectRow]
 
 
-async def finish_session(uow: UnitOfWork, session_id: int) -> SessionOutcome:
+async def finish_session(uow: Repositories, session_id: int) -> SessionOutcome:
     """Close the session and read back everything the results screen needs.
 
     One transaction for the whole screen — including the subject list the

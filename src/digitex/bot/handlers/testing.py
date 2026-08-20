@@ -18,7 +18,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from aiogram.fsm.context import FSMContext
-    from psycopg_pool import AsyncConnectionPool
+
+    from digitex.domain.ports import OpenUow
 
 router = Router()
 
@@ -68,7 +69,7 @@ async def on_part_a_answer(
     state: FSMContext,
     msg: types.Message,
     bot: Bot,
-    pool: AsyncConnectionPool,
+    open_uow: OpenUow,
     questions_dir: Path,
 ) -> None:
     # Old keyboards stay live in the chat, so a tap can arrive for a question
@@ -81,7 +82,7 @@ async def on_part_a_answer(
 
     await fsm_data.merge(state, TestingState, waiting_for_answer=False)
     await _record_and_advance(
-        msg, Round(bot, state, pool, questions_dir), str(callback_data.value)
+        msg, Round(bot, state, questions_dir, open_uow), str(callback_data.value)
     )
     await callback.answer()
 
@@ -91,7 +92,7 @@ async def on_part_b_answer(
     message: types.Message,
     state: FSMContext,
     bot: Bot,
-    pool: AsyncConnectionPool,
+    open_uow: OpenUow,
     questions_dir: Path,
 ) -> None:
     if not message.text:
@@ -103,5 +104,5 @@ async def on_part_b_answer(
 
     await fsm_data.merge(state, TestingState, waiting_for_answer=False)
     await _record_and_advance(
-        message, Round(bot, state, pool, questions_dir), message.text
+        message, Round(bot, state, questions_dir, open_uow), message.text
     )

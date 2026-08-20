@@ -13,12 +13,10 @@ from aiogram import BaseMiddleware
 from aiogram.dispatcher.event.bases import UNHANDLED
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
-from digitex.db import UnitOfWork
-
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from psycopg_pool import AsyncConnectionPool
+    from digitex.domain.ports import OpenUow
 
 
 class AuthMiddleware(BaseMiddleware):
@@ -29,9 +27,9 @@ class AuthMiddleware(BaseMiddleware):
     with inline keyboards (subject selection, answers, etc.).
     """
 
-    def __init__(self, admin_user_id: int, pool: AsyncConnectionPool) -> None:
+    def __init__(self, admin_user_id: int, open_uow: OpenUow) -> None:
         self._admin_user_id = admin_user_id
-        self._pool = pool
+        self._open_uow = open_uow
 
     async def __call__(
         self,
@@ -56,7 +54,7 @@ class AuthMiddleware(BaseMiddleware):
         if telegram_id == self._admin_user_id:
             return await handler(event, data)
 
-        async with UnitOfWork(self._pool) as uow:
+        async with self._open_uow() as uow:
             authorized = await uow.students.is_authorized(telegram_id)
         if not authorized:
             return UNHANDLED

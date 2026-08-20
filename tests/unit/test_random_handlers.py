@@ -186,9 +186,8 @@ class TestWrongAnswerRendering:
         round = Round(
             cast("Any", None),
             cast("Any", state),
-            cast("Any", None),
             Path("unused"),
-            open_uow=lambda: cast("Any", _Uow()),
+            lambda: cast("Any", _Uow()),
         )
 
         with patch(
