@@ -1,21 +1,28 @@
-"""YOLO dataset creation from Label Studio annotations."""
+"""Turning labelled images into a YOLO train/val/test tree.
+
+Takes :class:`~digitex.domain.annotations.AnnotatedImage` — a filename and
+normalized polygons — and knows nothing about where they came from. It used to
+read Label Studio's export JSON directly, which made the model trainer a
+consumer of the annotation tool's format while the layer contract said it knew
+nothing about it. Parsing the export lives in
+:mod:`digitex.labeling.export` now.
+"""
 
 from __future__ import annotations
 
-import json
 import random
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 
 import structlog
 import yaml
 
-from digitex.domain.geometry import local_file_path, percent_to_normalized
-
 if TYPE_CHECKING:
-    from digitex.domain.entities import PercentPolygon
+    from collections.abc import Sequence
+
+    from digitex.domain.annotations import AnnotatedImage
 
 logger = structlog.get_logger()
 
@@ -46,15 +53,18 @@ class Dataset:
 
 
 class DatasetCreator:
-    """Builds a YOLO train/val/test dataset from a Label Studio export.
+    """Builds a YOLO train/val/test dataset from labelled images.
 
-    ``create`` is the whole interface: it reads the export, derives the class
-    map, shuffles and splits the images, copies each one with its YOLO label
-    file, writes ``data.yaml``, and returns a :class:`Dataset` describing the
-    result.
+    ``create`` is the whole interface: it derives the class map from what the
+    annotations actually contain, shuffles and splits the images, copies each
+    one with its YOLO label file, writes ``data.yaml``, and returns a
+    :class:`Dataset` describing the result.
 
     Args:
-        annotations_file: Path to the Label Studio export JSON.
+        annotations: The labelled images to build from, in any order. Where two
+            share a filename the later one wins, and says so — the export
+            addresses images by URI and only the basename survives, so two
+            annotation batches can each hold a ``30.jpg``.
         images_dir: Directory holding the source images.
         dataset_dir: Output directory for the train/val/test splits.
         train_split: Fraction of images used for training. The remainder is
@@ -68,13 +78,13 @@ class DatasetCreator:
 
     def __init__(
         self,
-        annotations_file: Path,
+        annotations: Sequence[AnnotatedImage],
         images_dir: Path,
         dataset_dir: Path,
         train_split: float = 0.8,
         seed: int = 0,
     ) -> None:
-        self._annotations_file = annotations_file
+        self._annotations = annotations
         self._images_dir = images_dir
         self._dataset_dir = dataset_dir
         self._train_split = train_split
@@ -115,73 +125,35 @@ class DatasetCreator:
     # -- internals -----------------------------------------------------------
 
     @staticmethod
-    def _extract_filename(image_uri: str) -> str | None:
-        """Filename from a Label Studio local-files URI, or None if unparseable."""
-        path = local_file_path(image_uri)
-        return path.name if path else None
-
-    @staticmethod
-    def _parse_annotation(
-        entry: dict[str, Any], label2id: dict[str, int]
-    ) -> tuple[str | None, str]:
-        """One export entry to ``(filename, YOLO label text)``.
-
-        Polygons missing a label or their points are skipped with a warning —
-        a partially malformed export still yields a usable dataset.
-        """
-        filename = DatasetCreator._extract_filename(entry["image"])
+    def _label_text(image: AnnotatedImage, label2id: dict[str, int]) -> str:
+        """One image's regions as the lines of its YOLO label file."""
         lines = []
-
-        for polygon in entry.get("label", []):
-            try:
-                label_name = polygon["polygonlabels"][0]
-                class_id = label2id[label_name]
-                # The one hop where untrusted export JSON is asserted to be
-                # Label Studio's percent space.
-                points = cast("PercentPolygon", polygon["points"])
-                normalized = percent_to_normalized(points)
-            except (KeyError, IndexError) as exc:
-                logger.warning("skipped_polygon", reason=str(exc), polygon=polygon)
-                continue
-
-            # An empty points list raises nothing, and would emit a class id
-            # with no coordinates — an invalid YOLO instance.
-            if not normalized:
-                logger.warning("skipped_polygon", reason="no points", polygon=polygon)
-                continue
-
-            coords = " ".join(f"{x:.6f} {y:.6f}" for x, y in normalized)
-            lines.append(f"{class_id} {coords}")
-
-        return filename, "\n".join(lines)
+        for region in image.regions:
+            coords = " ".join(f"{x:.6f} {y:.6f}" for x, y in region.polygon)
+            lines.append(f"{label2id[region.label]} {coords}")
+        return "\n".join(lines)
 
     def _load_annotations(self) -> dict[str, str]:
-        """Read the export, derive the class map, and shuffle the image order."""
-        with self._annotations_file.open("r", encoding="utf-8") as f:
-            annotations = json.load(f)
+        """Derive the class map, then shuffle the image order.
 
-        label_names: set[str] = set()
-        for entry in annotations:
-            for polygon in entry.get("label", []):
-                for name in polygon.get("polygonlabels", []):
-                    label_names.add(name)
-
+        The class map comes from the labels the annotations actually carry, so
+        a class nobody drew this round does not reserve an id — which is why it
+        is derived here rather than configured.
+        """
+        label_names = {
+            region.label for image in self._annotations for region in image.regions
+        }
         self._classes = dict(enumerate(sorted(label_names)))
         label2id = {v: k for k, v in self._classes.items()}
         logger.info("classes_derived", classes=self._classes)
 
         images_labels: dict[str, str] = {}
-        for entry in annotations:
-            filename, label_str = self._parse_annotation(entry, label2id)
-            if filename is None:
-                logger.warning("skipped_entry_no_local_path", image=entry.get("image"))
-                continue
-            if filename in images_labels:
-                # Directories are dropped from the URI, so two batches can
-                # both hold a 30.jpg — the later entry wins, and silently
-                # losing the first one's polygons must not pass unremarked.
-                logger.warning("duplicate_image_basename", name=filename)
-            images_labels[filename] = label_str
+        for image in self._annotations:
+            if image.filename in images_labels:
+                # Silently losing the first one's polygons must not pass
+                # unremarked.
+                logger.warning("duplicate_image_basename", name=image.filename)
+            images_labels[image.filename] = self._label_text(image, label2id)
 
         keys = list(images_labels)
         self._rng.shuffle(keys)

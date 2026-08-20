@@ -1,98 +1,14 @@
-"""Tests for the Label Studio geometry seam.
+"""Tests for the conversions between polygon spaces.
 
-Two things cross this seam: the URIs Label Studio references local images by,
-and the percent space it stores polygon points in. Both are produced by a
-server that may not be running the same OS as the machine reading them, which
-is what the separator handling below is about.
+Percent is Label Studio's, normalized is what YOLO label files carry, pixels
+are what a mask off a page is in. Each space is its own type so a conversion
+cannot be applied twice; these check the arithmetic between them.
 """
 
 from __future__ import annotations
 
-import pytest
-
 from digitex.domain.entities import PercentPolygon, PixelPolygon
-from digitex.domain.geometry import (
-    local_file_path,
-    percent_to_normalized,
-    pixel_to_percent,
-    task_image_path,
-)
-
-
-class TestLocalFilePath:
-    @pytest.mark.parametrize(
-        ("uri", "name"),
-        [
-            ("/data/local-files/?d=training%5Cdata%5Cpage.jpg", "page.jpg"),
-            ("/data/local-files/?file=training/data/page.jpg", "page.jpg"),
-            ("/data/local-files/?d=images%5Cmy%20file.jpg", "my file.jpg"),
-        ],
-        ids=["d-parameter", "file-parameter", "url-encoded-space"],
-    )
-    def test_the_filename_is_recovered_from_either_parameter(
-        self, uri: str, name: str
-    ) -> None:
-        path = local_file_path(uri)
-
-        assert path is not None
-        assert path.name == name
-
-    def test_a_backslash_uri_splits_on_every_platform(self) -> None:
-        """The separators are the Label Studio host's, not this machine's.
-
-        Asserting ``.name`` alone passed on Windows while the whole URI stayed
-        one filename on Linux, which is how this reached CI unnoticed.
-        """
-        uri = "/data/local-files/?d=training%5Cdata%5Cimages%5Cpage.jpg"
-
-        path = local_file_path(uri)
-
-        assert path is not None
-        assert path.parts == ("training", "data", "images", "page.jpg")
-
-    @pytest.mark.parametrize(
-        "uri",
-        ["", "http://example.com/image.jpg", "/data/local-files/?other=x"],
-        ids=["empty", "remote-url", "no-local-file-parameter"],
-    )
-    def test_a_uri_naming_no_local_file_has_no_path(self, uri: str) -> None:
-        """The predictor skips such a task rather than failing the run."""
-        assert local_file_path(uri) is None
-
-
-class TestTaskImagePath:
-    """A task's image is not always filed under ``image``.
-
-    A sync from a storage of blob URLs files it under ``$undefined$``, and a
-    reader that only knows ``image`` skips every task of such a project without
-    saying why — which is how a prediction run over 1069 tasks predicted none.
-    """
-
-    URI = "/data/local-files/?d=var%5Ctraining%5Cpage.jpg"
-
-    @pytest.mark.parametrize("key", ["image", "$undefined$"], ids=["named", "unnamed"])
-    def test_the_image_is_found_under_either_key(self, key: str) -> None:
-        path = task_image_path({key: self.URI})
-
-        assert path is not None
-        assert path.name == "page.jpg"
-
-    def test_the_key_the_label_config_names_wins(self) -> None:
-        """Both keys present means one of them is a leftover; ``image`` is not."""
-        path = task_image_path(
-            {"$undefined$": "/data/local-files/?d=stale.jpg", "image": self.URI}
-        )
-
-        assert path is not None
-        assert path.name == "page.jpg"
-
-    @pytest.mark.parametrize(
-        "data",
-        [{}, {"image": ""}, {"text": "a question"}, {"image": 7}],
-        ids=["empty", "empty-uri", "no-image-field", "not-a-string"],
-    )
-    def test_a_task_with_no_local_file_has_no_path(self, data: dict) -> None:
-        assert task_image_path(data) is None
+from digitex.domain.geometry import percent_to_normalized, pixel_to_percent
 
 
 class TestCoordinateConversions:

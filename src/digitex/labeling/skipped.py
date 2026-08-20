@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from digitex.domain.geometry import task_image_path
+from digitex.labeling.uris import task_image_path
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence

@@ -41,6 +41,7 @@ def create_dataset(
     ),
 ) -> None:
     """Convert Label Studio annotations into a YOLO training dataset."""
+    from digitex.labeling.export import read_export
     from digitex.ml.yolo.dataset import DatasetCreator
 
     settings = get_settings()
@@ -52,8 +53,10 @@ def create_dataset(
     if not annotations_file.exists():
         raise abort(f"Error: annotations file not found: {annotations_file}")
 
+    # The composition step D8 was hiding: the annotation tool's format is read
+    # here and the trainer is handed annotations, so neither knows the other.
     dataset = DatasetCreator(
-        annotations_file=annotations_file,
+        annotations=read_export(annotations_file),
         images_dir=images_dir,
         dataset_dir=dataset_dir,
         train_split=train_split,

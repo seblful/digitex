@@ -1,54 +1,51 @@
 """Tests for the YOLO DatasetCreator — ``create()`` is the test surface.
 
-The creator's dependencies are a Label Studio export JSON and a directory of
-images, both of which ``tmp_path`` stands in for, so every test drives the real
-build and asserts on the returned :class:`Dataset` and the emitted tree.
+The creator takes labelled images and a directory of image files, so every test
+drives the real build and asserts on the returned :class:`Dataset` and the tree
+it emitted. Where those annotations came from is `test_labeling_export`'s
+business; nothing here mentions Label Studio.
 """
 
-import json
 from pathlib import Path
 
 import pytest
 import yaml
 from structlog.testing import capture_logs
 
+from digitex.domain.annotations import AnnotatedImage, LabelledRegion
+from digitex.domain.entities import NormalizedPolygon
 from digitex.ml.yolo.dataset import DatasetCreator
 
 LABEL_LINE = "0 0.100000 0.200000 0.500000 0.200000 0.500000 0.800000 0.100000 0.800000"
 
 
-def _annotation(image_name: str, label: str = "question") -> dict:
-    return {
-        "image": f"/data/local-files/?d={image_name}",
-        "label": [
-            {
-                "polygonlabels": [label],
-                "points": [[10.0, 20.0], [50.0, 20.0], [50.0, 80.0], [10.0, 80.0]],
-            },
-        ],
-    }
+_POLYGON = NormalizedPolygon([(0.1, 0.2), (0.5, 0.2), (0.5, 0.8), (0.1, 0.8)])
+
+
+def _annotation(image_name: str, label: str = "question") -> AnnotatedImage:
+    return AnnotatedImage(
+        filename=image_name,
+        regions=(LabelledRegion(label=label, polygon=_POLYGON),),
+    )
 
 
 def _creator(
     tmp_path: Path,
-    annotations: list[dict],
+    annotations: list[AnnotatedImage],
     *,
     train_split: float = 0.8,
     images: tuple[str, ...] = (),
     seed: int = 0,
     dataset_dir_name: str = "dataset",
 ) -> DatasetCreator:
-    """Build a creator rooted in tmp_path, seeding the export and image files."""
-    annotations_file = tmp_path / "annotations.json"
-    annotations_file.write_text(json.dumps(annotations))
-
+    """Build a creator rooted in tmp_path, seeding the image files."""
     images_dir = tmp_path / "images"
     images_dir.mkdir(exist_ok=True)
     for name in images:
         (images_dir / name).write_bytes(b"fake image data")
 
     return DatasetCreator(
-        annotations_file=annotations_file,
+        annotations=annotations,
         images_dir=images_dir,
         dataset_dir=tmp_path / dataset_dir_name,
         train_split=train_split,
@@ -139,11 +136,12 @@ class TestCreate:
         """Two batches can both hold an image1.jpg; the later one wins the key.
 
         The overwrite itself is unchanged — what must not happen is the first
-        entry's polygons vanishing with no trace in the log.
+        one's polygons vanishing with no trace in the log. The export reader
+        hands both over precisely so this is the layer that notices.
         """
         entries = [
-            _annotation("batch1/image1.jpg", label="question"),
-            _annotation("batch2/image1.jpg", label="option"),
+            _annotation("image1.jpg", label="question"),
+            _annotation("image1.jpg", label="option"),
         ]
         creator = _creator(tmp_path, entries, images=("image1.jpg",))
 
@@ -152,6 +150,27 @@ class TestCreate:
 
         assert "duplicate_image_basename" in [log["event"] for log in logs]
         assert dataset.total == 1
+
+    def test_an_image_with_no_regions_ships_without_a_label_file(
+        self, tmp_path: Path
+    ) -> None:
+        """A page an annotator opened and drew nothing on is a negative example.
+
+        It must still be copied — the model needs pages with nothing on them —
+        but a label file holding no lines is not a valid YOLO instance.
+        """
+        creator = _creator(
+            tmp_path,
+            [AnnotatedImage(filename="blank.jpg")],
+            train_split=1.0,
+            images=("blank.jpg",),
+        )
+
+        dataset = creator.create()
+
+        assert dataset.train == 1
+        assert (tmp_path / "dataset" / "train" / "blank.jpg").exists()
+        assert not (tmp_path / "dataset" / "train" / "blank.txt").exists()
 
     def test_derives_a_sorted_class_map(self, tmp_path: Path) -> None:
         creator = _creator(
@@ -180,19 +199,6 @@ class TestCreate:
         label_path = tmp_path / "dataset" / "train" / "image0.txt"
         assert label_path.read_text() == LABEL_LINE
 
-    def test_decodes_url_encoded_uris_to_filenames(self, tmp_path: Path) -> None:
-        creator = _creator(
-            tmp_path,
-            [_annotation("images%5Cmy%20file.jpg")],
-            train_split=1.0,
-            images=("my file.jpg",),
-        )
-
-        dataset = creator.create()
-
-        assert dataset.train == 1
-        assert (tmp_path / "dataset" / "train" / "my file.jpg").exists()
-
     def test_reports_annotated_images_missing_from_disk(self, tmp_path: Path) -> None:
         creator = _creator(
             tmp_path,
@@ -208,49 +214,7 @@ class TestCreate:
         assert not (tmp_path / "dataset" / "train" / "absent.jpg").exists()
         assert not (tmp_path / "dataset" / "train" / "absent.txt").exists()
 
-    def test_skips_polygons_missing_a_label_or_points(self, tmp_path: Path) -> None:
-        entry = {
-            "image": "/data/local-files/?d=image.jpg",
-            "label": [
-                {"polygonlabels": [], "points": [[10.0, 20.0]]},
-                {"polygonlabels": ["question"], "points": []},
-            ],
-        }
-        creator = _creator(tmp_path, [entry], train_split=1.0, images=("image.jpg",))
-
-        dataset = creator.create()
-
-        assert dataset.classes == {0: "question"}
-        # Neither polygon is usable, so the image ships with no label file at
-        # all rather than a class id with no coordinates.
-        assert not (tmp_path / "dataset" / "train" / "image.txt").exists()
-
-    def test_keeps_the_usable_polygons_beside_a_point_less_one(
-        self, tmp_path: Path
-    ) -> None:
-        entry = {
-            "image": "/data/local-files/?d=image.jpg",
-            "label": [
-                {"polygonlabels": ["question"], "points": []},
-                {
-                    "polygonlabels": ["question"],
-                    "points": [
-                        [10.0, 20.0],
-                        [50.0, 20.0],
-                        [50.0, 80.0],
-                        [10.0, 80.0],
-                    ],
-                },
-            ],
-        }
-        creator = _creator(tmp_path, [entry], train_split=1.0, images=("image.jpg",))
-
-        creator.create()
-
-        label_text = (tmp_path / "dataset" / "train" / "image.txt").read_text()
-        assert label_text == LABEL_LINE
-
-    def test_empty_export_still_produces_the_tree(self, tmp_path: Path) -> None:
+    def test_no_annotations_still_produces_the_tree(self, tmp_path: Path) -> None:
         dataset = _creator(tmp_path, []).create()
 
         assert dataset.total == 0
