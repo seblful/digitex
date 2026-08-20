@@ -1,11 +1,14 @@
-"""Turning labelled images into a YOLO train/val/test tree.
+"""A YOLO train/val/test tree, built out of labelled images.
 
 Takes :class:`~digitex.domain.annotations.AnnotatedImage` — a filename and
-normalized polygons — and knows nothing about where they came from. It used to
-read Label Studio's export JSON directly, which made the model trainer a
+normalized polygons — copies each image next to the ``.txt`` label file YOLO
+wants beside it, and writes the ``data.yaml`` that names the three splits.
+
+Where the annotations came from is deliberately unknown here. This module used
+to read Label Studio's export JSON itself, which made the model trainer a
 consumer of the annotation tool's format while the layer contract said it knew
-nothing about it. Parsing the export lives in
-:mod:`digitex.labeling.export` now.
+nothing about it. Parsing the export lives in :mod:`digitex.labeling.export`
+now, and what arrives is already in nobody's format in particular.
 """
 
 from __future__ import annotations
@@ -26,17 +29,15 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
-_SPLITS = ("train", "val", "test")
-
 
 @dataclass(frozen=True)
 class Dataset:
     """What one dataset build produced.
 
-    Returned by :meth:`DatasetCreator.create` so callers can report on a build
-    without reaching into the creator for its derived state. The split counts
-    are images actually copied — an annotation whose image is missing from disk
-    lands in *missing_images* instead.
+    Returned by :meth:`DatasetCreator.create` so a caller can report on a build
+    without reaching into the creator for its derived state. The three counts
+    are images that were actually copied — an annotation whose image is not on
+    disk lands in *missing_images* and in no split.
     """
 
     dataset_dir: Path
@@ -90,27 +91,27 @@ class DatasetCreator:
         self._train_split = train_split
         self._val_split = 0.6 * (1 - train_split)
         self._rng = random.Random(seed)
-        self._classes: dict[int, str] = {}
-        self._missing: list[str] = []
 
     def create(self) -> Dataset:
         """Build the dataset and return what landed on disk."""
-        labels = self._load_annotations()
-        splits = self._partition(labels)
+        classes = self._class_map()
+        labels = self._shuffled_labels(classes)
 
-        counts = [
-            self._copy_split(data, self._split_dir(name))
-            for name, data in zip(_SPLITS, splits, strict=True)
-        ]
-        self._write_data_yaml()
+        copied: dict[str, int] = {}
+        missing: list[str] = []
+        for split, entries in self._partition(labels).items():
+            copied[split], absent = self._copy_split(entries, self._split_dir(split))
+            missing.extend(absent)
+
+        self._write_data_yaml(classes)
 
         dataset = Dataset(
             dataset_dir=self._dataset_dir,
-            classes=dict(self._classes),
-            train=counts[0],
-            val=counts[1],
-            test=counts[2],
-            missing_images=tuple(self._missing),
+            classes=classes,
+            train=copied["train"],
+            val=copied["val"],
+            test=copied["test"],
+            missing_images=tuple(missing),
         )
         logger.info(
             "dataset_created",
@@ -124,81 +125,98 @@ class DatasetCreator:
 
     # -- internals -----------------------------------------------------------
 
+    def _class_map(self) -> dict[int, str]:
+        """Class ids for the labels these annotations actually carry.
+
+        Derived rather than configured, so a class nobody drew this round does
+        not reserve an id.
+        """
+        drawn = {
+            region.label for image in self._annotations for region in image.regions
+        }
+        classes = dict(enumerate(sorted(drawn)))
+        logger.info("classes_derived", classes=classes)
+        return classes
+
     @staticmethod
     def _label_text(image: AnnotatedImage, label2id: dict[str, int]) -> str:
         """One image's regions as the lines of its YOLO label file."""
         lines = []
         for region in image.regions:
-            coords = " ".join(f"{x:.6f} {y:.6f}" for x, y in region.polygon)
-            lines.append(f"{label2id[region.label]} {coords}")
+            points = " ".join(f"{x:.6f} {y:.6f}" for x, y in region.polygon)
+            lines.append(f"{label2id[region.label]} {points}")
         return "\n".join(lines)
 
-    def _load_annotations(self) -> dict[str, str]:
-        """Derive the class map, then shuffle the image order.
+    def _shuffled_labels(self, classes: dict[int, str]) -> dict[str, str]:
+        """Every image's label-file text, in the order the splits are cut from."""
+        label2id = {name: class_id for class_id, name in classes.items()}
 
-        The class map comes from the labels the annotations actually carry, so
-        a class nobody drew this round does not reserve an id — which is why it
-        is derived here rather than configured.
-        """
-        label_names = {
-            region.label for image in self._annotations for region in image.regions
-        }
-        self._classes = dict(enumerate(sorted(label_names)))
-        label2id = {v: k for k, v in self._classes.items()}
-        logger.info("classes_derived", classes=self._classes)
-
-        images_labels: dict[str, str] = {}
+        labels: dict[str, str] = {}
         for image in self._annotations:
-            if image.filename in images_labels:
-                # Silently losing the first one's polygons must not pass
-                # unremarked.
+            if image.filename in labels:
+                # Overwriting is the old behaviour and stays; silently losing
+                # the first one's polygons is what must not pass unremarked.
                 logger.warning("duplicate_image_basename", name=image.filename)
-            images_labels[image.filename] = self._label_text(image, label2id)
+            labels[image.filename] = self._label_text(image, label2id)
 
-        keys = list(images_labels)
-        self._rng.shuffle(keys)
-        logger.info("loaded_annotations", count=len(keys))
-        return {k: images_labels[k] for k in keys}
+        order = list(labels)
+        self._rng.shuffle(order)
+        logger.info("loaded_annotations", count=len(order))
+        return {name: labels[name] for name in order}
 
-    def _partition(self, data: dict[str, str]) -> tuple[dict[str, str], ...]:
-        keys = list(data)
-        num_train = int(len(data) * self._train_split)
-        cut = num_train + int(len(data) * self._val_split)
-        return (
-            {k: data[k] for k in keys[:num_train]},
-            {k: data[k] for k in keys[num_train:cut]},
-            {k: data[k] for k in keys[cut:]},
-        )
+    def _partition(self, labels: dict[str, str]) -> dict[str, dict[str, str]]:
+        """Cut the shuffled images into the three splits."""
+        names = list(labels)
+        train_end = int(len(names) * self._train_split)
+        val_end = train_end + int(len(names) * self._val_split)
+        return {
+            "train": {name: labels[name] for name in names[:train_end]},
+            "val": {name: labels[name] for name in names[train_end:val_end]},
+            "test": {name: labels[name] for name in names[val_end:]},
+        }
 
     def _split_dir(self, name: str) -> Path:
+        """The directory a split writes into, made if it is not there yet."""
         path = self._dataset_dir / name
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def _copy_split(self, data: dict[str, str], dest_dir: Path) -> int:
-        """Copy a split's images plus their labels. Returns images copied."""
+    def _copy_split(
+        self, entries: dict[str, str], dest_dir: Path
+    ) -> tuple[int, list[str]]:
+        """Copy one split's images and label files into *dest_dir*.
+
+        Returns:
+            How many images were copied, and the annotated images that were not
+            on disk to copy.
+        """
         copied = 0
-        for image_name, label_str in data.items():
-            src = self._images_dir / image_name
-            if not src.exists():
+        missing: list[str] = []
+        for image_name, label_text in entries.items():
+            source = self._images_dir / image_name
+            if not source.exists():
                 logger.warning("image_not_found", name=image_name)
-                self._missing.append(image_name)
+                missing.append(image_name)
                 continue
 
-            shutil.copyfile(src, dest_dir / image_name)
-            if label_str:
-                label_path = dest_dir / (Path(image_name).stem + ".txt")
-                label_path.write_text(label_str, encoding="utf-8")
+            shutil.copyfile(source, dest_dir / image_name)
+            if label_text:
+                # A page an annotator drew nothing on is a negative example and
+                # ships anyway, but a label file holding no lines is not a valid
+                # YOLO instance — so it gets no file at all.
+                label_path = dest_dir / f"{Path(image_name).stem}.txt"
+                label_path.write_text(label_text, encoding="utf-8")
             copied += 1
-        return copied
+        return copied, missing
 
-    def _write_data_yaml(self) -> None:
+    def _write_data_yaml(self, classes: dict[int, str]) -> None:
+        """Write the ``data.yaml`` that points YOLO at the splits and classes."""
         data = {
             "path": self._yaml_base_path(),
             "train": "train",
             "val": "val",
             "test": "test",
-            "names": self._classes,
+            "names": classes,
         }
         yaml_path = self._dataset_dir / "data.yaml"
         yaml_path.write_text(yaml.dump(data, sort_keys=False), encoding="utf-8")
