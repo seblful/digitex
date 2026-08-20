@@ -1,8 +1,9 @@
 """Training CLI commands.
 
-Settings are resolved per command rather than at import, so importing this
-module reads no files and configures no logging. The heavy imports
-(ultralytics, torch) stay inside the commands that need them.
+Settings are resolved per command rather than at import, so importing this module
+reads no files and configures no logging. The heavy imports — ultralytics, torch —
+stay inside the commands that need them, which is what keeps `--help` fast on a
+machine with no GPU.
 """
 
 from pathlib import Path
@@ -21,6 +22,16 @@ app = typer.Typer(help="YOLO model training for document segmentation.")
 def configure() -> None:
     """Set up logging before any command runs."""
     setup_logging(get_settings())
+
+
+def _ok(message: str) -> None:
+    """Report a finished command."""
+    typer.echo(typer.style(message, fg="green"))
+
+
+def _note(message: str) -> None:
+    """Report something the operator should look at but that failed nothing."""
+    typer.echo(typer.style(message, fg="yellow"))
 
 
 def _data_dir(settings: Settings, data_type_dir_name: str) -> Path:
@@ -53,8 +64,8 @@ def create_dataset(
     if not annotations_file.exists():
         raise abort(f"Error: annotations file not found: {annotations_file}")
 
-    # The composition step D8 was hiding: the annotation tool's format is read
-    # here and the trainer is handed annotations, so neither knows the other.
+    # Where the two halves meet: the annotation tool's format is read here and
+    # the trainer is handed plain annotations, so neither knows the other.
     dataset = DatasetCreator(
         annotations=read_export(annotations_file),
         images_dir=images_dir,
@@ -62,20 +73,14 @@ def create_dataset(
         train_split=train_split,
     ).create()
 
-    typer.echo(
-        typer.style(
-            f"✓ Dataset created at {dataset.dataset_dir}:"
-            f" {dataset.train} train, {dataset.val} val, {dataset.test} test",
-            fg="green",
-        )
+    _ok(
+        f"✓ Dataset created at {dataset.dataset_dir}:"
+        f" {dataset.train} train, {dataset.val} val, {dataset.test} test"
     )
     if dataset.missing_images:
-        typer.echo(
-            typer.style(
-                f"  {len(dataset.missing_images)} annotated image(s) not found"
-                f" in {images_dir}",
-                fg="yellow",
-            )
+        _note(
+            f"  {len(dataset.missing_images)} annotated image(s) not found"
+            f" in {images_dir}"
         )
 
 
@@ -104,7 +109,7 @@ def add_images(
         paths_file=paths_file,
         output_dir=output_dir,
     )
-    typer.echo(typer.style(f"✓ Images added to {output_dir}", fg="green"))
+    _ok(f"✓ Images added to {output_dir}")
 
 
 @app.command(name="select-random-pages")
@@ -138,12 +143,9 @@ def select_random_pages(
         num_images=num_images,
         subject=subject,
     )
-    typer.echo(
-        typer.style(
-            f"✓ Sampled up to {num_images} pages"
-            f" from {subject or 'every subject'} into {page_train_dir}",
-            fg="green",
-        )
+    _ok(
+        f"✓ Sampled up to {num_images} pages"
+        f" from {subject or 'every subject'} into {page_train_dir}"
     )
 
 
@@ -170,7 +172,7 @@ def train(
     except ValueError as exc:
         raise abort(f"Error: {exc}") from None
 
-    typer.echo(typer.style("✓ Training and validation completed", fg="green"))
+    _ok("✓ Training and validation completed")
 
 
 if __name__ == "__main__":

@@ -1,12 +1,12 @@
 """Label Studio CLI commands.
 
-Everything that talks to the annotation server: pre-annotating a project's
-tasks, repairing the ones a moved image pool stranded, and retiring the pages an
+Everything that talks to the annotation server: pre-annotating a project's tasks,
+repairing the ones a moved image pool stranded, and retiring the pages an
 annotator skipped.
 
-Settings are resolved per command rather than at import, and the SDK and the
-model are imported inside the command that needs them, so ``--help`` reads no
-files and loads neither.
+Settings are resolved per command rather than at import, and the SDK and the model
+are imported inside the command that needs them, so ``--help`` reads no files and
+loads neither.
 
 Both commands that change something default to a dry run and print the plan
 first; ``--no-dry-run`` is what applies it.
@@ -24,12 +24,19 @@ from digitex.config import get_settings
 from digitex.logging import setup_logging
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
     from pathlib import Path
 
     from digitex.labeling import repair, skipped
     from digitex.labeling.client import LabelStudioClient, LabelStudioTask
 
 app = typer.Typer(help="Label Studio pre-annotation and project repair.")
+
+# How many of a plan's entries to name before summarising the rest. Deletions and
+# tasks left alone get the longer list, because those are the two an operator
+# reads before deciding to pass --no-dry-run.
+_MOVE_PREVIEW = 5
+_LIST_PREVIEW = 10
 
 
 @app.callback()
@@ -60,6 +67,20 @@ def _archive(payload: list[dict[str, object]], stem: str) -> Path:
     return dump
 
 
+def _preview[T](
+    items: Sequence[T], limit: int, render: Callable[[T], str], more: str
+) -> None:
+    """Name the first *limit* entries, then say how many were not named.
+
+    A plan can cover thousands of tasks and the operator is deciding whether to
+    apply it, so the report has to be readable and honest about what it elided.
+    """
+    for item in items[:limit]:
+        typer.echo(f"    {render(item)}")
+    if len(items) > limit:
+        typer.echo(f"    ... and {len(items) - limit} more {more}")
+
+
 @app.command()
 def predict(
     project_id: int = typer.Option(..., "--project-id", help="Label Studio project ID"),
@@ -76,8 +97,8 @@ def predict(
     predictor = TaskPredictor(
         YOLO_SegmentationPredictor(model_path, simplify=True),
         _client(),
-        # Uploaded predictions are grouped by version, so the model file
-        # names one.
+        # Uploaded predictions are grouped by version, so the model file names
+        # one.
         model_version=Path(model_path).stem,
     )
 
@@ -93,18 +114,21 @@ def _report_repair(plan: repair.Plan, total: int) -> None:
     typer.echo(f"  delete, nothing on them:                {len(plan.deletions)} tasks")
     typer.echo(f"  leave alone:                            {len(plan.skipped)} tasks")
 
-    for move in plan.moves[:5]:
-        typer.echo(
-            f"    task {move.stranded_id} -> task {move.live_id}"
+    _preview(
+        plan.moves,
+        _MOVE_PREVIEW,
+        lambda move: (
+            f"task {move.stranded_id} -> task {move.live_id}"
             f" ({len(move.annotations)} annotations)"
-        )
-    if len(plan.moves) > 5:
-        typer.echo(f"    ... and {len(plan.moves) - 5} more to move")
-
-    for left in plan.skipped[:10]:
-        typer.echo(f"    task {left.task_id}: {left.reason}")
-    if len(plan.skipped) > 10:
-        typer.echo(f"    ... and {len(plan.skipped) - 10} more left alone")
+        ),
+        "to move",
+    )
+    _preview(
+        plan.skipped,
+        _LIST_PREVIEW,
+        lambda left: f"task {left.task_id}: {left.reason}",
+        "left alone",
+    )
 
 
 @app.command(name="fix-task-paths")
@@ -119,9 +143,9 @@ def fix_task_paths(
     """Repair a project whose images moved out from under its tasks.
 
     Run it after the image pool a local-files storage points at has moved. The
-    tasks synced before the move still name the old path, so their image 404s
-    in the editor, and the sync that followed the move imported every file a
-    second time as a fresh, unannotated task. This moves each stranded task's
+    tasks synced before the move still name the old path, so their image 404s in
+    the editor, and the sync that followed the move imported every file a second
+    time as a fresh, unannotated task. This moves each stranded task's
     annotations onto its freshly imported twin and deletes the stranded task,
     leaving one task per image with the annotations intact.
     """
@@ -163,6 +187,8 @@ def fix_task_paths(
         )
     )
 
+    # Re-planned against the server rather than deduced from the plan: a partial
+    # failure leaves tasks behind, and the operator needs the real number.
     left = repair.plan(client.list_tasks(project_id), document_root=document_root)
     outstanding = len(left.moves) + len(left.deletions)
     typer.echo(
@@ -196,16 +222,21 @@ def _report_skipped(plan: skipped.Plan, total: int) -> None:
     )
     typer.echo(f"  leave alone: {len(plan.kept)} tasks")
 
-    for doomed in plan.deletions[:10]:
-        where = doomed.path if doomed.path is not None else "image already gone"
-        typer.echo(f"    task {doomed.task_id}: {where}")
-    if len(plan.deletions) > 10:
-        typer.echo(f"    ... and {len(plan.deletions) - 10} more to delete")
-
-    for kept in plan.kept[:10]:
-        typer.echo(f"    task {kept.task_id}: {kept.reason}")
-    if len(plan.kept) > 10:
-        typer.echo(f"    ... and {len(plan.kept) - 10} more left alone")
+    _preview(
+        plan.deletions,
+        _LIST_PREVIEW,
+        lambda doomed: (
+            f"task {doomed.task_id}:"
+            f" {doomed.path if doomed.path is not None else 'image already gone'}"
+        ),
+        "to delete",
+    )
+    _preview(
+        plan.kept,
+        _LIST_PREVIEW,
+        lambda kept: f"task {kept.task_id}: {kept.reason}",
+        "left alone",
+    )
 
 
 @app.command(name="delete-skipped-tasks")
@@ -220,10 +251,10 @@ def delete_skipped_tasks(
     """Retire the pages an annotator skipped: image unlinked, task deleted.
 
     A task is cancelled when an annotator clicks "Skip" in Label Studio. Its
-    image going is what keeps the page from syncing back into the pool and out
-    of the next training set; its task going is what keeps the project from
-    filling up with skips. A cancelled task an earlier sweep already took the
-    image of is deleted here too.
+    image going is what keeps the page from syncing back into the pool and out of
+    the next training set; its task going is what keeps the project from filling
+    up with skips. A cancelled task an earlier sweep already took the image of is
+    deleted here too.
     """
     from digitex.labeling import skipped
 
