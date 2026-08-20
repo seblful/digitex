@@ -1,9 +1,15 @@
 """Canvas arithmetic for the review window.
 
-Pure: numbers in, numbers out. The rules that decide where a click lands, how
-far a zoom moves the page under the cursor and which edge a new point joins
-live here rather than in the window, so they can be exercised without a
-display — a Tk widget cannot be asked what it thinks a coordinate means.
+Numbers in, numbers out. These are the rules a mouse gesture is read by: where
+a click lands, how far the view has to move so a zoom magnifies the pixel under
+the cursor instead of scrolling away from it, which edge a new vertex belongs
+on. They sit outside the window because a Tk canvas cannot be asked what it
+thinks a coordinate means — asserting any of this through a widget needs a
+display, and asserting it here needs nothing.
+
+Only arithmetic: no widget, no image. Cutting a polygon out of a page is
+:mod:`digitex.imaging`'s job, and what a polygon *means* is
+:class:`~digitex.ui.edits.PageEdits`'.
 """
 
 from __future__ import annotations
@@ -12,7 +18,11 @@ Point = tuple[int, int]
 
 
 def fit_scale(image: tuple[int, int], canvas: tuple[int, int]) -> float:
-    """The largest scale at which *image* still fits inside *canvas*."""
+    """The largest scale at which *image* still fits inside *canvas*.
+
+    Whichever side runs out first decides. The floors of 1 keep a zero-sized
+    image — a page not yet loaded — from dividing by nothing.
+    """
     width, height = canvas
     return min(width / max(image[0], 1), height / max(image[1], 1))
 
@@ -29,14 +39,15 @@ def visible_box(
 ) -> tuple[float, float, float, float] | None:
     """The part of the rendered page inside the viewport, in canvas pixels.
 
-    *origin* is the view's top-left in canvas coordinates, *view* its size,
-    *page* the image's size at the current scale. None when the two do not
-    overlap at all, which happens mid-scroll on a page smaller than its canvas.
+    *origin* is the view's top-left in canvas coordinates, *view* its size and
+    *page* the image's size at the current scale. The result is the overlap of
+    the two rectangles, or None when there is none — which happens mid-scroll
+    over a page smaller than the canvas it sits on.
     """
-    left = max(0.0, origin[0])
-    top = max(0.0, origin[1])
-    right = min(page[0], origin[0] + view[0])
-    bottom = min(page[1], origin[1] + view[1])
+    left = max(origin[0], 0.0)
+    top = max(origin[1], 0.0)
+    right = min(origin[0] + view[0], page[0])
+    bottom = min(origin[1] + view[1], page[1])
     if right <= left or bottom <= top:
         return None
     return left, top, right, bottom
@@ -45,10 +56,10 @@ def visible_box(
 def anchored_origin(origin: float, pointer: float, ratio: float) -> float:
     """Where the view must start after a zoom to hold a point under the cursor.
 
-    All three arguments are in canvas pixels at the *old* scale: *origin* is
-    the view's left (or top) edge, *pointer* the cursor. Scaling by *ratio*
-    moves the pixel under the cursor to ``pointer * ratio``; keeping it on the
-    same spot of the screen means keeping its distance from the edge.
+    All three arguments are in canvas pixels at the *old* scale: *origin* is the
+    view's left (or top) edge and *pointer* the cursor. Scaling by *ratio* moves
+    the pixel under the cursor to ``pointer * ratio``; leaving it on the same
+    spot of the screen means leaving its distance from the edge alone.
     """
     return pointer * ratio - (pointer - origin)
 
@@ -57,34 +68,44 @@ def scroll_fraction(origin: float, extent: float) -> float:
     """*origin* as the 0-1 fraction ``xview_moveto`` wants, clamped to the page."""
     if extent <= 0:
         return 0.0
-    return max(0.0, min(1.0, origin / extent))
+    return min(max(origin / extent, 0.0), 1.0)
 
 
 def distance_to_segment(point: Point, start: Point, end: Point) -> float:
-    """Squared distance from *point* to the segment *start*-*end*."""
+    """Squared distance from *point* to the segment *start*-*end*.
+
+    Squared, because every caller only ever compares one against another and a
+    square root would change no ordering.
+    """
     px, py = point
     x0, y0 = start
-    x1, y1 = end
-    dx, dy = x1 - x0, y1 - y0
-    length = dx * dx + dy * dy
-    if length == 0:
+    dx, dy = end[0] - x0, end[1] - y0
+    span = dx * dx + dy * dy
+    if span == 0:
+        # The two ends coincide — a polygon can carry a doubled vertex.
         return (px - x0) ** 2 + (py - y0) ** 2
-    t = max(0.0, min(1.0, ((px - x0) * dx + (py - y0) * dy) / length))
-    return (px - x0 - t * dx) ** 2 + (py - y0 - t * dy) ** 2
+    # How far along the segment the perpendicular foot falls, held inside it so
+    # a point beyond either end measures against that end.
+    along = min(max(((px - x0) * dx + (py - y0) * dy) / span, 0.0), 1.0)
+    return (px - x0 - along * dx) ** 2 + (py - y0 - along * dy) ** 2
 
 
 def nearest_edge(polygon: list[Point], point: Point) -> int:
     """Index of the vertex *point* should be inserted after.
+
+    The closing edge back to the first vertex counts like any other, so a click
+    below the last corner of a box lands where it looks like it should.
 
     Raises:
         ValueError: If *polygon* has no points.
     """
     if not polygon:
         raise ValueError("An empty polygon has no edges")
+    last = len(polygon)
     return min(
-        range(len(polygon)),
-        key=lambda i: distance_to_segment(
-            point, polygon[i], polygon[(i + 1) % len(polygon)]
+        range(last),
+        key=lambda at: distance_to_segment(
+            point, polygon[at], polygon[(at + 1) % last]
         ),
     )
 
@@ -109,4 +130,4 @@ def bounds(polygon: list[Point]) -> tuple[int, int, int, int]:
 
 def top_left(polygon: list[Point]) -> Point:
     """The point a caption hangs off: topmost, and leftmost among those."""
-    return min(polygon, key=lambda p: (p[1], p[0]))
+    return min(polygon, key=lambda point: (point[1], point[0]))

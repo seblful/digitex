@@ -8,8 +8,8 @@ first be dragged into place. The offsets it hands back are what the crop is
 written with.
 
 Nothing here reads the page — the pieces arrive already cut. The stacking is
-:func:`digitex.imaging.stacked_layout`, the same arithmetic that builds the
-file, so what is dragged here is what lands on disk.
+:func:`digitex.imaging.stacked_layout`, the same arithmetic that builds the file,
+so what is dragged here is what lands on disk.
 """
 
 from __future__ import annotations
@@ -69,8 +69,8 @@ class JoinEditor:
 
         offsets = JoinEditor(parent, pieces).run()
 
-    ``run`` returns None when the reviewer cancels — the pieces stay as they
-    were — and otherwise one offset per piece, in the order they were given.
+    ``run`` returns None when the reviewer cancels — the pieces stay as they were
+    — and otherwise one offset per piece, in the order they were given.
     """
 
     def __init__(
@@ -86,6 +86,8 @@ class JoinEditor:
         self._offsets = [piece.offset for piece in self._pieces]
         self._result: list[tuple[int, int]] | None = None
         self._drag: tuple[float, float] | None = None
+        # One entry per piece, all parallel to `_pieces`: the PhotoImages have
+        # to be held or Tk drops them, and the item ids are what `_place` moves.
         self._photos: list[ImageTk.PhotoImage] = []
         self._images: list[int] = []
         self._frames: list[int] = []
@@ -100,8 +102,9 @@ class JoinEditor:
         self.top.protocol("WM_DELETE_WINDOW", self._cancel)
 
         self._build()
-        # A scale for the stack as it stands, held for the session: refitting
-        # under a drag would move the piece the reviewer is aiming with.
+        # The scale for the stack as it stands, then held for the session:
+        # refitting under a drag would move the piece the reviewer is aiming
+        # with.
         self._scale = self._fit_scale()
         self._render()
         self._show_selection()
@@ -109,6 +112,7 @@ class JoinEditor:
     # --- construction ---
 
     def _px(self, value: int) -> int:
+        """A size written for a 100% display, at this one's scaling."""
         return scaled(value, self._dpi_scale)
 
     def _build(self) -> None:
@@ -134,8 +138,12 @@ class JoinEditor:
         self._canvas.grid(row=1, column=0, sticky="nsew", padx=10)
         self._canvas.bind("<Button-1>", self._on_press)
         self._canvas.bind("<B1-Motion>", self._on_motion)
-        self._canvas.bind("<ButtonRelease-1>", lambda _e: setattr(self, "_drag", None))
+        self._canvas.bind("<ButtonRelease-1>", self._on_release)
 
+        self._build_footer()
+        self._bind_keys()
+
+    def _build_footer(self) -> None:
         footer = ttk.Frame(self.top, padding=(10, 8))
         footer.grid(row=2, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
@@ -149,6 +157,7 @@ class JoinEditor:
         )
         ttk.Button(footer, text="Reset", command=self._reset).grid(row=0, column=1)
 
+    def _bind_keys(self) -> None:
         for key, delta in (
             ("<Up>", (0, -1)),
             ("<Down>", (0, 1)),
@@ -189,19 +198,30 @@ class JoinEditor:
     # --- layout ---
 
     def _movable(self, index: int) -> bool:
-        """True for a piece this window can move — never the first, which anchors."""
+        """True for a piece this window can move — never the first, which anchors.
+
+        Only the seams *below* a piece mean anything, and the top piece has none.
+        """
         return index > 0 and self._pieces[index].movable
 
     def _layout(self) -> tuple[tuple[int, int], list[tuple[int, int]]]:
+        """The stack's size and every piece's top-left, in source pixels."""
         return stacked_layout(
             [piece.image.size for piece in self._pieces], self._gap, self._offsets
         )
 
     def _fit_scale(self) -> float:
+        """The factor the whole stack fits the canvas at, never magnifying it."""
         (width, height), _ = self._layout()
         view_w = max(self._canvas.winfo_reqwidth(), 1)
         view_h = max(self._canvas.winfo_reqheight(), 1)
         return min(view_w / max(width, 1), view_h / max(height, 1), 1.0)
+
+    def _scaled_size(self, image: Image.Image) -> tuple[int, int]:
+        return (
+            max(1, round(image.width * self._scale)),
+            max(1, round(image.height * self._scale)),
+        )
 
     def _render(self) -> None:
         """Draw every piece once. Moving them afterwards only moves the items."""
@@ -213,11 +233,7 @@ class JoinEditor:
 
         for index, piece in enumerate(self._pieces):
             shown = piece.image.convert("RGB").resize(
-                (
-                    max(1, round(piece.image.width * self._scale)),
-                    max(1, round(piece.image.height * self._scale)),
-                ),
-                Image.Resampling.BILINEAR,
+                self._scaled_size(piece.image), Image.Resampling.BILINEAR
             )
             photo = ImageTk.PhotoImage(shown)
             self._photos.append(photo)
@@ -227,21 +243,23 @@ class JoinEditor:
             self._frames.append(
                 self._canvas.create_rectangle(0, 0, 0, 0, outline=FIXED, width=2)
             )
-            label = self._canvas.create_text(
-                0,
-                0,
-                text=f"{index + 1}. {piece.caption}",
-                anchor="nw",
-                fill=MUTED,
-                font=("TkDefaultFont", 9),
-            )
-            chip = self._canvas.create_rectangle(
-                0, 0, 0, 0, fill="#ffffff", outline=FIXED
-            )
-            self._canvas.tag_lower(chip, label)
-            self._captions.append((label, chip))
+            self._captions.append(self._render_caption(index, piece))
 
         self._place()
+
+    def _render_caption(self, index: int, piece: JoinPiece) -> tuple[int, int]:
+        """A caption and the chip behind it, both moved into place by `_place`."""
+        label = self._canvas.create_text(
+            0,
+            0,
+            text=f"{index + 1}. {piece.caption}",
+            anchor="nw",
+            fill=MUTED,
+            font=("TkDefaultFont", 9),
+        )
+        chip = self._canvas.create_rectangle(0, 0, 0, 0, fill="#ffffff", outline=FIXED)
+        self._canvas.tag_lower(chip, label)
+        return (label, chip)
 
     def _place(self) -> None:
         """Move the pieces to where the current offsets put them."""
@@ -269,21 +287,24 @@ class JoinEditor:
             self._canvas.itemconfigure(
                 self._frames[index],
                 outline=ACCENT if index == self._selected else FIXED,
+                # A dashed frame is a piece this window will not move.
                 dash=() if self._movable(index) else (4, 3),
             )
-
-            label, chip = self._captions[index]
-            self._canvas.coords(label, left + 6, top + 4)
-            box = self._canvas.bbox(label)
-            if box:
-                self._canvas.coords(
-                    chip, box[0] - 3, box[1] - 2, box[2] + 3, box[3] + 2
-                )
-            self._canvas.tag_raise(label)
+            self._place_caption(index, left, top)
 
         self._show_selection()
 
+    def _place_caption(self, index: int, left: float, top: float) -> None:
+        label, chip = self._captions[index]
+        self._canvas.coords(label, left + 6, top + 4)
+        # The chip can only be sized once the text has been measured.
+        box = self._canvas.bbox(label)
+        if box:
+            self._canvas.coords(chip, box[0] - 3, box[1] - 2, box[2] + 3, box[3] + 2)
+        self._canvas.tag_raise(label)
+
     def _show_selection(self) -> None:
+        """Name the piece the keys would move, and where it currently sits."""
         if self._selected is None:
             self._readout.configure(text="nothing here can be moved")
             return
@@ -301,6 +322,7 @@ class JoinEditor:
         self._place()
 
     def _cycle(self) -> str:
+        """Tab through the pieces that can be moved, skipping the fixed ones."""
         movable = [index for index in range(len(self._pieces)) if self._movable(index)]
         if movable:
             at = movable.index(self._selected) if self._selected in movable else -1
@@ -320,9 +342,12 @@ class JoinEditor:
                 return index
         return None
 
+    def _canvas_point(self, event: tk.Event) -> tuple[float, float]:
+        return (self._canvas.canvasx(event.x), self._canvas.canvasy(event.y))
+
     def _on_press(self, event: tk.Event) -> None:
         self._canvas.focus_set()
-        point = (self._canvas.canvasx(event.x), self._canvas.canvasy(event.y))
+        point = self._canvas_point(event)
         index = self._piece_at(*point)
         if index is None or not self._movable(index):
             return
@@ -332,13 +357,18 @@ class JoinEditor:
     def _on_motion(self, event: tk.Event) -> None:
         if self._drag is None or self._selected is None:
             return
-        x, y = self._canvas.canvasx(event.x), self._canvas.canvasy(event.y)
+        x, y = self._canvas_point(event)
         dx = round((x - self._drag[0]) / self._scale)
         dy = round((y - self._drag[1]) / self._scale)
+        # Below a source pixel there is nothing to move yet, and the drag origin
+        # has to stay where it was or the movement is lost to rounding.
         if dx == 0 and dy == 0:
             return
         self._move(self._selected, dx, dy)
         self._drag = (x, y)
+
+    def _on_release(self, _event: tk.Event) -> None:
+        self._drag = None
 
     def _nudge(self, delta: tuple[int, int], step: int) -> str:
         if self._selected is not None:
@@ -349,8 +379,8 @@ class JoinEditor:
         """Shift one piece against the one above it, and everything below with it."""
         piece = self._pieces[index]
         x, y = self._offsets[index]
-        # A seam never moves further than the piece itself is wide or tall, so
-        # a stray drag cannot throw a piece off the canvas.
+        # A seam never moves further than the piece itself is wide or tall, so a
+        # stray drag stops where the piece is still visible.
         self._offsets[index] = (
             _clamped(x + dx, piece.image.width),
             _clamped(y + dy, piece.image.height),

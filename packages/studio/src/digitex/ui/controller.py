@@ -19,10 +19,9 @@ The window keeps what is genuinely a window's: pixels on a canvas, coordinate
 spaces, event translation, and the modal loop. It asks this object what to draw
 and tells it what the reviewer did.
 
-The editing rules are one layer further down still, in :class:`PageEdits`,
-which this delegates to and does not second-guess. Three layers, each testable
-without the one above it: what an edit means, what a review is, what it looks
-like.
+The editing rules are one layer further down still, in :class:`PageEdits`, which
+this delegates to and does not second-guess. Three layers, each testable without
+the one above it: what an edit means, what a review is, what it looks like.
 """
 
 from __future__ import annotations
@@ -88,8 +87,8 @@ NO_SELECTION_CAPTION = "select a region to preview its crop"
 class Preview:
     """The crop the selection would be saved as, and its caption.
 
-    ``image`` is None when there is nothing to show — no selection, or a
-    polygon too degenerate to cut — and the caption says which.
+    ``image`` is None when there is nothing to show — no selection, or a polygon
+    too degenerate to cut — and the caption says which.
     """
 
     image: Image.Image | None
@@ -128,9 +127,9 @@ def resolve_verdict(
 class ReviewController:
     """The page under review, and every question that can be asked about it.
 
-    Mutable and reused: one controller serves a whole run, taking page after
-    page through :meth:`load`, which is what lets the window carry zoom and
-    selection habits across pages without this object knowing about either.
+    Mutable and reused: one controller serves a whole run, taking page after page
+    through :meth:`load`, which is what lets the window carry zoom and selection
+    habits across pages without this object knowing about either.
 
     Every operation that changes the page re-derives the numbering before it
     returns, so what this reports is never one edit behind what it holds. The
@@ -141,6 +140,8 @@ class ReviewController:
         self.edits = PageEdits()
         self.numbering = Numbering()
 
+        # A 1x1 white page until the first proposal arrives, so the window can
+        # measure and draw something before it has anything to review.
         self.image = Image.new("RGB", (1, 1), "white")
         self.crop: QuestionCrop | None = None
         self.crop_piece: PieceCrop | None = None
@@ -154,6 +155,8 @@ class ReviewController:
 
         self.hover: int | None = None
         self.draw_label: PageLabel | None = None
+        # Abort until the reviewer says otherwise: a window closed or a run
+        # interrupted must never read as an approval.
         self.verdict: Verdict = "abort"
 
     # --- taking on a page ---
@@ -220,6 +223,7 @@ class ReviewController:
 
     @staticmethod
     def reading_text(region: PageRegion) -> str:
+        """What OCR made of a marker. Empty for a question, which carries none."""
         if region.label == "question":
             return ""
         return str(region.reading) if region.reading is not None else "unread"
@@ -245,6 +249,7 @@ class ReviewController:
                 index=index,
                 label=f"{index + 1}. {region.label}",
                 reading=self.reading_text(region),
+                # A marker is saved nowhere, so the column stays empty for one.
                 where=self.caption(index, region) if region.label == "question" else "",
                 misnumbered=index in self.numbering.misnumbered,
             )
@@ -252,26 +257,29 @@ class ReviewController:
         ]
 
     def status(self) -> Status:
+        """The page's place in the run, and what it is about to write."""
         where = self.page_name
         if self.page_count:
             where += f"    page {self.page_number} of {self.page_count}"
 
         placements = self.numbering.placements
-        span = ""
-        if placements:
-            first, last = placements[0], placements[-1]
-            span = f"    → {first} … {last}" if first != last else f"    → {first}"
-
         counts = f"{len(placements)} questions, {self.edits.marker_count} markers"
         held = self.numbering.held
         if held:
             counts += f", {held} piece{'s' if held > 1 else ''} held"
+
+        span = ""
+        if placements:
+            first, last = placements[0], placements[-1]
+            span = f"    → {first} … {last}" if first != last else f"    → {first}"
         return Status(where=where, counts=f"{counts}{span}")
 
     def carried_summary(self) -> str | None:
         """What was carried onto this page, or None when nothing was."""
         if not self.carried:
             return None
+        # dict.fromkeys rather than a set: the pages keep the order the pieces
+        # came in, and a question spanning three pages names two of them.
         pages = ", ".join(dict.fromkeys(piece.page_name for piece in self.carried))
         count = len(self.carried)
         return (
@@ -296,6 +304,7 @@ class ReviewController:
         return True
 
     def cycle_selection(self, delta: int) -> bool:
+        """Step through the regions, wrapping. False on a page with none."""
         regions = self.edits.regions
         if not regions:
             return False
@@ -315,8 +324,8 @@ class ReviewController:
         """The selected region as it would be saved.
 
         A question goes through the extractor's own cropping pipeline, so the
-        preview is the file that would be written rather than a lookalike. A
-        marker is just cut out of the page.
+        preview is the file that would be written rather than a lookalike of it.
+        A marker is only ever read, so it is just cut out of the page.
         """
         if region.label == "question" and self.crop is not None:
             pieces = [
@@ -331,8 +340,8 @@ class ReviewController:
         """The selected region as it would be saved, and what to say about it.
 
         A degenerate polygon mid-edit is a caption, not an exception: the
-        reviewer is dragging a vertex and the crop is momentarily impossible.
-        A real cropping bug lands here too, so the caller keeps the traceback.
+        reviewer is dragging a vertex and the crop is momentarily impossible. A
+        real cropping bug lands here too, so the caller keeps the traceback.
         """
         index = self.edits.selected
         if index is None or index >= len(self.edits.regions):
@@ -346,6 +355,7 @@ class ReviewController:
         return Preview(image=image, caption=self.preview_text(index, region, image))
 
     def preview_text(self, index: int, region: PageRegion, image: Image.Image) -> str:
+        """The caption under the crop: what it would be written as, and how big."""
         size = f"{image.width}x{image.height} px"
         if region.label != "question":
             return f"{region.label} marker — {size}"
@@ -381,7 +391,7 @@ class ReviewController:
             joins_next=question and bool(region and region.joins_next),
             can_toggle=question,
             # Without the extractor's own piece crop there is nothing honest to
-            # line up against.
+            # line the pieces up against.
             can_line_up=(
                 question
                 and index is not None
@@ -412,6 +422,7 @@ class ReviewController:
 
         pieces: list[JoinPiece] = []
         origins: list[int | None] = []
+
         if self.edits.takes_carried(index):
             for carried in self.carried:
                 pieces.append(
@@ -439,6 +450,7 @@ class ReviewController:
     def apply_join_offsets(
         self, offsets: list[tuple[int, int]], origins: list[int | None]
     ) -> None:
+        """Take the offsets the join editor handed back, dropping carried pieces."""
         self.edits.set_join_offsets(
             {
                 at: offset
@@ -528,10 +540,10 @@ class ReviewController:
     def finish(self, verdict: Verdict) -> bool:
         """Settle the page. False when the verdict is refused.
 
-        Only approval can be refused, and only for a page whose numbering
-        would not continue the output tree — the same rule the extractor
-        applies before writing, which is why it is here and not in the widget
-        that happens to own the button.
+        Only approval can be refused, and only for a page whose numbering would
+        not continue the output tree — the same rule the extractor applies before
+        writing, which is why it is here and not in the widget that happens to
+        own the button.
         """
         if verdict == "approve" and not self.approve_enabled:
             return False

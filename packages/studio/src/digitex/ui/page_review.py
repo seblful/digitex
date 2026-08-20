@@ -1,26 +1,34 @@
 """Tkinter review window — check a page's regions before they are cropped.
 
-One adapter over the `PageReviewer` seam. The window draws the page, its
-polygons and the option/part/number each question would be saved as, and lets
-all of it be corrected with the mouse: drag a vertex or a whole polygon, add
-and delete points, relabel a region, draw a missing one, reorder them, fix a
-misread marker, mark a question as continuing onto the next page, or move where
-the page starts numbering. Every edit is undoable, and the pane under the region
-list shows the crop that would be written for whichever region is selected.
+One adapter over the `PageReviewer` seam. The window draws the page, its polygons
+and the option/part/number each question would be saved as, and lets all of it be
+corrected with the mouse: drag a vertex or a whole polygon, add and delete
+points, relabel a region, draw a missing one, reorder them, fix a misread marker,
+mark a question as continuing onto the next page, or move where the page starts
+numbering. Every edit is undoable, and the pane under the region list shows the
+crop that would be written for whichever region is selected.
 
 Every placement it shows comes from :func:`place_questions`, and every crop it
 previews from the extractor's own cropping pipeline, so neither can drift from
 what lands on disk.
 
-One window serves the whole run: each page is loaded into it rather than
-opening a new one, which is what lets the zoom, the pan and the chosen tab
-survive from page to page.
+One window serves the whole run: each page is loaded into it rather than opening
+a new one, which is what lets the zoom, the pan and the chosen tab survive from
+page to page.
+
+What is *not* here is what a review is. The page, the selection, the verdict and
+every question that can be asked about them live in :class:`ReviewController`,
+and what an edit means in :class:`PageEdits` below that. This module is pixels,
+coordinate spaces, event translation and the modal loop — the part that genuinely
+needs a display, and the only part of the three that cannot be asserted without
+one.
 """
 
 from __future__ import annotations
 
 import math
 import tkinter as tk
+from dataclasses import dataclass
 from tkinter import messagebox, simpledialog, ttk
 from typing import TYPE_CHECKING
 
@@ -37,7 +45,7 @@ from digitex.ui.controller import (
 )
 from digitex.ui.display import BASE_DPI, enable_dpi_awareness, scaled
 from digitex.ui.edits import MIN_POINTS, PageEdits
-from digitex.ui.join_editor import JoinEditor, JoinPiece
+from digitex.ui.join_editor import JoinEditor
 from digitex.ui.stats_panel import StatsPanel
 
 if TYPE_CHECKING:
@@ -61,8 +69,8 @@ COLORS: dict[PageLabel, str] = {
 
 LABELS: tuple[PageLabel, ...] = ("question", "option", "part")
 
-# Overrides a region's own colour when its number would collide with, or leave
-# a gap after, what the output tree already holds.
+# Overrides a region's own colour when its number would collide with, or leave a
+# gap after, what the output tree already holds.
 MISNUMBERED = "#c00000"
 
 ACCENT = "#2f6fed"
@@ -88,8 +96,8 @@ ZOOM_STEP = 1.25
 NUDGE = 1
 NUDGE_FAST = 10
 
-# Written for a 100% display; every one of them is put through `scaled()`
-# against the display's own factor before it reaches a widget.
+# Written for a 100% display; every one of them is put through `scaled()` against
+# the display's own factor before it reaches a widget.
 PANEL_WIDTH = 400
 PREVIEW_HEIGHT = 230
 FOOTER_HEIGHT = 46
@@ -109,12 +117,52 @@ def _int_or(raw: str, fallback: int) -> int:
         return fallback
 
 
+@dataclass(frozen=True)
+class _Hit:
+    """What a click found on the canvas.
+
+    ``point`` is the vertex index, and means nothing unless ``handle`` is set —
+    a click on the body of a polygon grabs the whole thing.
+    """
+
+    index: int
+    point: int
+    handle: bool
+
+
+class _Debounce:
+    """Named ``after`` jobs, each replacing the last of its name.
+
+    Two of the window's reactions are too expensive to run per keystroke: the
+    crop preview deskews the region it cuts, and one undo step per digit typed
+    into a spinbox would fill the timeline with half-numbers. Both wait here for
+    the gesture to settle instead.
+    """
+
+    def __init__(self, widget: tk.Misc) -> None:
+        self._widget = widget
+        self._jobs: dict[str, str] = {}
+
+    def schedule(self, name: str, delay_ms: int, action: Callable[[], object]) -> None:
+        """Run *action* once *delay_ms* has passed with no further call to *name*."""
+        pending = self._jobs.pop(name, None)
+        if pending is not None:
+            self._widget.after_cancel(pending)
+        self._jobs[name] = self._widget.after(delay_ms, action)
+
+    def cancel_all(self) -> None:
+        """Drop everything still waiting — the page is settled, one way or another."""
+        for job in self._jobs.values():
+            self._widget.after_cancel(job)
+        self._jobs.clear()
+
+
 class TkPageReviewer:
     """Interactive `PageReviewer`: shows each page and waits for a verdict.
 
     One hidden root and one window are created on first use and reused for the
-    whole run, so zoom, pan, window size and the selected tab carry from page
-    to page.
+    whole run, so zoom, pan, window size and the selected tab carry from page to
+    page.
 
     ``census`` and ``validator`` are what the window's second tab reports on.
     Both are optional: without them the window still reviews pages, it just has
@@ -180,11 +228,12 @@ class TkPageReviewer:
 class _ReviewWindow:
     """The window itself. Built once, then loaded with one page after another.
 
-    A view over :class:`~digitex.ui.edits.PageEdits`, which owns the working
-    copy of the page and every rule about editing it. The window's own job is
-    the widgets: draw what ``edits.numbering()`` reports, turn clicks and keys
-    into its operations, and redraw afterwards. Nothing here decides what an
-    edit means.
+    A view over :class:`~digitex.ui.controller.ReviewController`, which owns the
+    page under review and answers every question about it, and over
+    :class:`~digitex.ui.edits.PageEdits` under that, which owns the rules. The
+    window's own job is the widgets: draw what the controller reports, turn
+    clicks and keys into its operations, and redraw afterwards. Nothing here
+    decides what an edit means.
     """
 
     def __init__(
@@ -195,27 +244,33 @@ class _ReviewWindow:
         validator: AnswerValidator | None = None,
         scale: float = 1.0,
     ) -> None:
-        # What the review *is* — the page, the selection, the verdict, and
-        # every question that can be asked about them. The window draws what
-        # this reports and turns input into its operations. Nothing here
-        # decides what an edit means; nothing there needs a display.
+        # What the review *is* — the page, the selection, the verdict, and every
+        # question that can be asked about them. Nothing here decides what an
+        # edit means; nothing there needs a display.
         self.control = ReviewController()
 
         self._subject = subject
         self._dpi_scale = scale
 
+        # The view onto the page: how far it is zoomed, the scroll region it
+        # hangs in, and the bitmaps Tk would garbage-collect if nothing held
+        # them.
         self._scale = 1.0
         self._region = (0.0, 0.0, 1.0, 1.0)
         self._fitted = False
         self._photo: ImageTk.PhotoImage | None = None
         self._preview_photo: ImageTk.PhotoImage | None = None
         self._render_pending = False
-        self._loading = False
-        self._jobs: dict[str, str] = {}
 
-        self._drag: tuple[str, int, int] | None = None
+        # The gesture in flight: what button 1 grabbed and where it last was, or
+        # the corner a new region is being dragged out from.
+        self._drag: _Hit | None = None
         self._drag_from: tuple[float, float] | None = None
         self._draw_from: tuple[float, float] | None = None
+
+        # Set while the widgets are being written from the model, so the entry
+        # state's own traces do not echo straight back into it.
+        self._loading = False
 
         # Point sizes are converted with the display's own DPI, so a font asked
         # for in points comes out the size the rest of the desktop draws it.
@@ -230,6 +285,7 @@ class _ReviewWindow:
         self.top.minsize(scaled(900, scale), scaled(600, scale))
 
         self._done = tk.BooleanVar(master=self.top, value=False)
+        self._jobs = _Debounce(self.top)
         self._build(census, validator)
 
         # No transient(): the reviewer's root is withdrawn, and a toplevel made
@@ -266,6 +322,8 @@ class _ReviewWindow:
         self._canvas.focus_set()
         self.top.grab_set()
 
+        # Abort until a button says otherwise: a window torn down mid-review
+        # must not read as an approval of the page in it.
         self.control.finish("abort")
         self._done.set(False)
         self.top.wait_variable(self._done)
@@ -291,17 +349,17 @@ class _ReviewWindow:
 
         self._loading = False
 
-        # A book's pages are all the same size, so holding the zoom is what
-        # lets a reviewer settle on one and stay there. A page of a different
-        # size means a new book, or a fold-out — start it from a fit.
+        # A book's pages are all the same size, so holding the zoom is what lets
+        # a reviewer settle on one and stay there. A page of a different size
+        # means a new book, or a fold-out — start that one from a fit.
         if resized or not self._fitted:
             self._fit_when_ready()
         else:
             self._set_scale(self._scale)
 
         self._refresh()
-        # The controller may have opened the page on a question already — a
-        # page that finishes what the one before it started.
+        # The controller may have opened the page on a question already — a page
+        # that finishes what the one before it started.
         if self.edits.selected is not None:
             self._after_selection_change()
         self._refresh_stats_if_shown()
@@ -309,8 +367,8 @@ class _ReviewWindow:
     def _fit_when_ready(self) -> None:
         """Fit the page once the canvas knows how big it is.
 
-        Tk gives a widget its real size only after the geometry manager has
-        run, and the first page can arrive before that.
+        Tk gives a widget its real size only after the geometry manager has run,
+        and the first page can arrive before that.
         """
         if self._view_size == (1, 1):
             self.top.after(50, self._fit_when_ready)
@@ -325,8 +383,8 @@ class _ReviewWindow:
     ) -> None:
         self.top.rowconfigure(1, weight=1)
         self.top.columnconfigure(0, weight=1)
-        # The canvas is the only cell that grows; without floors of their own
-        # the side panel and the footer buttons are squeezed out of the window.
+        # The canvas is the only cell that grows; without floors of their own the
+        # side panel and the footer buttons are squeezed out of the window.
         self.top.columnconfigure(1, minsize=self._px(PANEL_WIDTH))
         self.top.rowconfigure(3, minsize=self._px(FOOTER_HEIGHT))
 
@@ -360,19 +418,17 @@ class _ReviewWindow:
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=10)
 
         ttk.Label(bar, text="Draw:").pack(side="left", padx=(0, 4))
-        self._draw_buttons: dict[PageLabel, ttk.Button] = {}
         for label in LABELS:
-            button = ttk.Button(
+            ttk.Button(
                 bar,
                 text=label,
                 width=9,
                 command=lambda lbl=label: self._start_draw(lbl),
-            )
-            button.pack(side="left", padx=1)
-            self._draw_buttons[label] = button
+            ).pack(side="left", padx=1)
 
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=10)
 
+        # Where a refused edit says why, and a running one says what it wants.
         self._hint = ttk.Label(bar, text="", foreground=MUTED)
         self._hint.pack(side="left")
 
@@ -392,8 +448,8 @@ class _ReviewWindow:
         hbar = ttk.Scrollbar(frame, orient="horizontal", command=self._canvas.xview)
         hbar.grid(row=1, column=0, sticky="ew")
         # The scroll callbacks double as the window's "the view moved" signal:
-        # the canvas calls them however the view moved — scrollbar, wheel, pan
-        # or keyboard — which is exactly when the page bitmap has to be redrawn.
+        # the canvas calls them however the view moved — scrollbar, wheel, pan or
+        # keyboard — which is exactly when the page bitmap has to be redrawn.
         self._canvas.configure(
             yscrollcommand=lambda *a: self._on_scrolled(vbar, *a),
             xscrollcommand=lambda *a: self._on_scrolled(hbar, *a),
@@ -436,51 +492,8 @@ class _ReviewWindow:
 
         self._build_carried(panel)
         self._build_entry_state(panel)
-
-        tree_frame = ttk.Frame(panel)
-        tree_frame.grid(row=2, column=0, sticky="nsew", pady=(8, 4))
-        tree_frame.rowconfigure(0, weight=1)
-        tree_frame.columnconfigure(0, weight=1)
-
-        self._tree = ttk.Treeview(
-            tree_frame,
-            columns=("kind", "reading", "where"),
-            show="headings",
-            selectmode="browse",
-            height=12,
-        )
-        self._tree.heading("kind", text="region")
-        self._tree.heading("reading", text="read as")
-        self._tree.heading("where", text="saved as")
-        self._tree.column("kind", width=120, anchor="w")
-        self._tree.column("reading", width=70, anchor="w")
-        self._tree.column("where", width=100, anchor="w")
-        self._tree.tag_configure("misnumbered", foreground=MISNUMBERED)
-        for label, color in COLORS.items():
-            self._tree.tag_configure(label, foreground=color)
-        self._tree.grid(row=0, column=0, sticky="nsew")
-        self._tree.bind("<<TreeviewSelect>>", self._on_tree_select)
-        self._tree.bind("<Double-1>", lambda _e: self._edit_reading())
-
-        tbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self._tree.yview)
-        tbar.grid(row=0, column=1, sticky="ns")
-        self._tree.configure(yscrollcommand=tbar.set)
-
-        buttons = ttk.Frame(panel)
-        buttons.grid(row=3, column=0, sticky="ew")
-        ttk.Button(buttons, text="↑", width=3, command=lambda: self._move(-1)).pack(
-            side="left"
-        )
-        ttk.Button(buttons, text="↓", width=3, command=lambda: self._move(1)).pack(
-            side="left"
-        )
-        ttk.Button(buttons, text="Sort by position", command=self._sort).pack(
-            side="left", padx=4
-        )
-        ttk.Button(buttons, text="Delete", command=self._delete_region).pack(
-            side="left"
-        )
-
+        self._build_region_list(panel)
+        self._build_region_buttons(panel)
         self._build_preview(panel)
 
     def _build_carried(self, panel: ttk.Frame) -> None:
@@ -537,6 +550,9 @@ class _ReviewWindow:
             entry, from_=0, to=999, width=5, textvariable=self._question_var
         ).grid(row=1, column=1, sticky="w", padx=4, pady=4)
 
+        # Traced rather than validated on focus-out: the numbering below has to
+        # follow the field as it is typed, or the reviewer cannot see what the
+        # value does.
         for var in (self._option_var, self._part_var, self._question_var):
             var.trace_add("write", lambda *_a: self._on_entry_state_changed())
 
@@ -548,6 +564,52 @@ class _ReviewWindow:
         )
         self._continue_button.grid(
             row=3, column=0, columnspan=4, sticky="ew", pady=(8, 0)
+        )
+
+    def _build_region_list(self, panel: ttk.Frame) -> None:
+        frame = ttk.Frame(panel)
+        frame.grid(row=2, column=0, sticky="nsew", pady=(8, 4))
+        frame.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
+
+        self._tree = ttk.Treeview(
+            frame,
+            columns=("kind", "reading", "where"),
+            show="headings",
+            selectmode="browse",
+            height=12,
+        )
+        self._tree.heading("kind", text="region")
+        self._tree.heading("reading", text="read as")
+        self._tree.heading("where", text="saved as")
+        self._tree.column("kind", width=120, anchor="w")
+        self._tree.column("reading", width=70, anchor="w")
+        self._tree.column("where", width=100, anchor="w")
+        self._tree.tag_configure("misnumbered", foreground=MISNUMBERED)
+        for label, color in COLORS.items():
+            self._tree.tag_configure(label, foreground=color)
+        self._tree.grid(row=0, column=0, sticky="nsew")
+        self._tree.bind("<<TreeviewSelect>>", self._on_tree_select)
+        self._tree.bind("<Double-1>", lambda _e: self._edit_reading())
+
+        bar = ttk.Scrollbar(frame, orient="vertical", command=self._tree.yview)
+        bar.grid(row=0, column=1, sticky="ns")
+        self._tree.configure(yscrollcommand=bar.set)
+
+    def _build_region_buttons(self, panel: ttk.Frame) -> None:
+        buttons = ttk.Frame(panel)
+        buttons.grid(row=3, column=0, sticky="ew")
+        ttk.Button(buttons, text="↑", width=3, command=lambda: self._move(-1)).pack(
+            side="left"
+        )
+        ttk.Button(buttons, text="↓", width=3, command=lambda: self._move(1)).pack(
+            side="left"
+        )
+        ttk.Button(buttons, text="Sort by position", command=self._sort).pack(
+            side="left", padx=4
+        )
+        ttk.Button(buttons, text="Delete", command=self._delete_region).pack(
+            side="left"
         )
 
     def _build_preview(self, panel: ttk.Frame) -> None:
@@ -618,8 +680,8 @@ class _ReviewWindow:
         ttk.Button(
             actions, text="Skip page", command=lambda: self._finish("skip")
         ).pack(side="right")
-        # A plain tk.Button, because the primary action wants a colour and no
-        # ttk theme on Windows lets a themed one have it.
+        # A plain tk.Button, because the primary action wants a colour and no ttk
+        # theme on Windows lets a themed one have it.
         self._approve = tk.Button(
             actions,
             text="Approve & save    Ctrl+Enter",
@@ -649,20 +711,19 @@ class _ReviewWindow:
         # On the canvas, so they cannot fight the tree's own navigation or a
         # spinbox the reviewer is typing into.
         self._canvas.bind("<Key>", self._on_canvas_key)
-        for key, delta in (("<Up>", (0, -1)), ("<Down>", (0, 1))):
-            self._canvas.bind(key, lambda _e, d=delta: self._on_arrow(d, NUDGE))
-            self._canvas.bind(
-                f"<Shift-{key[1:-1]}>",
-                lambda _e, d=delta: self._on_arrow(d, NUDGE_FAST),
-            )
-        for key, delta in (("<Left>", (-1, 0)), ("<Right>", (1, 0))):
+        for key, delta in (
+            ("<Up>", (0, -1)),
+            ("<Down>", (0, 1)),
+            ("<Left>", (-1, 0)),
+            ("<Right>", (1, 0)),
+        ):
             self._canvas.bind(key, lambda _e, d=delta: self._on_arrow(d, NUDGE))
             self._canvas.bind(
                 f"<Shift-{key[1:-1]}>",
                 lambda _e, d=delta: self._on_arrow(d, NUDGE_FAST),
             )
 
-    # --- coordinates and rendering ---
+    # --- coordinates ---
 
     def _px(self, value: int) -> int:
         """A size written for a 100% display, at this one's scaling."""
@@ -673,6 +734,10 @@ class _ReviewWindow:
 
     def _to_image(self, x: float, y: float) -> tuple[int, int]:
         return (round(x / self._scale), round(y / self._scale))
+
+    def _canvas_point(self, event: tk.Event) -> tuple[float, float]:
+        """Where an event landed, in canvas coordinates rather than widget ones."""
+        return (self._canvas.canvasx(event.x), self._canvas.canvasy(event.y))
 
     @property
     def _page_size(self) -> tuple[float, float]:
@@ -688,19 +753,7 @@ class _ReviewWindow:
             max(self._canvas.winfo_height(), 1),
         )
 
-    def _on_canvas_configure(self, _event: tk.Event) -> None:
-        self._schedule_page_render()
-
-    def _on_scrolled(self, bar: ttk.Scrollbar, first: str, last: str) -> None:
-        bar.set(first, last)
-        self._schedule_page_render()
-
-    def _schedule_page_render(self) -> None:
-        """Coalesce the redraws a single gesture asks for into one."""
-        if self._render_pending:
-            return
-        self._render_pending = True
-        self._canvas.after_idle(self._render_page)
+    # --- zoom and pan ---
 
     def _zoom_to_fit(self) -> None:
         self._set_scale(geometry.fit_scale(self.control.image.size, self._view_size))
@@ -726,6 +779,8 @@ class _ReviewWindow:
         before = self._scale
         self._set_scale(before * factor)
         ratio = self._scale / before
+        # Already at an end of the zoom range: nothing scaled, so nothing to
+        # hold in place.
         if ratio == 1.0:
             return
 
@@ -745,9 +800,9 @@ class _ReviewWindow:
         page_w, page_h = self._page_size
         view_w, view_h = self._view_size
         # Margins on a page smaller than its canvas, so it sits in the middle
-        # instead of hugging a corner. They go into the scroll region rather
-        # than into an offset on every coordinate, which leaves the mapping
-        # between canvas and image pixels exactly as it was.
+        # instead of hugging a corner. They go into the scroll region rather than
+        # into an offset on every coordinate, which leaves the mapping between
+        # canvas and image pixels exactly as it was.
         margin_x = max(0.0, (view_w - page_w) / 2)
         margin_y = max(0.0, (view_h - page_h) / 2)
         self._region = (-margin_x, -margin_y, page_w + margin_x, page_h + margin_y)
@@ -757,13 +812,48 @@ class _ReviewWindow:
         self._schedule_page_render()
         self._render_regions()
 
+    def _zoom_to_selected(self) -> None:
+        """Fill the view with the selected region, so its edges can be judged."""
+        selected = self.edits.selected
+        if selected is None:
+            return
+        left, top, right, bottom = geometry.bounds(
+            list(self.edits.regions[selected].polygon)
+        )
+        view_w, view_h = self._view_size
+        # Some room around it, so the region is seen in the context it was cut
+        # from rather than edge to edge.
+        self._set_scale(
+            min(view_w / max(right - left, 1), view_h / max(bottom - top, 1)) * 0.8
+        )
+        self._move_view_to(
+            (left + right) / 2 * self._scale - view_w / 2,
+            (top + bottom) / 2 * self._scale - view_h / 2,
+        )
+
+    # --- the page bitmap ---
+
+    def _on_canvas_configure(self, _event: tk.Event) -> None:
+        self._schedule_page_render()
+
+    def _on_scrolled(self, bar: ttk.Scrollbar, first: str, last: str) -> None:
+        bar.set(first, last)
+        self._schedule_page_render()
+
+    def _schedule_page_render(self) -> None:
+        """Coalesce the redraws a single gesture asks for into one."""
+        if self._render_pending:
+            return
+        self._render_pending = True
+        self._canvas.after_idle(self._render_page)
+
     def _render_page(self) -> None:
         """Draw the part of the page that is on screen, and only that.
 
-        Rendering the whole page at every scale is what makes a zoomed-in
-        editor crawl: a 3500px scan at 200% is a 50-megapixel bitmap, rebuilt
-        on every wheel click. Cropping to the viewport first keeps the cost
-        flat however far in the reviewer zooms.
+        Rendering the whole page at every scale is what makes a zoomed-in editor
+        crawl: a 3500px scan at 200% is a 50-megapixel bitmap, rebuilt on every
+        wheel click. Cropping to the viewport first keeps the cost flat however
+        far in the reviewer zooms.
         """
         self._render_pending = False
         box = geometry.visible_box(
@@ -775,6 +865,8 @@ class _ReviewWindow:
             return
 
         scale = self._scale
+        # Out to whole source pixels, so the tile covers the viewport rather than
+        # leaving a hairline of canvas background along its edges.
         left, top = math.floor(box[0] / scale), math.floor(box[1] / scale)
         right = min(self.control.image.width, math.ceil(box[2] / scale))
         bottom = min(self.control.image.height, math.ceil(box[3] / scale))
@@ -797,14 +889,10 @@ class _ReviewWindow:
         )
         self._canvas.tag_lower("page")
 
-    def _caption(self, index: int, region: PageRegion) -> str:
-        return self.control.caption(index, region)
-
-    @staticmethod
-    def _reading_text(region: PageRegion) -> str:
-        return ReviewController.reading_text(region)
+    # --- the regions over it ---
 
     def _render_regions(self) -> None:
+        """Redraw every polygon, its caption, and the selected one's handles."""
         self._canvas.delete("region")
 
         for index, region in enumerate(self.edits.regions):
@@ -821,6 +909,8 @@ class _ReviewWindow:
                 coords,
                 outline=color,
                 fill=color,
+                # Lighter fill under the cursor or the selection, so the scan
+                # underneath stays readable where it is being worked on.
                 stipple="gray12" if selected or hovered else "gray25",
                 width=3 if selected else (2 if hovered else 1),
                 tags=("region", f"region:{index}"),
@@ -831,6 +921,50 @@ class _ReviewWindow:
                 self._draw_handles(index, region, color)
 
         self._draw_joins()
+
+    def _draw_caption(
+        self, index: int, region: PageRegion, color: str, selected: bool
+    ) -> None:
+        x, y = self._to_canvas(geometry.top_left(list(region.polygon)))
+        label = self._canvas.create_text(
+            x + 4,
+            y - 4,
+            text=f"{index + 1}. {self.control.caption(index, region)}",
+            anchor="sw",
+            fill=color,
+            font=("TkDefaultFont", 10, "bold"),
+            tags=("region", f"region:{index}"),
+        )
+        # A caption over a scan is unreadable without something behind it, and
+        # the something can only be sized once the text has been measured.
+        bbox = self._canvas.bbox(label)
+        if bbox:
+            self._canvas.create_rectangle(
+                bbox[0] - 3,
+                bbox[1] - 1,
+                bbox[2] + 3,
+                bbox[3] + 1,
+                fill="#ffffff",
+                outline=color,
+                width=2 if selected else 1,
+                tags=("region", f"region:{index}"),
+            )
+            self._canvas.tag_raise(label)
+
+    def _draw_handles(self, index: int, region: PageRegion, color: str) -> None:
+        handle = self._px(HANDLE)
+        for point_index, point in enumerate(region.polygon):
+            px, py = self._to_canvas(point)
+            self._canvas.create_rectangle(
+                px - handle,
+                py - handle,
+                px + handle,
+                py + handle,
+                fill="#ffffff",
+                outline=color,
+                width=2,
+                tags=("region", "handle", f"handle:{index}:{point_index}"),
+            )
 
     def _draw_joins(self) -> None:
         """Link the pieces of a joined question, so the join is visible on the page.
@@ -869,56 +1003,11 @@ class _ReviewWindow:
                 tags="region",
             )
 
-    def _draw_caption(
-        self, index: int, region: PageRegion, color: str, selected: bool
-    ) -> None:
-        x, y = self._to_canvas(geometry.top_left(list(region.polygon)))
-        label = self._canvas.create_text(
-            x + 4,
-            y - 4,
-            text=f"{index + 1}. {self._caption(index, region)}",
-            anchor="sw",
-            fill=color,
-            font=("TkDefaultFont", 10, "bold"),
-            tags=("region", f"region:{index}"),
-        )
-        # A caption on a scan is unreadable without something behind it, and a
-        # background can only be sized once the text has been measured.
-        bbox = self._canvas.bbox(label)
-        if bbox:
-            self._canvas.create_rectangle(
-                bbox[0] - 3,
-                bbox[1] - 1,
-                bbox[2] + 3,
-                bbox[3] + 1,
-                fill="#ffffff",
-                outline=color,
-                width=2 if selected else 1,
-                tags=("region", f"region:{index}"),
-            )
-            self._canvas.tag_raise(label)
-
-    def _draw_handles(self, index: int, region: PageRegion, color: str) -> None:
-        handle = self._px(HANDLE)
-        for point_index, point in enumerate(region.polygon):
-            px, py = self._to_canvas(point)
-            self._canvas.create_rectangle(
-                px - handle,
-                py - handle,
-                px + handle,
-                py + handle,
-                fill="#ffffff",
-                outline=color,
-                width=2,
-                tags=("region", "handle", f"handle:{index}:{point_index}"),
-            )
-
-    # --- the preview, recomputed after every edit ---
+    # --- redrawing after an edit ---
 
     def _refresh(self) -> None:
         """Ask the model where everything lands, then redraw what it says."""
-        self.control.numbering = self.edits.numbering()
-        numbering = self.control.numbering
+        numbering = self.control.refresh()
 
         self._ends_at.configure(text=numbering.ends_at)
         self._problem_label.configure(text=numbering.problem or "")
@@ -927,10 +1016,10 @@ class _ReviewWindow:
             state="normal" if numbering.continue_helps else "disabled"
         )
         self._undo_button.configure(
-            state="normal" if self.edits.history.can_undo else "disabled"
+            state="normal" if self.control.can_undo else "disabled"
         )
         self._redo_button.configure(
-            state="normal" if self.edits.history.can_redo else "disabled"
+            state="normal" if self.control.can_redo else "disabled"
         )
         self._render_regions()
         self._fill_tree()
@@ -948,6 +1037,26 @@ class _ReviewWindow:
         status = self.control.status()
         self._page_label.configure(text=status.where)
         self._counts_label.configure(text=status.counts)
+
+    def _fill_tree(self) -> None:
+        """Rebuild the region list, following the model's selection into it."""
+        self._tree.delete(*self._tree.get_children())
+        for row in self.control.rows():
+            self._tree.insert(
+                "",
+                "end",
+                iid=str(row.index),
+                values=(row.label, row.reading, row.where),
+                tags=(
+                    "misnumbered"
+                    if row.misnumbered
+                    else self.edits.regions[row.index].label,
+                ),
+            )
+        selected = self.edits.selected
+        if selected is not None and selected < len(self.edits.regions):
+            self._tree.selection_set(str(selected))
+            self._tree.see(str(selected))
 
     def _show_entry_state(self) -> None:
         """Put the model's entry state into the spinboxes without echoing back."""
@@ -967,46 +1076,18 @@ class _ReviewWindow:
         self._carried_label.configure(text=summary)
         self._carried_frame.grid()
 
-    def _discard_carried(self) -> None:
-        """Throw away what was carried here — this page does not continue it."""
-        if not self.control.carried:
-            return
-        if not messagebox.askokcancel(
-            "Discard carried pieces",
-            "Throw away the pieces carried onto this page? Nothing will be"
-            " written for them, and the page they came from is behind us.",
-            parent=self.top,
-        ):
-            return
+    def _show_join_controls(self) -> None:
+        """Put the join controls where the selected region actually stands."""
+        controls = self.control.join_controls()
+        self._joins_next.set(controls.joins_next)
+        self._joins_button.configure(
+            state="normal" if controls.can_toggle else "disabled"
+        )
+        self._line_up_button.configure(
+            state="normal" if controls.can_line_up else "disabled"
+        )
 
-        self.control.discard_carried_pieces()
-        self._show_carried()
-        self._refresh()
-
-    def _continue_from_disk(self) -> None:
-        """Set the entry counter so the page's first question takes the free slot."""
-        counter = self.edits.continue_from_disk()
-        if counter is not None:
-            self._question_var.set(str(counter))
-
-    def _fill_tree(self) -> None:
-        self._tree.delete(*self._tree.get_children())
-        for row in self.control.rows():
-            self._tree.insert(
-                "",
-                "end",
-                iid=str(row.index),
-                values=(row.label, row.reading, row.where),
-                tags=(
-                    "misnumbered"
-                    if row.misnumbered
-                    else self.edits.regions[row.index].label,
-                ),
-            )
-        selected = self.edits.selected
-        if selected is not None and selected < len(self.edits.regions):
-            self._tree.selection_set(str(selected))
-            self._tree.see(str(selected))
+    # --- selection ---
 
     def _select(self, index: int | None) -> None:
         if self.control.select(index):
@@ -1026,14 +1107,23 @@ class _ReviewWindow:
         self._show_join_controls()
         self._schedule_preview()
 
+    def _cycle_selection(self, delta: int) -> None:
+        if self.control.cycle_selection(delta):
+            self._after_selection_change()
+
     def _set_hover(self, index: int | None) -> None:
         if self.control.set_hover(index):
             self._render_regions()
 
+    def _on_tree_select(self, _event: tk.Event) -> None:
+        selection = self._tree.selection()
+        if selection:
+            self._select(int(selection[0]))
+
     # --- the crop preview ---
 
     def _schedule_preview(self) -> None:
-        self._debounce("preview", PREVIEW_DELAY_MS, self._render_preview)
+        self._jobs.schedule("preview", PREVIEW_DELAY_MS, self._render_preview)
 
     def _clear_preview(self) -> None:
         self._preview.delete("all")
@@ -1056,6 +1146,8 @@ class _ReviewWindow:
         self._preview.delete("all")
         width = max(self._preview.winfo_width(), 1)
         height = max(self._preview.winfo_height(), self._px(PREVIEW_HEIGHT))
+        # Never magnified: a small crop shown larger than it is would look
+        # sharper than the file being written.
         scale = min(width / image.width, height / image.height, 1.0)
         shown = image.resize(
             (max(1, round(image.width * scale)), max(1, round(image.height * scale))),
@@ -1067,28 +1159,30 @@ class _ReviewWindow:
         )
         self._preview_caption.configure(text=preview.caption)
 
-    def _crop_for(self, index: int, region: PageRegion) -> Image.Image:
-        return self.control.crop_for(index, region)
+    # --- the mouse ---
 
-    def _preview_text(self, index: int, region: PageRegion, image: Image.Image) -> str:
-        return self.control.preview_text(index, region, image)
+    def _hit(self, x: float, y: float) -> _Hit | None:
+        """What sits under the cursor: a vertex handle, a region, or nothing.
 
-    def _hit(self, x: float, y: float) -> tuple[str, int, int] | None:
-        """What sits under the cursor: a vertex handle, a region, or nothing."""
+        Handles are looked for first and with a handle's worth of slack around
+        the point, so a vertex stays grabbable where it sits inside its own
+        polygon.
+        """
         for prefix, slack in (("handle:", self._px(HANDLE)), ("region:", 1)):
-            items = self._canvas.find_overlapping(
+            found = self._canvas.find_overlapping(
                 x - slack, y - slack, x + slack, y + slack
             )
-            for item in reversed(items):
+            # Topmost first: the last item drawn is the one the reviewer sees.
+            for item in reversed(found):
                 for tag in self._canvas.gettags(item):
                     if tag.startswith(prefix):
                         parts = tag.split(":")
-                        point = int(parts[2]) if len(parts) > 2 else 0
-                        return (prefix[:-1], int(parts[1]), point)
+                        return _Hit(
+                            index=int(parts[1]),
+                            point=int(parts[2]) if len(parts) > 2 else 0,
+                            handle=prefix == "handle:",
+                        )
         return None
-
-    def _canvas_point(self, event: tk.Event) -> tuple[float, float]:
-        return (self._canvas.canvasx(event.x), self._canvas.canvasy(event.y))
 
     def _on_hover(self, event: tk.Event) -> None:
         if self.control.draw_label is not None or self._drag is not None:
@@ -1098,9 +1192,8 @@ class _ReviewWindow:
             self._set_hover(None)
             self._canvas.configure(cursor="")
             return
-        kind, index, _ = hit
-        self._set_hover(index)
-        self._canvas.configure(cursor="tcross" if kind == "handle" else "fleur")
+        self._set_hover(hit.index)
+        self._canvas.configure(cursor="tcross" if hit.handle else "fleur")
 
     def _on_press(self, event: tk.Event) -> None:
         self._canvas.focus_set()
@@ -1115,41 +1208,37 @@ class _ReviewWindow:
             self._select(None)
             return
 
-        kind, index, point = hit
-        self._select(index)
-        self._drag = (kind, index, point)
+        self._select(hit.index)
+        self._drag = hit
         self._drag_from = (x, y)
 
     def _on_motion(self, event: tk.Event) -> None:
         x, y = self._canvas_point(event)
 
-        if self.control.draw_label is not None and self._draw_from is not None:
-            self._canvas.delete("rubber")
-            self._canvas.create_rectangle(
-                *self._draw_from,
-                x,
-                y,
-                outline=COLORS[self.control.draw_label],
-                width=2,
-                dash=(4, 3),
-                tags="rubber",
-            )
+        drawing = self.control.draw_label
+        if drawing is not None and self._draw_from is not None:
+            self._show_rubber_band(drawing, self._draw_from, (x, y))
             return
 
         if self._drag is None or self._drag_from is None:
             return
 
-        kind, index, point = self._drag
-
-        if kind == "handle":
-            self.edits.drag_vertex(index, point, self._to_image(x, y))
+        if self._drag.handle:
+            self.edits.drag_vertex(
+                self._drag.index, self._drag.point, self._to_image(x, y)
+            )
         else:
             dx, dy = self._to_image(x - self._drag_from[0], y - self._drag_from[1])
+            # Zoomed out, several screen pixels make less than one page pixel:
+            # keep the origin where it was so the movement is not lost to
+            # rounding.
             if dx == 0 and dy == 0:
                 return
-            self.edits.drag_polygon(index, dx, dy)
+            self.edits.drag_polygon(self._drag.index, dx, dy)
 
         self._drag_from = (x, y)
+        # Only the polygons: the page under them has not moved, and a drag
+        # redrawing the bitmap would stutter.
         self._render_regions()
 
     def _on_release(self, event: tk.Event) -> None:
@@ -1160,6 +1249,7 @@ class _ReviewWindow:
         if self._drag is not None:
             self._drag = None
             self._drag_from = None
+            # One undo step for the whole drag, recorded now that it is over.
             self._commit()
 
     def _on_wheel(self, event: tk.Event) -> None:
@@ -1180,20 +1270,21 @@ class _ReviewWindow:
         if hit is None:
             return
 
-        kind, index, point = hit
-        self._select(index)
-        menu = self._context_menu(index, kind, point, (x, y))
-        menu.tk_popup(event.x_root, event.y_root)
+        self._select(hit.index)
+        self._context_menu(hit, (x, y)).tk_popup(event.x_root, event.y_root)
 
-    def _context_menu(
-        self, index: int, kind: str, point: int, at: tuple[float, float]
-    ) -> tk.Menu:
+    # --- the context menu ---
+
+    def _context_menu(self, hit: _Hit, at: tuple[float, float]) -> tk.Menu:
+        """The menu for what was right-clicked, in the order it is worked in."""
+        index = hit.index
         region = self.edits.regions[index]
         menu = tk.Menu(self.top, tearoff=0)
 
-        if kind == "handle":
+        if hit.handle:
             menu.add_command(
-                label="Delete point", command=lambda: self._delete_point(index, point)
+                label="Delete point",
+                command=lambda: self._delete_point(index, hit.point),
             )
         else:
             menu.add_command(
@@ -1204,43 +1295,51 @@ class _ReviewWindow:
         menu.add_separator()
 
         if region.label == "question":
-            menu.add_command(
-                label="Stop continuing into the next piece"
-                if region.joins_next
-                else "Continues into the next piece",
-                command=self._toggle_join,
-            )
-            if self._piece_count(index) > 1:
-                menu.add_command(label="Line up the pieces…", command=self._line_up)
-            menu.add_separator()
-
-        label_menu = tk.Menu(menu, tearoff=0)
-        for label in LABELS:
-            label_menu.add_command(
-                label=label, command=lambda lbl=label: self._set_label(index, lbl)
-            )
-        menu.add_cascade(label="Label", menu=label_menu)
-
-        if region.label == "option":
-            menu.add_command(
-                label="Set option number…", command=lambda: self._set_option(index)
-            )
-        elif region.label == "part":
-            part_menu = tk.Menu(menu, tearoff=0)
-            for value in ("A", "B"):
-                part_menu.add_command(
-                    label=value, command=lambda v=value: self._set_reading(index, v)
-                )
-            part_menu.add_command(
-                label="unreadable", command=lambda: self._set_reading(index, None)
-            )
-            menu.add_cascade(label="Set part", menu=part_menu)
+            self._add_join_items(menu, index, region)
+        self._add_label_items(menu, index)
+        self._add_reading_items(menu, index, region)
 
         menu.add_separator()
         menu.add_command(label="Delete region", command=self._delete_region)
         return menu
 
-    # --- keyboard ---
+    def _add_join_items(self, menu: tk.Menu, index: int, region: PageRegion) -> None:
+        menu.add_command(
+            label="Stop continuing into the next piece"
+            if region.joins_next
+            else "Continues into the next piece",
+            command=self._toggle_join,
+        )
+        if self.control.piece_count(index) > 1:
+            menu.add_command(label="Line up the pieces…", command=self._line_up)
+        menu.add_separator()
+
+    def _add_label_items(self, menu: tk.Menu, index: int) -> None:
+        labels = tk.Menu(menu, tearoff=0)
+        for label in LABELS:
+            labels.add_command(
+                label=label, command=lambda lbl=label: self._set_label(index, lbl)
+            )
+        menu.add_cascade(label="Label", menu=labels)
+
+    def _add_reading_items(self, menu: tk.Menu, index: int, region: PageRegion) -> None:
+        """Correcting what OCR made of a marker — a question carries no reading."""
+        if region.label == "option":
+            menu.add_command(
+                label="Set option number…", command=lambda: self._set_option(index)
+            )
+        elif region.label == "part":
+            parts = tk.Menu(menu, tearoff=0)
+            for value in ("A", "B"):
+                parts.add_command(
+                    label=value, command=lambda v=value: self._set_reading(index, v)
+                )
+            parts.add_command(
+                label="unreadable", command=lambda: self._set_reading(index, None)
+            )
+            menu.add_cascade(label="Set part", menu=parts)
+
+    # --- the keyboard ---
 
     def _on_canvas_key(self, event: tk.Event) -> str | None:
         """Single-key shortcuts, live only while the canvas has the focus."""
@@ -1267,8 +1366,7 @@ class _ReviewWindow:
     def _on_arrow(self, delta: tuple[int, int], step: int) -> str:
         """Nudge the selected region, or scroll the page when nothing is selected."""
         dx, dy = delta
-        selected = self.edits.selected
-        if selected is None:
+        if self.edits.selected is None:
             self._canvas.xview_scroll(dx, "units")
             self._canvas.yview_scroll(dy, "units")
             return "break"
@@ -1276,10 +1374,6 @@ class _ReviewWindow:
         self.control.nudge_selected(dx * step, dy * step)
         self._refresh()
         return "break"
-
-    def _cycle_selection(self, delta: int) -> None:
-        if self.control.cycle_selection(delta):
-            self._after_selection_change()
 
     def _on_escape(self) -> None:
         if self.control.draw_label is not None:
@@ -1296,6 +1390,8 @@ class _ReviewWindow:
 
     def _undo(self) -> None:
         if self.control.undo():
+            # The entry state travels with a snapshot, so the spinboxes have to
+            # be told about it.
             self._show_entry_state()
             self._refresh()
 
@@ -1316,6 +1412,20 @@ class _ReviewWindow:
         self._canvas.configure(cursor="")
         self._hint.configure(text="")
 
+    def _show_rubber_band(
+        self, label: PageLabel, start: tuple[float, float], to: tuple[float, float]
+    ) -> None:
+        """The outline of the box being dragged out, redrawn as it grows."""
+        self._canvas.delete("rubber")
+        self._canvas.create_rectangle(
+            *start,
+            *to,
+            outline=COLORS[label],
+            width=2,
+            dash=(4, 3),
+            tags="rubber",
+        )
+
     def _finish_draw(self, x: float, y: float) -> None:
         label, start = self.control.draw_label, self._draw_from
         if label is None or start is None:
@@ -1323,6 +1433,8 @@ class _ReviewWindow:
 
         corner = self._to_image(*start)
         opposite = self._to_image(x, y)
+        # Before the region is added, so a refused box still leaves the toolbar
+        # and the cursor as they were.
         self._cancel_draw()
 
         if self.edits.add_box(label, corner, opposite):
@@ -1373,21 +1485,8 @@ class _ReviewWindow:
         if region.label == "option":
             self._set_option(selected)
         elif region.label == "part":
+            # Two parts, so the second click is the answer.
             self._set_reading(selected, "B" if region.reading == "A" else "A")
-
-    def _piece_count(self, index: int) -> int:
-        return self.control.piece_count(index)
-
-    def _show_join_controls(self) -> None:
-        """Put the join controls where the selected region actually stands."""
-        controls = self.control.join_controls()
-        self._joins_next.set(controls.joins_next)
-        self._joins_button.configure(
-            state="normal" if controls.can_toggle else "disabled"
-        )
-        self._line_up_button.configure(
-            state="normal" if controls.can_line_up else "disabled"
-        )
 
     def _toggle_join(self) -> None:
         """Mark the selected question as continuing into the next piece, or stop.
@@ -1403,12 +1502,12 @@ class _ReviewWindow:
         self._refresh()
 
     def _line_up(self) -> None:
-        """Line up the pieces of the selected question, by hand, in their own window."""
+        """Line up the pieces of the selected question, by hand, in its own window."""
         index = self.edits.selected
         if index is None:
             return
 
-        pieces, origins = self._join_pieces(index)
+        pieces, origins = self.control.join_pieces(index)
         if len(pieces) < 2:
             return
 
@@ -1421,9 +1520,6 @@ class _ReviewWindow:
 
         self.control.apply_join_offsets(offsets, origins)
         self._refresh()
-
-    def _join_pieces(self, index: int) -> tuple[list[JoinPiece], list[int | None]]:
-        return self.control.join_pieces(index)
 
     def _delete_region(self) -> None:
         if self.control.delete_selected():
@@ -1438,24 +1534,29 @@ class _ReviewWindow:
         self.control.sort_by_reading_order()
         self._refresh()
 
-    def _zoom_to_selected(self) -> None:
-        """Fill the view with the selected region, so its edges can be judged."""
-        selected = self.edits.selected
-        if selected is None:
+    def _discard_carried(self) -> None:
+        """Throw away what was carried here — this page does not continue it."""
+        if not self.control.carried:
             return
-        left, top, right, bottom = geometry.bounds(
-            list(self.edits.regions[selected].polygon)
-        )
-        view_w, view_h = self._view_size
-        # Some room around it, so the region is seen in the context it was cut
-        # from rather than edge to edge.
-        self._set_scale(
-            min(view_w / max(right - left, 1), view_h / max(bottom - top, 1)) * 0.8
-        )
-        self._move_view_to(
-            (left + right) / 2 * self._scale - view_w / 2,
-            (top + bottom) / 2 * self._scale - view_h / 2,
-        )
+        if not messagebox.askokcancel(
+            "Discard carried pieces",
+            "Throw away the pieces carried onto this page? Nothing will be"
+            " written for them, and the page they came from is behind us.",
+            parent=self.top,
+        ):
+            return
+
+        self.control.discard_carried_pieces()
+        self._show_carried()
+        self._refresh()
+
+    def _continue_from_disk(self) -> None:
+        """Set the entry counter so the page's first question takes the free slot."""
+        counter = self.edits.continue_from_disk()
+        if counter is not None:
+            # Through the spinbox, so the field shows what the model was told —
+            # its own trace is what applies the value.
+            self._question_var.set(str(counter))
 
     def _on_entry_state_changed(self) -> None:
         if self._loading:
@@ -1468,12 +1569,7 @@ class _ReviewWindow:
         )
         self._refresh()
         # One undo step per settled value, not one per keystroke.
-        self._debounce("state", STATE_COMMIT_MS, self.edits.commit)
-
-    def _on_tree_select(self, _event: tk.Event) -> None:
-        selection = self._tree.selection()
-        if selection:
-            self._select(int(selection[0]))
+        self._jobs.schedule("state", STATE_COMMIT_MS, self.edits.commit)
 
     # --- stats tab ---
 
@@ -1488,18 +1584,6 @@ class _ReviewWindow:
 
     # --- verdict ---
 
-    def _debounce(self, name: str, delay_ms: int, action: Callable[[], object]) -> None:
-        """Run *action* once *delay_ms* has passed with no further calls."""
-        job = self._jobs.pop(name, None)
-        if job is not None:
-            self.top.after_cancel(job)
-        self._jobs[name] = self.top.after(delay_ms, action)
-
-    def _cancel_jobs(self) -> None:
-        for job in self._jobs.values():
-            self.top.after_cancel(job)
-        self._jobs.clear()
-
     def _finish(self, verdict: Verdict) -> None:
         if verdict == "abort" and not messagebox.askokcancel(
             "Abort run",
@@ -1507,18 +1591,18 @@ class _ReviewWindow:
             parent=self.top,
         ):
             return
-        # The controller refuses an approval the numbering would not allow —
-        # the same rule the extractor applies before writing.
+        # The controller refuses an approval the numbering would not allow — the
+        # same rule the extractor applies before writing.
         if not self.control.finish(verdict):
             return
 
         if verdict == "approve":
             # The extractor writes this page's crops next; the tally moved.
             self._stats.page_written()
-        self._cancel_jobs()
-        # The window stays up while the crops are written — nothing processes
-        # its events until the next page arrives, so hiding it would only make
-        # the pause between pages look like a crash.
+        self._jobs.cancel_all()
+        # The window stays up while the crops are written — nothing processes its
+        # events until the next page arrives, so hiding it would only make the
+        # pause between pages look like a crash.
         self._hint.configure(text="saving…" if verdict == "approve" else f"{verdict}…")
         self.top.update_idletasks()
         self._done.set(True)

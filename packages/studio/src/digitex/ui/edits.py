@@ -2,18 +2,19 @@
 
 Nothing here imports tkinter. The review window is a view over this object: it
 draws what :meth:`PageEdits.numbering` reports and turns clicks and keystrokes
-into the operations below. Which means the rules that actually matter — what
-relabelling does to a misread reading, when a number is refused, where
-"continue from disk" would put the counter, what counts as a stray click — can
-be asserted directly, and could not while they lived inside a widget.
+into the operations below. Which is what makes the rules that actually matter
+assertable — what relabelling does to a misread marker, when a number is
+refused, where "continue from disk" would put the counter, what counts as a
+stray click. None of that could be reached while it lived inside a widget.
 
-The split of responsibility is: operations that change the page record their own
-undo step, and the window redraws afterwards. A live drag is the exception —
-:meth:`drag_polygon` and :meth:`drag_vertex` deliberately record nothing, so a
-drag across the page lands in the timeline once, when the button comes up.
+The division of labour with the window: an operation that changes the page
+records its own undo step, and the window redraws afterwards. A live drag is the
+one exception — :meth:`drag_polygon` and :meth:`drag_vertex` deliberately record
+nothing, so a drag across the page lands in the timeline once, when the button
+comes up.
 
-A question printed across a page break is two regions of one question: the
-reviewer marks the first with :meth:`toggle_join_next` and lines the two up with
+A question printed across a page break is two regions of one question. The
+reviewer marks the first with :meth:`toggle_join_next`, lines the pieces up with
 :meth:`set_join_offsets`, and :meth:`numbering` reports which question each
 region is a piece of.
 """
@@ -40,7 +41,7 @@ from digitex.ui.history import EditHistory
 
 if TYPE_CHECKING:
     from digitex.domain.numbering import NumberingFault
-    from digitex.domain.placement import PageLabel
+    from digitex.domain.placement import PageLabel, PagePlacement
     from digitex.ui.history import EditSnapshot
 
 # A crop needs four points — cut_out_image_by_polygon refuses fewer.
@@ -57,9 +58,9 @@ class QuestionPiece:
     ``placement`` is None while the piece waits for the next page to finish the
     question it belongs to — nothing is written for it here, and it took no
     number. ``index`` is its 1-based place among the question's pieces, counting
-    any carried onto this page from an earlier one, and ``count`` how many
-    pieces the question has — 0 while the page cannot know, because the rest of
-    it is on the next page.
+    any carried onto this page from an earlier one, and ``count`` how many pieces
+    the question has — 0 while the page cannot know, because the rest of it is on
+    the next page.
     """
 
     placement: QuestionPlacement | None = None
@@ -82,16 +83,16 @@ class Numbering:
     """What replaying the current regions through the entry state produces.
 
     ``pieces`` says, for every question region, which question it lands in and
-    which piece of it it is — one whole question per region on nearly every
-    page, and more than one region per question where a reviewer joined the
-    halves of a question printed across a page break.
+    which piece of it it is — one whole question per region on nearly every page,
+    and more than one region per question where a reviewer joined the halves of a
+    question printed across a page break.
 
-    ``problem`` is what stops the page being approved: either the placement
-    walk refused it outright, or one question's number would collide with the
-    output tree or leave a hole in it. ``misnumbered`` indexes into the regions
-    list so the offending row and polygon can be drawn in red.
-    ``continue_helps`` says the fault sits in the entry group, so moving where
-    the page starts — the 'Continue from disk' button — can actually fix it.
+    ``problem`` is what stops the page being approved: either the placement walk
+    refused it outright, or one question's number would collide with the output
+    tree or leave a hole in it. ``misnumbered`` indexes into the regions list, so
+    the offending row and polygon can be drawn in red. ``continue_helps`` says
+    the fault sits in the entry group, which is the only case where moving where
+    the page starts — the 'Continue from disk' button — can fix anything.
     """
 
     pieces: dict[int, QuestionPiece] = field(default_factory=dict)
@@ -122,8 +123,8 @@ class Numbering:
 class PageEdits:
     """One page's regions and entry state, with an undo timeline over them.
 
-    Holds a copy: approving hands these back to the extractor, skipping drops
-    them, and the proposal's own objects are never touched.
+    Holds a copy of both: approving hands these back to the extractor, skipping
+    drops them, and the proposal's own objects are never touched either way.
     """
 
     def __init__(self) -> None:
@@ -161,9 +162,9 @@ class PageEdits:
     def numbering(self) -> Numbering:
         """Replay the regions through a copy of the entry state.
 
-        A copy, because the real entry state describes where the page *starts*
-        — advancing it here would make the preview drift a page further along
-        every time anything was redrawn.
+        A copy, because the real entry state describes where the page *starts* —
+        advancing it here would walk the preview a page further along every time
+        anything was redrawn.
         """
         preview = replace(self.state)
 
@@ -172,12 +173,30 @@ class PageEdits:
         except ValueError as exc:
             return Numbering(problem=str(exc))
 
+        # By identity: two regions can hold equal field values, and it is the
+        # position in the list the window colours a row by.
         at = {id(region): index for index, region in enumerate(self.regions)}
+        misnumbered, problem, continue_helps = self._fault(placed, at)
+
+        return Numbering(
+            pieces=self._pieces(placed, at),
+            misnumbered=misnumbered,
+            problem=problem,
+            continue_helps=continue_helps,
+            ends_at=f"page ends at {preview.option}/{preview.part or '?'}/"
+            f"{preview.question}",
+        )
+
+    def _pieces(
+        self, placed: PagePlacement, at: dict[int, int]
+    ) -> dict[int, QuestionPiece]:
+        """Which question each region landed in, keyed by its index in the list."""
         pieces: dict[int, QuestionPiece] = {}
-        # The pieces carried onto the page belong to its first question,
-        # whichever that turns out to be — including one the next page has to
-        # finish, which is a question printed across three pages.
+        # Whatever was carried onto the page belongs to its first question,
+        # whichever that turns out to be — including one the next page still has
+        # to finish, which is a question printed across three pages.
         carried = self.carried
+
         for question in placed.questions:
             for offset, region in enumerate(question.regions):
                 pieces[at[id(region)]] = QuestionPiece(
@@ -186,29 +205,31 @@ class PageEdits:
                     count=len(question.regions) + carried,
                 )
             carried = 0
+
         for offset, region in enumerate(placed.held):
             pieces[at[id(region)]] = QuestionPiece(index=offset + 1 + carried, count=0)
+        return pieces
 
-        misnumbered: frozenset[int] = frozenset()
-        problem: str | None = None
-        continue_helps = False
+    def _fault(
+        self, placed: PagePlacement, at: dict[int, int]
+    ) -> tuple[frozenset[int], str | None, bool]:
+        """Whether the page's numbers continue the output tree, and what to say."""
         fault = numbering_fault(placed.questions, self.output_dir)
-        if fault is not None:
-            offender = placed.questions[fault.position]
-            misnumbered = frozenset(at[id(region)] for region in offender.regions)
-            continue_helps = fault.position < self._entry_group_size
-            problem = self._fault_message(fault, continue_helps=continue_helps)
+        if fault is None:
+            return frozenset(), None, False
 
-        part = preview.part or "?"
-        return Numbering(
-            pieces=pieces,
-            misnumbered=misnumbered,
-            problem=problem,
-            continue_helps=continue_helps,
-            ends_at=f"page ends at {preview.option}/{part}/{preview.question}",
+        offender = placed.questions[fault.position]
+        # Only a fault the entry state is still numbering can be moved by
+        # changing where the page starts.
+        continue_helps = fault.position < self._entry_group_size
+        return (
+            frozenset(at[id(region)] for region in offender.regions),
+            self._fault_message(fault, continue_helps=continue_helps),
+            continue_helps,
         )
 
-    def _fault_message(self, fault: NumberingFault, *, continue_helps: bool) -> str:
+    @staticmethod
+    def _fault_message(fault: NumberingFault, *, continue_helps: bool) -> str:
         """Say what is wrong with a number, and which remedy applies."""
         wrong = "already exists" if fault.collides else "would leave a gap"
         remedy = (
@@ -228,8 +249,8 @@ class PageEdits:
     def _entry_group_size(self) -> int:
         """Questions before the first marker — the group the entry state numbers.
 
-        Questions, not regions: two pieces a reviewer joined are one question
-        and take one number between them.
+        Questions, not regions: two pieces a reviewer joined are one question and
+        take one number between them.
         """
         count = 0
         joined = False
@@ -268,7 +289,9 @@ class PageEdits:
         """Every region index making up the question *index* is a piece of.
 
         Just *index* for a whole question, and for anything that is not a
-        question at all — a marker is nobody's piece.
+        question at all — a marker is nobody's piece. Markers between two pieces
+        are skipped rather than breaking the run: what a reviewer joined stays
+        joined however the page is marked up between the halves.
         """
         if self.regions[index].label != "question":
             return [index]
@@ -283,8 +306,9 @@ class PageEdits:
             if index in group:
                 return group
             group = []
-        # What is left is the run the next page finishes.
-        return group if index in group else [index]
+        # What is left is the run the next page finishes, and *index* is a
+        # question, so it is either in a closed group above or in this one.
+        return group
 
     @property
     def first_question(self) -> int | None:
@@ -325,9 +349,10 @@ class PageEdits:
         return self._restore(self.history.redo())
 
     def _restore(self, snapshot: EditSnapshot | None) -> bool:
+        """Adopt a snapshot. False at either end of the timeline."""
         if snapshot is None:
             return False
-        # EditHistory hands back copies, so these are ours to edit.
+        # EditHistory hands back copies, so these are ours to edit in place.
         self.regions = snapshot.regions
         self.state = snapshot.state
         self.selected = snapshot.selected
@@ -340,8 +365,10 @@ class PageEdits:
     ) -> bool:
         """Add a rectangular region, selecting it. False for a stray click.
 
-        A rectangle is enough: the cropper reduces any polygon to its
-        minimum-area quad before warping, and masks with the polygon itself.
+        The two corners may arrive in either order — dragging up and to the left
+        is the same box as down and to the right. A rectangle is enough shape to
+        draw: the cropper reduces any polygon to its minimum-area quad before
+        warping, and masks with the polygon itself.
         """
         left, right = sorted((corner[0], opposite[0]))
         top, bottom = sorted((corner[1], opposite[1]))
@@ -380,8 +407,8 @@ class PageEdits:
     def set_label(self, index: int, label: PageLabel) -> None:
         region = self.regions[index]
         region.label = label
-        # The old reading belongs to the old kind — an option number on a part
-        # marker would be ignored anyway, and shown as if it counted.
+        # The old reading belonged to the old kind — an option number on a part
+        # marker would be ignored by the walk and still shown as if it counted.
         region.reading = None
         if label != "question":
             # Only a question can be a piece of a question.
@@ -392,8 +419,8 @@ class PageEdits:
     def toggle_join_next(self, index: int) -> bool:
         """Mark a question as continuing into the next piece, or stop marking it.
 
-        False when the region is not a question — the only thing that can be
-        half of one.
+        False when the region is not a question — the only thing that can be half
+        of one.
         """
         region = self.regions[index]
         if region.label != "question":
@@ -418,11 +445,17 @@ class PageEdits:
 
     def delete(self, index: int) -> None:
         del self.regions[index]
+        # Whatever was selected either went or moved down one, and neither is
+        # worth guessing at.
         self.selected = None
         self.commit()
 
     def reorder(self, index: int, delta: int) -> int | None:
-        """Swap a region with its neighbour in the reading order. New index, or None."""
+        """Swap a region with its neighbour in the reading order.
+
+        Returns the region's new index, or None when it is already at that end
+        and nothing moved.
+        """
         target = index + delta
         if not 0 <= target < len(self.regions):
             return None
@@ -434,11 +467,11 @@ class PageEdits:
 
     def sort_by_reading_order(self) -> None:
         """Put the regions in the order the numbering walk follows."""
-        selected = self.regions[self.selected] if self.selected is not None else None
+        chosen = self.regions[self.selected] if self.selected is not None else None
         self.regions.sort(key=lambda region: reading_order_key(region.polygon))
-        # By identity, not equality: two regions can hold equal field values.
+        # Found by identity, not equality: two regions can hold equal fields.
         self.selected = next(
-            (i for i, r in enumerate(self.regions) if r is selected), None
+            (at for at, region in enumerate(self.regions) if region is chosen), None
         )
         self.commit()
 
@@ -449,8 +482,9 @@ class PageEdits:
     def set_entry_state(self, option: int, part: str, question: int) -> None:
         """Set where the page starts numbering. Records nothing.
 
-        Typing in a spinbox should reach the timeline once it settles, which is
-        the window's debounce to arrange, not one step per keystroke.
+        Typing in a spinbox should reach the timeline once it settles, and that
+        debounce is the window's to arrange — one step per keystroke would fill
+        the timeline with digits.
         """
         self.state.option = option
         self.state.part = part

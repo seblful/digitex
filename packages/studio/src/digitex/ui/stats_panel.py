@@ -1,11 +1,13 @@
 """The review window's second tab: what the subject has produced so far.
 
-The same `ImageCensus` and `AnswerValidator` the removed ``count-questions``
-and ``check-answers`` commands rendered, shown beside the page that is adding
-to the tally rather than in a terminal after the run.
+The same `ImageCensus` and `AnswerValidator` the removed ``count-questions`` and
+``check-answers`` commands rendered, shown beside the page that is adding to the
+tally rather than in a terminal after the run.
 
-Counting walks the whole output tree, so the panel only recounts when it is
-actually on screen and something has moved — see :meth:`StatsPanel.show`.
+Counting walks the whole output tree, so the panel recounts only when it is
+actually on screen and something has moved — :meth:`StatsPanel.show` is the whole
+protocol, and when to pay for a walk is this panel's own business rather than the
+window's.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from tkinter import ttk
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from digitex.pipeline.audit.census import ImageCensus
+    from digitex.pipeline.audit.census import ImageCensus, YearCensus
     from digitex.pipeline.audit.validator import AnswerValidator, ValidationReport
 
 # How many question keys to name before saying "and N more" — a year whose
@@ -24,12 +26,13 @@ MAX_LISTED = 12
 
 OK_COLOR = "#1f9d55"
 OFF_COLOR = "#c00000"
-# Matches the window's own secondary ink — light enough to rank below the
-# counts, dark enough to still read as text.
+# Matches the window's own secondary ink — light enough to rank below the counts,
+# dark enough to still read as text.
 MUTED = "#4b5563"
 
 
 def _listed(keys: list[str]) -> str:
+    """Name the first few keys, and count whatever is left over."""
     shown = ", ".join(keys[:MAX_LISTED])
     rest = len(keys) - MAX_LISTED
     return f"{shown}, +{rest} more" if rest > 0 else shown
@@ -40,6 +43,8 @@ def format_validation(report: ValidationReport) -> str:
     lines = [f"Answers for {report.subject}"]
 
     for year in report.years:
+        # A year with no readable answers.json has nothing to count against, so
+        # it says why and stops there.
         if not year.answers_file_present:
             lines.append(f"\n{year.year}: answers.json NOT FOUND")
             continue
@@ -97,14 +102,24 @@ class StatsPanel(ttk.Frame):
         self._census = census
         self._validator = validator
         self._year = ""
+        # Nothing has been counted yet, so the first `show` pays for a walk.
         self._stale = True
 
+        # The tree takes what room is left over, the report pane rather less.
         self.rowconfigure(1, weight=3)
         self.rowconfigure(4, weight=2)
         self.columnconfigure(0, weight=1)
         self._build()
 
+    # --- construction ---
+
     def _build(self) -> None:
+        self._build_header()
+        self._build_tree()
+        ttk.Separator(self, orient="horizontal").grid(row=2, column=0, sticky="ew")
+        self._build_report()
+
+    def _build_header(self) -> None:
         head = ttk.Frame(self)
         head.grid(row=0, column=0, sticky="ew")
         head.columnconfigure(0, weight=1)
@@ -115,13 +130,14 @@ class StatsPanel(ttk.Frame):
             row=0, column=1, sticky="e"
         )
 
-        tree_frame = ttk.Frame(self)
-        tree_frame.grid(row=1, column=0, sticky="nsew", pady=(6, 8))
-        tree_frame.rowconfigure(0, weight=1)
-        tree_frame.columnconfigure(0, weight=1)
+    def _build_tree(self) -> None:
+        frame = ttk.Frame(self)
+        frame.grid(row=1, column=0, sticky="nsew", pady=(6, 8))
+        frame.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
 
         self._tree = ttk.Treeview(
-            tree_frame, columns=("images",), show="tree headings", height=12
+            frame, columns=("images",), show="tree headings", height=12
         )
         self._tree.heading("#0", text="year / option / part")
         self._tree.heading("images", text="images")
@@ -132,12 +148,12 @@ class StatsPanel(ttk.Frame):
         self._tree.tag_configure("here", font=("TkDefaultFont", 9, "bold"))
         self._tree.grid(row=0, column=0, sticky="nsew")
 
-        bar = ttk.Scrollbar(tree_frame, orient="vertical", command=self._tree.yview)
+        bar = ttk.Scrollbar(frame, orient="vertical", command=self._tree.yview)
         bar.grid(row=0, column=1, sticky="ns")
         self._tree.configure(yscrollcommand=bar.set)
 
-        ttk.Separator(self, orient="horizontal").grid(row=2, column=0, sticky="ew")
-
+    def _build_report(self) -> None:
+        """The answers check: its own button, and the text it prints into."""
         answers = ttk.Frame(self)
         answers.grid(row=3, column=0, sticky="ew", pady=(8, 4))
         answers.columnconfigure(0, weight=1)
@@ -148,27 +164,26 @@ class StatsPanel(ttk.Frame):
             row=0, column=1, sticky="e"
         )
 
-        text_frame = ttk.Frame(self)
-        text_frame.grid(row=4, column=0, sticky="nsew")
-        text_frame.rowconfigure(0, weight=1)
-        text_frame.columnconfigure(0, weight=1)
+        frame = ttk.Frame(self)
+        frame.grid(row=4, column=0, sticky="nsew")
+        frame.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
 
         self._text = tk.Text(
-            text_frame,
+            frame,
             width=40,
             height=10,
             wrap="word",
             font=("TkFixedFont", 9),
             relief="flat",
             background="#f6f6f6",
+            # Read-only: `_write_report` opens it for the one write it makes.
             state="disabled",
         )
         self._text.grid(row=0, column=0, sticky="nsew")
-        text_bar = ttk.Scrollbar(
-            text_frame, orient="vertical", command=self._text.yview
-        )
-        text_bar.grid(row=0, column=1, sticky="ns")
-        self._text.configure(yscrollcommand=text_bar.set)
+        bar = ttk.Scrollbar(frame, orient="vertical", command=self._text.yview)
+        bar.grid(row=0, column=1, sticky="ns")
+        self._text.configure(yscrollcommand=bar.set)
 
     # --- what the window drives ---
 
@@ -207,46 +222,47 @@ class StatsPanel(ttk.Frame):
             return
 
         self._title.configure(
-            text=(
-                f"{census.subject}: {census.images} images in {census.folders} folders"
-            )
+            text=f"{census.subject}: {census.images} images in {census.folders} folders"
         )
-
         for year in census.years:
-            here = year.year == self._year
-            node = self._tree.insert(
-                "",
+            self._insert_year(year)
+
+    def _insert_year(self, year: YearCensus) -> None:
+        """One year and its option/part rows, the year under review opened."""
+        here = year.year == self._year
+        node = self._tree.insert(
+            "",
+            "end",
+            text=f"{year.year} — {year.options} options",
+            values=(year.images,),
+            tags=("complete" if year.is_complete else "off",)
+            + (("here",) if here else ()),
+            open=here,
+        )
+        for part in year.parts:
+            self._tree.insert(
+                node,
                 "end",
-                text=f"{year.year} — {year.options} options",
-                values=(year.images,),
-                tags=("complete" if year.is_complete else "off",)
-                + (("here",) if here else ()),
-                open=here,
+                text=f"{part.option} / {part.part}",
+                values=(part.images,),
+                tags=("off",) if part.off_mode else (),
             )
-            for part in year.parts:
-                self._tree.insert(
-                    node,
-                    "end",
-                    text=f"{part.option} / {part.part}",
-                    values=(part.images,),
-                    tags=("off",) if part.off_mode else (),
-                )
 
     def check_answers(self) -> None:
         """Validate answers.json against the images, and show the report."""
         if self._validator is None:
-            self._show("no validator available")
+            self._write_report("no validator available")
             return
 
         try:
             report = self._validator.validate(self._subject)
         except FileNotFoundError:
-            self._show(f"{self._subject} has no extraction output yet")
+            self._write_report(f"{self._subject} has no extraction output yet")
             return
 
-        self._show(format_validation(report))
+        self._write_report(format_validation(report))
 
-    def _show(self, text: str) -> None:
+    def _write_report(self, text: str) -> None:
         self._text.configure(state="normal")
         self._text.delete("1.0", "end")
         self._text.insert("1.0", text)
