@@ -60,8 +60,13 @@ def _build_caption(origin: QuestionOrigin, topic_name: str | None) -> str:
     return origin_line
 
 
-async def start_random_question(message: types.Message, round: Round) -> None:
-    """Draw a question and show it, or say there was none to draw."""
+async def start_random_question(message: types.Message, round: Round) -> bool:
+    """Draw a question and show it, or say there was none to draw.
+
+    True when a question went on screen. False leaves the conversation where
+    it was — navigation uses that to keep its keyboard live, so the student
+    can pick a part or topic the draw has something for.
+    """
     rnd = await round.load(RandomState)
 
     async with round.transaction() as uow:
@@ -73,7 +78,7 @@ async def start_random_question(message: types.Message, round: Round) -> None:
         await message.answer(
             MSG_NO_TOPIC_QUESTION if rnd.topic_name else MSG_NO_RANDOM_QUESTION
         )
-        return
+        return False
 
     question, origin = picked
     await round.show_random_question(
@@ -84,6 +89,7 @@ async def start_random_question(message: types.Message, round: Round) -> None:
         parse_mode="HTML",
     )
     await round.set_state(RandomTesting.answering)
+    return True
 
 
 @router.callback_query(RandomTesting.answering, AnswerCB.filter())

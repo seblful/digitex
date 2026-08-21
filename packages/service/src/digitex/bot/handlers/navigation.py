@@ -144,7 +144,11 @@ async def _begin_random_round(
     argument is what makes that a requirement instead of a hope.
     """
     await round.save(rnd)
-    await start_random_question(message, round)
+    if await start_random_question(message, round):
+        # The screen the tap came from, edited away like every other step —
+        # left alone it keeps offering both parts under the question. Only on
+        # success: an empty draw leaves the keyboard live for another pick.
+        await message.edit_text(MSG_START_TESTING)
 
 
 @router.callback_query(Navigation.select_topic, TopicCB.filter())
