@@ -64,18 +64,15 @@ ______________________________________________________________________
   significant lifecycle events, `WARNING` for recoverable anomalies, `ERROR`
   for failures that need attention; never log secrets or PII; prefer structured
   key-value pairs over interpolated strings
-- **Workspace**: three members under `packages/` — `core` (`domain`, `config`,
-  `logging`, `console`), `service` (`bot`, `db`, `service`) and `studio`
-  (`imaging`, `ml`, `labeling`, `pipeline`, `ui`, `studio`). Put a new module in
-  the member that already holds its dependencies; adding a studio dependency to
-  core or service is the one change that breaks the deploy
 - **Layers**: Only `core` and `service` deploy. Never import `imaging`, `ml`,
   `labeling`, `pipeline` or `ui` from them — the production image does not
   install those distributions at all. `bot` may not reach `db` or `psycopg`
   either: handlers take an `OpenUow` from `domain.ports`, and
-  `service/cli/bot.py` is the only module that names both sides.
-  `uv run lint-imports` checks both; `[tool.importlinter]` in `pyproject.toml`
-  is the contract, `CONTEXT.md` records the decision
+  `service/cli/bot.py` is the only module that names both sides. A new module
+  belongs in the workspace member that already holds its dependencies; adding a
+  studio dependency to core or service is the one change that breaks the
+  deploy. `uv run lint-imports` checks the imports; `[tool.importlinter]` in
+  `pyproject.toml` is the contract, `CONTEXT.md` records the decision
 - **Paths**: Non-code paths derive from `settings.paths.data_root`, never from
   a module's `__file__`
 
@@ -100,16 +97,3 @@ ______________________________________________________________________
 - Use `pydantic-settings` for secret management
 - Never auto-run destructive commands (`rm -rf`, `del /s`, `curl | sh`)
 - Respect `.ignore` paths (`.env*`, `.ssh/`, `secrets/`)
-
-______________________________________________________________________
-
-## graphify
-
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
-
-Rules:
-
-- ALWAYS read graphify-out/GRAPH_REPORT.md before reading any source files, running grep/glob searches, or answering codebase questions. The graph is your primary map of the codebase.
-- IF graphify-out/wiki/index.md EXISTS, navigate it instead of reading raw files
-- For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

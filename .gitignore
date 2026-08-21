@@ -20,7 +20,6 @@ yolo*.pt
 opencode.json
 .opencode/
 docs/superpowers
-graphify-out/
 
 # Claude Code local settings (contains secrets/proxy credentials)
 .claude/settings.local.json

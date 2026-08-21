@@ -1,14 +1,8 @@
-# Digitex — Domain Glossary
+# Domain Glossary
 
-Definitions for the project's core domain terms. Use these names exactly in
-code and review discussions — drift creates communication overhead and
-muddies architectural decisions.
-
-For the *architectural* vocabulary (Module, Interface, Depth, Seam, Adapter,
-Leverage, Locality, Deletion test), see the language reference shipped with
-the `/refactoring:improve-codebase-architecture` skill.
-
-______________________________________________________________________
+Every domain term Digitex uses, defined once. Use these names exactly in code
+and review discussions — drift creates communication overhead and muddies
+architectural decisions.
 
 ## Domain entities
 
@@ -45,8 +39,9 @@ ______________________________________________________________________
 
 ## Processes
 
-- **Extraction** — turning a Book into Question images on disk. Several
-  named flavors:
+- **Extraction** — turning a Book into Question images on disk. `extract` (the
+  verb) names only the top-level operation of an Extractor; internal helpers
+  are `_crop`, `_detect`, `read_page`. Several named flavors:
   - **Page extraction** — one Page → multiple Question crops. Driven by
     `PageExtractor` (`pipeline/page.py`) using YOLO segmentation.
   - **Book extraction** — every Page in a Book (`pipeline/book.py`).
@@ -57,7 +52,8 @@ ______________________________________________________________________
 - **Review** — checking a Page's detected regions by hand before its crops are
   written. A `PageReviewer` is a callable
   `(PageProposal) -> ReviewedPage | None` — a callable, not a Protocol class,
-  and the interactive one is a Tk window. The Proposal carries the extractor's
+  which is why the parameter is `on_review` and not `review_strategy`; the
+  interactive one is a Tk window. The Proposal carries the extractor's
   own `crop` callable, so a reviewer previews the file that would be written
   rather than its own likeness of it — the same rule the numbering preview
   follows by replaying `place_questions`.
@@ -102,9 +98,10 @@ ______________________________________________________________________
   (`bot.answer_flow.Round`): it owns the bot, the FSM context, the questions
   directory and the transaction seam (`open_uow`). Its interface is the three
   things a handler does to a round — `show_testing_question` /
-  `show_random_question`, and `end`, which pays the parked `file_id` debt and
-  clears the conversation state together. `end` holds the bot's only
-  `state.clear()`; no handler names `pending_file_id_cache`.
+  `show_random_question` (not `send_question_with_cache`; `send_question` in
+  `bot.renderer` is the lower-level primitive), and `end`, which pays the
+  parked `file_id` debt and clears the conversation state together. `end` holds
+  the bot's only `state.clear()`; no handler names `pending_file_id_cache`.
 
 ## Infrastructure terms
 
@@ -227,15 +224,3 @@ ______________________________________________________________________
   root exists. Sizes in `gui` are written for a 100% display and passed through
   `scaled()`; without the awareness call Windows stretches the whole window and
   its text renders soft.
-
-## Naming conventions worth preserving
-
-- `on_review` (not `review_strategy`) for a `PageReviewer` callable parameter —
-  matches the callable-not-class shape.
-- `show_testing_question` / `show_random_question` (not
-  `send_question_with_cache`) for the Round's "render a Question and park any
-  new file_id" recipe — the debt is settled inside the next round's UoW via
-  the `pending_file_id_cache` FSM field. `send_question` is the lower-level
-  primitive in `bot.renderer`.
-- `extract` (the verb) is reserved for the top-level operation of an
-  Extractor; internal helpers use `_crop`, `_detect`, `read_page`, etc.
