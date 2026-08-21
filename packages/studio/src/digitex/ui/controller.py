@@ -39,7 +39,7 @@ from digitex.ui.edits import Numbering, PageEdits
 from digitex.ui.join_editor import JoinPiece
 
 if TYPE_CHECKING:
-    from digitex.domain.placement import PageLabel, PageRegion
+    from digitex.domain.placement import PageExtractionState, PageLabel, PageRegion
     from digitex.pipeline.pieces import HeldPiece
     from digitex.pipeline.review import PageProposal, PieceCrop, QuestionCrop
 
@@ -93,35 +93,6 @@ class Preview:
 
     image: Image.Image | None
     caption: str
-
-
-def resolve_verdict(
-    verdict: Verdict,
-    edits: PageEdits,
-    page_name: str,
-    discard_carried: bool = False,
-) -> ReviewedPage | None:
-    """Turn a verdict into the reviewer's answer.
-
-    The three ways a review ends: approve hands back what the reviewer edited,
-    skip returns None, abort raises. A skip leaves the pieces carried onto the
-    page for the next one — only an approval can throw them away, and only when
-    the reviewer said to.
-
-    Raises:
-        ReviewAborted: If the reviewer stopped the run.
-    """
-    if verdict == "abort":
-        raise ReviewAborted(page_name)
-    if verdict == "skip":
-        logger.info("Page skipped in review", page=page_name)
-        return None
-    logger.info("Page approved in review", page=page_name, regions=len(edits.regions))
-    return ReviewedPage(
-        regions=edits.regions,
-        state=edits.state,
-        discard_carried=discard_carried,
-    )
 
 
 class ReviewController:
@@ -221,6 +192,16 @@ class ReviewController:
     def can_redo(self) -> bool:
         return self.edits.history.can_redo
 
+    @property
+    def regions(self) -> list[PageRegion]:
+        """The working copy of the page's regions, in reading order."""
+        return self.edits.regions
+
+    @property
+    def entry_state(self) -> PageExtractionState:
+        """Where the page starts numbering — what the spinboxes show."""
+        return self.edits.state
+
     @staticmethod
     def reading_text(region: PageRegion) -> str:
         """What OCR made of a marker. Empty for a question, which carries none."""
@@ -288,6 +269,10 @@ class ReviewController:
         )
 
     # --- selection ---
+
+    @property
+    def selected(self) -> int | None:
+        return self.edits.selected
 
     def select(self, index: int | None) -> bool:
         """Select a region. False when it was already selected."""
@@ -381,6 +366,10 @@ class ReviewController:
             return 0
         carried = self.edits.carried if self.edits.takes_carried(index) else 0
         return len(self.edits.question_pieces(index)) + carried
+
+    def question_pieces(self, index: int) -> list[int]:
+        """Every region index making up the question *index* is a piece of."""
+        return self.edits.question_pieces(index)
 
     def join_controls(self) -> JoinControls:
         """Where the join controls stand for the current selection."""
@@ -496,6 +485,47 @@ class ReviewController:
         self.refresh()
         return True
 
+    def add_box(
+        self, label: PageLabel, corner: tuple[int, int], opposite: tuple[int, int]
+    ) -> bool:
+        """Add a drawn box as a new region, selecting it. False for a stray click."""
+        if not self.edits.add_box(label, corner, opposite):
+            return False
+        self.refresh()
+        return True
+
+    def insert_point(self, index: int, point: tuple[int, int]) -> None:
+        """Add a vertex on the polygon edge nearest *point*."""
+        self.edits.insert_point(index, point)
+        self.refresh()
+
+    def delete_point(self, index: int, point: int) -> bool:
+        """Remove a vertex. False when the polygon is at the croppable minimum."""
+        if not self.edits.delete_point(index, point):
+            return False
+        self.refresh()
+        return True
+
+    def set_label(self, index: int, label: PageLabel) -> None:
+        """Relabel the region at *index* — a context menu's target, selected or not."""
+        self.edits.set_label(index, label)
+        self.refresh()
+
+    def set_reading(self, index: int, reading: int | str | None) -> None:
+        """Correct what OCR made of the marker at *index*."""
+        self.edits.set_reading(index, reading)
+        self.refresh()
+
+    def set_entry_state(self, option: int, part: str, question: int) -> None:
+        """Set where the page starts numbering, renumbering as it is typed.
+
+        Records no undo step: the window debounces the spinboxes and calls
+        :meth:`commit` once the value settles — one step per settled value,
+        not one per keystroke.
+        """
+        self.edits.set_entry_state(option, part, question)
+        self.refresh()
+
     def undo(self) -> bool:
         if not self.edits.undo():
             return False
@@ -509,6 +539,11 @@ class ReviewController:
         return True
 
     def commit(self) -> None:
+        """Record the page in the timeline — where a gesture settles.
+
+        A drag's moves and a spinbox's keystrokes record nothing on the way
+        here; this is what makes each gesture one undo step.
+        """
         self.edits.commit()
         self.refresh()
 
@@ -518,14 +553,14 @@ class ReviewController:
         Applied here rather than returned for the caller to apply. It used to
         reach the model only by being written into a spinbox, which meant the
         rule ran through a widget's change event — and could not be exercised
-        without one.
+        without one. One undo step: the button is a settled edit, not typing.
         """
         counter = self.edits.continue_from_disk()
         if counter is None:
             return None
         state = self.edits.state
         self.edits.set_entry_state(state.option, state.part, counter)
-        self.refresh()
+        self.commit()
         return counter
 
     def discard_carried_pieces(self) -> None:
@@ -534,6 +569,22 @@ class ReviewController:
         self.discard_carried = True
         self.edits.carried = 0
         self.refresh()
+
+    # --- live drag: mutate now, settle on button-up ---
+
+    def drag_polygon(self, index: int, dx: int, dy: int) -> None:
+        """Move a whole polygon mid-drag. Records nothing, recomputes nothing.
+
+        A drag lands many of these a second, and the numbering reads labels
+        and order rather than geometry — recomputing it per move would walk
+        the output tree to learn nothing. The window calls :meth:`commit` on
+        button-up, which records the whole drag once and refreshes.
+        """
+        self.edits.drag_polygon(index, dx, dy)
+
+    def drag_vertex(self, index: int, point: int, to: tuple[int, int]) -> None:
+        """Move one vertex mid-drag. Records nothing, recomputes nothing."""
+        self.edits.drag_vertex(index, point, to)
 
     # --- ending ---
 
@@ -553,12 +604,26 @@ class ReviewController:
     def answer(self) -> ReviewedPage | None:
         """The reviewer's answer for the page just reviewed.
 
+        The three ways a review ends: approve hands back what the reviewer
+        edited, skip returns None, abort raises. A skip leaves the pieces
+        carried onto the page for the next one — only an approval can throw
+        them away, and only when the reviewer said to.
+
         Raises:
             ReviewAborted: If the reviewer stopped the run.
         """
-        return resolve_verdict(
-            self.verdict,
-            self.edits,
-            self.page_name,
+        if self.verdict == "abort":
+            raise ReviewAborted(self.page_name)
+        if self.verdict == "skip":
+            logger.info("Page skipped in review", page=self.page_name)
+            return None
+        logger.info(
+            "Page approved in review",
+            page=self.page_name,
+            regions=len(self.edits.regions),
+        )
+        return ReviewedPage(
+            regions=self.edits.regions,
+            state=self.edits.state,
             discard_carried=self.discard_carried,
         )

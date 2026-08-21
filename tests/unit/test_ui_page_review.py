@@ -30,8 +30,8 @@ from digitex.pipeline.exceptions import ReviewAborted
 from digitex.pipeline.pieces import HeldPiece
 from digitex.pipeline.review import PageProposal
 from digitex.ui.controller import ReviewController
-from digitex.ui.edits import PageEdits
-from digitex.ui.page_review import _ReviewWindow, resolve_verdict
+from digitex.ui.edits import Numbering, PageEdits
+from digitex.ui.page_review import _ReviewWindow
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -61,6 +61,7 @@ def _proposal(
     output_dir: Path,
     regions: list[PageRegion] | None = None,
     state: PageExtractionState | None = None,
+    page_name: str = "1.jpg",
     page_number: int = 0,
     page_count: int = 0,
     carried: list[HeldPiece] | None = None,
@@ -92,7 +93,7 @@ def _proposal(
         ],
         state=state or PageExtractionState(),
         output_dir=output_dir,
-        page_name="1.jpg",
+        page_name=page_name,
         crop=crop,
         crop_piece=crop_piece,
         page_number=page_number,
@@ -104,40 +105,6 @@ def _proposal(
 def _carried(page_name: str = "0.jpg") -> list[HeldPiece]:
     """One piece left unfinished by the page before, 40px tall."""
     return [HeldPiece(image=Image.new("RGB", (500, 40), "black"), page_name=page_name)]
-
-
-class TestResolveVerdict:
-    """The verdict translation is pure, so the seam's exits run headless.
-
-    These are the three ways a run leaves the review window — the part of the
-    adapter a display-gated suite would otherwise never assert on CI.
-    """
-
-    @staticmethod
-    def _edits(output_dir: Path) -> PageEdits:
-        edits = PageEdits()
-        edits.load(
-            [_region("question", 200)],
-            PageExtractionState(option=1, part="A"),
-            output_dir,
-        )
-        return edits
-
-    def test_approve_hands_back_what_the_reviewer_edited(self, tmp_path: Path) -> None:
-        edits = self._edits(tmp_path)
-
-        reviewed = resolve_verdict("approve", edits, "1.jpg")
-
-        assert reviewed is not None
-        assert reviewed.regions is edits.regions
-        assert reviewed.state is edits.state
-
-    def test_skip_returns_none(self, tmp_path: Path) -> None:
-        assert resolve_verdict("skip", self._edits(tmp_path), "1.jpg") is None
-
-    def test_abort_raises_naming_the_page(self, tmp_path: Path) -> None:
-        with pytest.raises(ReviewAborted, match=r"7\.jpg"):
-            resolve_verdict("abort", self._edits(tmp_path), "7.jpg")
 
 
 @pytest.fixture(scope="module")
@@ -171,6 +138,20 @@ def window(root: tk.Tk) -> Iterator[_ReviewWindow]:
     made.top.destroy()
 
 
+@pytest.fixture
+def numbering_calls(monkeypatch: pytest.MonkeyPatch) -> list[None]:
+    """Counts every numbering() recompute — each one walks the output tree."""
+    calls: list[None] = []
+    real = PageEdits.numbering
+
+    def counting(self: PageEdits) -> Numbering:
+        calls.append(None)
+        return real(self)
+
+    monkeypatch.setattr(PageEdits, "numbering", counting)
+    return calls
+
+
 class TestLoadingAPage:
     def test_the_proposal_is_copied_not_borrowed(
         self, control: ReviewController, tmp_path: Path
@@ -179,7 +160,7 @@ class TestLoadingAPage:
         proposal = _proposal(tmp_path)
         control.load(proposal)
 
-        control.edits.regions[2].label = "part"
+        control.regions[2].label = "part"
 
         assert proposal.regions[2].label == "question"
 
@@ -212,13 +193,13 @@ class TestLoadingAPage:
     ) -> None:
         control.load(_proposal(tmp_path))
         control.select(2)
-        control.delete_selected(), control.refresh()
-        assert control.edits.history.can_undo
+        control.delete_selected()
+        assert control.can_undo
 
         control.load(_proposal(tmp_path))
 
-        assert control.edits.history.can_undo is False
-        assert len(control.edits.regions) == 4
+        assert control.can_undo is False
+        assert len(control.regions) == 4
 
 
 class TestEditing:
@@ -227,12 +208,12 @@ class TestEditing:
     ) -> None:
         window._load(_proposal(tmp_path))
         window._select(2)
-        before = list(window.control.edits.regions[3].polygon)
+        before = list(window.control.regions[3].polygon)
 
         window._on_arrow((1, 0), 10)
 
-        assert next(iter(window.control.edits.regions[2].polygon)) == (60, 200)
-        assert list(window.control.edits.regions[3].polygon) == before
+        assert next(iter(window.control.regions[2].polygon)) == (60, 200)
+        assert list(window.control.regions[3].polygon) == before
 
     def test_undo_puts_an_edit_back(
         self, window: _ReviewWindow, tmp_path: Path
@@ -243,8 +224,8 @@ class TestEditing:
 
         window._undo()
 
-        assert next(iter(window.control.edits.regions[2].polygon)) == (50, 200)
-        assert window.control.edits.history.can_redo
+        assert next(iter(window.control.regions[2].polygon)) == (50, 200)
+        assert window.control.can_redo
 
     def test_redo_puts_it_back_again(
         self, window: _ReviewWindow, tmp_path: Path
@@ -256,7 +237,7 @@ class TestEditing:
 
         window._redo()
 
-        assert next(iter(window.control.edits.regions[2].polygon)) == (50, 210)
+        assert next(iter(window.control.regions[2].polygon)) == (50, 210)
 
     def test_relabelling_a_question_renumbers_the_rest(
         self, control: ReviewController, tmp_path: Path
@@ -277,7 +258,7 @@ class TestEditing:
 
         control.relabel_selected("part")
 
-        assert control.edits.regions[0].reading is None
+        assert control.regions[0].reading is None
 
     def test_deleting_a_marker_is_caught_before_anything_is_written(
         self, control: ReviewController, tmp_path: Path
@@ -303,8 +284,8 @@ class TestEditing:
         window._draw_from = (50.0, 100.0)
         window._finish_draw(150.0, 200.0)
 
-        assert len(window.control.edits.regions) == 5
-        assert list(window.control.edits.regions[4].polygon) == [
+        assert len(window.control.regions) == 5
+        assert list(window.control.regions[4].polygon) == [
             (100, 200),
             (300, 200),
             (300, 400),
@@ -320,7 +301,7 @@ class TestEditing:
         window._draw_from = (50.0, 100.0)
         window._finish_draw(52.0, 102.0)
 
-        assert len(window.control.edits.regions) == 4
+        assert len(window.control.regions) == 4
 
     def test_sorting_puts_the_regions_in_reading_order(
         self, control: ReviewController, tmp_path: Path
@@ -333,9 +314,9 @@ class TestEditing:
         control.load(_proposal(tmp_path, regions=regions))
         assert control.numbering.problem is not None  # question before its markers
 
-        control.sort_by_reading_order(), control.refresh()
+        control.sort_by_reading_order()
 
-        assert [r.label for r in control.edits.regions] == [
+        assert [r.label for r in control.regions] == [
             "option",
             "part",
             "question",
@@ -390,6 +371,30 @@ class TestNumbering:
 
         assert [str(p) for p in control.numbering.placements] == ["2/B/4"]
         assert control.numbering.problem is None
+        # The button is a settled edit, so it can be undone like one.
+        assert control.can_undo
+
+    def test_continue_from_disk_reflects_into_the_spinbox(
+        self, window: _ReviewWindow, tmp_path: Path
+    ) -> None:
+        """The controller applies the counter; the spinbox only shows it."""
+        taken = tmp_path / "2" / "B"
+        taken.mkdir(parents=True)
+        for number in (1, 2, 3):
+            (taken / f"{number}.jpg").write_bytes(b"x")
+        window._load(
+            _proposal(
+                tmp_path,
+                regions=[_region("question", 200)],
+                state=PageExtractionState(option=2, part="B"),
+            )
+        )
+
+        window._continue_from_disk()
+
+        assert window._question_var.get() == "3"
+        assert window.control.entry_state.question == 3
+        assert [str(p) for p in window.control.numbering.placements] == ["2/B/4"]
 
     def test_the_entry_state_can_be_typed_in(
         self, window: _ReviewWindow, tmp_path: Path
@@ -404,7 +409,7 @@ class TestNumbering:
 
         window._question_var.set("5")
 
-        assert window.control.edits.state.question == 5
+        assert window.control.entry_state.question == 5
         assert [str(p) for p in window.control.numbering.placements] == ["1/A/6"]
 
     def test_an_emptied_spinbox_does_not_lose_the_number(
@@ -421,7 +426,7 @@ class TestNumbering:
 
         window._option_var.set("")
 
-        assert window.control.edits.state.option == 3
+        assert window.control.entry_state.option == 3
 
 
 class TestCropPreview:
@@ -489,7 +494,7 @@ class TestJoiningPieces:
 
         control.toggle_join()
 
-        assert control.edits.regions[2].joins_next is True
+        assert control.regions[2].joins_next is True
         assert "piece 2 of 2" in control.rows()[3].where
 
     def test_a_marker_cannot_be_marked_as_a_piece(
@@ -500,7 +505,7 @@ class TestJoiningPieces:
 
         control.toggle_join()
 
-        assert control.edits.regions[0].joins_next is False
+        assert control.regions[0].joins_next is False
         # The box is put back from the model rather than left lying.
         assert control.join_controls().joins_next is False
         assert not control.join_controls().can_toggle
@@ -550,7 +555,7 @@ class TestJoiningPieces:
     ) -> None:
         control.load(_proposal(tmp_path))
         control.select(2)
-        control.toggle_join(), control.refresh()
+        control.toggle_join()
 
         pieces, origins = control.join_pieces(2)
 
@@ -580,7 +585,7 @@ class TestCarriedPieces:
         assert "003.jpg" in (control.carried_summary() or "")
         assert control.carried_summary() is not None
         # The joined crop is what the reviewer has to check first.
-        assert control.edits.selected == 2
+        assert control.selected == 2
 
     def test_a_page_handed_nothing_says_nothing(
         self, control: ReviewController, tmp_path: Path
@@ -627,7 +632,8 @@ class TestCarriedPieces:
 
         assert control.discard_carried is True
         assert control.carried_summary() is None
-        assert control.edits.takes_carried(2) is False
+        # The first question is one piece again — nothing joins it from behind.
+        assert control.piece_count(2) == 1
 
     def test_a_page_is_handed_the_pieces_unless_it_says_otherwise(
         self, control: ReviewController, tmp_path: Path
@@ -687,3 +693,94 @@ class TestVerdict:
         control.finish("skip")
 
         assert control.verdict == "skip"
+
+
+class TestAnswer:
+    """Turning the settled verdict into the extractor's answer.
+
+    These are the three ways a run leaves the review window, crossed at the
+    seam `TkPageReviewer` itself uses: `present` leaves the verdict on the
+    controller, and `answer()` is what the extractor gets.
+    """
+
+    def test_approve_hands_back_what_the_reviewer_edited(
+        self, control: ReviewController, tmp_path: Path
+    ) -> None:
+        control.load(_proposal(tmp_path))
+        control.finish("approve")
+
+        reviewed = control.answer()
+
+        assert reviewed is not None
+        assert reviewed.regions is control.regions
+        assert reviewed.state is control.entry_state
+
+    def test_skip_returns_none(self, control: ReviewController, tmp_path: Path) -> None:
+        control.load(_proposal(tmp_path))
+        control.finish("skip")
+
+        assert control.answer() is None
+
+    def test_abort_raises_naming_the_page(
+        self, control: ReviewController, tmp_path: Path
+    ) -> None:
+        control.load(_proposal(tmp_path, page_name="7.jpg"))
+        control.finish("abort")
+
+        with pytest.raises(ReviewAborted, match=r"7\.jpg"):
+            control.answer()
+
+    def test_a_review_that_never_settled_reads_as_an_abort(
+        self, control: ReviewController, tmp_path: Path
+    ) -> None:
+        """A window torn down mid-review must never approve the page in it."""
+        control.load(_proposal(tmp_path))
+
+        with pytest.raises(ReviewAborted):
+            control.answer()
+
+
+class TestOneRecomputePerEdit:
+    """One settled edit pays for one numbering() walk of the output tree.
+
+    The window used to ask the controller to refresh after every operation
+    that had already refreshed itself, so each edit walked the option/part
+    folders twice.
+    """
+
+    def test_a_settled_edit_recomputes_the_numbering_once(
+        self, window: _ReviewWindow, tmp_path: Path, numbering_calls: list[None]
+    ) -> None:
+        window._load(_proposal(tmp_path))
+        window._select(2)
+        numbering_calls.clear()
+
+        window._delete_region()
+
+        assert len(numbering_calls) == 1
+
+    def test_mid_drag_moves_recompute_nothing(
+        self, control: ReviewController, tmp_path: Path, numbering_calls: list[None]
+    ) -> None:
+        """The window commits on button-up; the moves in between stay cheap."""
+        control.load(_proposal(tmp_path))
+        numbering_calls.clear()
+
+        control.drag_polygon(2, 5, 0)
+        control.drag_polygon(2, 5, 0)
+        control.drag_vertex(2, 1, (500, 150))
+
+        assert numbering_calls == []
+        assert not control.can_undo
+
+    def test_button_up_settles_the_whole_drag_in_one_recompute(
+        self, control: ReviewController, tmp_path: Path, numbering_calls: list[None]
+    ) -> None:
+        control.load(_proposal(tmp_path))
+        control.drag_polygon(2, 5, 0)
+        numbering_calls.clear()
+
+        control.commit()
+
+        assert len(numbering_calls) == 1
+        assert control.can_undo

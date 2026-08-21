@@ -41,10 +41,9 @@ from digitex.ui.controller import (
     NO_SELECTION_CAPTION,
     ReviewController,
     Verdict,
-    resolve_verdict,
 )
 from digitex.ui.display import BASE_DPI, enable_dpi_awareness, scaled
-from digitex.ui.edits import MIN_POINTS, PageEdits
+from digitex.ui.edits import MIN_POINTS
 from digitex.ui.join_editor import JoinEditor
 from digitex.ui.stats_panel import StatsPanel
 
@@ -188,14 +187,9 @@ class TkPageReviewer:
             ReviewAborted: If the reviewer stopped the run.
         """
         window = self._ensure_window()
-        verdict = window.present(proposal)
+        window.present(proposal)
         try:
-            return resolve_verdict(
-                verdict,
-                window.edits,
-                proposal.page_name,
-                discard_carried=window.discard_carried,
-            )
+            return window.control.answer()
         except ReviewAborted:
             self.close()
             raise
@@ -229,11 +223,10 @@ class _ReviewWindow:
     """The window itself. Built once, then loaded with one page after another.
 
     A view over :class:`~digitex.ui.controller.ReviewController`, which owns the
-    page under review and answers every question about it, and over
-    :class:`~digitex.ui.edits.PageEdits` under that, which owns the rules. The
-    window's own job is the widgets: draw what the controller reports, turn
-    clicks and keys into its operations, and redraw afterwards. Nothing here
-    decides what an edit means.
+    page under review and answers every question about it — the only object the
+    window speaks to. The window's own job is the widgets: draw what the
+    controller reports, turn clicks and keys into its operations, and redraw
+    afterwards. Nothing here decides what an edit means.
     """
 
     def __init__(
@@ -292,24 +285,14 @@ class _ReviewWindow:
         # transient for an unmapped master never maps itself on Windows.
         self.top.withdraw()
 
-    # --- what the controller owns, named where callers already look ---
-
-    @property
-    def edits(self) -> PageEdits:
-        return self.control.edits
-
-    @property
-    def verdict(self) -> Verdict:
-        return self.control.verdict
-
-    @property
-    def discard_carried(self) -> bool:
-        return self.control.discard_carried
-
     # --- the seam ---
 
-    def present(self, proposal: PageProposal) -> Verdict:
-        """Load *proposal* and block until the reviewer decides what to do."""
+    def present(self, proposal: PageProposal) -> None:
+        """Load *proposal* and block until the reviewer decides what to do.
+
+        The decision is left on the controller, whose ``answer()`` turns it
+        into the extractor's answer.
+        """
         # Mapped before loading, so the canvas has a real size to fit the page
         # to — a withdrawn window reports 1x1 and would pin it at minimum zoom.
         self.top.deiconify()
@@ -328,7 +311,6 @@ class _ReviewWindow:
         self._done.set(False)
         self.top.wait_variable(self._done)
         self.top.grab_release()
-        return self.verdict
 
     def _load(self, proposal: PageProposal) -> None:
         """Take on a new page, keeping the view where the reviewer left it."""
@@ -357,10 +339,10 @@ class _ReviewWindow:
         else:
             self._set_scale(self._scale)
 
-        self._refresh()
+        self._redraw()
         # The controller may have opened the page on a question already — a page
         # that finishes what the one before it started.
-        if self.edits.selected is not None:
+        if self.control.selected is not None:
             self._after_selection_change()
         self._refresh_stats_if_shown()
 
@@ -814,12 +796,10 @@ class _ReviewWindow:
 
     def _zoom_to_selected(self) -> None:
         """Fill the view with the selected region, so its edges can be judged."""
-        selected = self.edits.selected
-        if selected is None:
+        region = self.control.selected_region()
+        if region is None:
             return
-        left, top, right, bottom = geometry.bounds(
-            list(self.edits.regions[selected].polygon)
-        )
+        left, top, right, bottom = geometry.bounds(list(region.polygon))
         view_w, view_h = self._view_size
         # Some room around it, so the region is seen in the context it was cut
         # from rather than edge to edge.
@@ -895,13 +875,13 @@ class _ReviewWindow:
         """Redraw every polygon, its caption, and the selected one's handles."""
         self._canvas.delete("region")
 
-        for index, region in enumerate(self.edits.regions):
+        for index, region in enumerate(self.control.regions):
             color = (
                 MISNUMBERED
                 if index in self.control.numbering.misnumbered
                 else COLORS[region.label]
             )
-            selected = index == self.edits.selected
+            selected = index == self.control.selected
             hovered = index == self.control.hover
             coords = [c for point in region.polygon for c in self._to_canvas(point)]
 
@@ -972,21 +952,17 @@ class _ReviewWindow:
         A question whose next piece is on the next page gets an arrow off its
         bottom edge instead — there is nothing on this page to point at.
         """
-        regions = self.edits.regions
+        regions = self.control.regions
         for index, region in enumerate(regions):
             if region.label != "question" or not region.joins_next:
                 continue
 
             left, _, right, bottom = geometry.bounds(list(region.polygon))
             start = self._to_canvas((round((left + right) / 2), bottom))
-            following = next(
-                (
-                    at
-                    for at in range(index + 1, len(regions))
-                    if regions[at].label == "question"
-                ),
-                None,
-            )
+            # The controller says which pieces make the question up; the piece
+            # after this one is what the arrow points at.
+            pieces = self.control.question_pieces(index)
+            following = next((at for at in pieces if at > index), None)
             if following is None:
                 end = (start[0], start[1] + self._px(JOIN_TAIL))
             else:
@@ -1005,9 +981,14 @@ class _ReviewWindow:
 
     # --- redrawing after an edit ---
 
-    def _refresh(self) -> None:
-        """Ask the model where everything lands, then redraw what it says."""
-        numbering = self.control.refresh()
+    def _redraw(self) -> None:
+        """Redraw what the controller reports. Recomputes nothing.
+
+        Every controller operation that changes the page re-derives the
+        numbering before it returns, so by the time a handler gets here the
+        model is current — this only puts it on screen.
+        """
+        numbering = self.control.numbering
 
         self._ends_at.configure(text=numbering.ends_at)
         self._problem_label.configure(text=numbering.problem or "")
@@ -1050,18 +1031,18 @@ class _ReviewWindow:
                 tags=(
                     "misnumbered"
                     if row.misnumbered
-                    else self.edits.regions[row.index].label,
+                    else self.control.regions[row.index].label,
                 ),
             )
-        selected = self.edits.selected
-        if selected is not None and selected < len(self.edits.regions):
+        selected = self.control.selected
+        if selected is not None and selected < len(self.control.regions):
             self._tree.selection_set(str(selected))
             self._tree.see(str(selected))
 
     def _show_entry_state(self) -> None:
         """Put the model's entry state into the spinboxes without echoing back."""
         self._loading = True
-        state = self.edits.state
+        state = self.control.entry_state
         self._option_var.set(str(state.option))
         self._part_var.set(state.part)
         self._question_var.set(str(state.question))
@@ -1095,7 +1076,7 @@ class _ReviewWindow:
 
     def _after_selection_change(self) -> None:
         """Redraw everything a change of selection shows differently."""
-        index = self.edits.selected
+        index = self.control.selected
         self._render_regions()
         if index is None:
             selection = self._tree.selection()
@@ -1224,7 +1205,7 @@ class _ReviewWindow:
             return
 
         if self._drag.handle:
-            self.edits.drag_vertex(
+            self.control.drag_vertex(
                 self._drag.index, self._drag.point, self._to_image(x, y)
             )
         else:
@@ -1234,7 +1215,7 @@ class _ReviewWindow:
             # rounding.
             if dx == 0 and dy == 0:
                 return
-            self.edits.drag_polygon(self._drag.index, dx, dy)
+            self.control.drag_polygon(self._drag.index, dx, dy)
 
         self._drag_from = (x, y)
         # Only the polygons: the page under them has not moved, and a drag
@@ -1278,7 +1259,7 @@ class _ReviewWindow:
     def _context_menu(self, hit: _Hit, at: tuple[float, float]) -> tk.Menu:
         """The menu for what was right-clicked, in the order it is worked in."""
         index = hit.index
-        region = self.edits.regions[index]
+        region = self.control.regions[index]
         menu = tk.Menu(self.top, tearoff=0)
 
         if hit.handle:
@@ -1366,13 +1347,13 @@ class _ReviewWindow:
     def _on_arrow(self, delta: tuple[int, int], step: int) -> str:
         """Nudge the selected region, or scroll the page when nothing is selected."""
         dx, dy = delta
-        if self.edits.selected is None:
+        if self.control.selected is None:
             self._canvas.xview_scroll(dx, "units")
             self._canvas.yview_scroll(dy, "units")
             return "break"
 
         self.control.nudge_selected(dx * step, dy * step)
-        self._refresh()
+        self._redraw()
         return "break"
 
     def _on_escape(self) -> None:
@@ -1386,19 +1367,19 @@ class _ReviewWindow:
     def _commit(self) -> None:
         """Record an edit in the undo timeline and redraw everything it touched."""
         self.control.commit()
-        self._refresh()
+        self._redraw()
 
     def _undo(self) -> None:
         if self.control.undo():
             # The entry state travels with a snapshot, so the spinboxes have to
             # be told about it.
             self._show_entry_state()
-            self._refresh()
+            self._redraw()
 
     def _redo(self) -> None:
         if self.control.redo():
             self._show_entry_state()
-            self._refresh()
+            self._redraw()
 
     def _start_draw(self, label: PageLabel) -> None:
         self.control.draw_label = label
@@ -1437,34 +1418,34 @@ class _ReviewWindow:
         # and the cursor as they were.
         self._cancel_draw()
 
-        if self.edits.add_box(label, corner, opposite):
-            self._refresh()
+        if self.control.add_box(label, corner, opposite):
+            self._redraw()
 
     def _insert_point(self, index: int, point: tuple[int, int]) -> None:
         """Add a vertex on the polygon edge nearest the click."""
-        self.edits.insert_point(index, point)
-        self._refresh()
+        self.control.insert_point(index, point)
+        self._redraw()
 
     def _delete_point(self, index: int, point: int) -> None:
-        if self.edits.delete_point(index, point):
-            self._refresh()
+        if self.control.delete_point(index, point):
+            self._redraw()
         else:
             self._hint.configure(text=f"a region needs at least {MIN_POINTS} points")
 
     def _relabel_selected(self, label: PageLabel) -> None:
         if self.control.relabel_selected(label):
-            self._refresh()
+            self._redraw()
 
     def _set_label(self, index: int, label: PageLabel) -> None:
-        self.edits.set_label(index, label)
-        self._refresh()
+        self.control.set_label(index, label)
+        self._redraw()
 
     def _set_reading(self, index: int, reading: int | str | None) -> None:
-        self.edits.set_reading(index, reading)
-        self._refresh()
+        self.control.set_reading(index, reading)
+        self._redraw()
 
     def _set_option(self, index: int) -> None:
-        current = self.edits.regions[index].reading
+        current = self.control.regions[index].reading
         value = simpledialog.askinteger(
             "Option number",
             "Option this marker starts:",
@@ -1478,10 +1459,10 @@ class _ReviewWindow:
 
     def _edit_reading(self) -> None:
         """Double-click on a marker row: fix what OCR read off it."""
-        selected = self.edits.selected
+        selected = self.control.selected
         if selected is None:
             return
-        region = self.edits.regions[selected]
+        region = self.control.regions[selected]
         if region.label == "option":
             self._set_option(selected)
         elif region.label == "part":
@@ -1496,14 +1477,14 @@ class _ReviewWindow:
         """
         if not self.control.toggle_join():
             self._show_join_controls()
-            if self.edits.selected is not None:
+            if self.control.selected is not None:
                 self._hint.configure(text="only a question can be half of one")
             return
-        self._refresh()
+        self._redraw()
 
     def _line_up(self) -> None:
         """Line up the pieces of the selected question, by hand, in its own window."""
-        index = self.edits.selected
+        index = self.control.selected
         if index is None:
             return
 
@@ -1519,20 +1500,20 @@ class _ReviewWindow:
             return
 
         self.control.apply_join_offsets(offsets, origins)
-        self._refresh()
+        self._redraw()
 
     def _delete_region(self) -> None:
         if self.control.delete_selected():
-            self._refresh()
+            self._redraw()
 
     def _move(self, delta: int) -> None:
         """Move the selected region in the reading order the numbering follows."""
         if self.control.move_selected(delta):
-            self._refresh()
+            self._redraw()
 
     def _sort(self) -> None:
         self.control.sort_by_reading_order()
-        self._refresh()
+        self._redraw()
 
     def _discard_carried(self) -> None:
         """Throw away what was carried here — this page does not continue it."""
@@ -1548,28 +1529,29 @@ class _ReviewWindow:
 
         self.control.discard_carried_pieces()
         self._show_carried()
-        self._refresh()
+        self._redraw()
 
     def _continue_from_disk(self) -> None:
         """Set the entry counter so the page's first question takes the free slot."""
-        counter = self.edits.continue_from_disk()
-        if counter is not None:
-            # Through the spinbox, so the field shows what the model was told —
-            # its own trace is what applies the value.
-            self._question_var.set(str(counter))
+        if self.control.continue_from_disk() is None:
+            return
+        # The controller applied the counter; the spinboxes only show it.
+        # Writing it through a trace would apply the edit a second time.
+        self._show_entry_state()
+        self._redraw()
 
     def _on_entry_state_changed(self) -> None:
         if self._loading:
             return
-        state = self.edits.state
-        self.edits.set_entry_state(
+        state = self.control.entry_state
+        self.control.set_entry_state(
             option=_int_or(self._option_var.get(), state.option),
             part=self._part_var.get(),
             question=_int_or(self._question_var.get(), state.question),
         )
-        self._refresh()
+        self._redraw()
         # One undo step per settled value, not one per keystroke.
-        self._jobs.schedule("state", STATE_COMMIT_MS, self.edits.commit)
+        self._jobs.schedule("state", STATE_COMMIT_MS, self.control.commit)
 
     # --- stats tab ---
 
