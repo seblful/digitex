@@ -1,10 +1,10 @@
 """The question round — everything decided between two Telegram messages.
 
 The handlers in ``handlers/testing.py`` and ``handlers/random.py`` are thin
-adapters: build a :class:`Round` from the injected dependencies, load the typed
-FSM state, open the round's transaction, call one function here, perform the
-outcome it returns. Scoring, recording, which question comes next and the
-deferred ``file_id`` write each render leaves behind are all decided here.
+adapters: take the :class:`Round` the middleware injected, claim the reply,
+open the round's transaction, call one function here, perform the outcome it
+returns. Scoring, recording, which question comes next and the deferred
+``file_id`` write each render leaves behind are all decided here.
 
 The ``file_id`` debt protocol. Rendering a question with no cached Telegram
 ``file_id`` uploads the image, and Telegram answers with an id worth keeping —
@@ -25,23 +25,26 @@ module.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from digitex.bot import fsm_data
-from digitex.bot.fsm_data import RandomState, RoundDebt, TestingState
+from digitex.bot.fsm_data import RandomState, ReplyGuard, RoundDebt, TestingState
 from digitex.bot.keyboards import part_a_kb
 from digitex.bot.messages import MSG_ENTER_ANSWER
 from digitex.bot.renderer import send_question
 from digitex.domain.entities import PART_A_OPTION_COUNT
 
 if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
     from pathlib import Path
 
     from aiogram import Bot, types
     from aiogram.fsm.context import FSMContext
+    from aiogram.fsm.state import State
+    from pydantic import BaseModel
 
     from digitex.domain.answer import AnswerKey
-    from digitex.domain.entities import Question, QuestionOrigin
+    from digitex.domain.entities import Part, Question, QuestionOrigin
     from digitex.domain.ports import OpenUow, Repositories
 
 
@@ -63,9 +66,13 @@ class RoundFinished:
 class Round:
     """Handle on one question round: its dependencies and its exits.
 
-    Handlers build one per update and speak to the round through it: render a
-    question (``show_testing_question`` / ``show_random_question``), open the
-    round's transaction (``open_uow``), and leave (``end``).
+    ``RoundMiddleware`` builds one per update and handlers speak to the round
+    through it, never naming what it is built from: claim the reply for the
+    question on screen (``claim_reply``), read and write the conversation
+    (``load`` / ``save`` / ``merge`` / ``set_state``), open a transaction
+    (``transaction``), render a question (``show_testing_question`` /
+    ``show_random_question``), send a closing message (``send``), and leave
+    (``end``).
 
     ``open_uow`` is the transaction seam, and it is required rather than
     defaulted: a round does not know what a database is, so there is nothing
@@ -80,10 +87,71 @@ class Round:
         questions_dir: Path,
         open_uow: OpenUow,
     ) -> None:
-        self.bot = bot
-        self.state = state
-        self.questions_dir = questions_dir
-        self.open_uow = open_uow
+        self._bot = bot
+        self._state = state
+        self._questions_dir = questions_dir
+        self._open_uow = open_uow
+
+    async def load[T: BaseModel](self, model: type[T]) -> T:
+        """Read the conversation into *model* — see :func:`fsm_data.load`."""
+        return await fsm_data.load(self._state, model)
+
+    async def save(self, payload: BaseModel) -> None:
+        """Replace the conversation's data with *payload*, whole."""
+        await fsm_data.save(self._state, payload)
+
+    async def merge(self, model: type[BaseModel], **fields: Any) -> None:
+        """Update a subset of *model*'s keys — see :func:`fsm_data.merge`."""
+        await fsm_data.merge(self._state, model, **fields)
+
+    async def set_state(self, state: State) -> None:
+        """Move the conversation to *state* — which handlers fire next."""
+        await self._state.set_state(state)
+
+    def transaction(self) -> AbstractAsyncContextManager[Repositories]:
+        """Open a transaction on the seam the round was built over.
+
+        A factory call, not a session: each ``async with`` block is one
+        transaction, and the caller decides where it begins and ends.
+        """
+        return self._open_uow()
+
+    async def send(
+        self,
+        chat_id: int,
+        text: str,
+        *,
+        parse_mode: str | None = None,
+        reply_markup: types.InlineKeyboardMarkup | None = None,
+    ) -> None:
+        """Send a plain message of the round's own — results, not renders."""
+        await self._bot.send_message(
+            chat_id, text, parse_mode=parse_mode, reply_markup=reply_markup
+        )
+
+    async def claim_reply(
+        self, part: Part, callback: types.CallbackQuery | None = None
+    ) -> bool:
+        """Claim an incoming reply for the question on screen, or refuse it.
+
+        Old keyboards stay live in the chat, so a reply can arrive for a
+        question that is no longer showing — a stale Part A tap during a Part B
+        question, or a second reply while the first is still being scored. The
+        ``show_*`` methods arm ``waiting_for_answer``; claiming disarms it
+        before any scoring happens, so a reply is spent exactly once. A refused
+        *callback* is answered here, so the client stops spinning.
+
+        Both mode states declare the guard's two keys, so one read covers
+        them — the :class:`ReplyGuard` slice, the way :class:`RoundDebt`
+        covers the debt.
+        """
+        guard = await fsm_data.load(self._state, ReplyGuard)
+        if guard.current_part != part or not guard.waiting_for_answer:
+            if callback is not None:
+                await callback.answer()
+            return False
+        await fsm_data.merge(self._state, ReplyGuard, waiting_for_answer=False)
+        return True
 
     async def show_testing_question(
         self,
@@ -95,7 +163,7 @@ class Round:
     ) -> None:
         """Put the playlist question at *index* on screen and record it."""
         await fsm_data.merge(
-            self.state,
+            self._state,
             TestingState,
             current_index=index,
             current_part=question.part,
@@ -122,7 +190,7 @@ class Round:
         it is what scoring looks up when the reply arrives.
         """
         await fsm_data.merge(
-            self.state,
+            self._state,
             RandomState,
             current_question_id=question.question_id,
             current_part=question.part,
@@ -141,11 +209,11 @@ class Round:
         transaction is opened only when something is actually owed, so ending
         a round that rendered from cache costs no round-trip.
         """
-        debt = (await fsm_data.load(self.state, RoundDebt)).pending_file_id_cache
+        debt = (await fsm_data.load(self._state, RoundDebt)).pending_file_id_cache
         if debt is not None:
-            async with self.open_uow() as uow:
+            async with self._open_uow() as uow:
                 await uow.file_ids.cache_file_id(*debt)
-        await self.state.clear()
+        await self._state.clear()
 
     async def _send_and_park(
         self,
@@ -162,10 +230,10 @@ class Round:
         """
         reply_markup = part_a_kb(PART_A_OPTION_COUNT) if question.part == "A" else None
         fresh_file_id = await send_question(
-            self.bot,
+            self._bot,
             message.chat.id,
             question,
-            self.questions_dir,
+            self._questions_dir,
             reply_markup=reply_markup,
             caption=caption,
             parse_mode=parse_mode,
@@ -174,7 +242,7 @@ class Round:
             await message.answer(MSG_ENTER_ANSWER)
         if fresh_file_id is not None:
             await fsm_data.merge(
-                self.state,
+                self._state,
                 RoundDebt,
                 pending_file_id_cache=(question.question_id, fresh_file_id),
             )

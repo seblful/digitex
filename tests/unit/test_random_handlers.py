@@ -7,7 +7,8 @@ answer is scored against the wrong Question and disclosed to the Student.
 
 ``process_random_answer`` is the scoring path, so "was it awaited" is the whole
 contract under test. The message arrives as a handler argument, narrowed by
-``AccessibleMessageMiddleware``, so these tests need no real aiogram objects.
+``AccessibleMessageMiddleware``; the round arrives the same way, built by
+``RoundMiddleware`` — so these tests need no real aiogram objects.
 """
 
 from dataclasses import dataclass, field
@@ -66,16 +67,20 @@ def _callback() -> Any:
     return callback
 
 
+def _round(state: FakeState) -> Round:
+    """A Round over the fake state; seams a refused reply never reaches stay None."""
+    return Round(
+        cast("Any", None), cast("Any", state), Path("unused"), cast("Any", None)
+    )
+
+
 async def _tap_part_a(callback: Any, state: FakeState) -> AsyncMock:
     with patch(SCORING_PATH, new_callable=AsyncMock) as scoring:
         await on_random_part_a_answer(
             callback,
             AnswerCB(value=3),
-            cast("Any", state),
             cast("Any", FakeMessage()),
-            cast("Any", None),
-            cast("Any", None),
-            cast("Any", None),
+            _round(state),
         )
     return scoring
 
@@ -118,11 +123,7 @@ class TestPartBTextWhilePartAIsShowing:
     async def _send_text(self, state: FakeState) -> AsyncMock:
         with patch(SCORING_PATH, new_callable=AsyncMock) as scoring:
             await on_random_part_b_answer(
-                cast("Any", FakeMessage(text="ВЕРНАДСКИЙ")),
-                cast("Any", state),
-                cast("Any", None),
-                cast("Any", None),
-                cast("Any", None),
+                cast("Any", FakeMessage(text="ВЕРНАДСКИЙ")), _round(state)
             )
         return scoring
 
@@ -140,9 +141,9 @@ class TestPartBTextWhilePartAIsShowing:
 class TestAnAnswerIsScoredOnlyOnce:
     """A second reply must not reach scoring while the first is in flight.
 
-    ``show_random_question`` arms ``waiting_for_answer`` and the guard disarms
-    it before scoring — the same protocol the standard loop uses, shared by
-    both modes now that RandomState declares the field.
+    ``show_random_question`` arms ``waiting_for_answer`` and ``claim_reply``
+    disarms it before scoring — the same protocol the standard loop uses,
+    shared by both modes through the ``ReplyGuard`` slice.
     """
 
     async def test_a_tap_after_the_guard_disarmed_is_not_scored(self) -> None:

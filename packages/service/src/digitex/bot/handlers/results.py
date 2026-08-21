@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 
 from aiogram.utils.text_decorations import html_decoration
 
-from digitex.bot import fsm_data
 from digitex.bot.fsm_data import TestingState
 from digitex.bot.keyboards import subjects_kb
 from digitex.bot.messages import (
@@ -132,21 +131,21 @@ def _format_result_lines(
 
 async def show_results(message: types.Message, round: Round) -> None:
     """Send the results, end the round, and offer a new subject."""
-    testing = await fsm_data.load(round.state, TestingState)
+    testing = await round.load(TestingState)
 
-    async with round.open_uow() as uow:
+    async with round.transaction() as uow:
         outcome = await finish_session(uow, testing.session_id)
 
     text = "\n".join(
         _format_result_lines(outcome.result, outcome.wrong_answers, outcome.info)
     )
-    await round.bot.send_message(message.chat.id, text, parse_mode="HTML")
+    await round.send(message.chat.id, text, parse_mode="HTML")
     # Ending the round pays the last render's file_id debt and clears the state,
     # so the state below is set on an otherwise empty conversation.
     await round.end()
-    await round.state.set_state(Navigation.select_subject)
+    await round.set_state(Navigation.select_subject)
 
-    await round.bot.send_message(
+    await round.send(
         message.chat.id,
         MSG_RESULTS_RETRY,
         reply_markup=subjects_kb(outcome.subjects),

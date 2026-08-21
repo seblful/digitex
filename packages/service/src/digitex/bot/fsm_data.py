@@ -66,6 +66,18 @@ class RoundDebt(BaseModel):
     pending_file_id_cache: tuple[int, str] | None = None
 
 
+class ReplyGuard(BaseModel):
+    """Just the stale-keyboard guard, read out of either mode's state.
+
+    Both round states declare the pair; this model exists so a reply can be
+    claimed without knowing which mode the conversation was in — the same
+    trick :class:`RoundDebt` plays for the ``file_id`` debt.
+    """
+
+    current_part: Part | None = None
+    waiting_for_answer: bool = False
+
+
 class RandomState(BaseModel):
     """State for random / topic question mode (no Session recording).
 
@@ -120,6 +132,7 @@ async def merge(state: FSMContext, model: type[BaseModel], **fields: Any) -> Non
 __all__ = [
     "NavigationState",
     "RandomState",
+    "ReplyGuard",
     "RoundDebt",
     "TestingState",
     "load",

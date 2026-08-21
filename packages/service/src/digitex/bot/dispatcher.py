@@ -16,13 +16,21 @@ from digitex.bot.handlers.navigation import router as navigation_router
 from digitex.bot.handlers.random import router as random_router
 from digitex.bot.handlers.start import router as start_router
 from digitex.bot.handlers.testing import router as testing_router
-from digitex.bot.middleware import AccessibleMessageMiddleware, AuthMiddleware
+from digitex.bot.middleware import (
+    AccessibleMessageMiddleware,
+    AuthMiddleware,
+    RoundMiddleware,
+)
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from digitex.domain.ports import OpenUow
 
 
-def create_dispatcher(admin_user_id: int, open_uow: OpenUow) -> Dispatcher:
+def create_dispatcher(
+    admin_user_id: int, open_uow: OpenUow, questions_dir: Path
+) -> Dispatcher:
     """Wire up the bot. Takes the transaction seam, never a pool."""
     dp = Dispatcher()
     auth = AuthMiddleware(admin_user_id=admin_user_id, open_uow=open_uow)
@@ -30,6 +38,10 @@ def create_dispatcher(admin_user_id: int, open_uow: OpenUow) -> Dispatcher:
     dp.callback_query.outer_middleware(auth)
     # After auth: an unauthorized tap is dropped before it is acknowledged.
     dp.callback_query.outer_middleware(AccessibleMessageMiddleware())
+    # After auth too: no Round is built for an update that is not let in.
+    rounds = RoundMiddleware(questions_dir=questions_dir, open_uow=open_uow)
+    dp.message.outer_middleware(rounds)
+    dp.callback_query.outer_middleware(rounds)
     # Order matters: /start is registered first, so it wins over an in-progress
     # test. ``results`` has no router — its screen is drawn by the testing
     # handlers, never by a tap of its own.

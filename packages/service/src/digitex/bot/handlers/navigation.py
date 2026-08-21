@@ -6,19 +6,18 @@ handler re-reads the navigation state it needs and answers the tap without
 acting when a step is missing — a keyboard from before a restart is still live
 in the chat.
 
-Two of these screens are where a question round begins, which is why this
-module builds :class:`Round`s: the mode chosen here decides which loop the
-conversation enters.
+Two of these screens are where a question round begins, which is why some
+handlers here take the injected :class:`Round`: the mode chosen here decides
+which loop the conversation enters.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from aiogram import Bot, Router, types
+from aiogram import Router, types
 
 from digitex.bot import fsm_data
-from digitex.bot.answer_flow import Round
 from digitex.bot.callbacks import (
     ExamTypeCB,
     ModeCB,
@@ -57,10 +56,9 @@ from digitex.bot.states import Navigation, Testing
 from digitex.domain.entities import year_has_exam_types
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from aiogram.fsm.context import FSMContext
 
+    from digitex.bot.answer_flow import Round
     from digitex.domain.entities import ExamType
     from digitex.domain.ports import OpenUow
 
@@ -145,7 +143,7 @@ async def _begin_random_round(
     accumulated field by field: the round needs a subject, and a constructor
     argument is what makes that a requirement instead of a hope.
     """
-    await fsm_data.save(round.state, rnd)
+    await round.save(rnd)
     await start_random_question(message, round)
 
 
@@ -154,10 +152,8 @@ async def on_topic_selected(
     callback: types.CallbackQuery,
     callback_data: TopicCB,
     state: FSMContext,
-    bot: Bot,
     msg: types.Message,
-    open_uow: OpenUow,
-    questions_dir: Path,
+    round: Round,
 ) -> None:
     nav = await fsm_data.load(state, NavigationState)
     # The index comes off a keyboard that may have been built for a different
@@ -172,7 +168,7 @@ async def on_topic_selected(
 
     await _begin_random_round(
         msg,
-        Round(bot, state, questions_dir, open_uow),
+        round,
         RandomState(
             subject_id=nav.subject_id,
             topic_name=nav.topic_names[callback_data.index],
@@ -199,10 +195,8 @@ async def on_random_part_selected(
     callback: types.CallbackQuery,
     callback_data: RandomPartCB,
     state: FSMContext,
-    bot: Bot,
     msg: types.Message,
-    open_uow: OpenUow,
-    questions_dir: Path,
+    round: Round,
 ) -> None:
     nav = await fsm_data.load(state, NavigationState)
     if nav.subject_id is None:
@@ -211,7 +205,7 @@ async def on_random_part_selected(
 
     await _begin_random_round(
         msg,
-        Round(bot, state, questions_dir, open_uow),
+        round,
         RandomState(
             subject_id=nav.subject_id,
             exam_type=nav.exam_type,
@@ -303,10 +297,8 @@ async def on_option_selected(
     callback: types.CallbackQuery,
     callback_data: OptionCB,
     state: FSMContext,
-    bot: Bot,
     msg: types.Message,
-    open_uow: OpenUow,
-    questions_dir: Path,
+    round: Round,
 ) -> None:
     nav = await fsm_data.load(state, NavigationState)
     if nav.book_id is None:
@@ -314,7 +306,7 @@ async def on_option_selected(
         return
     book_id = nav.book_id
 
-    async with open_uow() as uow:
+    async with round.transaction() as uow:
         # The session references the student, so the row has to exist — and
         # the tap in hand says who is asking. Deriving the identity from the
         # event every time also covers a tap that arrives after the FSM was
@@ -344,4 +336,4 @@ async def on_option_selected(
 
     # Acknowledged first: the first render uploads an image, and Telegram would
     # otherwise leave the tap spinning for the length of that upload.
-    await send_current_question(msg, Round(bot, state, questions_dir, open_uow))
+    await send_current_question(msg, round)

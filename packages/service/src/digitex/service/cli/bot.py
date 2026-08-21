@@ -96,14 +96,17 @@ async def _serve(settings: Settings) -> None:
         )
 
         admin_user_id = settings.bot.admin_user_id
-        dispatcher = create_dispatcher(admin_user_id=admin_user_id, open_uow=open_uow)
+        dispatcher = create_dispatcher(
+            admin_user_id=admin_user_id,
+            open_uow=open_uow,
+            questions_dir=questions_dir,
+        )
         logger.info("Starting bot polling...")
         await dispatcher.start_polling(
             bot,
             open_uow=open_uow,
             admin_user_id=admin_user_id,
             tz=ZoneInfo(settings.timezone.name),
-            questions_dir=questions_dir,
         )
 
 

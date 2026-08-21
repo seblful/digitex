@@ -7,18 +7,27 @@ passes through and what it refuses is the whole contract.
 ``AuthMiddleware`` sits on both observers, so what it returns matters as much
 as what it calls: the dispatcher reads the result to know whether an update
 was handled.
+
+``RoundMiddleware`` is the seam that lets a handler declare ``round: Round``
+and never name the four dependencies a round is built from.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, cast
 
 from aiogram import types
 from aiogram.dispatcher.event.bases import UNHANDLED
 
-from digitex.bot.middleware import AccessibleMessageMiddleware, AuthMiddleware
+from digitex.bot.answer_flow import Round
+from digitex.bot.middleware import (
+    AccessibleMessageMiddleware,
+    AuthMiddleware,
+    RoundMiddleware,
+)
 
 
 @dataclass
@@ -169,3 +178,31 @@ class TestAccessibleMessageMiddleware:
 
         assert handler.calls == []
         assert callback.acks == [1]
+
+
+class TestRoundMiddleware:
+    """The per-update deps come out of the handler data aiogram filled in."""
+
+    def _middleware(self) -> RoundMiddleware:
+        return RoundMiddleware(questions_dir=Path("corpus"), open_uow=cast("Any", None))
+
+    def _data(self) -> dict[str, Any]:
+        return {"bot": cast("Any", object()), "state": cast("Any", object())}
+
+    async def test_a_round_is_injected_as_round(self) -> None:
+        handler = _Recorder()
+
+        result = await self._middleware()(handler, _message(), self._data())
+
+        assert result == "handled"
+        assert isinstance(handler.calls[0]["round"], Round)
+
+    async def test_each_update_gets_a_round_of_its_own(self) -> None:
+        """A round holds one update's bot and FSM context — never a neighbour's."""
+        handler = _Recorder()
+        middleware = self._middleware()
+
+        await middleware(handler, _message(), self._data())
+        await middleware(handler, _message(), self._data())
+
+        assert handler.calls[0]["round"] is not handler.calls[1]["round"]

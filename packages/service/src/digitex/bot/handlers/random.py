@@ -6,8 +6,8 @@ one topic name, which is why both arrive here.
 
 The two answer handlers deliberately mirror the pair in ``testing.py``. Topic
 mode draws from both Parts, so a Part A keyboard left in the chat can be tapped
-while a Part B question is showing — each handler refuses a reply that does not
-match the Part on screen.
+while a Part B question is showing — each handler claims the reply through the
+round, which refuses one that does not match the Part on screen.
 """
 
 from __future__ import annotations
@@ -15,12 +15,10 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
-from aiogram import Bot, Router, types
+from aiogram import Router, types
 from aiogram.utils.text_decorations import html_decoration
 
-from digitex.bot import fsm_data
 from digitex.bot.answer_flow import (
-    Round,
     evaluate_random_answer,
     pick_random_question,
 )
@@ -41,12 +39,8 @@ from digitex.bot.messages import (
 from digitex.bot.states import RandomTesting
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
-    from aiogram.fsm.context import FSMContext
-
+    from digitex.bot.answer_flow import Round
     from digitex.domain.entities import QuestionOrigin
-    from digitex.domain.ports import OpenUow
 
 router = Router()
 
@@ -68,9 +62,9 @@ def _build_caption(origin: QuestionOrigin, topic_name: str | None) -> str:
 
 async def start_random_question(message: types.Message, round: Round) -> None:
     """Draw a question and show it, or say there was none to draw."""
-    rnd = await fsm_data.load(round.state, RandomState)
+    rnd = await round.load(RandomState)
 
-    async with round.open_uow() as uow:
+    async with round.transaction() as uow:
         picked = await pick_random_question(uow, rnd)
 
     if picked is None:
@@ -89,62 +83,43 @@ async def start_random_question(message: types.Message, round: Round) -> None:
         caption=_build_caption(origin, rnd.topic_name),
         parse_mode="HTML",
     )
-    await round.state.set_state(RandomTesting.answering)
+    await round.set_state(RandomTesting.answering)
 
 
 @router.callback_query(RandomTesting.answering, AnswerCB.filter())
 async def on_random_part_a_answer(
     callback: types.CallbackQuery,
     callback_data: AnswerCB,
-    state: FSMContext,
     msg: types.Message,
-    bot: Bot,
-    open_uow: OpenUow,
-    questions_dir: Path,
+    round: Round,
 ) -> None:
-    # Old keyboards stay live in the chat, so a tap can arrive while a Part B
-    # question is on screen — it would otherwise be scored against that
-    # question and disclose its answer. Mirrors the Part B guard below.
-    rnd = await fsm_data.load(state, RandomState)
-    if rnd.current_part != "A" or not rnd.waiting_for_answer:
-        await callback.answer()
+    # A stale tap would otherwise be scored against the Part B question on
+    # screen and disclose its answer.
+    if not await round.claim_reply("A", callback):
         return
 
-    await fsm_data.merge(state, RandomState, waiting_for_answer=False)
-    await process_random_answer(
-        msg, Round(bot, state, questions_dir, open_uow), str(callback_data.value)
-    )
+    await process_random_answer(msg, round, str(callback_data.value))
     await callback.answer()
 
 
 @router.message(RandomTesting.answering)
-async def on_random_part_b_answer(
-    message: types.Message,
-    state: FSMContext,
-    bot: Bot,
-    open_uow: OpenUow,
-    questions_dir: Path,
-) -> None:
+async def on_random_part_b_answer(message: types.Message, round: Round) -> None:
     if not message.text:
         return
 
-    rnd = await fsm_data.load(state, RandomState)
-    if rnd.current_part != "B" or not rnd.waiting_for_answer:
+    if not await round.claim_reply("B"):
         return
 
-    await fsm_data.merge(state, RandomState, waiting_for_answer=False)
-    await process_random_answer(
-        message, Round(bot, state, questions_dir, open_uow), message.text
-    )
+    await process_random_answer(message, round, message.text)
 
 
 async def process_random_answer(
     message: types.Message, round: Round, answer: str
 ) -> None:
     """Score the reply, show the verdict, and offer the next question."""
-    rnd = await fsm_data.load(round.state, RandomState)
+    rnd = await round.load(RandomState)
 
-    async with round.open_uow() as uow:
+    async with round.transaction() as uow:
         verdict = await evaluate_random_answer(uow, rnd, answer)
     if verdict is None:
         return
@@ -165,20 +140,16 @@ async def process_random_answer(
             reply_markup=random_feedback_kb(),
             parse_mode="HTML",
         )
-    await round.state.set_state(RandomTesting.feedback)
+    await round.set_state(RandomTesting.feedback)
 
 
 @router.callback_query(RandomTesting.feedback, RandomFeedbackCB.filter())
 async def on_random_feedback(
     callback: types.CallbackQuery,
     callback_data: RandomFeedbackCB,
-    state: FSMContext,
     msg: types.Message,
-    bot: Bot,
-    open_uow: OpenUow,
-    questions_dir: Path,
+    round: Round,
 ) -> None:
-    round = Round(bot, state, questions_dir, open_uow)
     if callback_data.action == "next":
         await start_random_question(msg, round)
     else:

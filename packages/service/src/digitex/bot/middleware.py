@@ -1,9 +1,11 @@
 """What an update passes through before a handler ever sees it.
 
-Two narrowings, each done once here instead of at the top of every handler:
-:class:`AuthMiddleware` decides whether a tap is allowed to act at all, and
+Three chores, each done once here instead of at the top of every handler:
+:class:`AuthMiddleware` decides whether a tap is allowed to act at all,
 :class:`AccessibleMessageMiddleware` turns the optional message behind a
-callback into one a handler can declare as ``Message``.
+callback into one a handler can declare as ``Message``, and
+:class:`RoundMiddleware` builds the :class:`Round` a handler can declare as
+``round``.
 """
 
 from __future__ import annotations
@@ -14,8 +16,11 @@ from aiogram import BaseMiddleware
 from aiogram.dispatcher.event.bases import UNHANDLED
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
+from digitex.bot.answer_flow import Round
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from pathlib import Path
 
     from digitex.domain.ports import OpenUow
 
@@ -82,4 +87,30 @@ class AccessibleMessageMiddleware(BaseMiddleware):
             return None
 
         data["msg"] = callback.message
+        return await handler(event, data)
+
+
+class RoundMiddleware(BaseMiddleware):
+    """Give every handler its :class:`Round`, as ``round``.
+
+    A round is built from four things, and no handler should have to name any
+    of them: the two fixed at assembly — the image corpus and the transaction
+    seam — are held here, and the two that change per update — the bot and the
+    FSM context — are read out of the handler data aiogram has already filled
+    in. Register on both observers; text answers and taps enter rounds alike.
+    """
+
+    def __init__(self, questions_dir: Path, open_uow: OpenUow) -> None:
+        self._questions_dir = questions_dir
+        self._open_uow = open_uow
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        data["round"] = Round(
+            data["bot"], data["state"], self._questions_dir, self._open_uow
+        )
         return await handler(event, data)

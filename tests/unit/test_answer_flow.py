@@ -496,6 +496,64 @@ class TestEndRound:
         assert uow.file_ids.cached == [(5, "file9")]
 
 
+@dataclass
+class FakeCallback:
+    """Just the acknowledgement a refused tap gets."""
+
+    acks: int = 0
+
+    async def answer(self) -> None:
+        self.acks += 1
+
+
+class TestClaimReply:
+    """The stale-keyboard guard, folded into the round.
+
+    ``show_*`` arms ``waiting_for_answer``; a claim disarms it before any
+    scoring happens, so a reply is spent exactly once whichever mode armed it.
+    """
+
+    def _armed(self, part: str) -> FakeState:
+        return FakeState(data={"current_part": part, "waiting_for_answer": True})
+
+    async def test_a_matching_reply_is_claimed_and_disarms_the_guard(self) -> None:
+        state = self._armed("A")
+
+        claimed = await _round(state).claim_reply("A")
+
+        assert claimed is True
+        assert state.data["waiting_for_answer"] is False
+
+    async def test_a_reply_for_the_wrong_part_is_refused_and_acknowledged(
+        self,
+    ) -> None:
+        state = self._armed("B")
+        callback = FakeCallback()
+
+        claimed = await _round(state).claim_reply(
+            "A", cast("types.CallbackQuery", callback)
+        )
+
+        assert claimed is False
+        assert callback.acks == 1
+        assert state.data["waiting_for_answer"] is True
+
+    async def test_a_second_claim_is_refused(self) -> None:
+        state = self._armed("A")
+        round = _round(state)
+        await round.claim_reply("A")
+
+        claimed = await round.claim_reply("A")
+
+        assert claimed is False
+
+    async def test_a_refusal_with_no_callback_is_silent(self) -> None:
+        """Part B replies are plain messages — there is no tap to acknowledge."""
+        state = FakeState()
+
+        assert await _round(state).claim_reply("B") is False
+
+
 class TestPickRandomQuestion:
     def _random_state(self, **overrides: Any) -> RandomState:
         defaults: dict[str, Any] = {"subject_id": 1, "random_part": "A"}

@@ -16,7 +16,6 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import Message as TgMessage
 from aiogram.utils.text_decorations import html_decoration
 
-from digitex.bot.answer_flow import Round
 from digitex.bot.callbacks import RegistrationCB
 from digitex.bot.constants import student_identity
 from digitex.bot.keyboards import admin_registration_kb, subjects_kb
@@ -38,11 +37,11 @@ from digitex.bot.states import Navigation, Registration
 
 if TYPE_CHECKING:
     from datetime import datetime
-    from pathlib import Path
     from zoneinfo import ZoneInfo
 
     from aiogram.fsm.context import FSMContext
 
+    from digitex.bot.answer_flow import Round
     from digitex.domain.ports import OpenUow, Repositories
 
 router = Router()
@@ -102,14 +101,12 @@ async def open_registration_gate(uow: Repositories, telegram_id: int) -> StartGa
 async def _normal_start(
     message: types.Message,
     state: FSMContext,
-    bot: Bot,
-    open_uow: OpenUow,
-    questions_dir: Path,
+    round: Round,
 ) -> None:
     """Greet an admitted student and put the subject list in front of them."""
     telegram_id, name, username = student_identity(message)
 
-    async with open_uow() as uow:
+    async with round.transaction() as uow:
         await uow.students.get_or_create(
             telegram_id=telegram_id,
             telegram_name=name,
@@ -119,7 +116,7 @@ async def _normal_start(
 
     # /start can land mid-test, where the last render may still owe a file_id
     # write; ending the round pays it before the state goes away.
-    await Round(bot, state, questions_dir, open_uow).end()
+    await round.end()
     await message.answer(
         MSG_GREETING.format(name=name),
         reply_markup=subjects_kb(subjects),
@@ -136,9 +133,7 @@ async def cmd_help(message: types.Message) -> None:
 async def cmd_start(
     message: types.Message,
     state: FSMContext,
-    bot: Bot,
-    open_uow: OpenUow,
-    questions_dir: Path,
+    round: Round,
     admin_user_id: int,
     tz: ZoneInfo,
 ) -> None:
@@ -147,15 +142,15 @@ async def cmd_start(
     # The admin is admitted on their configured id rather than on a row, so a
     # fresh deployment has someone who can approve the first student.
     if telegram_id == admin_user_id:
-        await _normal_start(message, state, bot, open_uow, questions_dir)
+        await _normal_start(message, state, round)
         return
 
-    async with open_uow() as uow:
+    async with round.transaction() as uow:
         gate = await open_registration_gate(uow, telegram_id)
 
     match gate.status:
         case "approved":
-            await _normal_start(message, state, bot, open_uow, questions_dir)
+            await _normal_start(message, state, round)
 
         case "pending":
             requested = gate.requested_at
