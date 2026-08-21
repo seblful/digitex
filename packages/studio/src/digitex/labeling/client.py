@@ -1,9 +1,10 @@
 """The Label Studio SDK, narrowed to what this project asks of the server.
 
-Five calls: read a project's tasks, keep the ones nothing has answered yet,
-write an annotation, delete a task, post predictions. Every one of them exists
-because a command needs it — pre-annotating a project, repairing one whose
-images moved, or retiring the pages an annotator skipped.
+Six calls: read a project's tasks, keep the ones nothing has answered yet,
+write an annotation, import a task, delete a task, post predictions. Every one of
+them exists because a command needs it — pre-annotating a project, carrying its
+annotations into another project, repairing one whose images moved, or retiring
+the pages an annotator skipped.
 
 Deliberately not here: anything the SDK can already do that nothing asks for,
 and anything that is not a request. Reading where a task's image lives is pure
@@ -119,6 +120,33 @@ class LabelStudioClient:
             completed_by=_annotator_id(annotation),
         )
         logger.info("created_annotation", task_id=task_id)
+
+    def create_task(self, project_id: int, data: dict[str, Any]) -> int:
+        """Import one task into a project, and say which id it got.
+
+        The id comes back because the caller's next move is to hang an
+        annotation off it. A task and its annotation are two requests to this
+        server, and nothing here can make them one.
+
+        Args:
+            project_id: Label Studio project the task is created in.
+            data: The task's ``data`` mapping — the image URI, and whatever
+                provenance the caller wants to travel with it.
+
+        Returns:
+            The new task's id.
+
+        Raises:
+            RuntimeError: If the server accepted the task without returning an
+                id, which would leave the annotation with nothing to attach to.
+        """
+        task = self._client.tasks.create(project=project_id, data=data)
+        if task.id is None:
+            raise RuntimeError(
+                f"Label Studio created a task with no id in project {project_id}"
+            )
+        logger.info("created_task", project_id=project_id, task_id=task.id)
+        return task.id
 
     def delete_task(self, task_id: int) -> None:
         """Delete a task, and with it everything the server hangs off one."""

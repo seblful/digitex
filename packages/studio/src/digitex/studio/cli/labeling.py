@@ -1,18 +1,21 @@
 """Label Studio CLI commands.
 
 Everything that talks to the annotation server: pre-annotating a project's tasks,
-repairing the ones a moved image pool stranded, and retiring the pages an
+copying one project's annotations into another with their outlines snapped to the
+print, repairing the ones a moved image pool stranded, and retiring the pages an
 annotator skipped.
 
 Settings are resolved per command rather than at import, and the SDK and the model
 are imported inside the command that needs them, so ``--help`` reads no files and
 loads neither.
 
-Both commands that change something default to a dry run and print the plan
-first; ``--no-dry-run`` is what applies it. The two share one shell,
-:func:`_run_sweep`, and everything it reports, archives or applies comes off
-the plan it is handed — the seam :class:`digitex.labeling.sweeps.SweepPlan`
-names.
+Every command that changes something defaults to a dry run and prints the plan
+first; ``--no-dry-run`` is what applies it. The two *destructive* ones share one
+shell, :func:`_run_sweep`, and everything it reports, archives or applies comes
+off the plan it is handed — the seam :class:`digitex.labeling.sweeps.SweepPlan`
+names. ``copy-aligned`` does not use that shell: it only ever adds, so there is
+nothing to archive, and it aligns page by page as it writes so that an
+interrupted run is resumed rather than restarted.
 """
 
 from __future__ import annotations
@@ -32,7 +35,9 @@ if TYPE_CHECKING:
     from digitex.labeling.client import LabelStudioClient, LabelStudioTask
     from digitex.labeling.sweeps import SweepPlan
 
-app = typer.Typer(help="Label Studio pre-annotation and project repair.")
+app = typer.Typer(
+    help="Label Studio pre-annotation, outline alignment and project repair."
+)
 
 
 @app.callback()
@@ -52,9 +57,10 @@ def _client() -> LabelStudioClient:
 def _document_root() -> Path:
     """The directory the server resolves a local-files URI against.
 
-    Both destructive commands need it before they touch the server: the repair
-    to decide which side of the move a task fell on, the skipped sweep to find
-    the file it is about to unlink.
+    Three commands need it before they touch the server: the repair to decide
+    which side of the move a task fell on, the skipped sweep to find the file it
+    is about to unlink, and the aligned copy to read the page it is measuring a
+    margin against.
     """
     root = get_settings().pipeline.label_studio.local_files_document_root
     if root is None:
@@ -135,6 +141,90 @@ def predict(
     typer.echo(
         typer.style(f"✓ Predicted {count} tasks in project {project_id}", fg="green")
     )
+
+
+@app.command(name="copy-aligned")
+def copy_aligned(
+    from_project: int = typer.Option(
+        ..., "--from-project", help="Label Studio project to read annotations from"
+    ),
+    to_project: int = typer.Option(
+        ..., "--to-project", help="Label Studio project to write them into"
+    ),
+    margin: float = typer.Option(
+        None,
+        "--margin",
+        help="Clearance to leave around the print, in line heights"
+        " (default: the tuned 0.25)",
+    ),
+    limit: int = typer.Option(
+        None, "--limit", help="Carry at most this many pages, for a trial run"
+    ),
+    dry_run: bool = typer.Option(
+        True,
+        "--dry-run/--no-dry-run",
+        help="Print what would be carried without writing it",
+    ),
+) -> None:
+    """Copy a project's annotations into another project, snapped to the print.
+
+    Reads each annotated page of the source project, rebuilds its region outlines
+    against the image on disk so every region sits the same distance from its own
+    text, and writes the result into the destination project. The source project
+    is never written to.
+
+    Safe to rerun and safe to interrupt: the destination project is its own
+    record of what has been done, so a page already carried across is passed
+    over, and a run that stops halfway is resumed by running it again. Pages the
+    destination already holds a task for — a storage sync got there first — have
+    the annotation attached rather than the page imported twice.
+    """
+    from digitex.labeling import transfer
+
+    if from_project == to_project:
+        raise typer.BadParameter(
+            "the source and the destination have to be two different projects",
+            param_hint="--to-project",
+        )
+
+    document_root = _document_root()
+    client = _client()
+    source = client.list_tasks(from_project)
+    if not source:
+        typer.echo(f"Project {from_project} has no tasks.")
+        return
+
+    plan = transfer.plan(
+        source, client.list_tasks(to_project), document_root=document_root
+    )
+    if limit:
+        plan.carries = plan.carries[:limit]
+    typer.echo(plan.report(len(source)))
+    if plan.empty:
+        return
+    if dry_run:
+        typer.echo("\n--- DRY RUN: nothing written. Pass --no-dry-run to apply. ---")
+        return
+
+    aligner = (
+        transfer.Aligner(margin=margin) if margin is not None else transfer.Aligner()
+    )
+    pages, regions = plan.apply(client, to_project, aligner=aligner)
+    typer.echo(
+        typer.style(
+            f"✓ Carried {pages} pages into project {to_project},"
+            f" {regions} outlines rebuilt",
+            fg="green",
+        )
+    )
+    outstanding = len(plan.carries) - pages
+    if outstanding:
+        typer.echo(
+            typer.style(
+                f"! {outstanding} pages did not make it — rerun to pick them up",
+                fg="yellow",
+            )
+        )
 
 
 @app.command(name="fix-task-paths")

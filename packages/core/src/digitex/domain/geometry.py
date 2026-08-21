@@ -21,6 +21,21 @@ def percent_to_normalized(points: PercentPolygon) -> NormalizedPolygon:
     return NormalizedPolygon([(x / 100, y / 100) for x, y in points])
 
 
+def percent_to_pixel(
+    points: PercentPolygon, img_width: int, img_height: int
+) -> PixelPolygon:
+    """Convert Label Studio percent points (0-100) to pixels.
+
+    The way back in for an annotation that has to be measured against the page
+    it was drawn on, rather than trained from. Rounds to whole pixels because
+    that is what :data:`~digitex.domain.entities.PixelPolygon` is, and a
+    hundredth of a percent of a 2400 px page is a quarter of one.
+    """
+    return PixelPolygon(
+        [(round(x / 100 * img_width), round(y / 100 * img_height)) for x, y in points]
+    )
+
+
 def pixel_to_percent(
     polygon: PixelPolygon, img_width: int, img_height: int
 ) -> PercentPolygon:

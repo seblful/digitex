@@ -1,10 +1,10 @@
 """Tests for the labeling CLI's contracts.
 
-What matters here is not the work — :mod:`digitex.labeling.repair` and
-:mod:`digitex.labeling.skipped` are tested on their own — but the shell around
-it: that a run writes nothing until it is told to, that it archives what it is
-about to destroy, and that a missing document root is refused before the server
-is called.
+What matters here is not the work — :mod:`digitex.labeling.repair`,
+:mod:`digitex.labeling.skipped` and :mod:`digitex.labeling.transfer` are tested
+on their own — but the shell around it: that a run writes nothing until it is
+told to, that it archives what it is about to destroy, and that a missing
+document root is refused before the server is called.
 """
 
 from __future__ import annotations
@@ -23,6 +23,18 @@ from digitex.studio.cli import labeling
 runner = CliRunner()
 
 SKIP: dict[str, Any] = {"was_cancelled": True, "result": []}
+
+POLYGONS: list[dict[str, Any]] = [
+    {
+        "from_name": "label",
+        "to_name": "image",
+        "type": "polygonlabels",
+        "value": {
+            "points": [[10.0, 10.0], [90.0, 10.0], [90.0, 80.0], [10.0, 80.0]],
+            "polygonlabels": ["question"],
+        },
+    }
+]
 
 
 @pytest.fixture(autouse=True)
@@ -60,6 +72,145 @@ def _task(task_id: int, image: Path, *annotations: dict[str, Any]) -> Any:
 
 def _archives(tmp_path: Path, stem: str) -> list[Path]:
     return sorted((tmp_path / "label-studio").glob(f"{stem}-*.json"))
+
+
+class TestCopyAligned:
+    @pytest.fixture
+    def image(self, tmp_path: Path) -> Path:
+        from PIL import Image
+
+        path = tmp_path / "page.png"
+        Image.new("L", (200, 120), 255).save(path)
+        return path
+
+    def _projects(
+        self, client: MagicMock, source: list[Any], target: list[Any]
+    ) -> None:
+        """``list_tasks`` answers per project, as the command calls it twice."""
+        client.list_tasks.side_effect = lambda project_id: (
+            source if project_id == 1 else target
+        )
+
+    def test_a_dry_run_is_the_default(
+        self, settings: MagicMock, client: MagicMock, image: Path
+    ) -> None:
+        """Nothing is written by a command someone ran to see what it would do."""
+        self._projects(client, [_task(1, image, {"result": POLYGONS})], [])
+
+        result = runner.invoke(
+            labeling.app,
+            ["copy-aligned", "--from-project", "1", "--to-project", "2"],
+        )
+
+        assert result.exit_code == 0
+        assert "DRY RUN" in result.output
+        client.create_task.assert_not_called()
+        client.create_annotation.assert_not_called()
+
+    def test_the_page_is_carried_once_told_to(
+        self, settings: MagicMock, client: MagicMock, image: Path
+    ) -> None:
+        self._projects(client, [_task(1, image, {"result": POLYGONS})], [])
+        client.create_task.return_value = 42
+
+        result = runner.invoke(
+            labeling.app,
+            [
+                "copy-aligned",
+                "--from-project",
+                "1",
+                "--to-project",
+                "2",
+                "--no-dry-run",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert client.create_task.call_args.args[0] == 2
+        assert client.create_annotation.call_args.args[0] == 42
+
+    def test_a_second_run_over_a_finished_project_writes_nothing(
+        self, settings: MagicMock, client: MagicMock, image: Path
+    ) -> None:
+        """The reason the command exists in this shape: rerunning is cheap."""
+        carried = _task(9, image, {"result": POLYGONS})
+        self._projects(client, [_task(1, image, {"result": POLYGONS})], [carried])
+
+        result = runner.invoke(
+            labeling.app,
+            [
+                "copy-aligned",
+                "--from-project",
+                "1",
+                "--to-project",
+                "2",
+                "--no-dry-run",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "Nothing new to carry across" in result.output
+        client.create_task.assert_not_called()
+        client.create_annotation.assert_not_called()
+
+    def test_copying_a_project_onto_itself_is_refused(
+        self, settings: MagicMock, client: MagicMock
+    ) -> None:
+        """It would stack a second annotation on every task it read."""
+        result = runner.invoke(
+            labeling.app,
+            ["copy-aligned", "--from-project", "1", "--to-project", "1"],
+        )
+
+        assert result.exit_code != 0
+        client.list_tasks.assert_not_called()
+
+    def test_a_missing_document_root_is_refused_before_the_server_is_called(
+        self, settings: MagicMock, client: MagicMock
+    ) -> None:
+        settings.pipeline.label_studio.local_files_document_root = None
+
+        result = runner.invoke(
+            labeling.app,
+            ["copy-aligned", "--from-project", "1", "--to-project", "2"],
+        )
+
+        assert result.exit_code != 0
+        client.list_tasks.assert_not_called()
+
+    def test_a_limit_caps_what_a_trial_run_touches(
+        self, settings: MagicMock, client: MagicMock, image: Path, tmp_path: Path
+    ) -> None:
+        from PIL import Image as Pillow
+
+        second = tmp_path / "second.png"
+        Pillow.new("L", (200, 120), 255).save(second)
+        self._projects(
+            client,
+            [
+                _task(1, image, {"result": POLYGONS}),
+                _task(2, second, {"result": POLYGONS}),
+            ],
+            [],
+        )
+        client.create_task.return_value = 42
+
+        result = runner.invoke(
+            labeling.app,
+            [
+                "copy-aligned",
+                "--from-project",
+                "1",
+                "--to-project",
+                "2",
+                "--limit",
+                "1",
+                "--no-dry-run",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert client.create_task.call_count == 1
 
 
 class TestDeleteSkippedTasks:

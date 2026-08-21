@@ -57,6 +57,32 @@ architectural decisions.
   own `crop` callable, so a reviewer previews the file that would be written
   rather than its own likeness of it — the same rule the numbering preview
   follows by replaying `place_questions`.
+- **Outline alignment** — rebuilding a hand-traced region outline from the print
+  it already contains, so every region on every page sits the same distance from
+  its own text (`imaging/outlines.py`). Its own vocabulary:
+  - **Own print** — the ink a region owns. Every blob on the page goes to the
+    region already holding most of it, decided once before any outline moves, so
+    a rebuilt outline can neither be held out by a neighbour's descender nor
+    reach across and take a neighbour's line. A blob no outline holds half of
+    belongs to nobody.
+  - **Band** — one line of a region's print, read off the row profile rather
+    than by chasing letters: a run of inked rows is one line however many pieces
+    its letters come in. Padded and stacked, the bands are the rebuilt outline.
+  - **Claim** — what one region asks for before the others are consulted: its
+    padded bands, clipped to the licence its original outline gives it.
+  - **Territory** — the settled partition of the claims. White space two regions
+    both reach for goes to whichever one's print is nearer, and neighbours are
+    then pushed a further two pixels apart, because a boundary two regions share
+    survives the rotation back onto the scan's axes only to be rounded onto the
+    same pixel line and filled by both.
+  - **Level frame** — the page turned so its text runs horizontal. All of the
+    above happens there: a margin measured on a tilted scan's own axes is a
+    different margin at each end of a line.
+- **Carrying a page** — copying one task's annotation from one Label Studio
+  project into another with its outlines aligned (`labeling/transfer.py`,
+  `digitex-label copy-aligned`). The destination project is the only record of
+  what has been carried — a page it already holds an annotation for is passed
+  over — which is what makes the command rerunnable and safe to interrupt.
 - **Placement** — the Option/Part/number one detected Question is written as.
   Handed out by `PageExtractionState` and applied by `place_questions`, the one
   walk shared by the review preview and the write.

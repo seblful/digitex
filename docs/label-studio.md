@@ -57,12 +57,65 @@ Everything that talks to the server is one CLI, `digitex-label`
 | Command | What it does |
 | :--- | :--- |
 | `predict` | Pre-annotate a project's unannotated tasks with a trained model |
+| `copy-aligned` | Copy a project's annotations into another, snapped to the print |
 | `fix-task-paths` | Move annotations onto the tasks that hold their images now |
 | `delete-skipped-tasks` | Retire the pages an annotator skipped, image and task both |
 
-The two that change something default to a dry run: they print the plan and
-write nothing until `--no-dry-run` is passed, and they archive what they are
-about to destroy to `var/label-studio/` first.
+Every command that changes something defaults to a dry run: it prints the plan
+and writes nothing until `--no-dry-run` is passed. The two *destructive* ones
+also archive what they are about to destroy to `var/label-studio/` first.
+`copy-aligned` has nothing to archive — it only ever adds.
+
+## Aligning Annotations Into Another Project
+
+A hand-traced outline carries whatever slack the mouse left, and no two carry
+the same slack. `copy-aligned` reads each annotated page of one project,
+rebuilds its outlines against the image on disk so every region sits the same
+distance from its own print, and writes the result into a second project. The
+source project is never written to, so the original hand-drawn work stays
+exactly where it is.
+
+```bash
+uv run --env-file .env digitex-label copy-aligned --from-project 1 --to-project 2
+```
+
+It prints the plan and writes nothing. Add `--no-dry-run` to apply, `--limit N`
+for a trial run over a few pages, and `--margin` to leave a different clearance
+than the tuned quarter of a line height.
+
+**Rerun it freely.** The destination project is its own record of what has been
+done: a page it already holds an annotation for is passed over, so a run that
+stops halfway is resumed by running it again, and there is nothing to clean up
+after a failure. That is also why the alignment happens page by page as it
+writes rather than all up front — an interrupted run loses one page's work.
+Where the destination already holds a task for the page (a storage sync got
+there first) the annotation is attached to it rather than the page being
+imported a second time, which would be the very duplicate `fix-task-paths`
+exists to clean up. Each carried task records the task it came from under
+`aligned_from_task`.
+
+What the rebuild guarantees, and what it measured over the 422-page corpus:
+
+- **No print is dropped.** Every blob of ink a region owned is inside the
+  outline it gets back — checked outright on the finished ring, not just argued.
+  A region the rebuild would strand keeps the outline it came in with.
+- **No two outlines overlap.** 80 overlapping pairs across 35 pages became none.
+- **The shape survives.** An edge may take up slack inside the original outline
+  freely but may not travel more than half a line height beyond it.
+- **Margins become consistent.** The interquartile range of the gap between an
+  outline and its print fell from 0.148 to 0.042 line heights, and the share of
+  region sides landing within a tenth of a line of the mean went from 61% to
+  98%. 126 regions were cutting through their own text; none are afterwards.
+
+Two costs worth knowing. Handles roughly double, from 10 per outline to 20 — the
+thinning stops when removing another corner would cut print or fold the ring, so
+a tight outline simply needs more of them. And it *normalises* rather than
+shrinks: about 54% of regions come back smaller and 46% larger, because the ones
+that grow are the ones drawn tighter than the target margin. Net enclosed area
+falls about 4%.
+
+A region holding almost no print of its own is left alone and reported — that is
+usually a mis-drawn annotation rather than a hard case, and worth a look by hand.
 
 ## Repairing Moved Images
 

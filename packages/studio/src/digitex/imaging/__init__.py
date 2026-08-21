@@ -12,26 +12,33 @@ pipeline asks for it.
 
 The rest is split by subject rather than by pipeline stage — ``scale`` fits an
 image to a box, ``layout`` stacks the pieces of one question, ``levels`` reads
-a scan's black and white points and corrects to them, ``denoise`` averages
-grain out without crossing a stroke, ``document`` runs the whole-page
-correction end to end, and ``crop`` lifts a polygon off a page straightened.
-The names come back out here, so a caller asks for the operation rather than
-for the file it happens to live in.
+a scan's black and white points and corrects to them, ``ink`` reads where its
+print is and which way its lines run, ``outlines`` snaps a traced region onto
+that print, ``denoise`` averages grain out without crossing a stroke,
+``document`` runs the whole-page correction end to end, and ``crop`` lifts a
+polygon off a page straightened. The names come back out here, so a caller asks
+for the operation rather than for the file it happens to live in.
 """
 
 from .crop import cut_out_image_by_polygon, rotate_image
 from .denoise import denoise_scan
 from .document import correct_document
+from .ink import read_ink
 from .layout import stack_vertically, stacked_layout
 from .levels import flatten_scan, scan_levels, whiten_scan
+from .outlines import Aligned, Outline, align_outlines
 from .scale import add_white_background, resize_image
 
 __all__ = [
+    "Aligned",
+    "Outline",
     "add_white_background",
+    "align_outlines",
     "correct_document",
     "cut_out_image_by_polygon",
     "denoise_scan",
     "flatten_scan",
+    "read_ink",
     "resize_image",
     "rotate_image",
     "scan_levels",

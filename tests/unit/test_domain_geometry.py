@@ -8,7 +8,11 @@ cannot be applied twice; these check the arithmetic between them.
 from __future__ import annotations
 
 from digitex.domain.entities import PercentPolygon, PixelPolygon
-from digitex.domain.geometry import percent_to_normalized, pixel_to_percent
+from digitex.domain.geometry import (
+    percent_to_normalized,
+    percent_to_pixel,
+    pixel_to_percent,
+)
 
 
 class TestCoordinateConversions:
@@ -31,5 +35,23 @@ class TestCoordinateConversions:
 
         normalized = percent_to_normalized(percent)
         pixels = PixelPolygon([(int(x * 640), int(y * 480)) for x, y in normalized])
+
+        assert pixel_to_percent(pixels, 640, 480) == percent
+
+    def test_percent_points_scale_up_to_pixels(self) -> None:
+        assert percent_to_pixel(PercentPolygon([[50.0, 50.0]]), 640, 480) == [
+            (320, 240)
+        ]
+
+    def test_percent_to_pixel_is_the_way_back_from_pixel_to_percent(self) -> None:
+        """The pairing the alignment pass relies on: out to pixels and back.
+
+        An outline arrives from Label Studio in percent, is measured against the
+        page in pixels, and goes back as percent. A round trip that drifted would
+        move every outline a little every time the pass ran.
+        """
+        percent = PercentPolygon([[10.0, 20.0], [75.0, 50.0], [0.0, 100.0]])
+
+        pixels = percent_to_pixel(percent, 640, 480)
 
         assert pixel_to_percent(pixels, 640, 480) == percent
