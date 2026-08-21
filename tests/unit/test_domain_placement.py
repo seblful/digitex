@@ -68,17 +68,6 @@ class TestPageExtractionState:
         assert state.on_part(None) is False
         assert state.question == 7
 
-    def test_placements_number_sequentially_after_commit(self) -> None:
-        state = PageExtractionState(option=1, part="A")
-        assert state.next_question() == QuestionPlacement(option=1, part="A", number=1)
-        state.commit_question()
-        assert state.next_question() == QuestionPlacement(option=1, part="A", number=2)
-
-    def test_next_question_without_commit_does_not_consume(self) -> None:
-        state = PageExtractionState(option=1, part="A")
-        assert state.next_question().number == 1
-        assert state.next_question().number == 1
-
     def test_adopt_moves_the_book_state_to_another_position(self) -> None:
         """A reviewer corrects where a page starts by handing back its own state."""
         state = PageExtractionState(option=1, part="A", question=3)
@@ -131,6 +120,20 @@ class TestPlaceQuestions:
         place_questions([_question()], replace(state))
 
         assert state.question == 4
+
+    def test_a_failed_write_does_not_consume_the_number(self) -> None:
+        """A retried page hands the same number out again, leaving no hole."""
+        state = PageExtractionState(option=1, part="A")
+
+        def failing_writer(
+            regions: list[PageRegion], placement: QuestionPlacement
+        ) -> None:
+            raise OSError("disk full")
+
+        with pytest.raises(OSError, match="disk full"):
+            place_questions([_question()], state, write=failing_writer)
+
+        assert state.question == 0
 
     def test_question_before_any_marker_raises_without_writing(self) -> None:
         writer = _Writer()

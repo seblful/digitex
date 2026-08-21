@@ -222,7 +222,7 @@ class TestWhereThePageStarts:
             tmp_path,
         )
 
-        # next_question() hands out question + 1, so 3 makes the next one 4.
+        # The walk hands out question + 1, so 3 makes the next one 4.
         assert edits.continue_from_disk() == 3
 
     def test_continue_from_disk_is_none_without_a_placement(

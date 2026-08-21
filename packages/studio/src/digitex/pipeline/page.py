@@ -28,7 +28,7 @@ import structlog
 
 from digitex.domain.corpus import question_image_path, question_slot_taken
 from digitex.domain.entities import normalize_option_number
-from digitex.domain.numbering import numbering_fault
+from digitex.domain.numbering import preview
 from digitex.domain.placement import (
     PageRegion,
     copy_regions,
@@ -278,18 +278,17 @@ class PageExtractor:
     ) -> None:
         """Refuse the page if its numbering would leave a hole in the tree.
 
-        The same legality rule the review window applies: replay the page
-        through a copy of the state and ask ``numbering_fault`` whether every
-        folder run starts at its next free number. A collision is survivable —
-        the write walk keeps the existing file and reports it, which is what
-        lets a resumed book replay pages over their own output — but a gap would
-        put a hole in the output tree that no renumbering pass exists to close.
+        The legality rule itself lives in :func:`digitex.domain.numbering.
+        preview`, which the review window consults too — only the policy is
+        this method's. A collision is survivable — the write walk keeps the
+        existing file and reports it, which is what lets a resumed book replay
+        pages over their own output — but a gap would put a hole in the output
+        tree that no renumbering pass exists to close.
 
         Raises:
             ValueError: If any question would land past its folder's end.
         """
-        placed = place_questions(regions, replace(state))
-        fault = numbering_fault(placed.questions, output_dir)
+        fault = preview(regions, state, output_dir).fault
         if fault is None or fault.collides:
             return
         folder = f"{fault.placement.option}/{fault.placement.part}"

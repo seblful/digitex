@@ -70,8 +70,8 @@ class _RecordingPageExtractor:
         self.carried.append(len(carry.pieces) if carry else 0)
         if carry is not None and name == self._hold_on:
             carry.hold([HeldPiece(image=image, page_name=name)])
-        state.next_question()
-        state.commit_question()
+        # One question consumed, the way a real page advances the numbering.
+        state.question += 1
         if name == self._collide_on:
             return [QuestionPlacement(option=1, part="A", number=1)]
         return []

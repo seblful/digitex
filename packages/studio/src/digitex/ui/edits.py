@@ -27,20 +27,20 @@ from typing import TYPE_CHECKING
 
 from digitex.domain.corpus import highest_question_number
 from digitex.domain.entities import PixelPolygon
-from digitex.domain.numbering import numbering_fault
+from digitex.domain.numbering import preview
 from digitex.domain.placement import (
     PageExtractionState,
     PageRegion,
     QuestionPlacement,
     copy_regions,
-    place_questions,
+    entry_group_size,
     reading_order_key,
 )
 from digitex.ui import geometry
 from digitex.ui.history import EditHistory
 
 if TYPE_CHECKING:
-    from digitex.domain.numbering import NumberingFault
+    from digitex.domain.numbering import NumberingFault, PagePreview
     from digitex.domain.placement import PageLabel, PagePlacement
     from digitex.ui.history import EditSnapshot
 
@@ -162,29 +162,28 @@ class PageEdits:
     def numbering(self) -> Numbering:
         """Replay the regions through a copy of the entry state.
 
-        A copy, because the real entry state describes where the page *starts* —
-        advancing it here would walk the preview a page further along every time
-        anything was redrawn.
+        :func:`digitex.domain.numbering.preview` takes the copy itself — the
+        real entry state describes where the page *starts*, and advancing it
+        here would walk the preview a page further along every time anything
+        was redrawn.
         """
-        preview = replace(self.state)
-
         try:
-            placed = place_questions(self.regions, preview)
+            page = preview(self.regions, self.state, self.output_dir)
         except ValueError as exc:
             return Numbering(problem=str(exc))
 
         # By identity: two regions can hold equal field values, and it is the
         # position in the list the window colours a row by.
         at = {id(region): index for index, region in enumerate(self.regions)}
-        misnumbered, problem, continue_helps = self._fault(placed, at)
+        misnumbered, problem = self._fault(page, at)
 
         return Numbering(
-            pieces=self._pieces(placed, at),
+            pieces=self._pieces(page.placed, at),
             misnumbered=misnumbered,
             problem=problem,
-            continue_helps=continue_helps,
-            ends_at=f"page ends at {preview.option}/{preview.part or '?'}/"
-            f"{preview.question}",
+            continue_helps=page.continue_helps,
+            ends_at=f"page ends at {page.ends_at.option}/{page.ends_at.part or '?'}/"
+            f"{page.ends_at.question}",
         )
 
     def _pieces(
@@ -211,21 +210,16 @@ class PageEdits:
         return pieces
 
     def _fault(
-        self, placed: PagePlacement, at: dict[int, int]
-    ) -> tuple[frozenset[int], str | None, bool]:
-        """Whether the page's numbers continue the output tree, and what to say."""
-        fault = numbering_fault(placed.questions, self.output_dir)
-        if fault is None:
-            return frozenset(), None, False
+        self, page: PagePreview, at: dict[int, int]
+    ) -> tuple[frozenset[int], str | None]:
+        """The offending regions and the prose to show for the page's fault."""
+        if page.fault is None:
+            return frozenset(), None
 
-        offender = placed.questions[fault.position]
-        # Only a fault the entry state is still numbering can be moved by
-        # changing where the page starts.
-        continue_helps = fault.position < self._entry_group_size
+        offender = page.placed.questions[page.fault.position]
         return (
             frozenset(at[id(region)] for region in offender.regions),
-            self._fault_message(fault, continue_helps=continue_helps),
-            continue_helps,
+            self._fault_message(page.fault, continue_helps=page.continue_helps),
         )
 
     @staticmethod
@@ -246,38 +240,19 @@ class PageEdits:
         )
 
     @property
-    def _entry_group_size(self) -> int:
-        """Questions before the first marker — the group the entry state numbers.
-
-        Questions, not regions: two pieces a reviewer joined are one question and
-        take one number between them.
-        """
-        count = 0
-        joined = False
-        for region in self.regions:
-            if region.label in ("option", "part"):
-                break
-            if region.label == "question":
-                if not joined:
-                    count += 1
-                joined = region.joins_next
-        return count
-
-    @property
     def entry_state_reaches_first_question(self) -> bool:
         """True when nothing resets the numbering before the first question.
 
         An option or part marker sets the counter itself, so moving where the
         page starts cannot move a group that begins after one.
         """
-        return self._entry_group_size > 0
+        return entry_group_size(self.regions) > 0
 
     def continue_from_disk(self) -> int | None:
         """The entry counter that puts the first question in the free slot.
 
-        None when there is no placement to continue from. ``next_question()``
-        hands out ``question + 1``, so the counter sits one below the free
-        number.
+        None when there is no placement to continue from. The walk hands out
+        ``question + 1``, so the counter sits one below the free number.
         """
         first = next(iter(self.numbering().placements), None)
         if first is None:

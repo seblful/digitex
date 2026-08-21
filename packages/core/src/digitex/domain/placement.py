@@ -48,8 +48,9 @@ class PageExtractionState:
 
     Owns every decision about which option/part/number a detection belongs to.
     It consumes a page's markers in reading order (:meth:`on_option`,
-    :meth:`on_part`), hands out placements as values (:meth:`next_question` then
-    :meth:`commit_question`), and takes a reviewer's correction through
+    :meth:`on_part`), hands out placements as values through a two-step
+    handshake only :func:`place_questions` drives (:meth:`_next_question` then
+    :meth:`_commit_question`), and takes a reviewer's correction through
     :meth:`adopt`. It performs no I/O: reading markers off the page and saving
     crops belong to PageExtractor.
     """
@@ -83,16 +84,17 @@ class PageExtractionState:
         self.question = 0
         return True
 
-    def next_question(self) -> QuestionPlacement:
+    def _next_question(self) -> QuestionPlacement:
         """The placement the next question will get, without committing to it.
 
-        The caller commits through :meth:`commit_question` only once the crop is
-        saved, so a failed save does not consume a question number.
+        :func:`place_questions` commits through :meth:`_commit_question` only
+        once the crop is saved, so a failed save does not consume a question
+        number.
         """
         return QuestionPlacement(self.option, self.part, self.question + 1)
 
-    def commit_question(self) -> None:
-        """Consume the question number handed out by :meth:`next_question`."""
+    def _commit_question(self) -> None:
+        """Consume the question number handed out by :meth:`_next_question`."""
         self.question += 1
 
     def adopt(self, other: PageExtractionState) -> None:
@@ -195,7 +197,8 @@ def place_questions(
     """Replay *regions* through *state*, handing each question its placement.
 
     *state* is mutated: markers advance it and questions consume numbers from it.
-    Pass a copy to preview a page without committing to it.
+    This is the write path — to look at a page without committing to it, use
+    :func:`digitex.domain.numbering.preview`, which copies the state itself.
 
     A question region marked ``joins_next`` is a piece of the question that
     follows it: it is collected rather than placed, and the next question is
@@ -239,7 +242,7 @@ def place_questions(
                 # the one to hold.
                 continue
 
-            placement = state.next_question()
+            placement = state._next_question()
             if not placement.option or not placement.part:
                 # pathlib drops an empty segment, so this would land one
                 # directory short of {option}/{part}/ and be invisible to every
@@ -249,8 +252,28 @@ def place_questions(
                 )
 
             write(pieces, placement)
-            state.commit_question()
+            state._commit_question()
             placed.append(PlacedQuestion(regions=pieces, placement=placement))
             pieces = []
 
     return PagePlacement(questions=placed, held=pieces)
+
+
+def entry_group_size(regions: Iterable[PageRegion]) -> int:
+    """Questions before the first marker — the group the entry state numbers.
+
+    A fault inside this group can be fixed by moving where the page starts; one
+    after a marker cannot, because the marker sets the counter itself. Questions,
+    not regions: two pieces a reviewer joined are one question and take one
+    number between them.
+    """
+    count = 0
+    joined = False
+    for region in regions:
+        if region.label in ("option", "part"):
+            break
+        if region.label == "question":
+            if not joined:
+                count += 1
+            joined = region.joins_next
+    return count
