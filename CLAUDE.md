@@ -2,47 +2,49 @@
 
 ## Core Principles
 
-### 1. Think Before Coding
+### Honest Pushback
 
-**Don't assume. Surface tradeoffs. Ask when uncertain.**
+**Flag bad ideas. Don't silently comply.**
 
-- State assumptions explicitly
-- Present multiple interpretations when they exist
-- Push back if a simpler approach exists
-- Name what's confusing before proceeding
+Before executing, raise a concern if the request:
 
-### 2. Simplicity First
+- Conflicts with an established project standard or convention
+- Is an antipattern for this stack, context, or scale
+- Would introduce security, correctness, or maintainability risk
 
-**Minimum code that solves the problem. Nothing speculative.**
+State the concern in one sentence, name the specific tension, then proceed or
+ask — don't lecture. If the user confirms anyway, comply and move on.
 
-- No features, abstractions, or configurability beyond what was asked
-- No error handling for impossible scenarios
-- If it could be 50 lines but is 200, rewrite it
+### Goal-Driven Execution
 
-### 3. Surgical Changes
+**Every task needs a check that can fail.**
 
-**Touch only what you must. Clean up only your own mess.**
+Restate the request as a condition something can verify — a test, a command, an
+observable output — then work until it holds. If a task admits no such check,
+say so before starting instead of calling it done by inspection.
 
-- Don't "improve" adjacent code, comments, or formatting
-- Match existing style even if you'd do it differently
-- Remove only the orphans your changes create
-- Mention unrelated dead code; don't delete it
+______________________________________________________________________
 
-### 4. Goal-Driven Execution
+## Project Context
 
-**Define success criteria. Loop until verified.**
+`CONTEXT.md` is the authoritative reference. Create it if missing; read it
+before any non-trivial task. Five sections:
 
-Transform tasks into verifiable goals:
+- **Overview** — what it does, who for, what it replaces
+- **Architecture** — one diagram: components and data flow
+- **Vocabulary** — terms whose meaning here differs from the plain-English or
+  library one
+- **Decisions** — X over Y because Z
+- **Non-Goals** — what it deliberately will not do
 
-- "Add validation" → Write tests for invalid inputs, then make them pass
-- "Fix the bug" → Write a test that reproduces it, then make it pass
+It is a map, not documentation: anything a reader could get from the code or
+`ls` stays out. Respect the caps in its HTML comments — at a cap, replace the
+weakest entry rather than growing the list. Update it when a non-goal,
+decision, domain term, or component boundary changes, not when code changes.
 
-For multi-step tasks, state a brief plan:
-
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-```
+The rest of the domain vocabulary — every entity, process, outcome and
+infrastructure term — lives in [docs/glossary.md](docs/glossary.md), which the
+caps do not bind.
 
 ______________________________________________________________________
 
@@ -50,9 +52,18 @@ ______________________________________________________________________
 
 **All AI agents must strictly adhere to these rules.**
 
-- **Code**: Follow patterns in `python-patterns` — see `python-testing` for tests, `commits` for git
-- **Tests**: All features and bug fixes require tests
-- **Commits**: Only commit when explicitly asked
+- **Code**: Follow patterns in `python-patterns` — see `python-testing` for tests
+- **Tests**: Every feature and bug fix requires tests
+- **Type checking**: Run `uv run ty check` after adding or modifying any Python
+  code; fix all errors before proceeding
+- **Test suite**: Run `uv run pytest` after writing or changing code covered by
+  tests; all tests must pass
+- **Commits**: Commit only when explicitly asked one message before, for
+  commits use [Conventional Commits](https://www.conventionalcommits.org/).
+- **Logging**: Use `structlog` — log at `DEBUG` for internal state, `INFO` for
+  significant lifecycle events, `WARNING` for recoverable anomalies, `ERROR`
+  for failures that need attention; never log secrets or PII; prefer structured
+  key-value pairs over interpolated strings
 - **Workspace**: three members under `packages/` — `core` (`domain`, `config`,
   `logging`, `console`), `service` (`bot`, `db`, `service`) and `studio`
   (`imaging`, `ml`, `labeling`, `pipeline`, `ui`, `studio`). Put a new module in
@@ -64,7 +75,7 @@ ______________________________________________________________________
   either: handlers take an `OpenUow` from `domain.ports`, and
   `service/cli/bot.py` is the only module that names both sides.
   `uv run lint-imports` checks both; `[tool.importlinter]` in `pyproject.toml`
-  is the contract, `CONTEXT.md` explains it
+  is the contract, `CONTEXT.md` records the decision
 - **Paths**: Non-code paths derive from `settings.paths.data_root`, never from
   a module's `__file__`
 

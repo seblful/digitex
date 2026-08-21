@@ -12,7 +12,8 @@ Operational and workflow docs for Digitex. Source files live under `docs/`.
 
 - [Database](database-reference.md) — migration CLI, schema conventions, hardening
 - [`.env.example`](../.env.example) — every supported env var, with defaults
-- [CONTEXT.md](../CONTEXT.md) — domain glossary, the settings tree, the deploy boundary
+- [Glossary](glossary.md) — every domain term, the settings tree, the deploy boundary
+- [CONTEXT.md](../CONTEXT.md) — the map: overview, architecture, decisions, non-goals
 - [README](../README.md#project-structure) — the three packages, their layers, and the data root
 
 ## Workflows

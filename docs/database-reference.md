@@ -60,7 +60,7 @@ Conventions:
   drop what `upgrade()` created. Note that for destructive changes downgrade
   is necessarily lossy; a backup restore (see
   [production.md §4.2](production.md#42-restore)) is the real safety net.
-- Names match the domain glossary in [CONTEXT.md](../CONTEXT.md). Don't
+- Names match the domain glossary in [glossary.md](glossary.md). Don't
   invent new terms in SQL.
 
 ## Optional: least-privileged app role

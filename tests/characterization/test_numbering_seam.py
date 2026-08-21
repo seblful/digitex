@@ -1,6 +1,6 @@
 """The numbering rule, asserted on both sides of the reviewer seam at once.
 
-`CONTEXT.md` states it as one rule: *the review window refuses to approve a
+`docs/glossary.md` states it as one rule: *the review window refuses to approve a
 fault, and the extractor replays every page through the same check before
 writing — a gap refuses the page, a collision keeps the existing file.* It is
 the most subtle rule in the project, and it is the reason a resumed year can
