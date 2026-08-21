@@ -77,21 +77,38 @@ def test_every_role_the_bot_asks_for_is_one_a_transaction_provides() -> None:
     assert not missing, f"a transaction provides no {', '.join(sorted(missing))}"
 
 
+def _top_level_modules_after(imports: str) -> set[str]:
+    """The top-level names in ``sys.modules`` once *imports* has run."""
+    code = (
+        f"import sys; {imports};"
+        " print('\\n'.join(sorted({m.split('.')[0] for m in sys.modules})))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+    return set(result.stdout.split())
+
+
 def test_the_ports_need_nothing_at_runtime() -> None:
     """They are imported by the layer that must not grow a dependency.
 
     Every name they are built from sits behind `TYPE_CHECKING`, including the
     `OpenUow` alias — so importing them costs the deployed bot nothing beyond
     `typing`, and can never be the reason a production image needs a package.
-    """
-    code = (
-        "import sys;"
-        " import digitex.domain.ports;"
-        " print('\\n'.join(sorted({m.split('.')[0] for m in sys.modules})))"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, check=True
-    )
-    loaded = set(result.stdout.split())
 
-    assert loaded.isdisjoint({"psycopg", "psycopg_pool", "aiogram", "contextlib"})
+    What the import *adds* is measured against a baseline interpreter rather
+    than against empty, because startup is not this test's to police: the
+    venv's own `.pth` hooks preload stdlib modules on some CPython builds —
+    `_virtualenv.pth` pulls in `contextlib` on 3.13.15 — and that costs the
+    bot nothing it was not already paying.
+    """
+    baseline = _top_level_modules_after("pass")
+    with_ports = _top_level_modules_after("import digitex.domain.ports")
+
+    imported = with_ports - baseline
+    assert "digitex" in imported, "the probe imported nothing — it proves nothing"
+    leaked = imported & {"psycopg", "psycopg_pool", "aiogram", "contextlib"}
+    assert not leaked, (
+        f"importing the ports loaded {sorted(leaked)};"
+        f" everything the import added: {sorted(imported)}"
+    )
