@@ -6,15 +6,20 @@ as a usable region is exercisable with no checkpoint and no GPU.
 ``YOLO_SegmentationPredictor`` wraps it in a lazily loaded model and the pinned
 predict settings, and holds no other state.
 
+Every polygon leaves smoothed, by one rule for every caller: an annotator drags
+these points by hand in Label Studio, and extraction crops through them, so
+neither wants the fifty-odd a raw mask contour carries.
+
 What a region *means* is not here. Reading order, numbering and cropping belong
 to :mod:`digitex.pipeline`; the polygons leave in source-image pixels so nothing
 downstream has to know what size the model ran at.
 """
 
+import math
 import os
 import pathlib
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
@@ -23,7 +28,6 @@ import numpy as np
 import structlog
 import torch
 from PIL import Image
-from shapely.geometry import Polygon
 from ultralytics import YOLO  # type: ignore[import-untyped]
 from ultralytics.engine.results import Results
 
@@ -31,8 +35,29 @@ from digitex.domain.entities import Detection, PixelPolygon
 
 logger = structlog.get_logger()
 
-# Douglas-Peucker tolerance, in source-image pixels.
-SIMPLIFY_EPSILON = 3.0
+# The area a vertex has to span with its neighbours to be worth keeping, as a
+# fraction of the page's diagonal, squared. Relative rather than a pixel count
+# because pages reach the model at anything from 640 to 3400 pixels tall — a book
+# scan, a downscaled training image — and one absolute floor thins the small one's
+# outline five times as hard as the full-resolution one's. 0.3% is some 160
+# square pixels on a 2480x3410 scan: a bump three mask pixels wide and two deep,
+# which is the staircase the mask picks up from being predicted at PREDICT_IMGSZ
+# and scaled back up.
+SMOOTH_AREA = 0.003
+
+# No outline arrives with more handles than this. A raw contour runs to a median
+# of 57 points and a p90 of 115; the hand-drawn labels it is scored against run
+# to 10 and 15. Twenty is where the print a crop would lose stops paying for the
+# handles saved. Measured over 3556 matched prediction/label pairs as the share
+# of the label's own ink the thinned ring misses: the untouched mask already
+# misses 0.348% of it, twenty points miss 0.369%, sixteen 0.417%, twelve 0.747%
+# and eight 1.629% — a budget that binds harder has to cut across print to meet
+# it. Going the other way buys 0.010% back for four more handles.
+SMOOTH_BUDGET = 20
+
+# Thinning stops here, and a ring that arrives with fewer keeps what it has:
+# ``cut_out_image_by_polygon`` needs four points to raise a quad from.
+MIN_RING_POINTS = 4
 
 # One detection recipe for every caller — page extraction, Label Studio
 # pre-annotation and the tuning tool all have to see the same regions, or the
@@ -95,10 +120,103 @@ def foreign_paths_readable() -> Iterator[None]:
             setattr(module, foreign, original)
 
 
-def _simplify(polygon: PixelPolygon) -> PixelPolygon:
-    """Drop the points a Douglas-Peucker pass finds redundant."""
-    ring = Polygon(polygon).simplify(SIMPLIFY_EPSILON, preserve_topology=True)
-    return PixelPolygon([(int(x), int(y)) for x, y in ring.exterior.coords])
+def _without_repeats(points: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
+    """*points* with every repeat of its neighbour dropped, the wrap included.
+
+    A mask contour arrives with them: neighbouring points that landed on the same
+    pixel once they were truncated to ints, and a first point that comes round
+    again as the last. Label Studio draws either as two handles stacked on one
+    corner, invisible until an annotator drags it and finds a second point
+    underneath — 116 of the 3621 polygons in the training set carry such a pair,
+    from pre-annotations that were kept as they came.
+    """
+    kept: list[tuple[int, int]] = []
+    for point in points:
+        if not kept or point != kept[-1]:
+            kept.append(point)
+
+    if len(kept) > 1 and kept[0] == kept[-1]:
+        kept.pop()
+    return kept
+
+
+def _spanned_area(
+    before: tuple[int, int], point: tuple[int, int], after: tuple[int, int]
+) -> float:
+    """The area of the triangle *point* makes with the neighbours either side."""
+    return (
+        abs(
+            (point[0] - before[0]) * (after[1] - before[1])
+            - (after[0] - before[0]) * (point[1] - before[1])
+        )
+        / 2
+    )
+
+
+def _thinned(
+    ring: list[tuple[int, int]], min_area: float, budget: int
+) -> list[tuple[int, int]]:
+    """*ring* with its least telling vertices dropped, least telling first.
+
+    Visvalingam-Whyatt: what decides a vertex is the area it spans with its
+    neighbours, not its distance from the edge that would replace it. A staircase
+    tread spans almost nothing however deep the staircase runs, so the ordering
+    spends its cuts there — which is why it holds a region's shape better than
+    Douglas-Peucker at the same point count, and why it can be pushed to a fixed
+    budget without the shape going with it.
+
+    Two conditions stop it, and the tighter one is what binds: no vertex left
+    spans less than *min_area*, and no more than *budget* of them are left. So a
+    marker comes out at four points and a question at twenty, rather than
+    everything landing on one tolerance.
+    """
+    points = list(ring)
+    if len(points) <= MIN_RING_POINTS:
+        return points
+
+    def area_at(index: int) -> float:
+        return _spanned_area(
+            points[index - 1], points[index], points[(index + 1) % len(points)]
+        )
+
+    areas = [area_at(index) for index in range(len(points))]
+    while len(points) > MIN_RING_POINTS:
+        index = min(range(len(points)), key=areas.__getitem__)
+        if areas[index] > min_area and len(points) <= budget:
+            break
+
+        del points[index]
+        del areas[index]
+        # Dropping a vertex changes what the two either side of it span, and
+        # nothing else — the rest of the ring never moved.
+        areas[index - 1] = area_at(index - 1)
+        areas[index % len(points)] = area_at(index % len(points))
+    return points
+
+
+def _smoothed(polygon: PixelPolygon, img_width: int, img_height: int) -> PixelPolygon:
+    """*polygon* with the mask's staircase thinned out of it.
+
+    The area floor scales with the page, which is what makes the thinning
+    independent of the size the page arrived at. Every polygon leaves through
+    here, so this is also the one place a repeated point is dropped.
+    """
+    ring = _without_repeats(polygon)
+    if len(ring) < MIN_RING_POINTS:
+        # Nothing to thin. A ring this small either goes to the crop as it stands
+        # or is dropped by the caller for not being a ring at all.
+        return PixelPolygon(ring)
+
+    step = SMOOTH_AREA * math.hypot(img_width, img_height)
+    # Dropping a vertex leaves the two either side of it adjacent, and on a mask
+    # that touches itself those two can be the same point — so the repeats are
+    # worth another look on the way out.
+    smoothed = _without_repeats(_thinned(ring, step * step, SMOOTH_BUDGET))
+    if len(smoothed) < MIN_RING_POINTS:
+        # Thinner than the crop can use is not an improvement, and a ring that
+        # degenerate is a region worth looking at rather than trimming.
+        return PixelPolygon(ring)
+    return PixelPolygon(smoothed)
 
 
 def _detection(
@@ -107,8 +225,6 @@ def _detection(
     img_width: int,
     img_height: int,
     id2label: dict[int, str],
-    *,
-    simplify: bool,
 ) -> Detection | None:
     """One box and its mask as a detection, or ``None`` if it holds no ring.
 
@@ -124,9 +240,11 @@ def _detection(
     under three points therefore leaves as ``None``.
     """
     scaled = outline * np.array([img_width, img_height])
-    polygon = PixelPolygon([tuple(p) for p in scaled.astype(np.int32).tolist()])
-    if simplify:
-        polygon = _simplify(polygon)
+    polygon = _smoothed(
+        PixelPolygon([tuple(p) for p in scaled.astype(np.int32).tolist()]),
+        img_width,
+        img_height,
+    )
     if len(polygon) < 3:
         return None
 
@@ -142,22 +260,21 @@ def detections_from(
     img_width: int,
     img_height: int,
     id2label: dict[int, str],
-    *,
-    simplify: bool = False,
 ) -> list[Detection]:
     """Turn one YOLO prediction into detections in source-image pixels.
 
-    A single unusable mask never fails the page: whatever cannot be turned into
-    a polygon is counted and reported, and the rest of the page is returned.
+    Every polygon comes out smoothed — see :func:`_smoothed`. A single unusable
+    mask never fails the page: whatever cannot be turned into a polygon is
+    counted and reported, and the rest of the page is returned.
 
     Args:
         preds: What ``predict`` returned; only the first prediction is read,
             because one call ran on one image.
-        img_width: Width of the source image, in pixels.
+        img_width: Width of the source image, in pixels. Sets the smoothing
+            tolerance as well as the scale.
         img_height: Height of the source image, in pixels.
         id2label: Class id to label. Taken off the model by the caller, which
             is what leaves this function testable without one.
-        simplify: Whether to thin each polygon with Douglas-Peucker first.
 
     Raises:
         ValueError: If *preds* is empty or the first prediction has no
@@ -195,7 +312,6 @@ def detections_from(
                 img_width,
                 img_height,
                 id2label,
-                simplify=simplify,
             )
         except Exception:
             # One unusable mask must not cost the page — but with no traceback a
@@ -229,19 +345,10 @@ class YOLO_SegmentationPredictor:
 
     Args:
         model_path: Path to the trained YOLO checkpoint.
-        simplify: Whether to run each mask through Douglas-Peucker. Label
-            Studio pre-annotation asks for it, because an annotator drags those
-            points by hand; extraction leaves it off and takes the mask as it
-            came.
     """
 
-    def __init__(
-        self,
-        model_path: str | Path,
-        simplify: bool = False,
-    ) -> None:
+    def __init__(self, model_path: str | Path) -> None:
         self.model_path = model_path
-        self.simplify = simplify
         if not torch.cuda.is_available():
             logger.info("CUDA not available, using CPU")
         self._model: YOLO | None = None
@@ -305,5 +412,4 @@ class YOLO_SegmentationPredictor:
             img_width,
             img_height,
             dict(self.model.names),
-            simplify=self.simplify,
         )

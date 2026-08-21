@@ -24,7 +24,6 @@ dependencies = [
 # `cpu` / `cu130` extras.
 ml = [
   "pyyaml",
-  "shapely>=2.1.2",
   "ultralytics",
 ]
 # Annotation server and its SDK — docs/label-studio.md

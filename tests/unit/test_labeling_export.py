@@ -137,3 +137,45 @@ class TestReadExport:
 
     def test_an_empty_export_reads_as_nothing(self, tmp_path: Path) -> None:
         assert read_export(_write(tmp_path, [])) == []
+
+    def test_a_closed_ring_loses_its_closing_point(self, tmp_path: Path) -> None:
+        """A kept pre-annotation that arrived closed, on its way to a label file.
+
+        Label Studio stores an open ring, so the repeat is not the tool's: 116
+        of the training set's polygons carry one from predictions that were
+        uploaded closed. The vertex says nothing about the region either way.
+        """
+        closed = [*_SQUARE, _SQUARE[0]]
+        path = _write(
+            tmp_path,
+            [
+                _entry(
+                    "/data/local-files/?d=page.jpg",
+                    [{"polygonlabels": ["question"], "points": closed}],
+                )
+            ],
+        )
+
+        images = read_export(path)
+
+        polygon = list(images[0].regions[0].polygon)
+        assert polygon == [(0.1, 0.2), (0.5, 0.2), (0.5, 0.8), (0.1, 0.8)]
+
+    def test_a_polygon_that_merely_returns_near_its_start_is_left_alone(
+        self, tmp_path: Path
+    ) -> None:
+        """Only an exact repeat is a closing point; a near miss is a vertex."""
+        nearly = [*_SQUARE, [10.1, 20.0]]
+        path = _write(
+            tmp_path,
+            [
+                _entry(
+                    "/data/local-files/?d=page.jpg",
+                    [{"polygonlabels": ["question"], "points": nearly}],
+                )
+            ],
+        )
+
+        images = read_export(path)
+
+        assert len(images[0].regions[0].polygon) == 5

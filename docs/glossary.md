@@ -182,6 +182,16 @@ architectural decisions.
 - **Detection** — one thing the segmentation model found on a page: a resolved
   `label` and a `PixelPolygon`. PageExtractor sorts them top-to-bottom by
   polygon bounding box before assembling Questions.
+- **Smoothing** — the one pass every prediction leaves through, on its way out
+  of `detections_from`: Visvalingam-Whyatt drops the vertex spanning the least
+  area with its neighbours until none spans less than `SMOOTH_AREA` of the page's
+  diagonal squared and no more than `SMOOTH_BUDGET` of them are left. A mask
+  contour arrives with a median of 57 points and a tail past 380; a hand-drawn
+  label has 10. Both thresholds are relative to the page because a scan reaches
+  the model at anything from 640 to 3400 pixels tall. Not Douglas-Peucker: at
+  the same point count it drifts three times as far from the mask and cuts three
+  times as much print out of a crop, because a staircase tread is far from the
+  edge that replaces it while spanning almost no area.
 - **RegionDetector** — what page extraction calls a detector
   (`pipeline.ports.RegionDetector`): `predict(image) -> list[Detection]` and
   nothing else. `YOLO_SegmentationPredictor` is one; the differential harness

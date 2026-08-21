@@ -287,9 +287,8 @@ class TestDetectionsFrom:
             (np.array([[0.1, 0.1], [0.4, 0.4]]), "two-points"),
         ],
     )
-    @pytest.mark.parametrize("simplify", [False, True])
     def test_a_mask_too_thin_to_be_a_ring_is_dropped(
-        self, xyn: np.ndarray, reason: str, simplify: bool
+        self, xyn: np.ndarray, reason: str
     ) -> None:
         """Ultralytics returns an empty (0, 2) array for a mask with no contour.
 
@@ -300,33 +299,204 @@ class TestDetectionsFrom:
         pred = _prediction((0, xyn))
 
         with capture_logs() as logs:
+            detections = detections_from(_as_results([pred]), 100, 100, {0: "question"})
+
+        assert detections == []
+        assert _event(logs, "Dropped detections on this page")["dropped"] == 1
+
+
+class TestSmoothing:
+    """What every polygon goes through on its way out of ``detections_from``."""
+
+    def _polygon(
+        self, xyn: np.ndarray, width: int = 1000, height: int = 1000
+    ) -> list[tuple[int, int]]:
+        detections = detections_from(
+            _as_results([_prediction((0, xyn))]), width, height, {0: "question"}
+        )
+        assert len(detections) == 1
+        return list(detections[0].polygon)
+
+    def test_the_staircase_along_a_straight_edge_is_thinned(self) -> None:
+        """What the mask's own quantization puts there, and nothing else did."""
+        staircase = [[x / 1000, 0.002 if x % 8 else 0.0] for x in range(0, 400, 4)]
+        xyn = np.array([*staircase, [0.4, 0.4], [0.0, 0.4]])
+
+        polygon = self._polygon(xyn)
+
+        assert len(polygon) < 10
+        # The corners the staircase runs between are still where they were.
+        assert (0, 0) in polygon
+        assert (400, 400) in polygon
+
+    def test_no_point_is_repeated(self) -> None:
+        """A closed ring stacks two handles on one corner in Label Studio.
+
+        The pair is invisible in the annotation window until an annotator drags
+        the corner and finds a second point underneath — which is how 116 of
+        them ended up in the training set.
+        """
+        xyn = np.array(
+            [
+                [0.1, 0.1],
+                [0.3, 0.1],
+                [0.5, 0.1],
+                [0.5, 0.4],
+                [0.3, 0.4],
+                [0.1, 0.4],
+                [0.1, 0.1],
+            ]
+        )
+
+        polygon = self._polygon(xyn)
+
+        assert polygon[0] != polygon[-1]
+        assert len(set(polygon)) == len(polygon)
+
+    def test_an_outline_never_arrives_with_more_handles_than_the_budget(self) -> None:
+        """A raw contour runs past a hundred points; an annotator drags them by hand.
+
+        Every corner of this comb is real — 25 pixels wide and 400 deep on a
+        full-resolution page, far past any area floor — so the budget is the only
+        thing that can hold it, and it has to.
+        """
+        teeth: list[list[float]] = []
+        for tooth in range(40):
+            left = (100 + tooth * 50) / 2480
+            right = (125 + tooth * 50) / 2480
+            teeth += [
+                [left, 500 / 3410],
+                [left, 900 / 3410],
+                [right, 900 / 3410],
+                [right, 500 / 3410],
+            ]
+        xyn = np.array([*teeth, [2100 / 2480, 400 / 3410], [100 / 2480, 400 / 3410]])
+        assert len(xyn) == 162
+
+        polygon = self._polygon(xyn, width=2480, height=3410)
+
+        assert len(polygon) <= 20
+
+    def test_a_real_notch_survives_while_the_staircase_goes(self) -> None:
+        """The budget is spent on what says least, so the shape is what is left."""
+        notch = np.array(
+            [
+                [0.1, 0.1],
+                [0.5, 0.1],
+                [0.5, 0.3],
+                [0.3, 0.3],  # a notch a fifth of the region deep
+                [0.3, 0.5],
+                [0.5, 0.5],
+                [0.5, 0.7],
+                [0.1, 0.7],
+            ]
+        )
+        staircase = np.array(
+            [[0.1 + step * 0.002, 0.1 + (step % 2) * 0.001] for step in range(40)]
+        )
+        xyn = np.concatenate([notch, staircase])
+
+        polygon = self._polygon(xyn, width=2480, height=3410)
+
+        assert len(polygon) < 15
+        for corner in ((744, 1023), (744, 1705), (1240, 1023), (1240, 1705)):
+            assert corner in polygon
+
+    def test_neighbouring_points_that_truncate_onto_one_pixel_collapse(self) -> None:
+        """Contour points a fraction of a pixel apart are one point, once scaled."""
+        xyn = np.array([[0.1, 0.1], [0.1004, 0.1], [0.5, 0.1], [0.5, 0.4], [0.1, 0.4]])
+
+        polygon = self._polygon(xyn, width=100, height=100)
+
+        assert len(set(polygon)) == len(polygon)
+
+    def test_the_area_floor_scales_with_the_page(self) -> None:
+        """A page arrives at 1600 or 3400 pixels tall; the outline thins the same.
+
+        The same shape at two sizes has to come out with the same points — an
+        area floor in pixels would thin the small one four times as hard.
+        """
+        wobble = [
+            [(100 + step * 10) / 1000, (100 + (step % 2) * 5) / 1000]
+            for step in range(40)
+        ]
+        xyn = np.array([*wobble, [0.5, 0.5], [0.1, 0.5]])
+
+        small = self._polygon(xyn, width=1600, height=1600)
+        large = self._polygon(xyn, width=3400, height=3400)
+
+        assert len(small) == len(large)
+        # Same shape, so the same corners, in proportion.
+        assert [value / 1600 for point in small for value in point] == pytest.approx(
+            [value / 3400 for point in large for value in point], abs=0.002
+        )
+
+    def test_a_thin_sliver_is_left_a_quad_rather_than_flattened(self) -> None:
+        """Under four points there is no quad for ``cut_out_image_by_polygon``.
+
+        This one is 300 pixels long and three deep, with a one pixel bump along
+        its top edge that spans less than the floor. The bump goes; thinning then
+        stops at the corners instead of taking the region away from the reviewer
+        who should see it.
+        """
+        width, height = 2480, 3410
+        sliver = [(400, 800), (550, 801), (700, 800), (700, 803), (400, 803)]
+        xyn = np.array([[x / width, y / height] for x, y in sliver])
+
+        polygon = self._polygon(xyn, width=width, height=height)
+
+        assert len(polygon) == 4
+
+    def test_a_ring_under_a_pixel_deep_collapses_and_is_dropped(self) -> None:
+        """Truncation, not thinning: both of its edges land on the same row."""
+        flat = np.array([[0.1, 0.1], [0.9, 0.1], [0.9, 0.101], [0.1, 0.101]])
+
+        with capture_logs() as logs:
             detections = detections_from(
-                _as_results([pred]), 100, 100, {0: "question"}, simplify=simplify
+                _as_results([_prediction((0, flat))]), 100, 100, {0: "question"}
             )
 
         assert detections == []
         assert _event(logs, "Dropped detections on this page")["dropped"] == 1
 
-    def test_simplify_drops_collinear_points(self) -> None:
-        xyn = np.array(
-            [
-                [0.0, 0.0],
-                [0.25, 0.0],
-                [0.5, 0.0],
-                [0.75, 0.0],
-                [1.0, 0.0],
-                [1.0, 1.0],
-                [0.0, 1.0],
-            ]
-        )
-        pred = _prediction((0, xyn))
+    def test_a_ring_that_touches_itself_keeps_the_points_it_arrived_with(self) -> None:
+        """8.5% of real mask contours touch themselves somewhere.
 
-        detections = detections_from(
-            _as_results([pred]), 100, 100, {0: "question"}, simplify=True
+        The spur here hangs off one point that the contour visits twice, so the
+        triangle it spans is flat and goes first — and dropping it leaves those
+        two visits adjacent, which collapses the ring below a quad. That is the
+        one case where thinning gives up rather than hand on a triangle.
+        """
+        touching = np.array(
+            [[0.1, 0.1], [0.4, 0.1], [0.402, 0.101], [0.4, 0.1], [0.1, 0.4]]
         )
 
-        assert len(detections) == 1
-        assert len(detections[0].polygon) < len(xyn)
+        polygon = self._polygon(touching, width=1000, height=1000)
+
+        assert len(polygon) == 5
+
+    def test_a_marker_comes_out_at_its_four_corners(self) -> None:
+        """The floor, not the budget, is what decides a small region.
+
+        An option marker is a 59x41 pixel box that the mask traced with a two
+        pixel wobble in the middle of two edges. A wobble that shallow over a
+        base that short spans well under the floor, and the annotator wants the
+        box.
+        """
+        width, height = 2480, 3410
+        wobbly = [
+            (248, 341),
+            (277, 343),
+            (307, 341),
+            (307, 382),
+            (277, 380),
+            (248, 382),
+        ]
+        xyn = np.array([[x / width, y / height] for x, y in wobbly])
+
+        polygon = self._polygon(xyn, width=width, height=height)
+
+        assert len(polygon) == 4
 
 
 class TestYOLOSegmentationPredictorPredict:

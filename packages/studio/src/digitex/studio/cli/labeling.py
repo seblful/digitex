@@ -124,7 +124,7 @@ def predict(
     from digitex.ml.predictors import YOLO_SegmentationPredictor
 
     predictor = TaskPredictor(
-        YOLO_SegmentationPredictor(model_path, simplify=True),
+        YOLO_SegmentationPredictor(model_path),
         _client(),
         # Uploaded predictions are grouped by version, so the model file names
         # one.

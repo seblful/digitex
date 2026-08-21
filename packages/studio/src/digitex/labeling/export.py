@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any, cast
 import structlog
 
 from digitex.domain.annotations import AnnotatedImage, LabelledRegion
+from digitex.domain.entities import NormalizedPolygon
 from digitex.domain.geometry import percent_to_normalized
 from digitex.labeling.uris import local_file_path
 
@@ -31,6 +32,21 @@ if TYPE_CHECKING:
     from digitex.domain.entities import PercentPolygon
 
 logger = structlog.get_logger()
+
+
+def _open_ring(polygon: NormalizedPolygon) -> NormalizedPolygon:
+    """*polygon* without a closing point, if it carries one.
+
+    Label Studio stores an open ring, so a first point repeated as the last is
+    not the tool's doing: it is a pre-annotation that reached the project already
+    closed, kept by an annotator who had no reason to notice two handles stacked
+    on one corner. 116 of the 3621 polygons in the training set are like that.
+    The predictor no longer produces them, and a label file should not carry a
+    vertex that says nothing about the region either way.
+    """
+    if len(polygon) > 1 and polygon[0] == polygon[-1]:
+        return NormalizedPolygon(polygon[:-1])
+    return polygon
 
 
 def _regions(entry: dict[str, Any]) -> tuple[LabelledRegion, ...]:
@@ -55,7 +71,7 @@ def _regions(entry: dict[str, Any]) -> tuple[LabelledRegion, ...]:
             logger.warning("skipped_polygon", reason="no points", polygon=polygon)
             continue
 
-        usable.append(LabelledRegion(label=label, polygon=normalized))
+        usable.append(LabelledRegion(label=label, polygon=_open_ring(normalized)))
 
     return tuple(usable)
 
