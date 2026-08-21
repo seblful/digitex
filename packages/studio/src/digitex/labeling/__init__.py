@@ -5,7 +5,9 @@ serves local images through, and :mod:`export` turns its export JSON into the
 vendor-neutral shapes in :mod:`digitex.domain.annotations`. On top of those sit
 the three jobs: :mod:`predictor` pre-annotates a project, :mod:`repair` fixes
 one whose images moved out from under it, and :mod:`skipped` retires the pages
-an annotator refused.
+an annotator refused. What the last two agree on — the seam the CLI drives
+either sweep through, and what a task's URI path means on this machine — lives
+in :mod:`sweeps`.
 
 Import the concrete module, not this package: ``from digitex.labeling.client
 import LabelStudioClient``. There is deliberately no re-export list here, so

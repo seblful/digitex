@@ -10,7 +10,8 @@ is called.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 from urllib.parse import quote
 
@@ -18,9 +19,6 @@ import pytest
 from typer.testing import CliRunner
 
 from digitex.studio.cli import labeling
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 runner = CliRunner()
 
@@ -165,6 +163,61 @@ class TestDeleteSkippedTasks:
         assert result.exit_code != 0
         client.list_tasks.assert_not_called()
 
+    def test_a_run_with_every_skip_kept_stops_before_the_archive(
+        self, settings: MagicMock, client: MagicMock, image: Path, tmp_path: Path
+    ) -> None:
+        """An empty plan ends the run at the report, even past the dry run."""
+        done = {"was_cancelled": False, "result": [{"type": "polygonlabels"}]}
+        client.list_tasks.return_value = [_task(1, image, SKIP, done)]
+
+        result = runner.invoke(
+            labeling.app,
+            ["delete-skipped-tasks", "--project-id", "1", "--no-dry-run"],
+        )
+
+        assert result.exit_code == 0
+        assert "Nothing to delete." in result.output
+        assert image.exists()
+        client.delete_task.assert_not_called()
+        assert _archives(tmp_path, "skipped-tasks") == []
+
+    def test_an_unset_document_root_is_refused(
+        self, settings: MagicMock, client: MagicMock
+    ) -> None:
+        """The sweep unlinks what a URI resolves to, and that needs the root."""
+        settings.pipeline.label_studio.local_files_document_root = None
+
+        result = runner.invoke(
+            labeling.app, ["delete-skipped-tasks", "--project-id", "1"]
+        )
+
+        assert result.exit_code != 0
+        assert "LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT" in result.output
+        client.list_tasks.assert_not_called()
+
+    def test_a_relative_uri_is_resolved_against_the_document_root(
+        self, settings: MagicMock, client: MagicMock, tmp_path: Path
+    ) -> None:
+        """A local-files URI names its path relative to the server's root.
+
+        Read as absolute, every such image counted as already gone: the task
+        went, the file stayed, and the page synced straight back in as one
+        nobody had ever judged.
+        """
+        image = tmp_path / "pages" / "page.jpg"
+        image.parent.mkdir()
+        image.write_bytes(b"jpeg")
+        client.list_tasks.return_value = [_task(1, Path("pages") / "page.jpg", SKIP)]
+
+        result = runner.invoke(
+            labeling.app,
+            ["delete-skipped-tasks", "--project-id", "1", "--no-dry-run"],
+        )
+
+        assert result.exit_code == 0
+        assert not image.exists()
+        client.delete_task.assert_called_once_with(1)
+
 
 class TestFixTaskPaths:
     def test_an_unset_document_root_is_refused(
@@ -206,6 +259,97 @@ class TestFixTaskPaths:
 
         assert result.exit_code == 0
         assert "no tasks" in result.output
+
+    def test_a_project_that_needs_nothing_stops_before_the_archive(
+        self, settings: MagicMock, client: MagicMock, tmp_path: Path
+    ) -> None:
+        """An empty plan ends the run at the report, even past the dry run."""
+        live = tmp_path / "page.jpg"
+        live.write_bytes(b"jpeg")
+        client.list_tasks.return_value = [_task(1, live)]
+
+        result = runner.invoke(
+            labeling.app, ["fix-task-paths", "--project-id", "1", "--no-dry-run"]
+        )
+
+        assert result.exit_code == 0
+        assert "Nothing to repair." in result.output
+        client.delete_task.assert_not_called()
+        assert _archives(tmp_path, "stranded-tasks") == []
+
+    def test_the_annotations_are_archived_before_they_go(
+        self, settings: MagicMock, client: MagicMock, tmp_path: Path
+    ) -> None:
+        """The archive holds exactly the tasks apply deletes, work included.
+
+        The annotations come back as new records and the stranded tasks go, so
+        the dump is the only trace of what they were. It comes off the plan
+        itself, not a CLI guess at what apply deletes.
+        """
+        for name in ("a.jpg", "b.jpg"):
+            path = tmp_path / "var" / name
+            path.parent.mkdir(exist_ok=True)
+            path.write_bytes(b"jpeg")
+        annotation = {"result": [{"type": "polygonlabels"}]}
+        client.list_tasks.return_value = [
+            _task(1, tmp_path / "old" / "a.jpg", annotation),  # moved, then deleted
+            _task(2, tmp_path / "old" / "b.jpg"),  # deleted outright
+            _task(10, tmp_path / "var" / "a.jpg"),
+            _task(20, tmp_path / "var" / "b.jpg"),
+        ]
+
+        result = runner.invoke(
+            labeling.app, ["fix-task-paths", "--project-id", "1", "--no-dry-run"]
+        )
+
+        assert result.exit_code == 0
+        (archive,) = _archives(tmp_path, "stranded-tasks")
+        entries = {e["id"]: e for e in json.loads(archive.read_text(encoding="utf-8"))}
+        deleted = {call.args[0] for call in client.delete_task.call_args_list}
+        assert set(entries) == deleted == {1, 2}
+        assert entries[1]["annotations"] == [annotation]
+
+    def test_the_archive_lands_before_the_first_delete(
+        self, settings: MagicMock, client: MagicMock, tmp_path: Path
+    ) -> None:
+        """An apply that dies half-way must still leave the undo record behind."""
+        live = tmp_path / "page.jpg"
+        live.write_bytes(b"jpeg")
+        client.list_tasks.return_value = [
+            _task(1, tmp_path / "moved" / "page.jpg"),
+            _task(2, live),
+        ]
+        client.delete_task.side_effect = RuntimeError("500")
+
+        result = runner.invoke(
+            labeling.app, ["fix-task-paths", "--project-id", "1", "--no-dry-run"]
+        )
+
+        assert result.exit_code != 0
+        assert len(_archives(tmp_path, "stranded-tasks")) == 1
+
+    def test_the_outcome_is_replanned_against_the_server(
+        self, settings: MagicMock, client: MagicMock, tmp_path: Path
+    ) -> None:
+        """The 'still stranded' count comes off the server, not the plan.
+
+        A partial failure leaves tasks stranded, and the operator needs the
+        real number — the plan's own tally would always say zero remain.
+        """
+        live = tmp_path / "page.jpg"
+        live.write_bytes(b"jpeg")
+        stranded = _task(1, tmp_path / "moved" / "page.jpg", {"result": []})
+        survivor = _task(2, live)
+        client.list_tasks.side_effect = [[stranded, survivor], [stranded, survivor]]
+        client.create_annotation.side_effect = RuntimeError("api down")
+
+        result = runner.invoke(
+            labeling.app, ["fix-task-paths", "--project-id", "1", "--no-dry-run"]
+        )
+
+        assert result.exit_code == 0
+        assert client.list_tasks.call_count == 2
+        assert "1 still stranded" in result.output
 
 
 class TestPredict:

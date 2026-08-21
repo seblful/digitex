@@ -137,7 +137,7 @@ class TestApply:
         client.delete_task.side_effect = lambda *a, **k: calls.append("delete")
         plan = repair.Plan(moves=[repair.Move(1, 2, [{"result": POLYGON}])])
 
-        moved, deleted = repair.apply(cast("Any", client), plan)
+        moved, deleted = plan.apply(cast("Any", client))
 
         assert (moved, deleted) == (1, 1)
         assert calls == ["create", "delete"]
@@ -150,7 +150,7 @@ class TestApply:
         client.create_annotation.side_effect = RuntimeError("api down")
         plan = repair.Plan(moves=[repair.Move(1, 2, [{"result": POLYGON}])])
 
-        moved, deleted = repair.apply(cast("Any", client), plan)
+        moved, deleted = plan.apply(cast("Any", client))
 
         assert (moved, deleted) == (0, 0)
         client.delete_task.assert_not_called()
@@ -158,7 +158,7 @@ class TestApply:
     def test_a_task_with_nothing_on_it_is_deleted_without_a_copy(self) -> None:
         client = MagicMock()
 
-        moved, deleted = repair.apply(cast("Any", client), repair.Plan(deletions=[7]))
+        moved, deleted = repair.Plan(deletions=[7]).apply(cast("Any", client))
 
         assert (moved, deleted) == (0, 1)
         client.create_annotation.assert_not_called()

@@ -9,7 +9,10 @@ are imported inside the command that needs them, so ``--help`` reads no files an
 loads neither.
 
 Both commands that change something default to a dry run and print the plan
-first; ``--no-dry-run`` is what applies it.
+first; ``--no-dry-run`` is what applies it. The two share one shell,
+:func:`_run_sweep`, and everything it reports, archives or applies comes off
+the plan it is handed — the seam :class:`digitex.labeling.sweeps.SweepPlan`
+names.
 """
 
 from __future__ import annotations
@@ -24,19 +27,12 @@ from digitex.config import get_settings
 from digitex.logging import setup_logging
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
     from pathlib import Path
 
-    from digitex.labeling import repair, skipped
     from digitex.labeling.client import LabelStudioClient, LabelStudioTask
+    from digitex.labeling.sweeps import SweepPlan
 
 app = typer.Typer(help="Label Studio pre-annotation and project repair.")
-
-# How many of a plan's entries to name before summarising the rest. Deletions and
-# tasks left alone get the longer list, because those are the two an operator
-# reads before deciding to pass --no-dry-run.
-_MOVE_PREVIEW = 5
-_LIST_PREVIEW = 10
 
 
 @app.callback()
@@ -53,6 +49,23 @@ def _client() -> LabelStudioClient:
     return LabelStudioClient(url=label_studio.url, api_key=label_studio.api_key)
 
 
+def _document_root() -> Path:
+    """The directory the server resolves a local-files URI against.
+
+    Both destructive commands need it before they touch the server: the repair
+    to decide which side of the move a task fell on, the skipped sweep to find
+    the file it is about to unlink.
+    """
+    root = get_settings().pipeline.label_studio.local_files_document_root
+    if root is None:
+        raise typer.BadParameter(
+            "set LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT — a task's path means"
+            " nothing without the root the server serves it from",
+            param_hint="LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT",
+        )
+    return root
+
+
 def _archive(payload: list[dict[str, object]], stem: str) -> Path:
     """Write *payload* to a timestamped JSON file under the data root.
 
@@ -67,18 +80,34 @@ def _archive(payload: list[dict[str, object]], stem: str) -> Path:
     return dump
 
 
-def _preview[T](
-    items: Sequence[T], limit: int, render: Callable[[T], str], more: str
-) -> None:
-    """Name the first *limit* entries, then say how many were not named.
+def _run_sweep(
+    client: LabelStudioClient,
+    tasks: list[LabelStudioTask],
+    plan: SweepPlan,
+    *,
+    stem: str,
+    dry_run: bool,
+) -> tuple[int, int] | None:
+    """Report *plan*, and apply it only past every guard.
 
-    A plan can cover thousands of tasks and the operator is deciding whether to
-    apply it, so the report has to be readable and honest about what it elided.
+    The shell both destructive commands share. Everything it prints, archives
+    and applies comes off the plan itself, so the undo archive can never hold
+    more or less than what ``apply`` is about to destroy — they are one plan
+    answering twice.
+
+    Returns:
+        The two counts ``apply`` reports, or None when nothing was applied.
     """
-    for item in items[:limit]:
-        typer.echo(f"    {render(item)}")
-    if len(items) > limit:
-        typer.echo(f"    ... and {len(items) - limit} more {more}")
+    typer.echo(plan.report(len(tasks)))
+    if plan.empty:
+        return None
+    if dry_run:
+        typer.echo("\n--- DRY RUN: nothing changed. Pass --no-dry-run to apply. ---")
+        return None
+
+    dump = _archive(plan.doomed(tasks), stem)
+    typer.echo(f"\nWrote the tasks about to be deleted to {dump}")
+    return plan.apply(client)
 
 
 @app.command()
@@ -108,29 +137,6 @@ def predict(
     )
 
 
-def _report_repair(plan: repair.Plan, total: int) -> None:
-    typer.echo(f"\n{total} tasks in the project.")
-    typer.echo(f"  move {plan.annotations} annotations off: {len(plan.moves)} tasks")
-    typer.echo(f"  delete, nothing on them:                {len(plan.deletions)} tasks")
-    typer.echo(f"  leave alone:                            {len(plan.skipped)} tasks")
-
-    _preview(
-        plan.moves,
-        _MOVE_PREVIEW,
-        lambda move: (
-            f"task {move.stranded_id} -> task {move.live_id}"
-            f" ({len(move.annotations)} annotations)"
-        ),
-        "to move",
-    )
-    _preview(
-        plan.skipped,
-        _LIST_PREVIEW,
-        lambda left: f"task {left.task_id}: {left.reason}",
-        "left alone",
-    )
-
-
 @app.command(name="fix-task-paths")
 def fix_task_paths(
     project_id: int = typer.Option(..., help="Label Studio project ID"),
@@ -151,35 +157,24 @@ def fix_task_paths(
     """
     from digitex.labeling import repair
 
-    settings = get_settings()
-    document_root = settings.pipeline.label_studio.local_files_document_root
-    if document_root is None:
-        raise typer.BadParameter(
-            "set LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT — a task's path means"
-            " nothing without the root the server serves it from",
-            param_hint="LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT",
-        )
-
+    document_root = _document_root()
     client = _client()
     tasks = client.list_tasks(project_id)
     if not tasks:
         typer.echo(f"Project {project_id} has no tasks.")
         return
 
-    plan = repair.plan(tasks, document_root=document_root)
-    _report_repair(plan, total=len(tasks))
-
-    if not plan.moves and not plan.deletions:
-        typer.echo("\nNothing to repair.")
+    counts = _run_sweep(
+        client,
+        tasks,
+        repair.plan(tasks, document_root=document_root),
+        stem="stranded-tasks",
+        dry_run=dry_run,
+    )
+    if counts is None:
         return
-    if dry_run:
-        typer.echo("\n--- DRY RUN: nothing written. Pass --no-dry-run to apply. ---")
-        return
 
-    dump = _archive(_doomed_tasks(plan, tasks), "stranded-tasks")
-    typer.echo(f"\nWrote the tasks about to be deleted to {dump}")
-
-    moved, deleted = repair.apply(client, plan)
+    moved, deleted = counts
     typer.echo(
         typer.style(
             f"✓ Moved {moved} annotations, deleted {deleted} stranded tasks",
@@ -196,46 +191,6 @@ def fix_task_paths(
             f"✓ {len(left.skipped)} tasks left alone, {outstanding} still stranded",
             fg="green" if not outstanding else "yellow",
         )
-    )
-
-
-def _doomed_tasks(
-    plan: repair.Plan, tasks: list[LabelStudioTask]
-) -> list[dict[str, object]]:
-    """Every task the repair would delete, annotations and all."""
-    doomed = {move.stranded_id for move in plan.moves} | set(plan.deletions)
-    return [
-        {
-            "id": task.id,
-            "data": task.data,
-            "annotations": list(task.annotations or []),
-        }
-        for task in tasks
-        if task.id in doomed
-    ]
-
-
-def _report_skipped(plan: skipped.Plan, total: int) -> None:
-    typer.echo(f"\n{total} tasks in the project, {plan.cancelled} of them skipped.")
-    typer.echo(
-        f"  delete:      {len(plan.deletions)} tasks, {plan.images} with an image"
-    )
-    typer.echo(f"  leave alone: {len(plan.kept)} tasks")
-
-    _preview(
-        plan.deletions,
-        _LIST_PREVIEW,
-        lambda doomed: (
-            f"task {doomed.task_id}:"
-            f" {doomed.path if doomed.path is not None else 'image already gone'}"
-        ),
-        "to delete",
-    )
-    _preview(
-        plan.kept,
-        _LIST_PREVIEW,
-        lambda kept: f"task {kept.task_id}: {kept.reason}",
-        "left alone",
     )
 
 
@@ -258,49 +213,22 @@ def delete_skipped_tasks(
     """
     from digitex.labeling import skipped
 
+    document_root = _document_root()
     client = _client()
-    plan = skipped.plan(tasks := client.list_tasks(project_id))
+    tasks = client.list_tasks(project_id)
+    plan = skipped.plan(tasks, document_root=document_root)
     if not plan.cancelled:
         typer.echo(f"Project {project_id} has no skipped tasks.")
         return
 
-    _report_skipped(plan, total=len(tasks))
-
-    if not plan.deletions:
-        typer.echo("\nNothing to delete.")
-        return
-    if dry_run:
-        typer.echo("\n--- DRY RUN: nothing deleted. Pass --no-dry-run to apply. ---")
+    counts = _run_sweep(client, tasks, plan, stem="skipped-tasks", dry_run=dry_run)
+    if counts is None:
         return
 
-    dump = _archive(_doomed_skips(plan, tasks), "skipped-tasks")
-    typer.echo(f"\nWrote the tasks about to be deleted to {dump}")
-
-    images, deleted = skipped.apply(client, plan)
+    images, deleted = counts
     typer.echo(
         typer.style(f"✓ Deleted {images} images and {deleted} tasks", fg="green")
     )
-
-
-def _doomed_skips(
-    plan: skipped.Plan, tasks: list[LabelStudioTask]
-) -> list[dict[str, object]]:
-    """Every task the sweep would delete, its image and annotations with it.
-
-    The cancelled annotation is the only record that anybody judged the page, and
-    it goes when the task does, so it is written down first.
-    """
-    paths = {doomed.task_id: doomed.path for doomed in plan.deletions}
-    return [
-        {
-            "task_id": task.id,
-            "path": paths[task.id],
-            "data": task.data,
-            "annotations": list(task.annotations or []),
-        }
-        for task in tasks
-        if task.id in paths
-    ]
 
 
 if __name__ == "__main__":

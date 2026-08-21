@@ -22,8 +22,8 @@ predict`` writes them and can write them again, and a task an annotator has
 finished has no use for the model's guess.
 
 Deciding is split from doing: :func:`plan` reads the project and reaches every
-verdict, and :func:`apply` is the only half that writes. That is what makes the
-CLI's dry run the same code path as the real one.
+verdict, and :meth:`Plan.apply` is the only half that writes. That is what makes
+the CLI's dry run the same code path as the real one.
 """
 
 from __future__ import annotations
@@ -34,6 +34,13 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from digitex.labeling.sweeps import (
+    LIST_PREVIEW,
+    MOVE_PREVIEW,
+    LeftAlone,
+    image_on_disk,
+    preview,
+)
 from digitex.labeling.uris import task_image_path
 
 if TYPE_CHECKING:
@@ -54,26 +61,113 @@ class Move:
     annotations: list[dict[str, Any]]
 
 
-@dataclass(frozen=True)
-class Skipped:
-    """A task the plan will not touch, and why."""
-
-    task_id: int
-    reason: str
-
-
 @dataclass
 class Plan:
-    """What a run would do, decided before it does any of it."""
+    """What a run would do, decided before it does any of it.
+
+    The CLI drives it through :class:`digitex.labeling.sweeps.SweepPlan`: the
+    plan reports itself, archives itself and applies itself, so nothing about
+    what a run deletes is decided anywhere else.
+    """
 
     moves: list[Move] = field(default_factory=list)
     deletions: list[int] = field(default_factory=list)
-    skipped: list[Skipped] = field(default_factory=list)
+    skipped: list[LeftAlone] = field(default_factory=list)
 
     @property
     def annotations(self) -> int:
         """How many annotations the run would recreate."""
         return sum(len(move.annotations) for move in self.moves)
+
+    @property
+    def empty(self) -> bool:
+        """Whether there is nothing to move and nothing to delete."""
+        return not self.moves and not self.deletions
+
+    def report(self, total: int) -> str:
+        """The plan as the operator reads it before deciding to apply it."""
+        lines = [
+            f"\n{total} tasks in the project.",
+            f"  move {self.annotations} annotations off: {len(self.moves)} tasks",
+            f"  delete, nothing on them:                {len(self.deletions)} tasks",
+            f"  leave alone:                            {len(self.skipped)} tasks",
+            *preview(
+                self.moves,
+                MOVE_PREVIEW,
+                lambda move: (
+                    f"task {move.stranded_id} -> task {move.live_id}"
+                    f" ({len(move.annotations)} annotations)"
+                ),
+                "to move",
+            ),
+            *preview(
+                self.skipped,
+                LIST_PREVIEW,
+                lambda left: f"task {left.task_id}: {left.reason}",
+                "left alone",
+            ),
+        ]
+        if self.empty:
+            lines.append("\nNothing to repair.")
+        return "\n".join(lines)
+
+    def doomed(self, tasks: Sequence[LabelStudioTask]) -> list[dict[str, object]]:
+        """Every task the plan will delete, annotations and all.
+
+        The undo archive's payload, derived from the same moves and deletions
+        :meth:`apply` walks — the record of what goes cannot drift from what
+        actually went.
+        """
+        ids = {move.stranded_id for move in self.moves} | set(self.deletions)
+        return [
+            {
+                "id": task.id,
+                "data": task.data,
+                "annotations": list(task.annotations or []),
+            }
+            for task in tasks
+            if task.id in ids
+        ]
+
+    def apply(self, client: LabelStudioClient) -> tuple[int, int]:
+        """Recreate each stranded task's annotations on its twin, then delete it.
+
+        Args:
+            client: Label Studio API adapter.
+
+        Returns:
+            How many annotations were recreated, and how many tasks were
+            deleted.
+        """
+        moved = 0
+        deleted = 0
+
+        for move in self.moves:
+            try:
+                for annotation in move.annotations:
+                    client.create_annotation(move.live_id, annotation)
+                    moved += 1
+            except Exception as e:
+                # The stranded task holds the only copy of the annotations that
+                # did not make it across, so it stays. A rerun then copies the
+                # ones that did land a second time — which is why the log names
+                # both tasks.
+                logger.error(
+                    "annotation_move_failed",
+                    stranded_task=move.stranded_id,
+                    live_task=move.live_id,
+                    error=str(e),
+                )
+                continue
+            client.delete_task(move.stranded_id)
+            deleted += 1
+
+        for task_id in self.deletions:
+            client.delete_task(task_id)
+            deleted += 1
+
+        logger.info("repair_complete", annotations=moved, deleted=deleted)
+        return moved, deleted
 
 
 def plan(tasks: Sequence[LabelStudioTask], *, document_root: Path) -> Plan:
@@ -97,8 +191,8 @@ def plan(tasks: Sequence[LabelStudioTask], *, document_root: Path) -> Plan:
     for task in tasks:
         path = task_image_path(task.data)
         if path is None:
-            result.skipped.append(Skipped(task.id, "no local-file URI in the task"))
-        elif (document_root / path).exists():
+            result.skipped.append(LeftAlone(task.id, "no local-file URI in the task"))
+        elif image_on_disk(path, document_root) is not None:
             live[path.name].append(task)
         else:
             stranded.append((task, path))
@@ -110,7 +204,7 @@ def plan(tasks: Sequence[LabelStudioTask], *, document_root: Path) -> Plan:
         twins = live.get(path.name, [])
         if len(twins) != 1:
             result.skipped.append(
-                Skipped(task.id, f"{len(twins)} live tasks hold {path.name}")
+                LeftAlone(task.id, f"{len(twins)} live tasks hold {path.name}")
             )
         elif task.annotations:
             result.moves.append(Move(task.id, twins[0].id, list(task.annotations)))
@@ -124,7 +218,7 @@ def plan(tasks: Sequence[LabelStudioTask], *, document_root: Path) -> Plan:
     for name, group in live.items():
         if len(group) > 1:
             result.skipped.extend(
-                Skipped(task.id, f"{len(group)} live tasks hold {name}")
+                LeftAlone(task.id, f"{len(group)} live tasks hold {name}")
                 for task in group
             )
 
@@ -136,43 +230,3 @@ def plan(tasks: Sequence[LabelStudioTask], *, document_root: Path) -> Plan:
         skipped=len(result.skipped),
     )
     return result
-
-
-def apply(client: LabelStudioClient, plan: Plan) -> tuple[int, int]:
-    """Recreate each stranded task's annotations on its twin, then delete it.
-
-    Args:
-        client: Label Studio API adapter.
-        plan: What :func:`plan` decided.
-
-    Returns:
-        How many annotations were recreated, and how many tasks were deleted.
-    """
-    moved = 0
-    deleted = 0
-
-    for move in plan.moves:
-        try:
-            for annotation in move.annotations:
-                client.create_annotation(move.live_id, annotation)
-                moved += 1
-        except Exception as e:
-            # The stranded task holds the only copy of the annotations that did
-            # not make it across, so it stays. A rerun then copies the ones that
-            # did land a second time — which is why the log names both tasks.
-            logger.error(
-                "annotation_move_failed",
-                stranded_task=move.stranded_id,
-                live_task=move.live_id,
-                error=str(e),
-            )
-            continue
-        client.delete_task(move.stranded_id)
-        deleted += 1
-
-    for task_id in plan.deletions:
-        client.delete_task(task_id)
-        deleted += 1
-
-    logger.info("repair_complete", annotations=moved, deleted=deleted)
-    return moved, deleted
